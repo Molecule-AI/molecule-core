@@ -3,10 +3,16 @@
 # Requires: platform running on localhost:8080 with at least one online agent.
 set -euo pipefail
 
-BASE="http://localhost:8080"
+source "$(dirname "$0")/_lib.sh"
+e2e_base="http://localhost:8080"
+BASE="$e2e_base"
 PASS=0
 FAIL=0
 TIMEOUT="${A2A_TIMEOUT:-120}"
+
+# Phase 30.1: heartbeats require a bearer token. Re-register the
+# detected online agent to obtain one for our test-harness heartbeats.
+AGENT_TOKEN=""
 
 check() {
   local desc="$1"
@@ -58,8 +64,16 @@ if [ -z "$AGENT_ID" ]; then
 fi
 
 AGENT_NAME=$(curl -s "$BASE/workspaces/$AGENT_ID" | python3 -c "import sys,json; print(json.load(sys.stdin)['name'])")
+AGENT_URL=$(curl -s "$BASE/workspaces/$AGENT_ID" | python3 -c "import sys,json; print(json.load(sys.stdin).get('url') or 'http://localhost:9999')")
 echo "Using agent: $AGENT_NAME ($AGENT_ID)"
 echo ""
+
+# Re-register to capture a bearer token for heartbeat tests (Phase 30.1).
+# Re-registration is idempotent; the agent's own token continues to work
+# alongside this one.
+RREG=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
+  -d "{\"id\":\"$AGENT_ID\",\"url\":\"$AGENT_URL\",\"agent_card\":{\"name\":\"$AGENT_NAME\",\"skills\":[]}}")
+AGENT_TOKEN=$(echo "$RREG" | e2e_extract_token)
 
 # ---------- A2A Communication Logging ----------
 echo "--- A2A Communication Logging ---"
@@ -172,7 +186,7 @@ echo ""
 echo "--- Current Task Visibility ---"
 
 # Test 14: Set current_task via heartbeat
-R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" \
+R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" -H "Authorization: Bearer $AGENT_TOKEN" \
   -d "{\"workspace_id\":\"$AGENT_ID\",\"error_rate\":0.0,\"sample_error\":\"\",\"active_tasks\":2,\"uptime_seconds\":600,\"current_task\":\"Analyzing quarterly report\"}")
 check "Heartbeat with current_task" '"status":"ok"' "$R"
 
@@ -185,7 +199,7 @@ R=$(curl -s "$BASE/workspaces")
 check "current_task in workspace list" 'Analyzing quarterly report' "$R"
 
 # Test 17: Update current_task to new value
-R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" \
+R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" -H "Authorization: Bearer $AGENT_TOKEN" \
   -d "{\"workspace_id\":\"$AGENT_ID\",\"error_rate\":0.0,\"sample_error\":\"\",\"active_tasks\":1,\"uptime_seconds\":700,\"current_task\":\"Generating summary\"}")
 check "Heartbeat update task" '"status":"ok"' "$R"
 
@@ -194,7 +208,7 @@ check "current_task updated" '"current_task":"Generating summary"' "$R"
 check_not "old task cleared" 'quarterly report' "$(curl -s "$BASE/workspaces/$AGENT_ID" | python3 -c "import sys,json; print(json.load(sys.stdin)['current_task'])")"
 
 # Test 18: Clear current_task
-R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" \
+R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" -H "Authorization: Bearer $AGENT_TOKEN" \
   -d "{\"workspace_id\":\"$AGENT_ID\",\"error_rate\":0.0,\"sample_error\":\"\",\"active_tasks\":0,\"uptime_seconds\":800,\"current_task\":\"\"}")
 check "Heartbeat clear task" '"status":"ok"' "$R"
 

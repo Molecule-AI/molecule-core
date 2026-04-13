@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE="http://localhost:8080"
+source "$(dirname "$0")/_lib.sh"
+e2e_base="http://localhost:8080"
+BASE="$e2e_base"
 PASS=0
 FAIL=0
 
@@ -13,14 +15,7 @@ SUM_TOKEN=""
 
 # Pre-test cleanup: remove any workspaces left over from prior runs so
 # count-based assertions ("empty", "count=2") are reproducible.
-for _wid in $(curl -s "$BASE/workspaces" | python3 -c "import json,sys;
-try:
-  data=json.load(sys.stdin)
-  [print(w['id']) for w in data]
-except Exception:
-  pass" 2>/dev/null); do
-  curl -s -X DELETE "$BASE/workspaces/$_wid?confirm=true" > /dev/null || true
-done
+e2e_cleanup_all_workspaces
 
 check() {
   local desc="$1"
@@ -72,13 +67,13 @@ check "GET /workspaces/:id (agent_card null)" '"agent_card":null' "$R"
 R=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
   -d "{\"id\":\"$ECHO_ID\",\"url\":\"http://localhost:8001\",\"agent_card\":{\"name\":\"Echo Agent\",\"skills\":[{\"id\":\"echo\",\"name\":\"Echo\"}]}}")
 check "POST /registry/register (echo)" '"status":"registered"' "$R"
-ECHO_TOKEN=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin).get('auth_token',''))")
+ECHO_TOKEN=$(echo "$R" | e2e_extract_token)
 
 # Test 8: Register summarizer
 R=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
   -d "{\"id\":\"$SUM_ID\",\"url\":\"http://localhost:8002\",\"agent_card\":{\"name\":\"Summarizer\",\"skills\":[{\"id\":\"summarize\",\"name\":\"Summarize\"}]}}")
 check "POST /registry/register (summarizer)" '"status":"registered"' "$R"
-SUM_TOKEN=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin).get('auth_token',''))")
+SUM_TOKEN=$(echo "$R" | e2e_extract_token)
 
 # Test 9: Both online
 R=$(curl -s "$BASE/workspaces/$ECHO_ID")
