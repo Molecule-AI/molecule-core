@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { apiCall, PLATFORM_URL } from "../api.js";
+import { apiCall, PLATFORM_URL, toMcpResult, isApiError } from "../api.js";
 
 // Fetch the workspace list, filter to runtime='external'. The platform
 // has no dedicated /remote-agents endpoint — we filter client-side
@@ -9,7 +9,7 @@ import { apiCall, PLATFORM_URL } from "../api.js";
 export async function handleListRemoteAgents() {
   const data = await apiCall("GET", "/workspaces");
   if (!Array.isArray(data)) {
-    return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+    return toMcpResult(data);
   }
   const remote = data
     .filter((w: { runtime?: string }) => w.runtime === "external")
@@ -22,7 +22,7 @@ export async function handleListRemoteAgents() {
       uptime_seconds: w.uptime_seconds,
       tier: w.tier,
     }));
-  return { content: [{ type: "text" as const, text: JSON.stringify({ count: remote.length, agents: remote }, null, 2) }] };
+  return toMcpResult({ count: remote.length, agents: remote });
 }
 
 // Phase 30.4 — token-gated; from MCP we don't have a workspace bearer
@@ -31,8 +31,8 @@ export async function handleListRemoteAgents() {
 // a focused tool that doesn't dump the full workspace blob.
 export async function handleGetRemoteAgentState(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/workspaces/${params.workspace_id}`);
-  if (data && typeof data === "object" && "error" in data) {
-    return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  if (isApiError(data)) {
+    return toMcpResult(data);
   }
   const w = data as Record<string, unknown>;
   const projected = {
@@ -43,7 +43,7 @@ export async function handleGetRemoteAgentState(params: { workspace_id: string }
     runtime: w.runtime,
     last_heartbeat_at: w.last_heartbeat_at,
   };
-  return { content: [{ type: "text" as const, text: JSON.stringify(projected, null, 2) }] };
+  return toMcpResult(projected);
 }
 
 export async function handleGetRemoteAgentSetupCommand(params: {
@@ -54,21 +54,16 @@ export async function handleGetRemoteAgentSetupCommand(params: {
   // the command — saves the operator from pasting a bash line that will
   // fail because the workspace was a Docker workspace they typed by mistake.
   const ws = await apiCall("GET", `/workspaces/${params.workspace_id}`);
-  if (ws && typeof ws === "object" && "error" in ws) {
-    return { content: [{ type: "text" as const, text: JSON.stringify(ws, null, 2) }] };
+  if (isApiError(ws)) {
+    return toMcpResult(ws);
   }
   const w = ws as { id: string; name: string; runtime?: string };
   if (w.runtime !== "external") {
-    return {
-      content: [{
-        type: "text" as const,
-        text: JSON.stringify({
-          error: "workspace is not external; setup command only applies to runtime='external'",
-          workspace_id: w.id,
-          actual_runtime: w.runtime,
-        }, null, 2),
-      }],
-    };
+    return toMcpResult({
+      error: "workspace is not external; setup command only applies to runtime='external'",
+      workspace_id: w.id,
+      actual_runtime: w.runtime,
+    });
   }
 
   // The MCP server's PLATFORM_URL is whatever Claude Desktop / the host
@@ -104,18 +99,13 @@ export async function handleGetRemoteAgentSetupCommand(params: {
     `# The agent will register, mint its bearer token (cached at`,
     `# ~/.molecule/${w.id}/.auth_token), pull secrets, then heartbeat.`,
   ].join("\n");
-  return {
-    content: [{
-      type: "text" as const,
-      text: JSON.stringify({
-        workspace_id: w.id,
-        workspace_name: w.name,
-        platform_url: targetUrl,
-        setup_command: setupCmd,
-        ...(warnings.length > 0 ? { warnings } : {}),
-      }, null, 2),
-    }],
-  };
+  return toMcpResult({
+    workspace_id: w.id,
+    workspace_name: w.name,
+    platform_url: targetUrl,
+    setup_command: setupCmd,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  });
 }
 
 export async function handleCheckRemoteAgentFreshness(params: {
@@ -123,8 +113,8 @@ export async function handleCheckRemoteAgentFreshness(params: {
   threshold_seconds?: number;
 }) {
   const ws = await apiCall("GET", `/workspaces/${params.workspace_id}`);
-  if (ws && typeof ws === "object" && "error" in ws) {
-    return { content: [{ type: "text" as const, text: JSON.stringify(ws, null, 2) }] };
+  if (isApiError(ws)) {
+    return toMcpResult(ws);
   }
   const w = ws as { last_heartbeat_at?: string; status?: string; runtime?: string };
   const threshold = params.threshold_seconds ?? 90;
@@ -137,20 +127,15 @@ export async function handleCheckRemoteAgentFreshness(params: {
     }
   }
   const fresh = secondsSince !== null && secondsSince <= threshold;
-  return {
-    content: [{
-      type: "text" as const,
-      text: JSON.stringify({
-        workspace_id: params.workspace_id,
-        status: w.status,
-        runtime: w.runtime,
-        last_heartbeat_at: heartbeatStr,
-        seconds_since_heartbeat: secondsSince,
-        threshold_seconds: threshold,
-        fresh,
-      }, null, 2),
-    }],
-  };
+  return toMcpResult({
+    workspace_id: params.workspace_id,
+    status: w.status,
+    runtime: w.runtime,
+    last_heartbeat_at: heartbeatStr,
+    seconds_since_heartbeat: secondsSince,
+    threshold_seconds: threshold,
+    fresh,
+  });
 }
 
 export function registerRemoteAgentTools(srv: McpServer) {

@@ -1,10 +1,16 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { apiCall } from "../api.js";
+import { apiCall, toMcpResult } from "../api.js";
 
 export async function handleListWorkspaces() {
   const data = await apiCall("GET", "/workspaces");
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
+}
+
+// Random canvas seeding so MCP-created workspaces don't all stack at (0,0).
+// The platform stores these; canvas drag-drop overrides them immediately.
+function initialCanvasPosition() {
+  return { x: Math.random() * 400 + 100, y: Math.random() * 300 + 100 };
 }
 
 export async function handleCreateWorkspace(params: {
@@ -21,24 +27,24 @@ export async function handleCreateWorkspace(params: {
   const data = await apiCall("POST", "/workspaces", {
     name, role, template, tier, parent_id, runtime,
     workspace_dir, workspace_access,
-    canvas: { x: Math.random() * 400 + 100, y: Math.random() * 300 + 100 },
+    canvas: initialCanvasPosition(),
   });
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleGetWorkspace(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/workspaces/${params.workspace_id}`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleDeleteWorkspace(params: { workspace_id: string }) {
   const data = await apiCall("DELETE", `/workspaces/${params.workspace_id}?confirm=true`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleRestartWorkspace(params: { workspace_id: string }) {
   const data = await apiCall("POST", `/workspaces/${params.workspace_id}/restart`, {});
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleUpdateWorkspace(params: {
@@ -52,17 +58,17 @@ export async function handleUpdateWorkspace(params: {
 }) {
   const { workspace_id, ...fields } = params;
   const data = await apiCall("PATCH", `/workspaces/${workspace_id}`, fields);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handlePauseWorkspace(params: { workspace_id: string }) {
   const data = await apiCall("POST", `/workspaces/${params.workspace_id}/pause`, {});
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleResumeWorkspace(params: { workspace_id: string }) {
   const data = await apiCall("POST", `/workspaces/${params.workspace_id}/resume`, {});
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export function registerWorkspaceTools(srv: McpServer) {
@@ -77,6 +83,9 @@ export function registerWorkspaceTools(srv: McpServer) {
       template: z.string().optional().describe("Template name from workspace-configs-templates/"),
       tier: z.number().min(1).max(4).default(1).describe("Tier (1=basic, 2=browser, 3=desktop, 4=VM)"),
       parent_id: z.string().optional().describe("Parent workspace ID for nesting"),
+      runtime: z.string().optional().describe("Runtime: claude-code, langgraph, openclaw, deepagents, autogen, crewai, hermes, external"),
+      workspace_dir: z.string().optional().describe("Host path to bind-mount at /workspace (PM only by convention)"),
+      workspace_access: z.enum(["none", "read_only", "read_write"]).optional().describe("Filesystem access mode for /workspace"),
     },
     handleCreateWorkspace
   );
