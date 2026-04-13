@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source "$(dirname "$0")/_lib.sh"
-e2e_base="http://localhost:8080"
-BASE="$e2e_base"
+source "$(dirname "$0")/_lib.sh"  # sets BASE default
 PASS=0
 FAIL=0
 
