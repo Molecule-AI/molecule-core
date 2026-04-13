@@ -40,70 +40,30 @@ func (h *DiscoveryHandler) Discover(c *gin.Context) {
 		return // response already written
 	}
 
-	if callerID != "" {
-		if !registry.CanCommunicate(callerID, targetID) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to discover this workspace"})
-			return
-		}
+	if !registry.CanCommunicate(callerID, targetID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to discover this workspace"})
+		return
 	}
 
 	ctx := c.Request.Context()
 
-	// Workspace-to-workspace: return Docker-internal URL (containers can't reach host ports)
-	// External workspaces: return their registered URL with host.docker.internal
-	// Canvas/external: return host-accessible URL
+	// Workspace-to-workspace: return Docker-internal URL (containers can't
+	// reach host ports). External targets need their registered URL with
+	// 127.0.0.1/localhost rewritten to host.docker.internal when the caller
+	// is itself a Docker container.
 	if callerID != "" {
-		var wsName, wsRuntime string
-		db.DB.QueryRowContext(ctx, `SELECT COALESCE(name,''), COALESCE(runtime,'langgraph') FROM workspaces WHERE id = $1`, targetID).Scan(&wsName, &wsRuntime)
-
-		// External workspaces: return their registered URL.
-		// Rewrite 127.0.0.1/localhost → host.docker.internal ONLY when the
-		// caller itself is a Docker container; a remote (external) caller
-		// lives on the other side of the wire and needs the URL as-is
-		// (localhost rewrites wouldn't resolve from its host anyway).
-		// Phase 30.6.
-		if wsRuntime == "external" {
-			var wsURL string
-			db.DB.QueryRowContext(ctx, `SELECT COALESCE(url,'') FROM workspaces WHERE id = $1`, targetID).Scan(&wsURL)
-			if wsURL != "" {
-				outURL := wsURL
-				var callerRuntime string
-				db.DB.QueryRowContext(ctx, `SELECT COALESCE(runtime,'langgraph') FROM workspaces WHERE id = $1`, callerID).Scan(&callerRuntime)
-				if callerRuntime != "external" {
-					outURL = strings.Replace(outURL, "127.0.0.1", "host.docker.internal", 1)
-					outURL = strings.Replace(outURL, "localhost", "host.docker.internal", 1)
-				}
-				c.JSON(http.StatusOK, gin.H{"id": targetID, "url": outURL, "name": wsName})
-				return
-			}
-		}
-
-		// Try cached internal URL first
-		if internalURL, err := db.GetCachedInternalURL(ctx, targetID); err == nil && internalURL != "" {
-			c.JSON(http.StatusOK, gin.H{"id": targetID, "url": internalURL, "name": wsName})
-			return
-		}
-		// Fallback: only synthesize a URL if the workspace exists and is online/degraded
-		var wsStatus string
-		dbErr := db.DB.QueryRowContext(ctx,
-			`SELECT status FROM workspaces WHERE id = $1`, targetID,
-		).Scan(&wsStatus)
-		if dbErr == nil && (wsStatus == "online" || wsStatus == "degraded") {
-			internalURL := provisioner.InternalURL(targetID)
-			if cacheErr := db.CacheInternalURL(ctx, targetID, internalURL); cacheErr != nil {
-				log.Printf("Discovery: failed to cache internal URL for %s: %v", targetID, cacheErr)
-			}
-			c.JSON(http.StatusOK, gin.H{"id": targetID, "url": internalURL, "name": wsName})
-			return
-		}
-		// Workspace is not reachable — don't fall through to host URL path
-		if dbErr == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "workspace not available", "status": wsStatus})
-		} else {
-			c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
-		}
+		discoverWorkspacePeer(ctx, c, callerID, targetID)
 		return
 	}
+	discoverHostPeer(ctx, c, targetID)
+}
+
+// discoverHostPeer handles the canvas/external (no X-Workspace-ID) branch of
+// Discover. It returns the host-accessible URL for `targetID`, following any
+// forwarding chain (max 5 hops). Currently unreachable because Discover
+// requires the X-Workspace-ID header up front, but kept to preserve the
+// original code path 1:1 in case the requirement is relaxed.
+func discoverHostPeer(ctx context.Context, c *gin.Context, targetID string) {
 	if url, err := db.GetCachedURL(ctx, targetID); err == nil {
 		c.JSON(http.StatusOK, gin.H{"id": targetID, "url": url})
 		return
@@ -147,6 +107,72 @@ func (h *DiscoveryHandler) Discover(c *gin.Context) {
 		"url":    url.String,
 		"status": status,
 	})
+}
+
+// discoverWorkspacePeer handles the workspace-to-workspace branch of Discover —
+// resolves an internal/Docker-routable URL for `targetID` from the perspective
+// of `callerID` and writes the JSON response (or an appropriate 404/503 error).
+func discoverWorkspacePeer(ctx context.Context, c *gin.Context, callerID, targetID string) {
+	var wsName, wsRuntime string
+	db.DB.QueryRowContext(ctx, `SELECT COALESCE(name,''), COALESCE(runtime,'langgraph') FROM workspaces WHERE id = $1`, targetID).Scan(&wsName, &wsRuntime)
+
+	// External workspaces: return their registered URL.
+	// Rewrite 127.0.0.1/localhost → host.docker.internal ONLY when the
+	// caller itself is a Docker container; a remote (external) caller
+	// lives on the other side of the wire and needs the URL as-is
+	// (localhost rewrites wouldn't resolve from its host anyway).
+	// Phase 30.6.
+	if wsRuntime == "external" {
+		if handled := writeExternalWorkspaceURL(ctx, c, callerID, targetID, wsName); handled {
+			return
+		}
+	}
+
+	// Try cached internal URL first
+	if internalURL, err := db.GetCachedInternalURL(ctx, targetID); err == nil && internalURL != "" {
+		c.JSON(http.StatusOK, gin.H{"id": targetID, "url": internalURL, "name": wsName})
+		return
+	}
+	// Fallback: only synthesize a URL if the workspace exists and is online/degraded
+	var wsStatus string
+	dbErr := db.DB.QueryRowContext(ctx,
+		`SELECT status FROM workspaces WHERE id = $1`, targetID,
+	).Scan(&wsStatus)
+	if dbErr == nil && (wsStatus == "online" || wsStatus == "degraded") {
+		internalURL := provisioner.InternalURL(targetID)
+		if cacheErr := db.CacheInternalURL(ctx, targetID, internalURL); cacheErr != nil {
+			log.Printf("Discovery: failed to cache internal URL for %s: %v", targetID, cacheErr)
+		}
+		c.JSON(http.StatusOK, gin.H{"id": targetID, "url": internalURL, "name": wsName})
+		return
+	}
+	// Workspace is not reachable — don't fall through to host URL path
+	if dbErr == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "workspace not available", "status": wsStatus})
+	} else {
+		c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+	}
+}
+
+// writeExternalWorkspaceURL resolves the registered URL for an external-runtime
+// target and writes the response. Returns true when a response was written
+// (URL present); returns false when the external workspace has no URL on
+// file, leaving the caller to fall through to the internal-URL path.
+func writeExternalWorkspaceURL(ctx context.Context, c *gin.Context, callerID, targetID, wsName string) bool {
+	var wsURL string
+	db.DB.QueryRowContext(ctx, `SELECT COALESCE(url,'') FROM workspaces WHERE id = $1`, targetID).Scan(&wsURL)
+	if wsURL == "" {
+		return false
+	}
+	outURL := wsURL
+	var callerRuntime string
+	db.DB.QueryRowContext(ctx, `SELECT COALESCE(runtime,'langgraph') FROM workspaces WHERE id = $1`, callerID).Scan(&callerRuntime)
+	if callerRuntime != "external" {
+		outURL = strings.Replace(outURL, "127.0.0.1", "host.docker.internal", 1)
+		outURL = strings.Replace(outURL, "localhost", "host.docker.internal", 1)
+	}
+	c.JSON(http.StatusOK, gin.H{"id": targetID, "url": outURL, "name": wsName})
+	return true
 }
 
 // Peers handles GET /registry/:id/peers
