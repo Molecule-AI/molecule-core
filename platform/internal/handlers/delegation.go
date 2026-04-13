@@ -158,9 +158,13 @@ func lookupIdempotentDelegation(ctx context.Context, c *gin.Context, sourceID, i
 type insertDelegationOutcome int
 
 const (
+	// insertOutcomeUnknown — zero-value sentinel; should never be returned
+	// by insertDelegationRow. Exists so that an uninitialized
+	// insertDelegationOutcome value doesn't silently alias a real outcome.
+	insertOutcomeUnknown insertDelegationOutcome = iota
 	// insertOK — row stored; caller continues with dispatch and does NOT
 	// surface a tracking warning.
-	insertOK insertDelegationOutcome = iota
+	insertOK
 	// insertHandledByIdempotent — a concurrent idempotent request took the
 	// slot; the winner's JSON response is already written and the caller
 	// MUST return without further writes.

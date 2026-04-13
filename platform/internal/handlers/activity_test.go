@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -213,5 +214,188 @@ func TestActivityReport_RejectsUnknownType(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "memory_write") {
 		t.Errorf("error message should list valid types including memory_write; got %s", w.Body.String())
+	}
+}
+
+// ==================== Direct unit tests for SessionSearch helpers ====================
+
+// --- parseSessionSearchParams ---
+
+func TestParseSessionSearchParams_Defaults(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	q, limit := parseSessionSearchParams(c)
+	if q != "" {
+		t.Errorf("expected empty q, got %q", q)
+	}
+	if limit != 50 {
+		t.Errorf("expected default limit 50, got %d", limit)
+	}
+}
+
+func TestParseSessionSearchParams_CustomLimit(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x?q=foo&limit=75", nil)
+
+	q, limit := parseSessionSearchParams(c)
+	if q != "foo" {
+		t.Errorf("expected q=foo, got %q", q)
+	}
+	if limit != 75 {
+		t.Errorf("expected limit=75, got %d", limit)
+	}
+}
+
+func TestParseSessionSearchParams_LimitCappedAt200(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x?limit=9999", nil)
+
+	_, limit := parseSessionSearchParams(c)
+	if limit != 200 {
+		t.Errorf("expected cap 200, got %d", limit)
+	}
+}
+
+func TestParseSessionSearchParams_InvalidLimitUsesDefault(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x?limit=abc", nil)
+
+	_, limit := parseSessionSearchParams(c)
+	if limit != 50 {
+		t.Errorf("expected default on invalid, got %d", limit)
+	}
+}
+
+// --- buildSessionSearchQuery ---
+
+func TestBuildSessionSearchQuery_NoFilters(t *testing.T) {
+	sqlQuery, args := buildSessionSearchQuery("ws-1", "", 50)
+	if strings.Contains(sqlQuery, "ILIKE") {
+		t.Error("expected no ILIKE when query empty")
+	}
+	if len(args) != 2 || args[0] != "ws-1" || args[1] != 50 {
+		t.Errorf("unexpected args: %v", args)
+	}
+}
+
+func TestBuildSessionSearchQuery_WithQuery(t *testing.T) {
+	sqlQuery, args := buildSessionSearchQuery("ws-1", "foo", 25)
+	if !strings.Contains(sqlQuery, "ILIKE") {
+		t.Error("expected ILIKE when query provided")
+	}
+	if len(args) != 3 {
+		t.Fatalf("expected 3 args, got %d: %v", len(args), args)
+	}
+	if args[1] != "%foo%" {
+		t.Errorf("expected LIKE pattern, got %v", args[1])
+	}
+	if args[2] != 25 {
+		t.Errorf("expected limit=25, got %v", args[2])
+	}
+}
+
+// --- scanSessionSearchRows ---
+
+// fakeRows implements the minimal rows interface scanSessionSearchRows expects.
+type fakeRows struct {
+	data [][]interface{}
+	i    int
+	err  error
+}
+
+func (f *fakeRows) Next() bool { return f.i < len(f.data) }
+func (f *fakeRows) Scan(dest ...interface{}) error {
+	row := f.data[f.i]
+	f.i++
+	for i, v := range row {
+		switch d := dest[i].(type) {
+		case *string:
+			*d = v.(string)
+		case *[]byte:
+			if v == nil {
+				*d = nil
+			} else {
+				*d = v.([]byte)
+			}
+		case *time.Time:
+			*d = v.(time.Time)
+		}
+	}
+	return nil
+}
+func (f *fakeRows) Err() error { return f.err }
+
+func TestScanSessionSearchRows_EmptyRows(t *testing.T) {
+	items, err := scanSessionSearchRows(&fakeRows{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 0 {
+		t.Errorf("expected empty result, got %d", len(items))
+	}
+}
+
+func TestScanSessionSearchRows_MultipleRows(t *testing.T) {
+	now := time.Now()
+	rows := &fakeRows{
+		data: [][]interface{}{
+			{"activity", "a1", "ws-1", "task_update", "hello", "POST", "ok", []byte(`{"x":1}`), []byte(`{"y":2}`), now},
+			{"memory", "m1", "ws-1", "TEAM", "note", "", "", []byte(nil), []byte(nil), now},
+		},
+	}
+	items, err := scanSessionSearchRows(rows)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if items[0]["kind"] != "activity" {
+		t.Errorf("first row kind: %v", items[0]["kind"])
+	}
+	if items[0]["request_body"] == nil {
+		t.Error("expected request_body present on activity row")
+	}
+	if _, has := items[1]["request_body"]; has {
+		t.Error("memory row should not have request_body (nil bytes)")
+	}
+}
+
+// scanErrorRows returns a Scan error on the first row to cover the
+// log-and-skip branch in scanSessionSearchRows.
+type scanErrorRows struct {
+	called bool
+}
+
+func (s *scanErrorRows) Next() bool {
+	if !s.called {
+		s.called = true
+		return true
+	}
+	return false
+}
+func (s *scanErrorRows) Scan(dest ...interface{}) error { return fmt.Errorf("scan bad") }
+func (s *scanErrorRows) Err() error                     { return nil }
+
+func TestScanSessionSearchRows_ScanErrorSkipped(t *testing.T) {
+	items, err := scanSessionSearchRows(&scanErrorRows{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 0 {
+		t.Errorf("expected 0 items (scan error skipped), got %d", len(items))
+	}
+}
+
+func TestScanSessionSearchRows_RowsErrPropagates(t *testing.T) {
+	f := &fakeRows{err: fmt.Errorf("boom")}
+	_, err := scanSessionSearchRows(f)
+	if err == nil {
+		t.Fatal("expected error to propagate")
 	}
 }
