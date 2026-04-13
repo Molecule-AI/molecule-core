@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre-commit hook — enforces Starfire codebase conventions.
+# Pre-commit hook — enforces Molecule AI codebase conventions.
 # Install: git config core.hooksPath .githooks
 #
 # Checks run ONLY on staged files to keep commits fast.
