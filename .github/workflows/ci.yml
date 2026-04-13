@@ -79,15 +79,17 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
+        # Credentials match .env.example (dev:dev) so local reproduction is
+        # identical to CI. POSTGRES_DB matches the default there too.
         image: postgres:16
         env:
-          POSTGRES_USER: molecule
-          POSTGRES_PASSWORD: molecule
+          POSTGRES_USER: dev
+          POSTGRES_PASSWORD: dev
           POSTGRES_DB: molecule
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U molecule"
+          --health-cmd "pg_isready -U dev"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -101,7 +103,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      DATABASE_URL: postgres://molecule:molecule@localhost:5432/molecule?sslmode=disable
+      DATABASE_URL: postgres://dev:dev@localhost:5432/molecule?sslmode=disable
       REDIS_URL: redis://localhost:6379
       PORT: "8080"
     steps:
@@ -109,6 +111,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
+          cache: true
+          cache-dependency-path: platform/go.sum
       - name: Build platform
         working-directory: platform
         run: go build -o platform-server ./cmd/server
@@ -129,6 +133,19 @@ jobs:
           echo "::error::Platform did not become healthy in 30s"
           cat platform/platform.log || true
           exit 1
+      - name: Assert migrations applied
+        # Migrations auto-run at platform boot. Fail fast if they silently
+        # didn't — catches future migration-author mistakes (e.g. a new
+        # privileged op Postgres "dev" can't execute) before the E2E run.
+        run: |
+          sudo apt-get install -y -qq postgresql-client > /dev/null
+          tables=$(PGPASSWORD=dev psql -h localhost -U dev -d molecule -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='workspaces'")
+          if [ "$tables" != "1" ]; then
+            echo "::error::Migrations did not apply — 'workspaces' table missing"
+            cat platform/platform.log || true
+            exit 1
+          fi
+          echo "Migrations OK (workspaces table present)"
       - name: Run E2E API tests
         run: bash tests/e2e/test_api.sh
       - name: Dump platform log on failure

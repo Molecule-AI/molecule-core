@@ -3,44 +3,43 @@
 #
 # Usage:
 #   source "$(dirname "$0")/_lib.sh"
-#   e2e_base="http://localhost:8080"
 #   e2e_cleanup_all_workspaces   # call at top of script
-#   token=$(e2e_register "$ID" "$URL" "$CARD_JSON")
-#   # then use -H "Authorization: Bearer $token" on heartbeat/update-card
+#   TOKEN=$(echo "$register_response" | e2e_extract_token)
+#
+# BASE defaults to http://localhost:8080. Set it before sourcing to override.
 
-# Emit the auth_token from a /registry/register response. Prints empty
-# string (not an error) when no token was issued so callers can still
-# exercise the grandfather path.
+: "${BASE:=http://localhost:8080}"
+export BASE
+
+# Emit the auth_token from a /registry/register response on stdout.
+# Logs a warning to stderr when the JSON parse fails or the token is
+# missing — silent empty strings masked real failures as the
+# downstream "missing workspace auth token" 401. Return value is
+# still empty-string-on-failure so grandfather-path callers work.
 e2e_extract_token() {
-  python3 -c "import sys,json; print(json.load(sys.stdin).get('auth_token',''))" 2>/dev/null || true
-}
-
-# Register a workspace and echo the bearer token on stdout.
-# Args: $1 workspace_id  $2 url  $3 agent_card JSON
-e2e_register() {
-  curl -s -X POST "$e2e_base/registry/register" \
-    -H "Content-Type: application/json" \
-    -d "{\"id\":\"$1\",\"url\":\"$2\",\"agent_card\":$3}" \
-    | e2e_extract_token
-}
-
-# Heartbeat with bearer auth.
-# Args: $1 workspace_id  $2 token  $3 payload_json (without the id)
-e2e_heartbeat() {
-  curl -s -X POST "$e2e_base/registry/heartbeat" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $2" \
-    -d "$3"
+  python3 -c "
+import sys, json
+try:
+  data = json.load(sys.stdin)
+except Exception as e:
+  sys.stderr.write(f'e2e_extract_token: invalid JSON response ({e})\n')
+  print('')
+  sys.exit(0)
+tok = data.get('auth_token', '')
+if not tok:
+  sys.stderr.write('e2e_extract_token: response contained no auth_token field\n')
+print(tok)
+"
 }
 
 # Delete every workspace currently on the platform. Use at the top of a
 # script so count-based assertions are reproducible across runs.
 e2e_cleanup_all_workspaces() {
-  for _wid in $(curl -s "$e2e_base/workspaces" | python3 -c "import json,sys
+  for _wid in $(curl -s "$BASE/workspaces" | python3 -c "import json,sys
 try:
   [print(w['id']) for w in json.load(sys.stdin)]
 except Exception:
   pass" 2>/dev/null); do
-    curl -s -X DELETE "$e2e_base/workspaces/$_wid?confirm=true" > /dev/null || true
+    curl -s -X DELETE "$BASE/workspaces/$_wid?confirm=true" > /dev/null || true
   done
 }
