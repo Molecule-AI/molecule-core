@@ -76,9 +76,6 @@ AGENT_TOKEN=$(echo "$RREG" | e2e_extract_token)
 # ---------- A2A Communication Logging ----------
 echo "--- A2A Communication Logging ---"
 
-# Clear any existing activity by noting the count
-BEFORE_COUNT=$(curl -s "$BASE/workspaces/$AGENT_ID/activity" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
-
 # Test 1: Send A2A message and verify activity is logged
 R=$(curl -s --max-time "$TIMEOUT" -X POST "$BASE/workspaces/$AGENT_ID/a2a" \
   -H "Content-Type: application/json" \
@@ -96,7 +93,7 @@ check "A2A message/send returns response" 'result' "$R"
 # Test 2: Activity log should have a new a2a_receive entry
 # Retry up to 3s for the async LogActivity goroutine to complete
 AFTER_COUNT=0
-for i in 1 2 3 4 5 6; do
+for _ in 1 2 3 4 5 6; do
   R=$(curl -s "$BASE/workspaces/$AGENT_ID/activity?type=a2a_receive")
   AFTER_COUNT=$(echo "$R" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
   [ "$AFTER_COUNT" -gt "0" ] && break

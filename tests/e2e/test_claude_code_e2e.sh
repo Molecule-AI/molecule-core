@@ -41,7 +41,9 @@ fi
 for id in $(curl -s $PLATFORM/workspaces | python3 -c "import sys,json; [print(w['id']) for w in json.load(sys.stdin)]" 2>/dev/null); do
   curl -s -X DELETE "$PLATFORM/workspaces/$id" > /dev/null
 done
+# shellcheck disable=SC2046  # Intentional word-split over container IDs
 docker stop $(docker ps -q --filter "name=ws-") 2>/dev/null || true
+# shellcheck disable=SC2046
 docker rm $(docker ps -aq --filter "name=ws-") 2>/dev/null || true
 
 # --- Create Org Chart ---
