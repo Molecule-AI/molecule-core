@@ -1,28 +1,29 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { apiCall } from "../api.js";
+import { apiCall, toMcpResult, toMcpText } from "../api.js";
 
 export async function handleListFiles(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/workspaces/${params.workspace_id}/files`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleReadFile(params: { workspace_id: string; path: string }) {
   const { workspace_id, path } = params;
-  const data = await apiCall("GET", `/workspaces/${workspace_id}/files/${path}`);
-  return { content: [{ type: "text" as const, text: data?.content || JSON.stringify(data) }] };
+  const data = await apiCall<{ content?: string }>("GET", `/workspaces/${workspace_id}/files/${path}`);
+  const fileText = (data as { content?: string } | null)?.content;
+  return fileText ? toMcpText(fileText) : toMcpResult(data);
 }
 
 export async function handleWriteFile(params: { workspace_id: string; path: string; content: string }) {
   const { workspace_id, path, content } = params;
   const data = await apiCall("PUT", `/workspaces/${workspace_id}/files/${path}`, { content });
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleDeleteFile(params: { workspace_id: string; path: string }) {
   const { workspace_id, path } = params;
   const data = await apiCall("DELETE", `/workspaces/${workspace_id}/files/${path}`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleReplaceAllFiles(params: {
@@ -31,18 +32,18 @@ export async function handleReplaceAllFiles(params: {
 }) {
   const { workspace_id, files } = params;
   const data = await apiCall("PUT", `/workspaces/${workspace_id}/files`, { files });
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleGetConfig(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/workspaces/${params.workspace_id}/config`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleUpdateConfig(params: { workspace_id: string; config: Record<string, unknown> }) {
   const { workspace_id, config } = params;
   const data = await apiCall("PATCH", `/workspaces/${workspace_id}/config`, config);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export function registerFileTools(srv: McpServer) {

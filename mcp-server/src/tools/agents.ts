@@ -1,49 +1,53 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { apiCall } from "../api.js";
+import { apiCall, toMcpResult, toMcpText } from "../api.js";
 
 export async function handleChatWithAgent(params: { workspace_id: string; message: string }) {
   const { workspace_id, message } = params;
-  const data = await apiCall("POST", `/workspaces/${workspace_id}/a2a`, {
-    method: "message/send",
-    params: {
-      message: { role: "user", parts: [{ type: "text", text: message }] },
+  const data = await apiCall<{ result?: { parts?: Array<{ kind?: string; text?: string }> } }>(
+    "POST",
+    `/workspaces/${workspace_id}/a2a`,
+    {
+      method: "message/send",
+      params: {
+        message: { role: "user", parts: [{ type: "text", text: message }] },
+      },
     },
-  });
-  const parts = data?.result?.parts || [];
+  );
+  const parts = (data as { result?: { parts?: Array<{ kind?: string; text?: string }> } } | null)?.result?.parts || [];
   const text = parts
-    .filter((p: { kind?: string }) => p.kind === "text")
-    .map((p: { text?: string }) => p.text || "")
+    .filter((p) => p.kind === "text")
+    .map((p) => p.text || "")
     .join("\n");
-  return { content: [{ type: "text" as const, text: text || JSON.stringify(data, null, 2) }] };
+  return text ? toMcpText(text) : toMcpResult(data);
 }
 
 export async function handleAssignAgent(params: { workspace_id: string; model: string }) {
   const { workspace_id, model } = params;
   const data = await apiCall("POST", `/workspaces/${workspace_id}/agent`, { model });
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleReplaceAgent(params: { workspace_id: string; model: string }) {
   const { workspace_id, model } = params;
   const data = await apiCall("PATCH", `/workspaces/${workspace_id}/agent`, { model });
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleRemoveAgent(params: { workspace_id: string }) {
   const data = await apiCall("DELETE", `/workspaces/${params.workspace_id}/agent`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleMoveAgent(params: { workspace_id: string; target_workspace_id: string }) {
   const { workspace_id, target_workspace_id } = params;
   const data = await apiCall("POST", `/workspaces/${workspace_id}/agent/move`, { target_workspace_id });
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleGetModel(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/workspaces/${params.workspace_id}/model`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export function registerAgentTools(srv: McpServer) {

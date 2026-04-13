@@ -1,78 +1,78 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { apiCall } from "../api.js";
+import { apiCall, toMcpResult } from "../api.js";
 
 export async function handleListPeers(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/registry/${params.workspace_id}/peers`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleDiscoverWorkspace(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/registry/discover/${params.workspace_id}`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleCheckAccess(params: { caller_id: string; target_id: string }) {
   const { caller_id, target_id } = params;
   const data = await apiCall("POST", `/registry/check-access`, { caller_id, target_id });
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleListEvents(params: { workspace_id?: string }) {
   const path = params.workspace_id ? `/events/${params.workspace_id}` : "/events";
   const data = await apiCall("GET", path);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleListTemplates() {
   const data = await apiCall("GET", "/templates");
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleListOrgTemplates() {
   const data = await apiCall("GET", "/org/templates");
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleImportOrg(params: { dir: string }) {
   const data = await apiCall("POST", "/org/import", { dir: params.dir });
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleImportTemplate(params: { name: string; files: Record<string, string> }) {
   const { name, files } = params;
   const data = await apiCall("POST", `/templates/import`, { name, files });
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleExportBundle(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/bundles/export/${params.workspace_id}`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleImportBundle(params: { bundle: Record<string, unknown> }) {
   const data = await apiCall("POST", `/bundles/import`, params.bundle);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleGetViewport() {
   const data = await apiCall("GET", "/canvas/viewport");
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleSetViewport(params: { x: number; y: number; zoom: number }) {
   const data = await apiCall("PUT", "/canvas/viewport", params);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleExpandTeam(params: { workspace_id: string }) {
   const data = await apiCall("POST", `/workspaces/${params.workspace_id}/expand`, {});
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleCollapseTeam(params: { workspace_id: string }) {
   const data = await apiCall("POST", `/workspaces/${params.workspace_id}/collapse`, {});
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export function registerDiscoveryTools(srv: McpServer) {

@@ -27,19 +27,146 @@ import { registerDiscoveryTools } from "./tools/discovery.js";
 import { registerRemoteAgentTools } from "./tools/remote_agents.js";
 
 // Re-exports so existing importers (tests, SDK consumers) keep working.
-export { PLATFORM_URL, apiCall };
-export * from "./tools/workspaces.js";
-export * from "./tools/agents.js";
-export * from "./tools/secrets.js";
-export * from "./tools/files.js";
-export * from "./tools/memory.js";
-export * from "./tools/plugins.js";
-export * from "./tools/channels.js";
-export * from "./tools/delegation.js";
-export * from "./tools/schedules.js";
-export * from "./tools/approvals.js";
-export * from "./tools/discovery.js";
-export * from "./tools/remote_agents.js";
+// Explicit names (not `export *`) so tree-shakers and TS readers can see
+// exactly which handlers are part of the public surface, and a missing
+// export triggers a compile error instead of a silent undefined at import.
+export { PLATFORM_URL, apiCall, isApiError, toMcpResult, toMcpText } from "./api.js";
+export type { ApiError } from "./api.js";
+
+export {
+  registerWorkspaceTools,
+  handleListWorkspaces,
+  handleCreateWorkspace,
+  handleGetWorkspace,
+  handleDeleteWorkspace,
+  handleRestartWorkspace,
+  handleUpdateWorkspace,
+  handlePauseWorkspace,
+  handleResumeWorkspace,
+} from "./tools/workspaces.js";
+
+export {
+  registerAgentTools,
+  handleChatWithAgent,
+  handleAssignAgent,
+  handleReplaceAgent,
+  handleRemoveAgent,
+  handleMoveAgent,
+  handleGetModel,
+} from "./tools/agents.js";
+
+export {
+  registerSecretTools,
+  handleSetSecret,
+  handleListSecrets,
+  handleDeleteSecret,
+  handleListGlobalSecrets,
+  handleSetGlobalSecret,
+  handleDeleteGlobalSecret,
+} from "./tools/secrets.js";
+
+export {
+  registerFileTools,
+  handleListFiles,
+  handleReadFile,
+  handleWriteFile,
+  handleDeleteFile,
+  handleReplaceAllFiles,
+  handleGetConfig,
+  handleUpdateConfig,
+} from "./tools/files.js";
+
+export {
+  registerMemoryTools,
+  handleCommitMemory,
+  handleSearchMemory,
+  handleDeleteMemory,
+  handleSessionSearch,
+  handleGetSharedContext,
+  handleSetKV,
+  handleGetKV,
+  handleListKV,
+  handleDeleteKV,
+} from "./tools/memory.js";
+
+export {
+  registerPluginTools,
+  handleListPluginRegistry,
+  handleListInstalledPlugins,
+  handleInstallPlugin,
+  handleUninstallPlugin,
+  handleListPluginSources,
+  handleListAvailablePlugins,
+  handleCheckPluginCompatibility,
+} from "./tools/plugins.js";
+
+export {
+  registerChannelTools,
+  handleListChannelAdapters,
+  handleListChannels,
+  handleAddChannel,
+  handleUpdateChannel,
+  handleRemoveChannel,
+  handleSendChannelMessage,
+  handleTestChannel,
+  handleDiscoverChannelChats,
+} from "./tools/channels.js";
+
+export {
+  registerDelegationTools,
+  handleAsyncDelegate,
+  handleCheckDelegations,
+  handleRecordDelegation,
+  handleUpdateDelegationStatus,
+  handleReportActivity,
+  handleListActivity,
+  handleNotifyUser,
+  handleListTraces,
+} from "./tools/delegation.js";
+
+export {
+  registerScheduleTools,
+  handleListSchedules,
+  handleCreateSchedule,
+  handleUpdateSchedule,
+  handleDeleteSchedule,
+  handleRunSchedule,
+  handleGetScheduleHistory,
+} from "./tools/schedules.js";
+
+export {
+  registerApprovalTools,
+  handleListPendingApprovals,
+  handleDecideApproval,
+  handleCreateApproval,
+  handleGetWorkspaceApprovals,
+} from "./tools/approvals.js";
+
+export {
+  registerDiscoveryTools,
+  handleListPeers,
+  handleDiscoverWorkspace,
+  handleCheckAccess,
+  handleListEvents,
+  handleListTemplates,
+  handleListOrgTemplates,
+  handleImportOrg,
+  handleImportTemplate,
+  handleExportBundle,
+  handleImportBundle,
+  handleGetViewport,
+  handleSetViewport,
+  handleExpandTeam,
+  handleCollapseTeam,
+} from "./tools/discovery.js";
+
+export {
+  registerRemoteAgentTools,
+  handleListRemoteAgents,
+  handleGetRemoteAgentState,
+  handleGetRemoteAgentSetupCommand,
+  handleCheckRemoteAgentFreshness,
+} from "./tools/remote_agents.js";
 
 export function createServer() {
   const srv = new McpServer({
@@ -79,7 +206,7 @@ async function main() {
   const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Molecule AI MCP server running on stdio (61 tools available)");
+  console.error("Molecule AI MCP server running on stdio (87 tools available)");
 }
 
 // Only auto-start when run directly (not when imported for testing).

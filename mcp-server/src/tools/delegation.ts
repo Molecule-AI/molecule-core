@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { apiCall } from "../api.js";
+import { apiCall, toMcpResult } from "../api.js";
 
 export async function handleAsyncDelegate(params: {
   workspace_id: string;
@@ -9,12 +9,12 @@ export async function handleAsyncDelegate(params: {
 }) {
   const { workspace_id, target_id, task } = params;
   const data = await apiCall("POST", `/workspaces/${workspace_id}/delegate`, { target_id, task });
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleCheckDelegations(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/workspaces/${params.workspace_id}/delegations`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleRecordDelegation(params: {
@@ -25,7 +25,7 @@ export async function handleRecordDelegation(params: {
 }) {
   const { workspace_id, ...body } = params;
   const data = await apiCall("POST", `/workspaces/${workspace_id}/delegations/record`, body);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleUpdateDelegationStatus(params: {
@@ -41,7 +41,7 @@ export async function handleUpdateDelegationStatus(params: {
     `/workspaces/${workspace_id}/delegations/${delegation_id}/update`,
     body,
   );
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleReportActivity(params: {
@@ -57,7 +57,7 @@ export async function handleReportActivity(params: {
 }) {
   const { workspace_id, ...body } = params;
   const data = await apiCall("POST", `/workspaces/${workspace_id}/activity`, body);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleListActivity(params: {
@@ -71,7 +71,7 @@ export async function handleListActivity(params: {
   if (limit) urlParams.set("limit", String(limit));
   const qs = urlParams.toString() ? `?${urlParams.toString()}` : "";
   const data = await apiCall("GET", `/workspaces/${workspace_id}/activity${qs}`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleNotifyUser(params: {
@@ -81,12 +81,12 @@ export async function handleNotifyUser(params: {
 }) {
   const { workspace_id, ...body } = params;
   const data = await apiCall("POST", `/workspaces/${workspace_id}/notify`, body);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleListTraces(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/workspaces/${params.workspace_id}/traces`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export function registerDelegationTools(srv: McpServer) {
