@@ -73,6 +73,74 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  e2e-api:
+    name: E2E API Smoke Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: molecule
+          POSTGRES_PASSWORD: molecule
+          POSTGRES_DB: molecule
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U molecule"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://molecule:molecule@localhost:5432/molecule?sslmode=disable
+      REDIS_URL: redis://localhost:6379
+      PORT: "8080"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+      - name: Build platform
+        working-directory: platform
+        run: go build -o platform-server ./cmd/server
+      - name: Start platform (background)
+        working-directory: platform
+        run: |
+          ./platform-server > platform.log 2>&1 &
+          echo $! > platform.pid
+      - name: Wait for /health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health > /dev/null; then
+              echo "Platform up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Platform did not become healthy in 30s"
+          cat platform/platform.log || true
+          exit 1
+      - name: Run E2E API tests
+        run: bash tests/e2e/test_api.sh
+      - name: Dump platform log on failure
+        if: failure()
+        run: cat platform/platform.log || true
+      - name: Stop platform
+        if: always()
+        run: |
+          if [ -f platform/platform.pid ]; then
+            kill "$(cat platform/platform.pid)" 2>/dev/null || true
+          fi
+
   python-lint:
     name: Python Lint & Test
     runs-on: ubuntu-latest
