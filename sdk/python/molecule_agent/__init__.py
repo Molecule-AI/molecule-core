@@ -20,7 +20,7 @@ Intended usage::
     env = client.pull_secrets()      # decrypted secrets dict
     client.run_heartbeat_loop()      # background heartbeat + state-poll
 
-See ``examples/remote-agent/`` for a runnable demo.
+See ``sdk/python/examples/remote-agent/`` for a runnable demo.
 
 Design notes:
 * **No async.** The SDK uses blocking ``requests`` so a remote agent author
