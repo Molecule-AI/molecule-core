@@ -12,24 +12,9 @@
 export BASE
 
 # Emit the auth_token from a /registry/register response on stdout.
-# Logs a warning to stderr when the JSON parse fails or the token is
-# missing — silent empty strings masked real failures as the
-# downstream "missing workspace auth token" 401. Return value is
-# still empty-string-on-failure so grandfather-path callers work.
+# See _extract_token.py for the exact semantics.
 e2e_extract_token() {
-  python3 -c "
-import sys, json
-try:
-  data = json.load(sys.stdin)
-except Exception as e:
-  sys.stderr.write(f'e2e_extract_token: invalid JSON response ({e})\n')
-  print('')
-  sys.exit(0)
-tok = data.get('auth_token', '')
-if not tok:
-  sys.stderr.write('e2e_extract_token: response contained no auth_token field\n')
-print(tok)
-"
+  python3 "$(dirname "${BASH_SOURCE[0]}")/_extract_token.py"
 }
 
 # Delete every workspace currently on the platform. Use at the top of a

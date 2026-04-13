@@ -259,7 +259,6 @@ check "GET /bundles/export/:id" '"name":"Summarizer Agent"' "$BUNDLE"
 # Capture original config for comparison
 ORIG_NAME=$(echo "$BUNDLE" | python3 -c "import sys,json; print(json.load(sys.stdin)['name'])")
 ORIG_TIER=$(echo "$BUNDLE" | python3 -c "import sys,json; print(json.load(sys.stdin)['tier'])")
-ORIG_SKILLS=$(echo "$BUNDLE" | python3 -c "import sys,json; b=json.load(sys.stdin); card=b.get('agent_card') or {}; skills=card.get('skills',[]); print(','.join(s.get('name','') for s in skills))")
 
 # Delete the workspace
 R=$(curl -s -X DELETE "$BASE/workspaces/$SUM_ID")
@@ -311,9 +310,8 @@ R=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json
   -d "{\"id\":\"$NEW_ID\",\"url\":\"http://localhost:8002\",\"agent_card\":{\"name\":\"Summarizer\",\"skills\":[{\"id\":\"summarize\",\"name\":\"Summarize\"}]}}")
 check "Register re-imported workspace" '"status":"registered"' "$R"
 
-# Re-export and compare skills survived the round-trip
+# Re-export and verify agent_card survives the round-trip
 REBUNDLE=$(curl -s "$BASE/bundles/export/$NEW_ID")
-REIMPORT_SKILLS=$(echo "$REBUNDLE" | python3 -c "import sys,json; b=json.load(sys.stdin); card=b.get('agent_card') or {}; skills=card.get('skills',[]); print(','.join(s.get('name','') for s in skills))")
 check "Re-exported bundle has agent_card" '"agent_card"' "$REBUNDLE"
 
 # Clean up

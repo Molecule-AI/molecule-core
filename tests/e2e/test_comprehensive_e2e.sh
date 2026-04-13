@@ -15,7 +15,6 @@ SKIP=0
 # heartbeat, update-card, discover, and peers calls.
 PM_TOKEN=""
 DEV_TOKEN=""
-QA_TOKEN=""
 
 e2e_cleanup_all_workspaces
 
@@ -99,9 +98,8 @@ R=$(curl -s -X POST "$BASE/workspaces" -H "Content-Type: application/json" \
   -d "{\"name\":\"Test QA\",\"role\":\"QA\",\"tier\":1,\"parent_id\":\"$PM_ID\"}")
 check "Create QA (sibling of Dev)" '"status":"provisioning"' "$R"
 QA_ID=$(echo "$R" | jq_extract "['id']")
-RR=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
-  -d "{\"id\":\"$QA_ID\",\"url\":\"http://localhost:9002\",\"agent_card\":{\"name\":\"QA\",\"skills\":[]}}")
-QA_TOKEN=$(echo "$RR" | e2e_extract_token)
+curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
+  -d "{\"id\":\"$QA_ID\",\"url\":\"http://localhost:9002\",\"agent_card\":{\"name\":\"QA\",\"skills\":[]}}" > /dev/null
 
 # Create unrelated workspace
 R=$(curl -s -X POST "$BASE/workspaces" -H "Content-Type: application/json" \
@@ -151,7 +149,7 @@ RT_CR_ID=$(echo "$R" | jq_extract "['id']")
 # Wait for containers to start (poll up to 30s for first one to appear)
 if command -v docker &>/dev/null; then
   short_cc="${RT_CC_ID:0:12}"
-  for i in 1 2 3 4 5 6; do
+  for _ in 1 2 3 4 5 6; do
     sleep 5
     if docker inspect "ws-${short_cc}" >/dev/null 2>&1; then break; fi
   done
@@ -161,7 +159,7 @@ if command -v docker &>/dev/null; then
     local short_id="${ws_id:0:12}"
     # Poll up to 30s for image to appear
     local actual_image="NOT_FOUND"
-    for j in 1 2 3 4 5 6; do
+    for _ in 1 2 3 4 5 6; do
       actual_image=$(docker inspect "ws-${short_id}" --format '{{.Config.Image}}' 2>/dev/null || echo "NOT_FOUND")
       if echo "$actual_image" | grep -qF "$expected_tag"; then break; fi
       sleep 5
@@ -214,7 +212,7 @@ if echo "$R" | grep -qF "saved"; then
   # Poll up to 30s for the new container image to appear (restart can take a while)
   if command -v docker &>/dev/null; then
     short_id="${RT_LG_ID:0:12}"
-    for i in 1 2 3 4 5 6; do
+    for _ in 1 2 3 4 5 6; do
       sleep 5
       actual=$(docker inspect "ws-${short_id}" --format '{{.Config.Image}}' 2>/dev/null || echo "")
       if echo "$actual" | grep -qF "deepagents"; then break; fi
@@ -293,9 +291,6 @@ R=$(curl -s -H "X-Workspace-ID: $PM_ID" -H "Authorization: Bearer $PM_TOKEN" "$B
 check "PM discovers Dev (parent→child)" "$DEV_ID" "$R"
 
 # Dev discovers QA (siblings: allowed) — QA was registered in Section 2
-RQA=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
-  -d "{\"id\":\"$QA_ID\",\"url\":\"http://localhost:9002\",\"agent_card\":{\"name\":\"QA\",\"skills\":[]}}")
-QA_TOKEN=$(echo "$RQA" | e2e_extract_token)
 R=$(curl -s -H "X-Workspace-ID: $DEV_ID" -H "Authorization: Bearer $DEV_TOKEN" "$BASE/registry/discover/$QA_ID")
 check "Dev discovers QA (siblings)" "$QA_ID" "$R"
 
@@ -573,7 +568,7 @@ for w in ws:
 " 2>/dev/null
 
 # Poll for clean state up to 30s — DB cascade + container stop is async on busy systems
-for i in 1 2 3 4 5 6; do
+for _ in 1 2 3 4 5 6; do
   sleep 5
   R=$(curl -s "$BASE/workspaces")
   if [ "$R" = "[]" ]; then break; fi

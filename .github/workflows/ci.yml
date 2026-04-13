@@ -137,9 +137,15 @@ jobs:
         # Migrations auto-run at platform boot. Fail fast if they silently
         # didn't — catches future migration-author mistakes (e.g. a new
         # privileged op Postgres "dev" can't execute) before the E2E run.
+        # Uses docker exec into the service container's own psql — avoids
+        # a 10-20s apt-install step in the runner.
         run: |
-          sudo apt-get install -y -qq postgresql-client > /dev/null
-          tables=$(PGPASSWORD=dev psql -h localhost -U dev -d molecule -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='workspaces'")
+          pg_container=$(docker ps --filter "ancestor=postgres:16" --format "{{.ID}}" | head -1)
+          if [ -z "$pg_container" ]; then
+            echo "::error::Could not find postgres service container"
+            exit 1
+          fi
+          tables=$(docker exec "$pg_container" psql -U dev -d molecule -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='workspaces'")
           if [ "$tables" != "1" ]; then
             echo "::error::Migrations did not apply — 'workspaces' table missing"
             cat platform/platform.log || true
@@ -157,6 +163,16 @@ jobs:
           if [ -f platform/platform.pid ]; then
             kill "$(cat platform/platform.pid)" 2>/dev/null || true
           fi
+
+  shellcheck:
+    name: Shellcheck (E2E scripts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run shellcheck on tests/e2e/*.sh
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck --severity=warning tests/e2e/*.sh
 
   python-lint:
     name: Python Lint & Test
