@@ -44,7 +44,7 @@ export class ErrorBoundary extends React.Component<
     // Copy error info to clipboard for manual reporting (button click is its
     // own affordance — no native alert needed). On clipboard failure the
     // console.error above still surfaces the report.
-    navigator.clipboard?.writeText(JSON.stringify(errorDetails, null, 2));
+    void navigator.clipboard?.writeText(JSON.stringify(errorDetails, null, 2)).catch(() => {});
   };
 
   render() {
