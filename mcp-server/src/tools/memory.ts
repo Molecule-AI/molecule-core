@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { apiCall } from "../api.js";
+import { apiCall, toMcpResult } from "../api.js";
 
 export async function handleCommitMemory(params: {
   workspace_id: string;
@@ -9,7 +9,7 @@ export async function handleCommitMemory(params: {
 }) {
   const { workspace_id, content, scope } = params;
   const data = await apiCall("POST", `/workspaces/${workspace_id}/memories`, { content, scope });
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleSearchMemory(params: {
@@ -22,13 +22,13 @@ export async function handleSearchMemory(params: {
   if (query) urlParams.set("q", query);
   if (scope) urlParams.set("scope", scope);
   const data = await apiCall("GET", `/workspaces/${workspace_id}/memories?${urlParams}`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleDeleteMemory(params: { workspace_id: string; memory_id: string }) {
   const { workspace_id, memory_id } = params;
   const data = await apiCall("DELETE", `/workspaces/${workspace_id}/memories/${memory_id}`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleSessionSearch(params: {
@@ -42,12 +42,12 @@ export async function handleSessionSearch(params: {
   if (limit) qs.set("limit", String(limit));
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   const data = await apiCall("GET", `/workspaces/${workspace_id}/session-search${suffix}`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleGetSharedContext(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/workspaces/${params.workspace_id}/shared-context`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleSetKV(params: {
@@ -58,7 +58,7 @@ export async function handleSetKV(params: {
 }) {
   const { workspace_id, ...body } = params;
   const data = await apiCall("POST", `/workspaces/${workspace_id}/memory`, body);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleGetKV(params: { workspace_id: string; key: string }) {
@@ -66,12 +66,12 @@ export async function handleGetKV(params: { workspace_id: string; key: string })
     "GET",
     `/workspaces/${params.workspace_id}/memory/${encodeURIComponent(params.key)}`,
   );
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleListKV(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/workspaces/${params.workspace_id}/memory`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleDeleteKV(params: { workspace_id: string; key: string }) {
@@ -79,7 +79,7 @@ export async function handleDeleteKV(params: { workspace_id: string; key: string
     "DELETE",
     `/workspaces/${params.workspace_id}/memory/${encodeURIComponent(params.key)}`,
   );
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export function registerMemoryTools(srv: McpServer) {

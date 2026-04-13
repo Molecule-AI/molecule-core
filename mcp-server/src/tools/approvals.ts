@@ -1,10 +1,10 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { apiCall } from "../api.js";
+import { apiCall, toMcpResult } from "../api.js";
 
 export async function handleListPendingApprovals() {
   const data = await apiCall("GET", "/approvals/pending");
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleDecideApproval(params: {
@@ -18,7 +18,7 @@ export async function handleDecideApproval(params: {
     `/workspaces/${workspace_id}/approvals/${approval_id}/decide`,
     { decision, decided_by: "mcp-client" }
   );
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleCreateApproval(params: {
@@ -28,12 +28,12 @@ export async function handleCreateApproval(params: {
 }) {
   const { workspace_id, action, reason } = params;
   const data = await apiCall("POST", `/workspaces/${workspace_id}/approvals`, { action, reason });
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleGetWorkspaceApprovals(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/workspaces/${params.workspace_id}/approvals`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export function registerApprovalTools(srv: McpServer) {

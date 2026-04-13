@@ -1,15 +1,15 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { apiCall } from "../api.js";
+import { apiCall, toMcpResult, toMcpText } from "../api.js";
 
 export async function handleListChannelAdapters() {
   const data = await apiCall("GET", `/channels/adapters`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleListChannels(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/workspaces/${params.workspace_id}/channels`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleAddChannel(params: {
@@ -19,14 +19,14 @@ export async function handleAddChannel(params: {
   allowed_users?: string;
 }) {
   let config: unknown;
-  try { config = JSON.parse(params.config); } catch { return { content: [{ type: "text" as const, text: "Error: config is not valid JSON" }] }; }
+  try { config = JSON.parse(params.config); } catch { return toMcpText("Error: config is not valid JSON"); }
   const allowed_users = params.allowed_users ? params.allowed_users.split(",").map((s) => s.trim()).filter(Boolean) : [];
   const data = await apiCall("POST", `/workspaces/${params.workspace_id}/channels`, {
     channel_type: params.channel_type,
     config,
     allowed_users,
   });
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleUpdateChannel(params: {
@@ -38,19 +38,19 @@ export async function handleUpdateChannel(params: {
 }) {
   const body: Record<string, unknown> = {};
   if (params.config) {
-    try { body.config = JSON.parse(params.config); } catch { return { content: [{ type: "text" as const, text: "Error: config is not valid JSON" }] }; }
+    try { body.config = JSON.parse(params.config); } catch { return toMcpText("Error: config is not valid JSON"); }
   }
   if (params.enabled !== undefined) body.enabled = params.enabled;
   if (params.allowed_users !== undefined) {
     body.allowed_users = params.allowed_users.split(",").map((s) => s.trim()).filter(Boolean);
   }
   const data = await apiCall("PATCH", `/workspaces/${params.workspace_id}/channels/${params.channel_id}`, body);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleRemoveChannel(params: { workspace_id: string; channel_id: string }) {
   const data = await apiCall("DELETE", `/workspaces/${params.workspace_id}/channels/${params.channel_id}`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleSendChannelMessage(params: {
@@ -61,12 +61,12 @@ export async function handleSendChannelMessage(params: {
   const data = await apiCall("POST", `/workspaces/${params.workspace_id}/channels/${params.channel_id}/send`, {
     text: params.text,
   });
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleTestChannel(params: { workspace_id: string; channel_id: string }) {
   const data = await apiCall("POST", `/workspaces/${params.workspace_id}/channels/${params.channel_id}/test`, {});
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleDiscoverChannelChats(params: {
@@ -74,7 +74,7 @@ export async function handleDiscoverChannelChats(params: {
   config: Record<string, unknown>;
 }) {
   const data = await apiCall("POST", "/channels/discover", params);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export function registerChannelTools(srv: McpServer) {

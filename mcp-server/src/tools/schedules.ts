@@ -1,10 +1,10 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { apiCall } from "../api.js";
+import { apiCall, toMcpResult } from "../api.js";
 
 export async function handleListSchedules(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/workspaces/${params.workspace_id}/schedules`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleCreateSchedule(params: {
@@ -17,7 +17,7 @@ export async function handleCreateSchedule(params: {
 }) {
   const { workspace_id, ...body } = params;
   const data = await apiCall("POST", `/workspaces/${workspace_id}/schedules`, body);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleUpdateSchedule(params: {
@@ -35,7 +35,7 @@ export async function handleUpdateSchedule(params: {
     `/workspaces/${workspace_id}/schedules/${schedule_id}`,
     body,
   );
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleDeleteSchedule(params: {
@@ -46,7 +46,7 @@ export async function handleDeleteSchedule(params: {
     "DELETE",
     `/workspaces/${params.workspace_id}/schedules/${params.schedule_id}`,
   );
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleRunSchedule(params: {
@@ -57,7 +57,7 @@ export async function handleRunSchedule(params: {
     "POST",
     `/workspaces/${params.workspace_id}/schedules/${params.schedule_id}/run`,
   );
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleGetScheduleHistory(params: {
@@ -68,7 +68,7 @@ export async function handleGetScheduleHistory(params: {
     "GET",
     `/workspaces/${params.workspace_id}/schedules/${params.schedule_id}/history`,
   );
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export function registerScheduleTools(srv: McpServer) {
