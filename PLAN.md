@@ -139,7 +139,7 @@ for the full code audit.
 
 - [x] **30.8 Remote-agent SDK + docs** — `sdk/python/molecule_agent/`
   thin client: register → pull secrets → run A2A loop → poll state →
-  heartbeat. Working `examples/remote-agent/` a new user can run on a
+  heartbeat. Working `sdk/python/examples/remote-agent/` a new user can run on a
   laptop. Remove the three feature flags. Remote workspaces become GA.
 
 ### Out of scope for Phase 30
@@ -155,7 +155,7 @@ for the full code audit.
 
 ### Success criteria
 
-- `examples/remote-agent/` boots on a laptop disconnected from the
+- `sdk/python/examples/remote-agent/` boots on a laptop disconnected from the
   platform's LAN, registers, receives a task from parent PM via A2A,
   returns a result, appears on the canvas.
 - `tests/e2e/test_federation.sh` spawns a second platform instance +

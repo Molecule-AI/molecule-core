@@ -27,7 +27,7 @@ curl -s -X POST http://localhost:8080/workspaces/<UUID>/secrets \
 
 # 3. Run the demo from any machine that can reach the platform:
 WORKSPACE_ID=<UUID> PLATFORM_URL=http://localhost:8080 \
-    python3 examples/remote-agent/run.py
+    python3 sdk/python/examples/remote-agent/run.py
 ```
 
 You should see log lines for each of the three phases, and then
