@@ -11,6 +11,9 @@ interface Props {
   confirmVariant?: "danger" | "primary" | "warning";
   onConfirm: () => void;
   onCancel: () => void;
+  // Hide the Cancel button for single-action info toasts.
+  // onCancel is still invoked on Esc / backdrop-click.
+  singleButton?: boolean;
 }
 
 export function ConfirmDialog({
@@ -21,6 +24,7 @@ export function ConfirmDialog({
   confirmVariant = "primary",
   onConfirm,
   onCancel,
+  singleButton = false,
 }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
@@ -71,12 +75,14 @@ export function ConfirmDialog({
         </div>
 
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-zinc-800 bg-zinc-950/50">
-          <button
-            onClick={onCancel}
-            className="px-3.5 py-1.5 text-[13px] text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
+          {!singleButton && (
+            <button
+              onClick={onCancel}
+              className="px-3.5 py-1.5 text-[13px] text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+          )}
           <button
             onClick={onConfirm}
             className={`px-3.5 py-1.5 text-[13px] rounded-lg transition-colors ${confirmColors}`}

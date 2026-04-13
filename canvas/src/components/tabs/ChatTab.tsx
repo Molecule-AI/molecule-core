@@ -10,6 +10,7 @@ import { type ChatMessage, createMessage } from "./chat/types";
 import { extractResponseText, extractRequestText } from "./chat/message-parser";
 import { AgentCommsPanel } from "./chat/AgentCommsPanel";
 import { runtimeDisplayName } from "@/lib/runtime-names";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 interface Props {
   workspaceId: string;
@@ -145,6 +146,7 @@ function MyChatPanel({ workspaceId, data }: Props) {
   const sendingFromAPIRef = useRef(false);
   const [agentReachable, setAgentReachable] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmRestart, setConfirmRestart] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Load chat history from database on mount
@@ -392,11 +394,7 @@ function MyChatPanel({ workspaceId, data }: Props) {
             <span className="text-[10px] text-red-400">{error}</span>
             {!isOnline && (
               <button
-                onClick={() => {
-                  if (confirm("Restart this workspace?")) {
-                    useCanvasStore.getState().restartWorkspace(workspaceId);
-                  }
-                }}
+                onClick={() => setConfirmRestart(true)}
                 className="text-[9px] px-2 py-0.5 bg-red-800/40 text-red-300 rounded hover:bg-red-700/50"
               >
                 Restart
@@ -432,6 +430,19 @@ function MyChatPanel({ workspaceId, data }: Props) {
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmRestart}
+        title="Restart workspace"
+        message="Restart this workspace? The agent container will be stopped and re-provisioned."
+        confirmLabel="Restart"
+        confirmVariant="warning"
+        onConfirm={() => {
+          useCanvasStore.getState().restartWorkspace(workspaceId);
+          setConfirmRestart(false);
+        }}
+        onCancel={() => setConfirmRestart(false)}
+      />
     </div>
   );
 }

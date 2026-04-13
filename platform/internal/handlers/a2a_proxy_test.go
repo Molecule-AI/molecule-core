@@ -733,3 +733,83 @@ func TestValidateCallerToken_WrongWorkspaceBindingRejected(t *testing.T) {
 		t.Errorf("expected 401, got %d", w.Code)
 	}
 }
+
+// --- Direct unit tests for normalizeA2APayload (extracted from proxyA2ARequest) ---
+
+func TestNormalizeA2APayload_InvalidJSON(t *testing.T) {
+	_, _, perr := normalizeA2APayload([]byte("not json"))
+	if perr == nil {
+		t.Fatal("expected error for invalid JSON, got nil")
+	}
+	if perr.Status != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", perr.Status)
+	}
+}
+
+func TestNormalizeA2APayload_WrapsBareMessage(t *testing.T) {
+	raw := []byte(`{"method":"message/send","params":{"message":{"role":"user","parts":[{"type":"text","text":"hi"}]}}}`)
+	out, method, perr := normalizeA2APayload(raw)
+	if perr != nil {
+		t.Fatalf("unexpected error: %+v", perr)
+	}
+	if method != "message/send" {
+		t.Errorf("expected method=message/send, got %q", method)
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	if parsed["jsonrpc"] != "2.0" {
+		t.Errorf("expected jsonrpc=2.0 wrapper, got %v", parsed["jsonrpc"])
+	}
+	if parsed["id"] == nil || parsed["id"] == "" {
+		t.Error("expected generated id, got empty")
+	}
+	params := parsed["params"].(map[string]interface{})
+	msg := params["message"].(map[string]interface{})
+	if msg["messageId"] == nil || msg["messageId"] == "" {
+		t.Error("expected messageId injected, got empty")
+	}
+}
+
+func TestNormalizeA2APayload_PreservesExistingJSONRPC(t *testing.T) {
+	raw := []byte(`{"jsonrpc":"2.0","id":"custom-id","method":"tasks/list","params":{}}`)
+	out, method, perr := normalizeA2APayload(raw)
+	if perr != nil {
+		t.Fatalf("unexpected error: %+v", perr)
+	}
+	if method != "tasks/list" {
+		t.Errorf("expected method=tasks/list, got %q", method)
+	}
+	var parsed map[string]interface{}
+	_ = json.Unmarshal(out, &parsed)
+	if parsed["id"] != "custom-id" {
+		t.Errorf("existing id overwritten: got %v", parsed["id"])
+	}
+}
+
+func TestNormalizeA2APayload_PreservesExistingMessageId(t *testing.T) {
+	raw := []byte(`{"method":"message/send","params":{"message":{"messageId":"fixed-mid","role":"user","parts":[]}}}`)
+	out, _, perr := normalizeA2APayload(raw)
+	if perr != nil {
+		t.Fatalf("unexpected error: %+v", perr)
+	}
+	var parsed map[string]interface{}
+	_ = json.Unmarshal(out, &parsed)
+	params := parsed["params"].(map[string]interface{})
+	msg := params["message"].(map[string]interface{})
+	if msg["messageId"] != "fixed-mid" {
+		t.Errorf("existing messageId overwritten: got %v", msg["messageId"])
+	}
+}
+
+func TestNormalizeA2APayload_MissingMethodReturnsEmpty(t *testing.T) {
+	raw := []byte(`{"params":{"message":{"role":"user"}}}`)
+	_, method, perr := normalizeA2APayload(raw)
+	if perr != nil {
+		t.Fatalf("unexpected error: %+v", perr)
+	}
+	if method != "" {
+		t.Errorf("expected empty method, got %q", method)
+	}
+}

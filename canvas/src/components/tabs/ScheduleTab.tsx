@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 interface Schedule {
   id: string;
@@ -64,6 +65,7 @@ export function ScheduleTab({ workspaceId }: Props) {
   const [formPrompt, setFormPrompt] = useState("");
   const [formEnabled, setFormEnabled] = useState(true);
   const [error, setError] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
 
   const fetchSchedules = useCallback(async () => {
     try {
@@ -120,8 +122,10 @@ export function ScheduleTab({ workspaceId }: Props) {
     }
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(`Delete schedule "${name || "Unnamed"}"? This cannot be undone.`)) return;
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const { id } = pendingDelete;
+    setPendingDelete(null);
     await api.del(`/workspaces/${workspaceId}/schedules/${id}`);
     fetchSchedules();
   };
@@ -343,7 +347,7 @@ export function ScheduleTab({ workspaceId }: Props) {
                     ✎
                   </button>
                   <button
-                    onClick={() => handleDelete(sched.id, sched.name)}
+                    onClick={() => setPendingDelete({ id: sched.id, name: sched.name })}
                     className="text-[8px] px-1.5 py-0.5 text-red-400 hover:bg-red-600/20 rounded transition-colors"
                     title="Delete"
                   >
@@ -355,6 +359,16 @@ export function ScheduleTab({ workspaceId }: Props) {
           ))
         )}
       </div>
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="Delete schedule"
+        message={`Delete schedule "${pendingDelete?.name || "Unnamed"}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }
