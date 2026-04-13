@@ -270,7 +270,7 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 }
 
 func findPluginsDir(configsDir string) string {
-	// configsDir-relative is most reliable (avoids empty platform/plugins/)
+	// configsDir-relative is most reliable; plugins live at repo-root plugins/
 	candidates := []string{
 		filepath.Join(configsDir, "..", "plugins"),
 		"../plugins",
