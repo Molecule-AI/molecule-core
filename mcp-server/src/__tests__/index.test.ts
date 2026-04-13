@@ -7,9 +7,13 @@
 
 // Jest hoists these mock calls before imports, so the MCP SDK is
 // mocked before index.ts is loaded (preventing stdio/server side-effects).
+// The mock McpServer records every tool(name, ...) call on an instance
+// property so the createServer() smoke test can assert the registered count
+// without reaching into the real SDK's private `_registeredTools` field.
 jest.mock("@modelcontextprotocol/sdk/server/mcp.js", () => ({
   McpServer: class {
-    tool() {}
+    registeredToolNames: string[] = [];
+    tool(name: string) { this.registeredToolNames.push(name); }
     connect() { return Promise.resolve(); }
   },
 }));
@@ -849,6 +853,21 @@ describe("createServer()", () => {
     const server = createServer();
     expect(server).toBeDefined();
     expect(typeof server.connect).toBe("function");
+  });
+
+  // Smoke test: every registerXxxTools(srv) wiring in createServer() runs,
+  // and each tool() call is recorded by the mocked McpServer above. If a
+  // future PR adds a tool file but forgets to call its registerXxxTools
+  // from createServer(), this count drops and the test fails. We assert
+  // the concrete current tool count (87) rather than a lower bound so a
+  // silently-dropped handler is also caught.
+  test("registers all tools (count is stable across registerXxxTools wiring)", () => {
+    const server = createServer() as unknown as { registeredToolNames: string[] };
+    const names = server.registeredToolNames;
+    expect(names.length).toBe(87);
+    // Names must be unique — a duplicate registration would indicate a
+    // copy-paste mistake in one of the registerXxxTools() calls.
+    expect(new Set(names).size).toBe(names.length);
   });
 });
 

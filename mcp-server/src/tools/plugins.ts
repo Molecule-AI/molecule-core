@@ -1,37 +1,37 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { apiCall } from "../api.js";
+import { apiCall, toMcpResult } from "../api.js";
 
 export async function handleListPluginRegistry() {
   const data = await apiCall("GET", "/plugins");
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleListInstalledPlugins(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/workspaces/${params.workspace_id}/plugins`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleInstallPlugin(params: { workspace_id: string; source: string }) {
   const { workspace_id, source } = params;
   const data = await apiCall("POST", `/workspaces/${workspace_id}/plugins`, { source });
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleUninstallPlugin(params: { workspace_id: string; name: string }) {
   const { workspace_id, name } = params;
   const data = await apiCall("DELETE", `/workspaces/${workspace_id}/plugins/${name}`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleListPluginSources() {
   const data = await apiCall("GET", "/plugins/sources");
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleListAvailablePlugins(params: { workspace_id: string }) {
   const data = await apiCall("GET", `/workspaces/${params.workspace_id}/plugins/available`);
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export async function handleCheckPluginCompatibility(params: {
@@ -43,7 +43,7 @@ export async function handleCheckPluginCompatibility(params: {
     "GET",
     `/workspaces/${workspace_id}/plugins/compatibility?runtime=${encodeURIComponent(runtime)}`,
   );
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return toMcpResult(data);
 }
 
 export function registerPluginTools(srv: McpServer) {

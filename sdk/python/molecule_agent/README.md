@@ -44,7 +44,7 @@ print(f"loop exited: {terminal}")
 ```
 
 A runnable demo with full setup walkthrough lives at
-[`sdk/python/examples/remote-agent/`](../../examples/remote-agent).
+[`sdk/python/examples/remote-agent/`](../examples/remote-agent).
 
 ## What the SDK gives you
 
@@ -93,5 +93,5 @@ the security benefits of bearer auth until both sides upgrade.
 
 - [`molecule_plugin`](../molecule_plugin) — the *other* SDK in this
   package, for plugin authors. Different audience.
-- [`sdk/python/examples/remote-agent/run.py`](../../examples/remote-agent/run.py)
+- [`sdk/python/examples/remote-agent/run.py`](../examples/remote-agent/run.py)
   — the runnable demo that proves all of the above end-to-end.
