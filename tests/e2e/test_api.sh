@@ -5,6 +5,23 @@ BASE="http://localhost:8080"
 PASS=0
 FAIL=0
 
+# Phase 30.1: tokens issued on first /registry/register must be echoed
+# back on every subsequent /registry/heartbeat + /registry/update-card
+# as `Authorization: Bearer <token>`. Capture them here.
+ECHO_TOKEN=""
+SUM_TOKEN=""
+
+# Pre-test cleanup: remove any workspaces left over from prior runs so
+# count-based assertions ("empty", "count=2") are reproducible.
+for _wid in $(curl -s "$BASE/workspaces" | python3 -c "import json,sys;
+try:
+  data=json.load(sys.stdin)
+  [print(w['id']) for w in data]
+except Exception:
+  pass" 2>/dev/null); do
+  curl -s -X DELETE "$BASE/workspaces/$_wid?confirm=true" > /dev/null || true
+done
+
 check() {
   local desc="$1"
   local expected="$2"
@@ -55,11 +72,13 @@ check "GET /workspaces/:id (agent_card null)" '"agent_card":null' "$R"
 R=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
   -d "{\"id\":\"$ECHO_ID\",\"url\":\"http://localhost:8001\",\"agent_card\":{\"name\":\"Echo Agent\",\"skills\":[{\"id\":\"echo\",\"name\":\"Echo\"}]}}")
 check "POST /registry/register (echo)" '"status":"registered"' "$R"
+ECHO_TOKEN=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin).get('auth_token',''))")
 
 # Test 8: Register summarizer
 R=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
   -d "{\"id\":\"$SUM_ID\",\"url\":\"http://localhost:8002\",\"agent_card\":{\"name\":\"Summarizer\",\"skills\":[{\"id\":\"summarize\",\"name\":\"Summarize\"}]}}")
 check "POST /registry/register (summarizer)" '"status":"registered"' "$R"
+SUM_TOKEN=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin).get('auth_token',''))")
 
 # Test 9: Both online
 R=$(curl -s "$BASE/workspaces/$ECHO_ID")
@@ -68,7 +87,7 @@ check "Echo has agent_card" '"skills"' "$R"
 check "Echo has url" '"url":"http://localhost:8001"' "$R"
 
 # Test 10: Heartbeat
-R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" \
+R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" -H "Authorization: Bearer $ECHO_TOKEN" \
   -d "{\"workspace_id\":\"$ECHO_ID\",\"error_rate\":0.0,\"sample_error\":\"\",\"active_tasks\":2,\"uptime_seconds\":120}")
 check "POST /registry/heartbeat" '"status":"ok"' "$R"
 
@@ -76,19 +95,19 @@ R=$(curl -s "$BASE/workspaces/$ECHO_ID")
 check "Heartbeat updated active_tasks" '"active_tasks":2' "$R"
 check "Heartbeat updated uptime" '"uptime_seconds":120' "$R"
 
-# Test 11: Discover (no auth header — canvas)
+# Test 11: Discover without X-Workspace-ID — Phase 30.6 requires it
 R=$(curl -s "$BASE/registry/discover/$ECHO_ID")
-check "GET /registry/discover/:id (canvas)" '"url":"http://localhost:8001"' "$R"
+check "GET /registry/discover/:id (missing caller rejected)" 'X-Workspace-ID header is required' "$R"
 
 # Test 12: Discover (from sibling — allowed)
-R=$(curl -s "$BASE/registry/discover/$ECHO_ID" -H "X-Workspace-ID: $SUM_ID")
+R=$(curl -s "$BASE/registry/discover/$ECHO_ID" -H "X-Workspace-ID: $SUM_ID" -H "Authorization: Bearer $SUM_TOKEN")
 check "GET /registry/discover/:id (sibling)" '"url"' "$R"
 
 # Test 13: Peers (root siblings see each other)
-R=$(curl -s "$BASE/registry/$ECHO_ID/peers")
+R=$(curl -s "$BASE/registry/$ECHO_ID/peers" -H "Authorization: Bearer $ECHO_TOKEN")
 check "GET /registry/:id/peers (has summarizer)" '"Summarizer' "$R"
 
-R=$(curl -s "$BASE/registry/$SUM_ID/peers")
+R=$(curl -s "$BASE/registry/$SUM_ID/peers" -H "Authorization: Bearer $SUM_TOKEN")
 check "GET /registry/:id/peers (has echo)" '"Echo Agent"' "$R"
 
 # Test 14: Check access (root siblings)
@@ -119,13 +138,13 @@ R=$(curl -s "$BASE/events/$ECHO_ID")
 check "GET /events/:id (has events for echo)" 'WORKSPACE_ONLINE' "$R"
 
 # Test 18: Update card
-R=$(curl -s -X POST "$BASE/registry/update-card" -H "Content-Type: application/json" \
+R=$(curl -s -X POST "$BASE/registry/update-card" -H "Content-Type: application/json" -H "Authorization: Bearer $ECHO_TOKEN" \
   -d "{\"workspace_id\":\"$ECHO_ID\",\"agent_card\":{\"name\":\"Echo Agent v2\",\"skills\":[{\"id\":\"echo\",\"name\":\"Echo\"},{\"id\":\"repeat\",\"name\":\"Repeat\"}]}}")
 check "POST /registry/update-card" '"status":"updated"' "$R"
 
 # Test 19: Degraded status transition
 # First, ensure workspace is online (Redis TTL may have expired during test)
-curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" \
+curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" -H "Authorization: Bearer $ECHO_TOKEN" \
   -d "{\"workspace_id\":\"$ECHO_ID\",\"error_rate\":0.0,\"sample_error\":\"\",\"active_tasks\":0,\"uptime_seconds\":180}" > /dev/null
 
 # Re-register to force online status in case liveness expired
@@ -133,7 +152,7 @@ curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
   -d "{\"id\":\"$ECHO_ID\",\"url\":\"http://localhost:8001\",\"agent_card\":{\"name\":\"Echo Agent v2\",\"skills\":[{\"id\":\"echo\",\"name\":\"Echo\"},{\"id\":\"repeat\",\"name\":\"Repeat\"}]}}" > /dev/null
 
 # Now send high error rate to trigger degraded
-R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" \
+R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" -H "Authorization: Bearer $ECHO_TOKEN" \
   -d "{\"workspace_id\":\"$ECHO_ID\",\"error_rate\":0.8,\"sample_error\":\"API rate limit\",\"active_tasks\":0,\"uptime_seconds\":200}")
 check "Heartbeat (high error_rate)" '"status":"ok"' "$R"
 
@@ -141,7 +160,7 @@ R=$(curl -s "$BASE/workspaces/$ECHO_ID")
 check "Status degraded" '"status":"degraded"' "$R"
 
 # Test 20: Recovery
-R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" \
+R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" -H "Authorization: Bearer $ECHO_TOKEN" \
   -d "{\"workspace_id\":\"$ECHO_ID\",\"error_rate\":0.0,\"sample_error\":\"\",\"active_tasks\":0,\"uptime_seconds\":300}")
 check "Heartbeat (recovered)" '"status":"ok"' "$R"
 
@@ -207,7 +226,7 @@ echo ""
 echo "--- Current Task Tests ---"
 
 # Test: Heartbeat with current_task
-R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" \
+R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" -H "Authorization: Bearer $ECHO_TOKEN" \
   -d "{\"workspace_id\":\"$ECHO_ID\",\"error_rate\":0.0,\"sample_error\":\"\",\"active_tasks\":1,\"uptime_seconds\":400,\"current_task\":\"Analyzing document\"}")
 check "Heartbeat with current_task" '"status":"ok"' "$R"
 
@@ -217,7 +236,7 @@ check "current_task visible in workspace" '"current_task":"Analyzing document"' 
 check "active_tasks updated" '"active_tasks":1' "$R"
 
 # Test: Clear current_task
-R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" \
+R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" -H "Authorization: Bearer $ECHO_TOKEN" \
   -d "{\"workspace_id\":\"$ECHO_ID\",\"error_rate\":0.0,\"sample_error\":\"\",\"active_tasks\":0,\"uptime_seconds\":500,\"current_task\":\"\"}")
 check "Heartbeat clear current_task" '"status":"ok"' "$R"
 
