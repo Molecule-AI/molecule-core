@@ -35,6 +35,13 @@ func NewDelegationHandler(wh *WorkspaceHandler, b *events.Broadcaster) *Delegati
 	return &DelegationHandler{workspace: wh, broadcaster: b}
 }
 
+// delegateRequest is the bound POST /workspaces/:id/delegate body.
+type delegateRequest struct {
+	TargetID       string `json:"target_id" binding:"required"`
+	Task           string `json:"task" binding:"required"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
 // Delegate handles POST /workspaces/:id/delegate
 // Sends an A2A message to the target workspace in the background.
 // Returns immediately with a delegation_id.
@@ -42,97 +49,27 @@ func (h *DelegationHandler) Delegate(c *gin.Context) {
 	sourceID := c.Param("id")
 	ctx := c.Request.Context()
 
-	var body struct {
-		TargetID       string `json:"target_id" binding:"required"`
-		Task           string `json:"task" binding:"required"`
-		IdempotencyKey string `json:"idempotency_key"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Validate target_id is a valid UUID
-	if _, err := uuid.Parse(body.TargetID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "target_id must be a valid UUID"})
-		return
+	var body delegateRequest
+	if err := bindDelegateRequest(c, &body); err != nil {
+		return // response already written
 	}
 
 	// #124 — idempotency. If the caller supplies an idempotency_key, return
 	// the existing delegation when (workspace_id, idempotency_key) already
-	// exists and is not in a failed terminal state. Failed rows are NOT
-	// reused so callers can retry after a real failure (the unique index
-	// is on the column itself; we delete-then-insert below to release it).
-	if body.IdempotencyKey != "" {
-		var existingID, existingStatus, existingTarget string
-		err := db.DB.QueryRowContext(ctx, `
-			SELECT request_body->>'delegation_id', status, target_id
-			  FROM activity_logs
-			 WHERE workspace_id = $1 AND idempotency_key = $2
-			 LIMIT 1
-		`, sourceID, body.IdempotencyKey).Scan(&existingID, &existingStatus, &existingTarget)
-		if err == nil && existingID != "" {
-			if existingStatus == "failed" {
-				// Release the unique slot so the retry can take it. Bounded
-				// to this exact row by id-of-key; safe.
-				_, _ = db.DB.ExecContext(ctx, `
-					DELETE FROM activity_logs
-					 WHERE workspace_id = $1 AND idempotency_key = $2 AND status = 'failed'
-				`, sourceID, body.IdempotencyKey)
-			} else {
-				c.JSON(http.StatusOK, gin.H{
-					"delegation_id":   existingID,
-					"status":          existingStatus,
-					"target_id":       existingTarget,
-					"idempotent_hit":  true,
-				})
-				return
-			}
-		}
+	// exists and is not in a failed terminal state.
+	if hit := lookupIdempotentDelegation(ctx, c, sourceID, body.IdempotencyKey); hit {
+		return
 	}
 
 	delegationID := uuid.New().String()
 
-	// Store delegation in DB (request_body must be JSONB, include delegation_id for correlation)
-	taskJSON, _ := json.Marshal(map[string]interface{}{
-		"task":          body.Task,
-		"delegation_id": delegationID,
-	})
-	var idemArg interface{}
-	if body.IdempotencyKey != "" {
-		idemArg = body.IdempotencyKey
+	trackingOK, handled := insertDelegationRow(ctx, c, sourceID, body, delegationID)
+	if handled {
+		return // idempotency-conflict response already written
 	}
-	var trackingOK bool
-	_, err := db.DB.ExecContext(ctx, `
-		INSERT INTO activity_logs (workspace_id, activity_type, method, source_id, target_id, summary, request_body, status, idempotency_key)
-		VALUES ($1, 'delegation', 'delegate', $2, $3, $4, $5::jsonb, 'pending', $6)
-	`, sourceID, sourceID, body.TargetID, "Delegating to "+body.TargetID, string(taskJSON), idemArg)
-	if err != nil {
-		// A unique-constraint hit means a concurrent request just took the
-		// slot — rare, but worth surfacing as the same idempotent response
-		// rather than a generic 500. Re-query to fetch the winner's id.
-		if body.IdempotencyKey != "" {
-			var winnerID, winnerStatus string
-			if qerr := db.DB.QueryRowContext(ctx, `
-				SELECT request_body->>'delegation_id', status
-				  FROM activity_logs
-				 WHERE workspace_id = $1 AND idempotency_key = $2
-				 LIMIT 1
-			`, sourceID, body.IdempotencyKey).Scan(&winnerID, &winnerStatus); qerr == nil && winnerID != "" {
-				c.JSON(http.StatusOK, gin.H{
-					"delegation_id":   winnerID,
-					"status":          winnerStatus,
-					"target_id":       body.TargetID,
-					"idempotent_hit":  true,
-				})
-				return
-			}
-		}
-		log.Printf("Delegation: failed to store: %v", err)
-	} else {
-		trackingOK = true
-	}
-	_ = trackingOK
+	// trackingOK==false (and !handled) means insert failed for a non-
+	// idempotency reason (logged); we still dispatch the A2A request and
+	// surface the warning in the response.
 
 	// Build A2A payload
 	a2aBody, _ := json.Marshal(map[string]interface{}{
@@ -164,6 +101,103 @@ func (h *DelegationHandler) Delegate(c *gin.Context) {
 		resp["warning"] = "delegation dispatched but status tracking unavailable"
 	}
 	c.JSON(http.StatusAccepted, resp)
+}
+
+// bindDelegateRequest binds and validates the JSON body. On error it writes
+// the 400 response and returns the error so the caller can return.
+func bindDelegateRequest(c *gin.Context, body *delegateRequest) error {
+	if err := c.ShouldBindJSON(body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return err
+	}
+	if _, err := uuid.Parse(body.TargetID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "target_id must be a valid UUID"})
+		return err
+	}
+	return nil
+}
+
+// lookupIdempotentDelegation returns true (and writes the response) when an
+// existing non-failed delegation matches the (sourceID, idempotencyKey) pair.
+// Failed rows are deleted to release the unique slot so the retry can take it.
+// Returns false when there's no key, no existing row, or the existing row was
+// failed and just deleted.
+func lookupIdempotentDelegation(ctx context.Context, c *gin.Context, sourceID, idempotencyKey string) bool {
+	if idempotencyKey == "" {
+		return false
+	}
+	var existingID, existingStatus, existingTarget string
+	err := db.DB.QueryRowContext(ctx, `
+		SELECT request_body->>'delegation_id', status, target_id
+		  FROM activity_logs
+		 WHERE workspace_id = $1 AND idempotency_key = $2
+		 LIMIT 1
+	`, sourceID, idempotencyKey).Scan(&existingID, &existingStatus, &existingTarget)
+	if err != nil || existingID == "" {
+		return false
+	}
+	if existingStatus == "failed" {
+		_, _ = db.DB.ExecContext(ctx, `
+			DELETE FROM activity_logs
+			 WHERE workspace_id = $1 AND idempotency_key = $2 AND status = 'failed'
+		`, sourceID, idempotencyKey)
+		return false
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"delegation_id":  existingID,
+		"status":         existingStatus,
+		"target_id":      existingTarget,
+		"idempotent_hit": true,
+	})
+	return true
+}
+
+// insertDelegationRow stores the pending delegation row.
+// Returns (trackingOK, handled):
+//   - (true, false) on success — caller continues with dispatch.
+//   - (false, true) on a unique-constraint hit when a concurrent idempotent
+//     request just took the slot; the winner's JSON response is written here
+//     and the caller MUST return without further writes.
+//   - (false, false) on any other DB failure — caller continues with dispatch
+//     and surfaces a tracking-unavailable warning in the response.
+func insertDelegationRow(ctx context.Context, c *gin.Context, sourceID string, body delegateRequest, delegationID string) (bool, bool) {
+	taskJSON, _ := json.Marshal(map[string]interface{}{
+		"task":          body.Task,
+		"delegation_id": delegationID,
+	})
+	var idemArg interface{}
+	if body.IdempotencyKey != "" {
+		idemArg = body.IdempotencyKey
+	}
+	_, err := db.DB.ExecContext(ctx, `
+		INSERT INTO activity_logs (workspace_id, activity_type, method, source_id, target_id, summary, request_body, status, idempotency_key)
+		VALUES ($1, 'delegation', 'delegate', $2, $3, $4, $5::jsonb, 'pending', $6)
+	`, sourceID, sourceID, body.TargetID, "Delegating to "+body.TargetID, string(taskJSON), idemArg)
+	if err == nil {
+		return true, false
+	}
+	// A unique-constraint hit means a concurrent request just took the
+	// slot — rare, but worth surfacing as the same idempotent response
+	// rather than a generic 500. Re-query to fetch the winner's id.
+	if body.IdempotencyKey != "" {
+		var winnerID, winnerStatus string
+		if qerr := db.DB.QueryRowContext(ctx, `
+			SELECT request_body->>'delegation_id', status
+			  FROM activity_logs
+			 WHERE workspace_id = $1 AND idempotency_key = $2
+			 LIMIT 1
+		`, sourceID, body.IdempotencyKey).Scan(&winnerID, &winnerStatus); qerr == nil && winnerID != "" {
+			c.JSON(http.StatusOK, gin.H{
+				"delegation_id":  winnerID,
+				"status":         winnerStatus,
+				"target_id":      body.TargetID,
+				"idempotent_hit": true,
+			})
+			return false, true
+		}
+	}
+	log.Printf("Delegation: failed to store: %v", err)
+	return false, false
 }
 
 // executeDelegation runs in a goroutine — sends A2A and stores the result.

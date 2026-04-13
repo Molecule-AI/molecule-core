@@ -118,17 +118,44 @@ func (h *ActivityHandler) List(c *gin.Context) {
 // It searches the workspace's own activity logs and memories without adding a new storage layer.
 func (h *ActivityHandler) SessionSearch(c *gin.Context) {
 	workspaceID := c.Param("id")
-	query := strings.TrimSpace(c.DefaultQuery("q", ""))
-	limitStr := c.DefaultQuery("limit", "50")
+	query, limit := parseSessionSearchParams(c)
 
+	sqlQuery, args := buildSessionSearchQuery(workspaceID, query, limit)
+
+	rows, err := db.DB.QueryContext(c.Request.Context(), sqlQuery, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "session search failed"})
+		return
+	}
+	defer rows.Close()
+
+	items, scanErr := scanSessionSearchRows(rows)
+	if scanErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "query iteration failed"})
+		return
+	}
+
+	c.JSON(http.StatusOK, items)
+}
+
+// parseSessionSearchParams extracts the `q` and `limit` query params for SessionSearch,
+// applying the default limit (50) and cap (200).
+func parseSessionSearchParams(c *gin.Context) (string, int) {
+	query := strings.TrimSpace(c.DefaultQuery("q", ""))
 	limit := 50
-	if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
+	if n, err := strconv.Atoi(c.DefaultQuery("limit", "50")); err == nil && n > 0 {
 		limit = n
 		if limit > 200 {
 			limit = 200
 		}
 	}
+	return query, limit
+}
 
+// buildSessionSearchQuery composes the UNION-ALL SQL across activity_logs and
+// agent_memories with an optional ILIKE filter, returning the SQL string and
+// positional args ready for QueryContext.
+func buildSessionSearchQuery(workspaceID, query string, limit int) (string, []interface{}) {
 	sqlQuery := `
 		WITH session_items AS (
 			SELECT
@@ -179,14 +206,17 @@ func (h *ActivityHandler) SessionSearch(c *gin.Context) {
 
 	sqlQuery += ` ORDER BY created_at DESC LIMIT $` + strconv.Itoa(len(args)+1)
 	args = append(args, limit)
+	return sqlQuery, args
+}
 
-	rows, err := db.DB.QueryContext(c.Request.Context(), sqlQuery, args...)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "session search failed"})
-		return
-	}
-	defer rows.Close()
-
+// scanSessionSearchRows materialises rows from the SessionSearch query into the
+// JSON-shaped maps the endpoint returns. Per-row scan errors are logged and
+// skipped (matches prior behavior); a rows.Err() failure is surfaced.
+func scanSessionSearchRows(rows interface {
+	Next() bool
+	Scan(dest ...interface{}) error
+	Err() error
+}) ([]map[string]interface{}, error) {
 	items := make([]map[string]interface{}, 0)
 	for rows.Next() {
 		var (
@@ -219,11 +249,9 @@ func (h *ActivityHandler) SessionSearch(c *gin.Context) {
 	}
 	if err := rows.Err(); err != nil {
 		log.Printf("Session search rows error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "query iteration failed"})
-		return
+		return nil, err
 	}
-
-	c.JSON(http.StatusOK, items)
+	return items, nil
 }
 
 // Notify handles POST /workspaces/:id/notify — agents push messages to the canvas chat.

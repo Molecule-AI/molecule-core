@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 interface ChannelAdapter {
   type: string;
@@ -39,6 +40,7 @@ export function ChannelsTab({ workspaceId }: Props) {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Channel | null>(null);
 
   // Form state
   const [formType, setFormType] = useState("telegram");
@@ -146,8 +148,10 @@ export function ChannelsTab({ workspaceId }: Props) {
     load();
   };
 
-  const handleDelete = async (ch: Channel) => {
-    if (!confirm(`Delete ${ch.channel_type} channel?`)) return;
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const ch = pendingDelete;
+    setPendingDelete(null);
     await api.del(`/workspaces/${workspaceId}/channels/${ch.id}`);
     load();
   };
@@ -338,7 +342,7 @@ export function ChannelsTab({ workspaceId }: Props) {
                 {ch.enabled ? "On" : "Off"}
               </button>
               <button
-                onClick={() => handleDelete(ch)}
+                onClick={() => setPendingDelete(ch)}
                 className="text-[10px] px-2 py-0.5 rounded bg-red-900/20 text-red-400 hover:bg-red-900/40 transition"
               >
                 Remove
@@ -354,6 +358,16 @@ export function ChannelsTab({ workspaceId }: Props) {
           </div>
         </div>
       ))}
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="Remove channel"
+        message={`Delete ${pendingDelete?.channel_type ?? ""} channel? This will stop messages flowing through this integration.`}
+        confirmLabel="Remove"
+        confirmVariant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }
