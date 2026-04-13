@@ -1,9 +1,11 @@
-"""Hermes adapter stub — full executor implementation ships in PR 2.
+"""Hermes adapter — Nous Research Hermes models via Nous Portal or OpenRouter.
 
-PR 1 shell: registers 'hermes' with discover_adapters() so the adapter
-catalogue is complete. setup() validates the openai dep is present.
-create_executor() raises NotImplementedError until PR 2 lands.
+Uses the OpenAI-compatible client (openai>=1.0.0) to communicate with
+either the Nous Portal directly (HERMES_API_KEY) or OpenRouter as a
+fallback (OPENROUTER_API_KEY).
 """
+import os
+
 from adapters.base import BaseAdapter, AdapterConfig
 
 
@@ -21,6 +23,18 @@ class HermesAdapter(BaseAdapter):
     def description() -> str:
         return "Hermes models via Nous Portal or OpenRouter — openai>=1.0.0 compatible client"
 
+    @staticmethod
+    def get_config_schema() -> dict:
+        return {
+            "model": {
+                "type": "string",
+                "description": (
+                    "Hermes model ID (e.g. nousresearch/hermes-3-llama-3.1-405b for OpenRouter "
+                    "or hermes-3-llama-3.1-405b for Nous Portal)"
+                ),
+            },
+        }
+
     async def setup(self, config: AdapterConfig) -> None:  # pragma: no cover
         try:
             import openai  # noqa: F401
@@ -31,6 +45,20 @@ class HermesAdapter(BaseAdapter):
             ) from e
 
     async def create_executor(self, config: AdapterConfig):  # pragma: no cover
-        raise NotImplementedError(
-            "HermesAdapter.create_executor not yet implemented — ships in PR 2"
-        )
+        """Create and return a HermesA2AExecutor using key resolution from env/config."""
+        from .executor import create_executor, HermesA2AExecutor
+
+        # Resolve API key: prefer workspace secrets (runtime_config), then env vars
+        hermes_api_key = config.runtime_config.get("hermes_api_key") or None
+
+        executor = create_executor(hermes_api_key=hermes_api_key)
+
+        # Override model from config if provided
+        model = config.model
+        if ":" in model:
+            _, model = model.split(":", 1)
+        if model:
+            executor.model = model
+
+        executor._heartbeat = config.heartbeat
+        return executor
