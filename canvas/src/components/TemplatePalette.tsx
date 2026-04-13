@@ -213,6 +213,7 @@ function ImportAgentButton({ onImported }: { onImported: () => void }) {
         message={notice ?? ""}
         confirmLabel="OK"
         confirmVariant="primary"
+        singleButton
         onConfirm={() => setNotice(null)}
         onCancel={() => setNotice(null)}
       />

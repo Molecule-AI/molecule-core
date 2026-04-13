@@ -63,13 +63,13 @@ func (h *DelegationHandler) Delegate(c *gin.Context) {
 
 	delegationID := uuid.New().String()
 
-	trackingOK, handled := insertDelegationRow(ctx, c, sourceID, body, delegationID)
-	if handled {
+	outcome := insertDelegationRow(ctx, c, sourceID, body, delegationID)
+	if outcome == insertHandledByIdempotent {
 		return // idempotency-conflict response already written
 	}
-	// trackingOK==false (and !handled) means insert failed for a non-
-	// idempotency reason (logged); we still dispatch the A2A request and
-	// surface the warning in the response.
+	// insertTrackingUnavailable means insert failed for a non-idempotency
+	// reason (logged); we still dispatch the A2A request and surface the
+	// warning in the response.
 
 	// Build A2A payload
 	a2aBody, _ := json.Marshal(map[string]interface{}{
@@ -97,7 +97,7 @@ func (h *DelegationHandler) Delegate(c *gin.Context) {
 		"status":        "delegated",
 		"target_id":     body.TargetID,
 	}
-	if !trackingOK {
+	if outcome == insertTrackingUnavailable {
 		resp["warning"] = "delegation dispatched but status tracking unavailable"
 	}
 	c.JSON(http.StatusAccepted, resp)
@@ -152,15 +152,28 @@ func lookupIdempotentDelegation(ctx context.Context, c *gin.Context, sourceID, i
 	return true
 }
 
-// insertDelegationRow stores the pending delegation row.
-// Returns (trackingOK, handled):
-//   - (true, false) on success — caller continues with dispatch.
-//   - (false, true) on a unique-constraint hit when a concurrent idempotent
-//     request just took the slot; the winner's JSON response is written here
-//     and the caller MUST return without further writes.
-//   - (false, false) on any other DB failure — caller continues with dispatch
-//     and surfaces a tracking-unavailable warning in the response.
-func insertDelegationRow(ctx context.Context, c *gin.Context, sourceID string, body delegateRequest, delegationID string) (bool, bool) {
+// insertDelegationOutcome captures the three distinct results of storing
+// the pending delegation row, so callers never have to decode a positional
+// (bool, bool) tuple.
+type insertDelegationOutcome int
+
+const (
+	// insertOK — row stored; caller continues with dispatch and does NOT
+	// surface a tracking warning.
+	insertOK insertDelegationOutcome = iota
+	// insertHandledByIdempotent — a concurrent idempotent request took the
+	// slot; the winner's JSON response is already written and the caller
+	// MUST return without further writes.
+	insertHandledByIdempotent
+	// insertTrackingUnavailable — insert failed for a non-idempotency
+	// reason (logged by this function); caller continues with dispatch
+	// and surfaces a tracking-unavailable warning in the response.
+	insertTrackingUnavailable
+)
+
+// insertDelegationRow stores the pending delegation row. See
+// insertDelegationOutcome for the three possible return values.
+func insertDelegationRow(ctx context.Context, c *gin.Context, sourceID string, body delegateRequest, delegationID string) insertDelegationOutcome {
 	taskJSON, _ := json.Marshal(map[string]interface{}{
 		"task":          body.Task,
 		"delegation_id": delegationID,
@@ -174,7 +187,7 @@ func insertDelegationRow(ctx context.Context, c *gin.Context, sourceID string, b
 		VALUES ($1, 'delegation', 'delegate', $2, $3, $4, $5::jsonb, 'pending', $6)
 	`, sourceID, sourceID, body.TargetID, "Delegating to "+body.TargetID, string(taskJSON), idemArg)
 	if err == nil {
-		return true, false
+		return insertOK
 	}
 	// A unique-constraint hit means a concurrent request just took the
 	// slot — rare, but worth surfacing as the same idempotent response
@@ -193,11 +206,11 @@ func insertDelegationRow(ctx context.Context, c *gin.Context, sourceID string, b
 				"target_id":      body.TargetID,
 				"idempotent_hit": true,
 			})
-			return false, true
+			return insertHandledByIdempotent
 		}
 	}
 	log.Printf("Delegation: failed to store: %v", err)
-	return false, false
+	return insertTrackingUnavailable
 }
 
 // executeDelegation runs in a goroutine — sends A2A and stores the result.
