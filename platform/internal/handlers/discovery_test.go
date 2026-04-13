@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -322,5 +323,298 @@ func TestCheckAccess_SameWorkspace(t *testing.T) {
 	}
 	if resp["allowed"] != true {
 		t.Errorf("expected allowed=true for same workspace, got %v", resp["allowed"])
+	}
+}
+
+// ==================== Direct unit tests for extracted helpers ====================
+
+// --- discoverWorkspacePeer ---
+
+func TestDiscoverWorkspacePeer_Online(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	// name/runtime lookup → non-external
+	mock.ExpectQuery(`SELECT COALESCE\(name,''\), COALESCE\(runtime,'langgraph'\) FROM workspaces WHERE id =`).
+		WithArgs("ws-online").
+		WillReturnRows(sqlmock.NewRows([]string{"name", "runtime"}).AddRow("Target", "langgraph"))
+	// No cached internal URL → DB status lookup → online
+	mock.ExpectQuery(`SELECT status FROM workspaces WHERE id =`).
+		WithArgs("ws-online").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("online"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	discoverWorkspacePeer(context.Background(), c, "ws-caller", "ws-online")
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["id"] != "ws-online" || resp["url"] == "" {
+		t.Errorf("unexpected body: %v", resp)
+	}
+}
+
+func TestDiscoverWorkspacePeer_NotFound(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	mock.ExpectQuery(`SELECT COALESCE\(name,''\), COALESCE\(runtime,'langgraph'\) FROM workspaces WHERE id =`).
+		WithArgs("ws-missing").
+		WillReturnRows(sqlmock.NewRows([]string{"name", "runtime"}).AddRow("", "langgraph"))
+	mock.ExpectQuery(`SELECT status FROM workspaces WHERE id =`).
+		WithArgs("ws-missing").
+		WillReturnError(sql.ErrNoRows)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	discoverWorkspacePeer(context.Background(), c, "ws-caller", "ws-missing")
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDiscoverWorkspacePeer_ExternalRuntime_HandledByExternalURL(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	mock.ExpectQuery(`SELECT COALESCE\(name,''\), COALESCE\(runtime,'langgraph'\) FROM workspaces WHERE id =`).
+		WithArgs("ws-ext").
+		WillReturnRows(sqlmock.NewRows([]string{"name", "runtime"}).AddRow("Ext", "external"))
+	// writeExternalWorkspaceURL's two queries
+	mock.ExpectQuery(`SELECT COALESCE\(url,''\) FROM workspaces WHERE id =`).
+		WithArgs("ws-ext").
+		WillReturnRows(sqlmock.NewRows([]string{"url"}).AddRow("http://external.example"))
+	mock.ExpectQuery(`SELECT COALESCE\(runtime,'langgraph'\) FROM workspaces WHERE id =`).
+		WithArgs("ws-caller").
+		WillReturnRows(sqlmock.NewRows([]string{"runtime"}).AddRow("external"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	discoverWorkspacePeer(context.Background(), c, "ws-caller", "ws-ext")
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestDiscoverWorkspacePeer_CachedInternalURLHit(t *testing.T) {
+	mock := setupTestDB(t)
+	mr := setupTestRedis(t)
+
+	mock.ExpectQuery(`SELECT COALESCE\(name,''\), COALESCE\(runtime,'langgraph'\) FROM workspaces WHERE id =`).
+		WithArgs("ws-cached").
+		WillReturnRows(sqlmock.NewRows([]string{"name", "runtime"}).AddRow("Cached", "langgraph"))
+	mr.Set("ws:ws-cached:internal_url", "http://ws-cached:8000")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	discoverWorkspacePeer(context.Background(), c, "ws-caller", "ws-cached")
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["url"] != "http://ws-cached:8000" {
+		t.Errorf("expected cached internal URL, got %v", resp["url"])
+	}
+}
+
+func TestDiscoverWorkspacePeer_NotReachable(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	mock.ExpectQuery(`SELECT COALESCE\(name,''\), COALESCE\(runtime,'langgraph'\) FROM workspaces WHERE id =`).
+		WithArgs("ws-paused").
+		WillReturnRows(sqlmock.NewRows([]string{"name", "runtime"}).AddRow("Paused", "langgraph"))
+	mock.ExpectQuery(`SELECT status FROM workspaces WHERE id =`).
+		WithArgs("ws-paused").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("paused"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	discoverWorkspacePeer(context.Background(), c, "ws-caller", "ws-paused")
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- writeExternalWorkspaceURL ---
+
+func TestWriteExternalWorkspaceURL_Success(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	mock.ExpectQuery(`SELECT COALESCE\(url,''\) FROM workspaces WHERE id =`).
+		WithArgs("ws-ext").
+		WillReturnRows(sqlmock.NewRows([]string{"url"}).AddRow("http://external.example/a2a"))
+	mock.ExpectQuery(`SELECT COALESCE\(runtime,'langgraph'\) FROM workspaces WHERE id =`).
+		WithArgs("ws-caller").
+		WillReturnRows(sqlmock.NewRows([]string{"runtime"}).AddRow("langgraph"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	handled := writeExternalWorkspaceURL(context.Background(), c, "ws-caller", "ws-ext", "External WS")
+	if !handled {
+		t.Error("expected handled=true when URL present")
+	}
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["url"] != "http://external.example/a2a" {
+		t.Errorf("got url %v", resp["url"])
+	}
+	if resp["name"] != "External WS" {
+		t.Errorf("got name %v", resp["name"])
+	}
+}
+
+func TestWriteExternalWorkspaceURL_NoURL_FallsThrough(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	mock.ExpectQuery(`SELECT COALESCE\(url,''\) FROM workspaces WHERE id =`).
+		WithArgs("ws-ext").
+		WillReturnRows(sqlmock.NewRows([]string{"url"}).AddRow(""))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	if handled := writeExternalWorkspaceURL(context.Background(), c, "ws-caller", "ws-ext", ""); handled {
+		t.Error("expected handled=false when URL empty")
+	}
+}
+
+func TestWriteExternalWorkspaceURL_RewritesLocalhostForDockerCaller(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	mock.ExpectQuery(`SELECT COALESCE\(url,''\) FROM workspaces WHERE id =`).
+		WithArgs("ws-ext").
+		WillReturnRows(sqlmock.NewRows([]string{"url"}).AddRow("http://127.0.0.1:8000/a2a"))
+	// non-external caller runtime → rewrite enabled
+	mock.ExpectQuery(`SELECT COALESCE\(runtime,'langgraph'\) FROM workspaces WHERE id =`).
+		WithArgs("ws-caller").
+		WillReturnRows(sqlmock.NewRows([]string{"runtime"}).AddRow("langgraph"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	writeExternalWorkspaceURL(context.Background(), c, "ws-caller", "ws-ext", "")
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["url"] != "http://host.docker.internal:8000/a2a" {
+		t.Errorf("expected 127.0.0.1 → host.docker.internal rewrite, got %v", resp["url"])
+	}
+}
+
+// --- discoverHostPeer smoke (currently unreachable via Discover) ---
+
+func TestDiscoverHostPeer_Smoke_CacheHit(t *testing.T) {
+	setupTestDB(t)
+	mr := setupTestRedis(t)
+	mr.Set("ws:ws-host:url", "http://hostcache.example")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	discoverHostPeer(context.Background(), c, "ws-host")
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestDiscoverHostPeer_Smoke_NotFound(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	mock.ExpectQuery(`SELECT url, status, forwarded_to FROM workspaces WHERE id =`).
+		WithArgs("ws-none").
+		WillReturnError(sql.ErrNoRows)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	discoverHostPeer(context.Background(), c, "ws-none")
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestDiscoverHostPeer_Smoke_DBError(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	mock.ExpectQuery(`SELECT url, status, forwarded_to FROM workspaces WHERE id =`).
+		WithArgs("ws-err").
+		WillReturnError(sql.ErrConnDone)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	discoverHostPeer(context.Background(), c, "ws-err")
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestDiscoverHostPeer_Smoke_ForwardedChainAndNullURL(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	mock.ExpectQuery(`SELECT url, status, forwarded_to FROM workspaces WHERE id =`).
+		WithArgs("ws-a").
+		WillReturnRows(sqlmock.NewRows([]string{"url", "status", "forwarded_to"}).AddRow(nil, "online", "ws-b"))
+	mock.ExpectQuery(`SELECT url, status, forwarded_to FROM workspaces WHERE id =`).
+		WithArgs("ws-b").
+		WillReturnRows(sqlmock.NewRows([]string{"url", "status", "forwarded_to"}).AddRow(nil, "offline", nil))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	discoverHostPeer(context.Background(), c, "ws-a")
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 for null URL after chain, got %d", w.Code)
+	}
+}
+
+func TestDiscoverHostPeer_Smoke_Success(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	mock.ExpectQuery(`SELECT url, status, forwarded_to FROM workspaces WHERE id =`).
+		WithArgs("ws-ok").
+		WillReturnRows(sqlmock.NewRows([]string{"url", "status", "forwarded_to"}).AddRow("http://ok.example", "online", nil))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	discoverHostPeer(context.Background(), c, "ws-ok")
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
 	}
 }

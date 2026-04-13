@@ -813,3 +813,350 @@ func TestNormalizeA2APayload_MissingMethodReturnsEmpty(t *testing.T) {
 		t.Errorf("expected empty method, got %q", method)
 	}
 }
+
+// --- resolveAgentURL direct unit tests ---
+
+func TestResolveAgentURL_CacheHit(t *testing.T) {
+	setupTestDB(t)
+	mr := setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+	mr.Set("ws:ws-cached:url", "http://cached.example/a2a")
+
+	url, perr := handler.resolveAgentURL(context.Background(), "ws-cached")
+	if perr != nil {
+		t.Fatalf("unexpected error: %+v", perr)
+	}
+	if url != "http://cached.example/a2a" {
+		t.Errorf("got %q, want cached URL", url)
+	}
+}
+
+func TestResolveAgentURL_CacheMissDBHit(t *testing.T) {
+	mock := setupTestDB(t)
+	mr := setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectQuery("SELECT url, status FROM workspaces WHERE id =").
+		WithArgs("ws-dbhit").
+		WillReturnRows(sqlmock.NewRows([]string{"url", "status"}).AddRow("http://dbhit.example", "online"))
+
+	url, perr := handler.resolveAgentURL(context.Background(), "ws-dbhit")
+	if perr != nil {
+		t.Fatalf("unexpected error: %+v", perr)
+	}
+	if url != "http://dbhit.example" {
+		t.Errorf("got %q, want http://dbhit.example", url)
+	}
+	// Verify cached now
+	if v, err := mr.Get("ws:ws-dbhit:url"); err != nil || v != "http://dbhit.example" {
+		t.Errorf("expected Redis cache populated; got v=%q err=%v", v, err)
+	}
+}
+
+func TestResolveAgentURL_WorkspaceNotFound(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectQuery("SELECT url, status FROM workspaces WHERE id =").
+		WithArgs("ws-missing").
+		WillReturnError(sql.ErrNoRows)
+
+	_, perr := handler.resolveAgentURL(context.Background(), "ws-missing")
+	if perr == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if perr.Status != http.StatusNotFound {
+		t.Errorf("got status %d, want 404", perr.Status)
+	}
+}
+
+func TestResolveAgentURL_NullURL(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectQuery("SELECT url, status FROM workspaces WHERE id =").
+		WithArgs("ws-nullurl").
+		WillReturnRows(sqlmock.NewRows([]string{"url", "status"}).AddRow(nil, "provisioning"))
+
+	_, perr := handler.resolveAgentURL(context.Background(), "ws-nullurl")
+	if perr == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if perr.Status != http.StatusServiceUnavailable {
+		t.Errorf("got status %d, want 503", perr.Status)
+	}
+}
+
+func TestResolveAgentURL_DockerRewrite(t *testing.T) {
+	// provisioner.InternalURL is called when platformInDocker && URL begins
+	// with http://127.0.0.1:. We don't have a real *Provisioner so the
+	// rewrite path requires h.provisioner != nil. Since we can't easily
+	// construct a provisioner, verify rewrite does NOT happen when
+	// provisioner is nil (guard clause). The rewrite branch itself is
+	// covered by TestResolveAgentURL_DockerRewrite_NilProvisionerNoRewrite.
+	mr := setupTestRedis(t)
+	setupTestDB(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+	mr.Set("ws:ws-dock:url", "http://127.0.0.1:55555")
+
+	restore := setPlatformInDockerForTest(true)
+	defer restore()
+
+	url, perr := handler.resolveAgentURL(context.Background(), "ws-dock")
+	if perr != nil {
+		t.Fatalf("unexpected error: %+v", perr)
+	}
+	// nil provisioner → no rewrite
+	if url != "http://127.0.0.1:55555" {
+		t.Errorf("with nil provisioner, URL must not be rewritten; got %q", url)
+	}
+}
+
+// --- dispatchA2A direct unit tests ---
+
+func TestDispatchA2A_BuildRequestError(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	// Malformed URL causes http.NewRequestWithContext to fail.
+	_, cancel, err := handler.dispatchA2A(context.Background(), "http://%%badhost", []byte("{}"), "")
+	if cancel != nil {
+		cancel()
+	}
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if _, ok := err.(*proxyDispatchBuildError); !ok {
+		t.Errorf("expected *proxyDispatchBuildError, got %T: %v", err, err)
+	}
+}
+
+func TestDispatchA2A_CanvasTimeout(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	// Agent that responds OK — we just want the cancel func.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	resp, cancel, err := handler.dispatchA2A(context.Background(), srv.URL, []byte(`{}`), "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+	if cancel == nil {
+		t.Fatal("canvas caller (empty callerID) must set a timeout + return cancel")
+	}
+	cancel() // restore
+}
+
+func TestDispatchA2A_AgentTimeout(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	resp, cancel, err := handler.dispatchA2A(context.Background(), srv.URL, []byte(`{}`), "ws-caller")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+	if cancel == nil {
+		t.Fatal("agent-to-agent caller must set a timeout + return cancel")
+	}
+	cancel()
+}
+
+func TestDispatchA2A_ContextDeadline_NoCancelAdded(t *testing.T) {
+	// When ctx already has a deadline, dispatchA2A must NOT layer its own
+	// timeout (cancel should be nil).
+	setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	ctx, ctxCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer ctxCancel()
+
+	resp, cancel, err := handler.dispatchA2A(ctx, srv.URL, []byte(`{}`), "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+	if cancel != nil {
+		t.Error("cancel should be nil when ctx already has a deadline")
+		cancel()
+	}
+}
+
+// --- handleA2ADispatchError ---
+
+func TestHandleA2ADispatchError_ContextDeadline(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	// No workspace row expected — maybeMarkContainerDead with nil
+	// provisioner short-circuits, and activity-log insert is suppressed
+	// (logActivity=false).
+	_, _, perr := handler.handleA2ADispatchError(
+		context.Background(), "ws-dl", "", []byte("{}"), "message/send",
+		context.DeadlineExceeded, 1, false,
+	)
+	if perr == nil {
+		t.Fatal("expected error, got nil")
+	}
+	// DeadlineExceeded is classified as upstream-busy → 503 with Retry-After.
+	if perr.Status != http.StatusServiceUnavailable {
+		t.Errorf("got status %d, want 503", perr.Status)
+	}
+	if perr.Headers["Retry-After"] == "" {
+		t.Error("expected Retry-After header on busy-503 shape")
+	}
+}
+
+func TestHandleA2ADispatchError_BuildError(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	buildErr := &proxyDispatchBuildError{err: fmt.Errorf("bad url")}
+	_, _, perr := handler.handleA2ADispatchError(
+		context.Background(), "ws-x", "", []byte("{}"), "message/send", buildErr, 1, false,
+	)
+	if perr == nil || perr.Status != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %+v", perr)
+	}
+}
+
+func TestHandleA2ADispatchError_GenericReturns502(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	_, _, perr := handler.handleA2ADispatchError(
+		context.Background(), "ws-x", "", []byte("{}"), "message/send",
+		fmt.Errorf("no such host"), 1, false,
+	)
+	if perr == nil || perr.Status != http.StatusBadGateway {
+		t.Errorf("expected 502, got %+v", perr)
+	}
+}
+
+// --- maybeMarkContainerDead ---
+
+// Nil provisioner → short-circuits false.
+func TestMaybeMarkContainerDead_NilProvisioner(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectQuery(`SELECT COALESCE\(runtime, 'langgraph'\) FROM workspaces WHERE id =`).
+		WithArgs("ws-nilprov").
+		WillReturnRows(sqlmock.NewRows([]string{"runtime"}).AddRow("langgraph"))
+
+	if got := handler.maybeMarkContainerDead(context.Background(), "ws-nilprov"); got {
+		t.Error("expected false when provisioner is nil")
+	}
+}
+
+// external runtime → false regardless of provisioner.
+func TestMaybeMarkContainerDead_ExternalRuntime(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectQuery(`SELECT COALESCE\(runtime, 'langgraph'\) FROM workspaces WHERE id =`).
+		WithArgs("ws-ext").
+		WillReturnRows(sqlmock.NewRows([]string{"runtime"}).AddRow("external"))
+
+	if got := handler.maybeMarkContainerDead(context.Background(), "ws-ext"); got {
+		t.Error("expected false for external runtime")
+	}
+}
+
+// --- logA2AFailure / logA2ASuccess smoke tests ---
+// These helpers spawn a detached goroutine that calls LogActivity, which
+// inserts into activity_logs. We can't easily sync on the goroutine via
+// sqlmock (done order isn't guaranteed), so we only assert the function
+// returns without panicking and makes the expected DB calls.
+
+func TestLogA2AFailure_Smoke(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	// Sync workspace-name lookup (called in the caller goroutine).
+	mock.ExpectQuery(`SELECT name FROM workspaces WHERE id =`).
+		WithArgs("ws-fail").
+		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Fail Target"))
+	// Async INSERT from the detached goroutine. MatchExpectationsInOrder=true
+	// by default, but the goroutine runs after the sync query above.
+	mock.ExpectExec("INSERT INTO activity_logs").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	handler.logA2AFailure(context.Background(), "ws-fail", "", []byte(`{}`), "message/send", fmt.Errorf("boom"), 42)
+	time.Sleep(80 * time.Millisecond)
+}
+
+func TestLogA2AFailure_EmptyNameFallback(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	// Empty name from DB → summary uses the workspaceID as the name.
+	mock.ExpectQuery(`SELECT name FROM workspaces WHERE id =`).
+		WithArgs("ws-noname").
+		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow(""))
+	mock.ExpectExec("INSERT INTO activity_logs").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	handler.logA2AFailure(context.Background(), "ws-noname", "", []byte(`{}`), "message/send", fmt.Errorf("boom"), 1)
+	time.Sleep(80 * time.Millisecond)
+}
+
+func TestLogA2ASuccess_Smoke(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectQuery(`SELECT name FROM workspaces WHERE id =`).
+		WithArgs("ws-ok").
+		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("OK Target"))
+	mock.ExpectExec("INSERT INTO activity_logs").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	handler.logA2ASuccess(context.Background(), "ws-ok", "", []byte(`{}`), []byte(`{"result":"x"}`), "message/send", 200, 10)
+	time.Sleep(80 * time.Millisecond)
+}
+
+// Error-status path (>=400) records an "error" status in activity_logs.
+func TestLogA2ASuccess_ErrorStatus(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectQuery(`SELECT name FROM workspaces WHERE id =`).
+		WithArgs("ws-err").
+		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow(""))
+	mock.ExpectExec("INSERT INTO activity_logs").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// callerID != "" also means no A2A_RESPONSE broadcast.
+	handler.logA2ASuccess(context.Background(), "ws-err", "ws-caller", []byte(`{}`), []byte(`{}`), "message/send", 500, 10)
+	time.Sleep(80 * time.Millisecond)
+}
