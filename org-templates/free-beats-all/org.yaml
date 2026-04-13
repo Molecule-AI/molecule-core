@@ -1,0 +1,40 @@
+# Free Beats All — 3 agents, 3 providers, $0/month
+#
+# Minimal team for fun and testing. Each agent on a different provider.
+#
+#   PM       → Groq      (Llama 3.3 70B)  — 30 RPM, reliable
+#   Worker 1 → Cerebras  (Llama 4 Scout)  — 30 RPM, fast
+#   Worker 2 → OpenRouter (auto-free)     — 20 RPM, varied models
+
+name: Free Beats All
+description: 3 agents, 3 free providers, $0/month
+
+defaults:
+  runtime: langgraph
+  tier: 2
+
+  initial_prompt: |
+    You just started. Set up silently — do NOT contact other agents yet.
+    1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
+    2. Read /workspace/repo/CLAUDE.md to understand the project
+    3. Read /configs/system-prompt.md to understand your role
+    4. Wait for tasks from your parent.
+
+workspaces:
+  - name: PM
+    role: Project Manager — coordinates Worker 1 and Worker 2
+    tier: 3
+    model: groq:llama-3.3-70b-versatile
+    files_dir: pm
+    canvas: { x: 400, y: 50 }
+    children:
+      - name: Worker 1
+        role: General purpose worker — research, coding, analysis
+        tier: 2
+        model: cerebras:llama3.1-8b
+        canvas: { x: 300, y: 200 }
+      - name: Worker 2
+        role: General purpose worker — research, coding, analysis
+        tier: 2
+        model: openrouter:openrouter/free
+        canvas: { x: 500, y: 200 }

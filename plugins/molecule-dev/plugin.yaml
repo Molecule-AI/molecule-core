@@ -1,0 +1,15 @@
+name: molecule-dev
+version: 1.0.0
+description: Molecule AI codebase conventions, past bugs, quality standards, and coordination workflows
+author: Molecule AI
+tags: [conventions, quality, coordination, codebase]
+
+# Per-runtime adaptors live under adapters/<runtime>.py and are resolved via
+# the platform's plugin registry. Listed here so the canvas can filter
+# install options by workspace runtime.
+runtimes:
+  - claude_code
+  - deepagents
+
+skills:
+  - review-loop

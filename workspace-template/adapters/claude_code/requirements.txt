@@ -1,0 +1,4 @@
+# Claude Agent SDK — programmatic API to Claude Code engine.
+# Replaces CLI subprocess approach (no more --print, --resume, json parsing).
+# The Claude Code CLI is still pre-installed via npm because the SDK uses it under the hood.
+claude-agent-sdk>=0.1.58

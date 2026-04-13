@@ -1,0 +1,28 @@
+name: DeepAgents Agent
+description: LangChain DeepAgents — deep research agent with planning, multi-step reasoning, and tool orchestration
+version: 1.0.0
+tier: 2
+
+runtime: deepagents
+model: openai:gpt-4.1-mini
+
+skills: []
+
+tools:
+  - web_search
+  - filesystem
+
+a2a:
+  port: 8000
+  streaming: true
+  push_notifications: true
+
+delegation:
+  retry_attempts: 3
+  retry_delay: 5
+  timeout: 300
+  escalate: true
+
+env:
+  required:
+    - OPENAI_API_KEY

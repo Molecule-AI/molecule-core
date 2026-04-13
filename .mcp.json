@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "awareness-memory": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@awareness-sdk/local",
+        "mcp"
+      ]
+    },
+    "molecule": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["./mcp-server/dist/index.js"],
+      "env": {
+        "MOLECULE_URL": "http://localhost:8080"
+      }
+    }
+  }
+}

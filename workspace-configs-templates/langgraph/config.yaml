@@ -1,0 +1,27 @@
+name: LangGraph Agent
+description: LangGraph ReAct agent — Python-based with skills, tools, and plugin support
+version: 1.0.0
+tier: 2
+
+model: openai:gpt-4.1-mini
+
+skills: []
+
+tools:
+  - web_search
+  - filesystem
+
+a2a:
+  port: 8000
+  streaming: true
+  push_notifications: true
+
+delegation:
+  retry_attempts: 3
+  retry_delay: 5
+  timeout: 120
+  escalate: true
+
+env:
+  required:
+    - OPENAI_API_KEY

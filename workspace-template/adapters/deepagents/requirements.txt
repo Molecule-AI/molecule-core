@@ -1,0 +1,4 @@
+deepagents>=0.5.0
+langchain-openai>=1.0.0
+langchain-google-genai>=2.1.0
+langchain-anthropic>=1.4.0

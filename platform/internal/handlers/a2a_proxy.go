@@ -1,0 +1,509 @@
+package handlers
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+)
+
+// platformInDocker caches whether THIS process is running inside a
+// Docker container. The a2a proxy uses this to decide whether stored
+// agent URLs like "http://127.0.0.1:<ephemeral>" need to be rewritten
+// to the Docker-DNS form "http://ws-<id>:8000". When the platform is
+// on the host, 127.0.0.1 IS the host and the ephemeral-port URL works
+// as-is; rewriting to container DNS would then break (host can't
+// resolve Docker bridge hostnames).
+//
+// Detection: /.dockerenv is the canonical marker inside the default
+// Docker runtime. MOLECULE_IN_DOCKER is an explicit override for
+// environments where /.dockerenv is absent (Podman, custom runtimes).
+// Accepts any value strconv.ParseBool recognises — 1, 0, t, f, T, F,
+// true, false, TRUE, FALSE, True, False. Anything else (including
+// "yes"/"on") is treated as unset and falls through to the /.dockerenv
+// check.
+//
+// Exposed as a var (not a const) so tests can toggle it via
+// setPlatformInDockerForTest without fiddling with real filesystem
+// markers or env vars. Production callers never mutate it.
+var platformInDocker = detectPlatformInDocker()
+
+func detectPlatformInDocker() bool {
+	if v := os.Getenv("MOLECULE_IN_DOCKER"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
+	}
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return true
+	}
+	return false
+}
+
+// setPlatformInDockerForTest overrides platformInDocker for the duration of
+// a test and returns a function to restore the previous value. Use with
+// defer in *_test.go only.
+func setPlatformInDockerForTest(v bool) func() {
+	prev := platformInDocker
+	platformInDocker = v
+	return func() { platformInDocker = prev }
+}
+
+// maxProxyRequestBody is the maximum size of an A2A proxy request body (1MB).
+const maxProxyRequestBody = 1 << 20
+
+// systemCallerPrefixes are caller IDs that bypass workspace access control.
+// These are non-workspace internal callers (webhooks, system services, tests).
+var systemCallerPrefixes = []string{"webhook:", "system:", "test:", "channel:"}
+
+// isSystemCaller returns true if callerID is a non-workspace internal caller.
+func isSystemCaller(callerID string) bool {
+	for _, prefix := range systemCallerPrefixes {
+		if strings.HasPrefix(callerID, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// maxProxyResponseBody is the maximum size of an A2A proxy response body (10MB).
+const maxProxyResponseBody = 10 << 20
+
+// a2aClient is a shared HTTP client for proxying A2A requests to workspace agents.
+// No client-level timeout — timeouts are enforced per-request via context deadlines:
+// canvas = 5 min (Rule 3), agent-to-agent = 30 min (DoS cap).
+var a2aClient = &http.Client{}
+
+type proxyA2AError struct {
+	Status   int
+	Response gin.H
+	// Optional response headers (e.g. Retry-After on 503-busy). Kept separate
+	// from Response so the handler can set real HTTP headers, not just JSON.
+	Headers map[string]string
+}
+
+// busyRetryAfterSeconds is the Retry-After hint returned with 503-busy
+// responses when an upstream workspace agent is overloaded (single-threaded
+// mid-synthesis). Chosen to be long enough for typical PM synthesis work
+// to complete but short enough that a caller's retry loop won't stall
+// coordination. See issue #110.
+const busyRetryAfterSeconds = 30
+
+// isUpstreamBusyError classifies an http.Client.Do error as a transient
+// "upstream busy" condition — a timeout or connection-reset while the
+// container is still alive. Distinguishes legitimate busy-agent failures
+// from fatal network errors so callers can retry with Retry-After.
+func isUpstreamBusyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	// url.Error wraps "read tcp … EOF" and "Post …: context deadline
+	// exceeded" strings from the stdlib HTTP client without typing the
+	// inner cause. Fall back to substring match for those.
+	msg := err.Error()
+	return strings.Contains(msg, "context deadline exceeded") ||
+		strings.Contains(msg, "EOF") ||
+		strings.Contains(msg, "connection reset")
+}
+
+func (e *proxyA2AError) Error() string {
+	if e == nil || e.Response == nil {
+		return "proxy a2a error"
+	}
+	if msg, ok := e.Response["error"].(string); ok && msg != "" {
+		return msg
+	}
+	return "proxy a2a error"
+}
+
+// ProxyA2ARequest is the public wrapper for proxyA2ARequest, used by the
+// cron scheduler and other internal callers that need to send A2A messages
+// to workspaces programmatically (not from an HTTP handler).
+func (h *WorkspaceHandler) ProxyA2ARequest(ctx context.Context, workspaceID string, body []byte, callerID string, logActivity bool) (int, []byte, error) {
+	status, resp, proxyErr := h.proxyA2ARequest(ctx, workspaceID, body, callerID, logActivity)
+	if proxyErr != nil {
+		return status, resp, proxyErr
+	}
+	return status, resp, nil
+}
+
+// ProxyA2A handles POST /workspaces/:id/a2a
+// Proxies A2A JSON-RPC requests from the canvas to workspace agents,
+// avoiding CORS and Docker network issues.
+func (h *WorkspaceHandler) ProxyA2A(c *gin.Context) {
+	workspaceID := c.Param("id")
+	ctx := c.Request.Context()
+
+	// X-Timeout: caller-specified timeout in seconds (0 = no timeout).
+	// Overrides the default canvas (5 min) / agent (30 min) timeouts.
+	if tStr := c.GetHeader("X-Timeout"); tStr != "" {
+		if tSec, err := strconv.Atoi(tStr); err == nil && tSec > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, time.Duration(tSec)*time.Second)
+			defer cancel()
+		}
+		// tSec == 0 means no timeout — use the raw context (no deadline)
+	}
+
+	// Read the incoming request body (capped at 1MB)
+	body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxProxyRequestBody))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
+		return
+	}
+
+	callerID := c.GetHeader("X-Workspace-ID")
+
+	// Phase 30.5 — validate the caller's auth token when the caller IS
+	// a workspace (not canvas or a system caller). Canvas requests have
+	// no X-Workspace-ID so they bypass this check (the existing
+	// access-control layer already trusts them). System callers
+	// (webhook:* / system:* / test:*) also bypass — they never hold a
+	// workspace token.
+	//
+	// The bind is strict: the token must match `callerID`, not
+	// `workspaceID` (the target). A compromised token from workspace A
+	// must never authenticate calls from A pretending to be B.
+	if callerID != "" && !isSystemCaller(callerID) && callerID != workspaceID {
+		if err := validateCallerToken(ctx, c, callerID); err != nil {
+			return // response already written with 401
+		}
+	}
+
+	status, respBody, proxyErr := h.proxyA2ARequest(ctx, workspaceID, body, callerID, true)
+	if proxyErr != nil {
+		for k, v := range proxyErr.Headers {
+			c.Header(k, v)
+		}
+		c.JSON(proxyErr.Status, proxyErr.Response)
+		return
+	}
+
+	c.Data(status, "application/json", respBody)
+}
+
+func (h *WorkspaceHandler) proxyA2ARequest(ctx context.Context, workspaceID string, body []byte, callerID string, logActivity bool) (int, []byte, *proxyA2AError) {
+	// Access control: workspace-to-workspace requests must pass CanCommunicate check.
+	// Canvas requests (callerID == "") and system callers (webhook:*, system:*, test:*)
+	// are trusted. Self-calls (callerID == workspaceID) are always allowed.
+	if callerID != "" && callerID != workspaceID && !isSystemCaller(callerID) {
+		if !registry.CanCommunicate(callerID, workspaceID) {
+			log.Printf("ProxyA2A: access denied %s → %s", callerID, workspaceID)
+			return 0, nil, &proxyA2AError{
+				Status:   http.StatusForbidden,
+				Response: gin.H{"error": "access denied: workspaces cannot communicate per hierarchy rules"},
+			}
+		}
+	}
+
+	// Resolve workspace URL (cache first, then DB)
+	agentURL, err := db.GetCachedURL(ctx, workspaceID)
+	if err != nil {
+		var urlNullable sql.NullString
+		var status string
+		err := db.DB.QueryRowContext(ctx,
+			`SELECT url, status FROM workspaces WHERE id = $1`, workspaceID,
+		).Scan(&urlNullable, &status)
+		if err == sql.ErrNoRows {
+			return 0, nil, &proxyA2AError{
+				Status:   http.StatusNotFound,
+				Response: gin.H{"error": "workspace not found"},
+			}
+		}
+		if err != nil {
+			log.Printf("ProxyA2A lookup error: %v", err)
+			return 0, nil, &proxyA2AError{
+				Status:   http.StatusInternalServerError,
+				Response: gin.H{"error": "lookup failed"},
+			}
+		}
+		if !urlNullable.Valid || urlNullable.String == "" {
+			return 0, nil, &proxyA2AError{
+				Status:   http.StatusServiceUnavailable,
+				Response: gin.H{"error": "workspace has no URL", "status": status},
+			}
+		}
+		agentURL = urlNullable.String
+		_ = db.CacheURL(ctx, workspaceID, agentURL)
+	}
+
+	// When the platform runs inside Docker, 127.0.0.1:{host_port} is
+	// unreachable (it's the platform container's own localhost, not the
+	// Docker host). Rewrite to the container's Docker-bridge hostname.
+	//
+	// But ONLY when we're actually inside Docker. If the platform runs
+	// on the host (the default dev setup via infra/scripts/setup.sh),
+	// 127.0.0.1:<ephemeral> IS the reachable URL and the container
+	// hostname wouldn't resolve.
+	if strings.HasPrefix(agentURL, "http://127.0.0.1:") && h.provisioner != nil && platformInDocker {
+		agentURL = provisioner.InternalURL(workspaceID)
+	}
+
+	// Normalize the request into a valid A2A JSON-RPC 2.0 message
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return 0, nil, &proxyA2AError{
+			Status:   http.StatusBadRequest,
+			Response: gin.H{"error": "invalid JSON"},
+		}
+	}
+
+	// Wrap in JSON-RPC envelope if missing
+	if _, hasJSONRPC := payload["jsonrpc"]; !hasJSONRPC {
+		payload = map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      uuid.New().String(),
+			"method":  payload["method"],
+			"params":  payload["params"],
+		}
+	}
+
+	// Ensure params.message.messageId exists (required by a2a-sdk)
+	if params, ok := payload["params"].(map[string]interface{}); ok {
+		if msg, ok := params["message"].(map[string]interface{}); ok {
+			if _, hasID := msg["messageId"]; !hasID {
+				msg["messageId"] = uuid.New().String()
+			}
+		}
+	}
+
+	marshaledBody, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		return 0, nil, &proxyA2AError{
+			Status:   http.StatusInternalServerError,
+			Response: gin.H{"error": "failed to marshal request"},
+		}
+	}
+	body = marshaledBody
+
+	// Extract method for logging
+	var a2aMethod string
+	if m, ok := payload["method"].(string); ok {
+		a2aMethod = m
+	}
+
+	// Forward to the agent. Uses WithoutCancel so delegation chains survive client
+	// disconnect (browser tab close).
+	// Default timeouts: canvas = 5 min, agent-to-agent = 30 min.
+	// Callers can override via X-Timeout header (handled in ProxyA2A handler above).
+	startTime := time.Now()
+	forwardCtx := context.WithoutCancel(ctx)
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		// No caller-specified deadline — apply defaults
+		if callerID == "" {
+			var cancel context.CancelFunc
+			forwardCtx, cancel = context.WithTimeout(forwardCtx, 5*time.Minute)
+			defer cancel()
+		} else {
+			var cancel context.CancelFunc
+			forwardCtx, cancel = context.WithTimeout(forwardCtx, 30*time.Minute)
+			defer cancel()
+		}
+	}
+	req, err := http.NewRequestWithContext(forwardCtx, "POST", agentURL, bytes.NewReader(body))
+	if err != nil {
+		return 0, nil, &proxyA2AError{
+			Status:   http.StatusInternalServerError,
+			Response: gin.H{"error": "failed to create proxy request"},
+		}
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a2aClient.Do(req)
+	durationMs := int(time.Since(startTime).Milliseconds())
+	if err != nil {
+		log.Printf("ProxyA2A forward error: %v", err)
+
+		// Reactive health check: if the request failed, check if the container is actually dead.
+		// Skip for external workspaces (no Docker container).
+		containerDead := false
+		var wsRuntime string
+		db.DB.QueryRowContext(ctx, `SELECT COALESCE(runtime, 'langgraph') FROM workspaces WHERE id = $1`, workspaceID).Scan(&wsRuntime)
+		if h.provisioner != nil && wsRuntime != "external" {
+			if running, _ := h.provisioner.IsRunning(ctx, workspaceID); !running {
+				containerDead = true
+				log.Printf("ProxyA2A: container for %s is dead — marking offline and triggering restart", workspaceID)
+				if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'offline', updated_at = now() WHERE id = $1 AND status NOT IN ('removed', 'provisioning')`, workspaceID); err != nil {
+					log.Printf("ProxyA2A: failed to mark workspace %s offline: %v", workspaceID, err)
+				}
+				db.ClearWorkspaceKeys(ctx, workspaceID)
+				h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_OFFLINE", workspaceID, map[string]interface{}{})
+				go h.RestartByID(workspaceID)
+			}
+		}
+
+		if logActivity {
+			// Log failed A2A attempt (detached context — request may be done)
+			errMsg := err.Error()
+			var errWsName string
+			db.DB.QueryRowContext(ctx, `SELECT name FROM workspaces WHERE id = $1`, workspaceID).Scan(&errWsName)
+			if errWsName == "" {
+				errWsName = workspaceID
+			}
+			summary := "A2A request to " + errWsName + " failed: " + errMsg
+			go func(parent context.Context) {
+				logCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), 30*time.Second)
+				defer cancel()
+				LogActivity(logCtx, h.broadcaster, ActivityParams{
+					WorkspaceID:  workspaceID,
+					ActivityType: "a2a_receive",
+					SourceID:     nilIfEmpty(callerID),
+					TargetID:     &workspaceID,
+					Method:       &a2aMethod,
+					Summary:      &summary,
+					RequestBody:  json.RawMessage(body),
+					DurationMs:   &durationMs,
+					Status:       "error",
+					ErrorDetail:  &errMsg,
+				})
+			}(ctx)
+		}
+		if containerDead {
+			return 0, nil, &proxyA2AError{
+				Status:   http.StatusServiceUnavailable,
+				Response: gin.H{"error": "workspace agent unreachable — container restart triggered", "restarting": true},
+			}
+		}
+		// Container is alive but upstream Do() failed with a timeout/EOF-
+		// shaped error — the agent is most likely mid-synthesis on a
+		// previous request (single-threaded main loop). Surface as 503
+		// Busy with a Retry-After hint so callers can distinguish this
+		// from a real unreachable-agent (502) and retry with backoff.
+		// Issue #110.
+		if isUpstreamBusyError(err) {
+			return 0, nil, &proxyA2AError{
+				Status:   http.StatusServiceUnavailable,
+				Headers:  map[string]string{"Retry-After": strconv.Itoa(busyRetryAfterSeconds)},
+				Response: gin.H{
+					"error":       "workspace agent busy — retry after a short backoff",
+					"busy":        true,
+					"retry_after": busyRetryAfterSeconds,
+				},
+			}
+		}
+		return 0, nil, &proxyA2AError{
+			Status:   http.StatusBadGateway,
+			Response: gin.H{"error": "failed to reach workspace agent"},
+		}
+	}
+	defer resp.Body.Close()
+
+	// Read agent response (capped at 10MB)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxProxyResponseBody))
+	if err != nil {
+		return 0, nil, &proxyA2AError{
+			Status:   http.StatusBadGateway,
+			Response: gin.H{"error": "failed to read agent response"},
+		}
+	}
+
+	if logActivity {
+		// Log successful A2A communication
+		logStatus := "ok"
+		if resp.StatusCode >= 400 {
+			logStatus = "error"
+		}
+		// Resolve workspace name for readable summary
+		var wsNameForLog string
+		db.DB.QueryRowContext(ctx, `SELECT name FROM workspaces WHERE id = $1`, workspaceID).Scan(&wsNameForLog)
+		if wsNameForLog == "" {
+			wsNameForLog = workspaceID
+		}
+		summary := a2aMethod + " → " + wsNameForLog
+		go func(parent context.Context) {
+			logCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), 30*time.Second)
+			defer cancel()
+			LogActivity(logCtx, h.broadcaster, ActivityParams{
+				WorkspaceID:  workspaceID,
+				ActivityType: "a2a_receive",
+				SourceID:     nilIfEmpty(callerID),
+				TargetID:     &workspaceID,
+				Method:       &a2aMethod,
+				Summary:      &summary,
+				RequestBody:  json.RawMessage(body),
+				ResponseBody: json.RawMessage(respBody),
+				DurationMs:   &durationMs,
+				Status:       logStatus,
+			})
+		}(ctx)
+
+		// For canvas-initiated requests, broadcast the response via WebSocket
+		// so the frontend receives it instantly without polling.
+		if callerID == "" && resp.StatusCode < 400 {
+			h.broadcaster.BroadcastOnly(workspaceID, "A2A_RESPONSE", map[string]interface{}{
+				"response_body": json.RawMessage(respBody),
+				"method":        a2aMethod,
+				"duration_ms":   durationMs,
+			})
+		}
+	}
+	return resp.StatusCode, respBody, nil
+}
+
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// validateCallerToken enforces the Phase 30.5 auth-token contract on the
+// caller of an A2A proxy request. Same lazy-bootstrap shape as
+// registry.requireWorkspaceToken: if the caller workspace has any live
+// token on file, the Authorization header is mandatory and must match;
+// if the caller has zero live tokens, they're grandfathered through
+// (their next /registry/register will mint their first token, after
+// which this branch never fires again for them).
+//
+// On auth failure this writes the 401 via c and returns an error so the
+// handler aborts without running the proxy.
+func validateCallerToken(ctx context.Context, c *gin.Context, callerID string) error {
+	hasLive, err := wsauth.HasAnyLiveToken(ctx, db.DB, callerID)
+	if err != nil {
+		// Fail-open here matches the heartbeat path — A2A caller auth is
+		// defense-in-depth on top of access-control hierarchy, not the
+		// sole gate on the secret material. A DB hiccup shouldn't take
+		// the whole A2A path down.
+		log.Printf("wsauth: caller HasAnyLiveToken(%s) failed: %v — allowing A2A", callerID, err)
+		return nil
+	}
+	if !hasLive {
+		return nil // legacy / pre-upgrade caller
+	}
+	tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
+	if tok == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing caller auth token"})
+		return errInvalidCallerToken
+	}
+	if err := wsauth.ValidateToken(ctx, db.DB, callerID, tok); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid caller auth token"})
+		return err
+	}
+	return nil
+}
+
+// errInvalidCallerToken is a sentinel for validateCallerToken's "missing
+// token" branch so the handler-level guard can detect it without string
+// matching (the wsauth errors are typed for the invalid case).
+var errInvalidCallerToken = errors.New("missing caller auth token")

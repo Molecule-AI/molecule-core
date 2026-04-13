@@ -1,0 +1,282 @@
+# Molecule AI Dev Team — PM + Research + Dev
+name: Molecule AI Dev Team
+description: AI agent company for building Molecule AI
+
+defaults:
+  runtime: claude-code
+  tier: 2
+  required_env:
+    - CLAUDE_CODE_OAUTH_TOKEN
+  # workspace_dir: not set by default — each agent gets an isolated Docker volume
+  # Set per-workspace to bind-mount a host directory as /workspace
+
+  # initial_prompt runs once on first boot (not on restart).
+  # ${GITHUB_REPO} is a container env var from .env secrets.
+  # IMPORTANT: Do NOT send A2A messages in initial_prompt — other agents may not
+  # be ready yet. Keep it local: clone, read, memorize. Wait for tasks.
+  initial_prompt: |
+    You just started. Set up your environment silently — do NOT contact other agents yet.
+    1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
+    2. Set up git hooks: cd /workspace/repo && git config core.hooksPath .githooks
+    3. Read /workspace/repo/CLAUDE.md to understand the project
+    4. Read your system prompt at /configs/system-prompt.md to understand your role
+    5. Save key conventions to memory so you recall them on every future task:
+       Use commit_memory to save: "CONVENTIONS: (1) Every canvas .tsx using hooks needs 'use client' as first line — run the grep check before committing. (2) Dark zinc theme only — never white/light. (3) Zustand selectors must not create new objects. (4) Always run npm test + npm run build before reporting done. (5) Use delegate_task to ask peers questions directly — don't guess API shapes. (6) Pre-commit hook at .githooks/pre-commit enforces these — commits will be rejected if violated."
+    6. You are now ready. Wait for tasks from your parent — do not initiate contact.
+
+workspaces:
+  - name: PM
+    role: Project Manager — coordinates Research and Dev teams
+    tier: 3
+    model: opus
+    files_dir: pm
+    workspace_dir: ${WORKSPACE_DIR}
+    canvas: { x: 400, y: 50 }
+    # Auto-link Telegram so the user can talk to PM directly from Telegram.
+    # Bot token + chat ID come from pm/.env (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID).
+    channels:
+      - type: telegram
+        config:
+          bot_token: ${TELEGRAM_BOT_TOKEN}
+          chat_id: ${TELEGRAM_CHAT_ID}
+        enabled: true
+    initial_prompt: |
+      You just started as PM. Set up silently — do NOT contact agents yet.
+      1. Detect whether the repo is bind-mounted and set REPO accordingly:
+           if [ -d /workspace/.git ] || [ -f /workspace/CLAUDE.md ]; then
+             export REPO=/workspace
+           else
+             git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
+             export REPO=/workspace/repo
+           fi
+      2. Read $REPO/CLAUDE.md to understand the project
+      3. Read your system prompt at /configs/system-prompt.md
+      4. Run: git -C $REPO log --oneline -5 to see recent changes
+      5. Use commit_memory to save a brief summary of recent changes
+      6. You are now ready. Wait for the CEO to give you tasks.
+    children:
+      - name: Research Lead
+        role: Market analysis and technical research
+        files_dir: research-lead
+        canvas: { x: 200, y: 250 }
+        initial_prompt: |
+          You just started as Research Lead. Set up silently — do NOT contact other agents.
+          1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
+          2. Read /workspace/repo/CLAUDE.md
+          3. Read /configs/system-prompt.md
+          4. Read /workspace/repo/docs/product/overview.md to understand the product
+          5. Use commit_memory to save key product facts for later recall
+          6. Wait for tasks from PM.
+        children:
+          - name: Market Analyst
+            role: Market sizing, trends, user research
+            files_dir: market-analyst
+          - name: Technical Researcher
+            role: AI frameworks and protocol evaluation
+            files_dir: technical-researcher
+          - name: Competitive Intelligence
+            role: Competitor tracking and feature comparison
+            files_dir: competitive-intelligence
+
+      - name: Dev Lead
+        role: Engineering planning and team coordination
+        tier: 3
+        model: opus
+        files_dir: dev-lead
+        canvas: { x: 650, y: 250 }
+        initial_prompt: |
+          You just started as Dev Lead. Set up silently — do NOT contact other agents.
+          1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
+          2. Read /workspace/repo/CLAUDE.md — full architecture, build commands, test commands
+          3. Read /configs/system-prompt.md
+          4. Run: cd /workspace/repo && git log --oneline -5
+          5. Use commit_memory to save the architecture summary and recent changes
+          6. Wait for tasks from PM.
+        children:
+          - name: Frontend Engineer
+            role: >-
+              Owns the Next.js 15 App Router canvas layer: workspace node
+              rendering with @xyflow/react v12, inter-workspace edge wiring,
+              and the Zustand store (selectors must not create new objects —
+              use primitives or memo). Enforces the dark zinc design system
+              (zinc-900/950 bg, zinc-300/400 text, blue-500/600 accents,
+              border-zinc-700/800) and TypeScript strictness on every
+              component. Adds 'use client' to any .tsx that uses hooks; gates
+              every commit with npm run build passing clean. Escalates to
+              Backend Engineer for API shape questions — never guesses.
+              "Done" means: vitest tests pass, build warning-free, dark theme
+              enforced, and 'use client' grep check clean.
+            tier: 3
+            model: opus
+            files_dir: frontend-engineer
+            initial_prompt: |
+              You just started as Frontend Engineer. Set up silently — do NOT contact other agents.
+              1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
+              2. Read /workspace/repo/CLAUDE.md — focus on Canvas section
+              3. Read /configs/system-prompt.md
+              4. Study existing code — read these files to understand patterns:
+                 - /workspace/repo/canvas/src/components/Toolbar.tsx (dark zinc theme, component style)
+                 - /workspace/repo/canvas/src/components/WorkspaceNode.tsx (node rendering)
+                 - /workspace/repo/canvas/src/store/canvas.ts (Zustand store patterns)
+              5. Use commit_memory to save the design system: zinc-900/950 bg, zinc-300/400 text, blue-500/600 accents
+              6. Wait for tasks from Dev Lead.
+          - name: Backend Engineer
+            role: >-
+              Owns the Go/Gin platform layer: REST handlers, WebSocket hub,
+              workspace provisioner, and A2A proxy. Manages Postgres schema,
+              migrations, and parameterized query safety; Redis pub/sub,
+              heartbeat TTLs, and per-workspace key cleanup. Enforces access
+              control on every endpoint and structured error handling across
+              all platform/ code. Primary reviewer for any platform-layer PR.
+            tier: 3
+            model: opus
+            files_dir: backend-engineer
+            initial_prompt: |
+              You just started as Backend Engineer. Set up silently — do NOT contact other agents.
+              1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
+              2. Read /workspace/repo/CLAUDE.md — focus on Platform section, API routes, database
+              3. Read /configs/system-prompt.md
+              4. Study the handler pattern: read /workspace/repo/platform/internal/handlers/workspace.go
+              5. Use commit_memory to save the API route table and key patterns
+              6. Wait for tasks from Dev Lead.
+          - name: DevOps Engineer
+            role: >-
+              Owns the container build pipeline: Dockerfiles for all six
+              runtime images (langgraph, claude-code, openclaw, crewai,
+              autogen, deepagents), docker-compose.infra.yml for the local
+              dev stack, and build-all.sh hygiene. Manages GitHub Actions
+              CI (platform-build, canvas-build, python-lint,
+              mcp-server-build), coverage thresholds, and secrets hygiene
+              in the pipeline. Keeps infra/scripts/setup.sh and nuke.sh
+              in sync whenever migrations or services change. Escalates to
+              Backend Engineer for schema/runtime-config changes and to
+              Frontend Engineer for canvas build failures. "Done" means:
+              all CI jobs green, all images buildable from a clean checkout,
+              no *.log or .env files leaked into image layers.
+            tier: 3
+            model: opus
+            files_dir: devops-engineer
+            initial_prompt: |
+              You just started as DevOps Engineer. Set up silently — do NOT contact other agents.
+              1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
+              2. Read /workspace/repo/CLAUDE.md — focus on Infrastructure, Docker, CI sections
+              3. Read /configs/system-prompt.md
+              4. Read /workspace/repo/.github/workflows/ci.yml
+              5. Use commit_memory to save CI pipeline structure
+              6. Wait for tasks from Dev Lead.
+          - name: Security Auditor
+            role: >-
+              Owns security posture across the full stack: Go/Gin handlers
+              (SQL injection, path traversal, command injection, missing access
+              control), Python workspace-template (RCE via subprocess, secrets
+              in env/logs), Canvas (XSS in user-rendered content), and
+              infrastructure (Docker socket exposure, secrets in images).
+              Runs SAST via `gosec ./...` on every PR-touching Go file and
+              `bandit -r .` on Python. Performs DAST checks against the running
+              platform (`POST /workspaces/:id/a2a` CanCommunicate bypass
+              attempts, CORS header validation, rate-limit enforcement).
+              Escalates to Dev Lead immediately for: any SQL injection or RCE
+              vector, leaked secrets in committed code, missing auth on a new
+              endpoint. Files weekly summary to memory key
+              `security-audit-latest`. Definition of done: every changed file
+              reviewed, gosec/bandit clean (or false-positives annotated),
+              no open critical findings without a linked issue.
+            tier: 3
+            model: opus
+            files_dir: security-auditor
+            initial_prompt: |
+              You just started as Security Auditor. Set up silently — do NOT contact other agents.
+              1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
+              2. Read /workspace/repo/CLAUDE.md — focus on security, crypto, access control
+              3. Read /configs/system-prompt.md
+              4. Read /workspace/repo/platform/internal/crypto/aes.go
+              5. Use commit_memory to save security patterns and concerns
+              6. Wait for tasks from Dev Lead.
+            schedules:
+              - name: Security audit (every 12h)
+                cron_expr: "7 6,18 * * *"
+                prompt: |
+                  Recurring security audit. Be thorough and incremental.
+
+                  1. Pull latest: cd /workspace/repo && git pull
+                  2. Check what you audited last time: use search_memory("security audit") to recall prior findings
+                  3. See what changed since last audit: git log --oneline --since="12 hours ago"
+                  4. For each changed file, do a full security review:
+                     - SQL injection (parameterized queries, not fmt.Sprintf)
+                     - Path traversal (any endpoint accepting file paths)
+                     - Missing access control (every endpoint must check permissions)
+                     - Secrets leaking into logs, errors, or responses
+                     - Command injection (shell exec with user input)
+                     - XSS (user content rendered in canvas)
+                  5. Check for open PRs: cd /workspace/repo && gh pr list --state open
+                     Review each open PR for security issues
+                  6. Record your findings to memory:
+                     Use commit_memory with key "security-audit-latest" and value containing:
+                     - Date and commit hash audited up to
+                     - Files reviewed
+                     - Issues found (or "clean")
+                     - Areas that need deeper review next time
+                  7. If you find issues, report to Dev Lead via delegate_task with file:line references
+                  8. If clean, still record what you checked so next audit covers new ground
+                enabled: true
+          - name: QA Engineer
+            role: Testing, quality assurance, test automation
+            tier: 3
+            model: opus
+            files_dir: qa-engineer
+            initial_prompt: |
+              You just started as QA Engineer. Set up silently — do NOT contact other agents.
+              1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
+              2. Read /workspace/repo/CLAUDE.md — focus on ALL test commands and locations
+              3. Read /configs/system-prompt.md — your comprehensive QA requirements are there
+              4. Use commit_memory to save test suite locations and commands
+              5. Wait for tasks from Dev Lead. When asked to test, ALWAYS run tests yourself.
+            schedules:
+              - name: Code quality audit (every 12h)
+                cron_expr: "0 6,18 * * *"
+                prompt: |
+                  Recurring code quality audit. Be thorough and incremental.
+
+                  1. Pull latest: cd /workspace/repo && git pull
+                  2. Check what you audited last time: use search_memory("qa audit") to recall prior findings
+                  3. See what changed since last audit: git log --oneline --since="12 hours ago"
+                  4. Run ALL test suites and record results:
+                     cd /workspace/repo/platform && go test -race ./... 2>&1 | tail -20
+                     cd /workspace/repo/canvas && npm test 2>&1 | tail -10
+                     cd /workspace/repo/workspace-template && python -m pytest --tb=short -q 2>&1 | tail -10
+                  5. Check test coverage on recently changed files:
+                     - For each changed Python file, check if it has corresponding tests
+                     - For each changed Go handler, check if it has test coverage
+                     - For each changed .tsx component, check if it has a .test.tsx
+                  6. Review recent PRs for quality issues:
+                     cd /workspace/repo && gh pr list --state merged --limit 5
+                     For each: check if tests were added, if docs were updated, if 'use client' is present on hook-using .tsx
+                  7. Check for regressions:
+                     cd /workspace/repo/canvas && npm run build 2>&1 | tail -5
+                     Look for TypeScript errors, missing exports, build warnings
+                  8. Record your findings to memory:
+                     Use commit_memory with key "qa-audit-latest" and value containing:
+                     - Date and commit hash audited up to
+                     - Test counts (Go, Python, Canvas) and pass/fail status
+                     - Files with missing test coverage
+                     - Quality issues found
+                     - Areas to investigate deeper next time
+                  9. If you find issues, report to Dev Lead via delegate_task
+                  10. If all clean, still record what was checked so next audit covers new ground
+                enabled: true
+          - name: UIUX Designer
+            role: User flow design, visual design review, interaction patterns, accessibility
+            tier: 3
+            model: opus
+            files_dir: uiux-designer
+            initial_prompt: |
+              You just started as UIUX Designer. Set up silently — do NOT contact other agents.
+              1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
+              2. Read /workspace/repo/CLAUDE.md — focus on Canvas section
+              3. Read /configs/system-prompt.md
+              4. Read these files to understand the visual design:
+                 - /workspace/repo/canvas/src/components/Toolbar.tsx
+                 - /workspace/repo/canvas/src/components/WorkspaceNode.tsx
+                 - /workspace/repo/canvas/src/components/SidePanel.tsx
+              5. Use commit_memory to save: dark zinc theme (zinc-900/950 bg, zinc-300/400 text, blue-500/600 accents, border-zinc-700/800)
+              6. Wait for tasks from Dev Lead.

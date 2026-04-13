@@ -1,0 +1,230 @@
+services:
+  # --- Infrastructure ---
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev}
+      POSTGRES_DB: ${POSTGRES_DB:-molecule}
+    command: ["postgres", "-c", "wal_level=logical"]
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - molecule-monorepo-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dev}"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  langfuse-db-init:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev}
+    command:
+      - /bin/sh
+      - -c
+      - |
+        export PGPASSWORD="$${POSTGRES_PASSWORD}"
+        until pg_isready -h postgres -U "$${POSTGRES_USER}" -d postgres >/dev/null 2>&1; do
+          sleep 1
+        done
+        if ! psql -h postgres -U "$${POSTGRES_USER}" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'langfuse'" | grep -q 1; then
+          psql -h postgres -U "$${POSTGRES_USER}" -d postgres -c "CREATE DATABASE langfuse"
+        fi
+    networks:
+      - molecule-monorepo-net
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--notify-keyspace-events", "KEA"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    networks:
+      - molecule-monorepo-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  # --- Observability ---
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    environment:
+      CLICKHOUSE_DB: langfuse
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: langfuse
+    volumes:
+      - clickhousedata:/var/lib/clickhouse
+    networks:
+      - molecule-monorepo-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  langfuse:
+    image: langfuse/langfuse:2
+    depends_on:
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-db-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-dev}:${POSTGRES_PASSWORD:-dev}@postgres:5432/langfuse
+      CLICKHOUSE_URL: clickhouse://langfuse:langfuse@langfuse-clickhouse:9000/langfuse
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: langfuse
+      LANGFUSE_AUTO_CLICKHOUSE_MIGRATION_DISABLED: "true"
+      NEXTAUTH_SECRET: ${LANGFUSE_SECRET:-changeme-langfuse-secret}
+      NEXTAUTH_URL: http://localhost:3001
+      SALT: ${LANGFUSE_SALT:-changeme-langfuse-salt}
+    ports:
+      - "3001:3000"
+    networks:
+      - molecule-monorepo-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/public/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # --- Platform ---
+  platform:
+    build:
+      context: ./platform
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-dev}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-molecule}?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      PORT: "${PLATFORM_PORT:-8080}"
+      PLATFORM_URL: "http://platform:${PLATFORM_PORT:-8080}"
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:${CANVAS_PUBLISH_PORT:-3000},http://127.0.0.1:${CANVAS_PUBLISH_PORT:-3000},http://localhost:3001}
+      RATE_LIMIT: "${RATE_LIMIT:-1000}"
+      CONFIGS_DIR: /configs
+      CONFIGS_HOST_DIR: "${CONFIGS_HOST_DIR:-${PWD}/workspace-configs-templates}"
+      PLUGINS_HOST_DIR: "${PLUGINS_HOST_DIR:-${PWD}/plugins}"
+    volumes:
+      - ./workspace-configs-templates:/configs
+      - ./org-templates:/org-templates:ro
+      - ./plugins:/plugins:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "${PLATFORM_PUBLISH_PORT:-8080}:${PLATFORM_PORT:-8080}"
+    networks:
+      - molecule-monorepo-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:${PLATFORM_PORT:-8080}/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- Canvas ---
+  canvas:
+    build:
+      context: ./canvas
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_PLATFORM_URL: ${NEXT_PUBLIC_PLATFORM_URL:-http://localhost:${PLATFORM_PUBLISH_PORT:-8080}}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:${PLATFORM_PUBLISH_PORT:-8080}/ws}
+    depends_on:
+      platform:
+        condition: service_healthy
+    environment:
+      PORT: "${CANVAS_PORT:-3000}"
+      NEXT_PUBLIC_PLATFORM_URL: ${NEXT_PUBLIC_PLATFORM_URL:-http://localhost:${PLATFORM_PUBLISH_PORT:-8080}}
+      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:${PLATFORM_PUBLISH_PORT:-8080}/ws}
+    ports:
+      - "${CANVAS_PUBLISH_PORT:-3000}:${CANVAS_PORT:-3000}"
+    networks:
+      - molecule-monorepo-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:${CANVAS_PORT:-3000} || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # --- Optional: LiteLLM Proxy (unified OpenAI-compatible API for all providers) ---
+  # Start with: docker compose --profile multi-provider up
+  #
+  # Workspace agents then set:
+  #   OPENAI_BASE_URL=http://litellm:4000
+  #   OPENAI_API_KEY=${LITELLM_MASTER_KEY:-sk-molecule}
+  #
+  # And use model names from infra/litellm_config.yml (e.g. "claude-opus-4-5",
+  # "gpt-4o", "openrouter/deepseek-r1", "ollama/llama3.2").
+  # Edit infra/litellm_config.yml to add/remove providers and models.
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    profiles:
+      - multi-provider
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./infra/litellm_config.yml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "4"]
+    environment:
+      # Pass provider API keys through — only the ones you have are needed
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-molecule}
+    networks:
+      - molecule-monorepo-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:4000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # --- Optional: Local LLM Models via Ollama ---
+  # Start with: docker compose --profile local-models up
+  # After first start, pull a model:
+  #   docker compose exec ollama ollama pull llama3.2
+  #   docker compose exec ollama ollama pull qwen2.5-coder:7b
+  # Then set MODEL_PROVIDER=ollama:llama3.2 in your workspace config.yaml
+  # Workspace agents reach Ollama at http://ollama:11434 (internal Docker network).
+  ollama:
+    image: ollama/ollama:latest
+    profiles:
+      - local-models
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollamadata:/root/.ollama
+    networks:
+      - molecule-monorepo-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+networks:
+  molecule-monorepo-net:
+    name: molecule-monorepo-net
+
+volumes:
+  pgdata:
+  redisdata:
+  clickhousedata:
+  ollamadata:

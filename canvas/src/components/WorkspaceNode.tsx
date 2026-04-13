@@ -1,0 +1,468 @@
+"use client";
+
+import { useCallback, useMemo, useRef } from "react";
+import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
+import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
+import { showToast } from "@/components/Toaster";
+import { Tooltip } from "@/components/Tooltip";
+import { useShallow } from "zustand/react/shallow";
+
+/** Stable selector: returns children, grandchild flag, and descendant count for a node */
+function useHierarchyInfo(parentId: string) {
+  const childIds = useCanvasStore(
+    useCallback((s) => s.nodes.filter((n) => n.data.parentId === parentId).map((n) => n.id).join(","), [parentId])
+  );
+  const children = useCanvasStore(
+    useShallow((s) => s.nodes.filter((n) => n.data.parentId === parentId))
+  );
+  const hasGrandchildren = useCanvasStore(
+    useCallback((s) => {
+      const ids = childIds.split(",").filter(Boolean);
+      return ids.length > 0 && ids.some((cid) => s.nodes.some((n) => n.data.parentId === cid));
+    }, [childIds])
+  );
+  const descendantCount = useCanvasStore(
+    useCallback((s) => countDescendants(parentId, s.nodes), [parentId])
+  );
+  return { children, hasGrandchildren, descendantCount };
+}
+
+const STATUS_CONFIG: Record<string, { dot: string; glow: string; label: string; bar: string }> = {
+  online: { dot: "bg-emerald-400", glow: "shadow-emerald-400/50", label: "Online", bar: "from-emerald-500/20 to-transparent" },
+  offline: { dot: "bg-zinc-500", glow: "", label: "Offline", bar: "from-zinc-600/10 to-transparent" },
+  paused: { dot: "bg-indigo-400", glow: "", label: "Paused", bar: "from-indigo-500/10 to-transparent" },
+  degraded: { dot: "bg-amber-400", glow: "shadow-amber-400/50", label: "Degraded", bar: "from-amber-500/20 to-transparent" },
+  failed: { dot: "bg-red-400", glow: "shadow-red-400/50", label: "Failed", bar: "from-red-500/20 to-transparent" },
+  provisioning: { dot: "bg-sky-400 animate-pulse", glow: "shadow-sky-400/50", label: "Starting", bar: "from-sky-500/20 to-transparent" },
+};
+
+/** Eject/extract arrow icon — visually distinct from delete ✕ */
+function EjectIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 7L7 3" />
+      <path d="M4 3H7V6" />
+    </svg>
+  );
+}
+
+const TIER_CONFIG: Record<number, { label: string; color: string }> = {
+  1: { label: "T1", color: "text-zinc-500 bg-zinc-800/80" },
+  2: { label: "T2", color: "text-sky-400 bg-sky-950/50" },
+  3: { label: "T3", color: "text-violet-400 bg-violet-950/50" },
+  4: { label: "T4", color: "text-amber-400 bg-amber-950/50" },
+};
+
+export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) {
+  const statusCfg = STATUS_CONFIG[data.status] || STATUS_CONFIG.offline;
+  const tierCfg = TIER_CONFIG[data.tier] || { label: `T${data.tier}`, color: "text-zinc-500 bg-zinc-800" };
+  const selectedNodeId = useCanvasStore((s) => s.selectedNodeId);
+  const selectNode = useCanvasStore((s) => s.selectNode);
+  const openContextMenu = useCanvasStore((s) => s.openContextMenu);
+  const nestNode = useCanvasStore((s) => s.nestNode);
+  const isDragTarget = useCanvasStore((s) => s.dragOverNodeId === id);
+  const isSelected = selectedNodeId === id;
+  const isOnline = data.status === "online";
+
+  // Get children + hierarchy info (single stable selector avoids redundant re-renders)
+  const { children, hasGrandchildren, descendantCount } = useHierarchyInfo(id);
+  const hasChildren = children.length > 0;
+
+  const skills = getSkillNames(data.agentCard);
+
+  const handleExtract = useCallback(
+    (childId: string) => nestNode(childId, null),
+    [nestNode]
+  );
+
+  return (
+    <div
+      onClick={(e) => {
+        e.stopPropagation();
+        selectNode(isSelected ? null : id);
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        if (hasChildren) {
+          window.dispatchEvent(new CustomEvent("molecule:zoom-to-team", { detail: { nodeId: id } }));
+        }
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openContextMenu({ x: e.clientX, y: e.clientY, nodeId: id, nodeData: data });
+      }}
+      className={`
+        group relative rounded-xl
+        ${hasGrandchildren ? "min-w-[720px] max-w-[960px]" : hasChildren ? "min-w-[320px] max-w-[450px]" : "min-w-[210px] max-w-[280px]"}
+        cursor-pointer overflow-hidden
+        transition-all duration-200 ease-out
+        ${isDragTarget
+          ? "bg-emerald-950/40 border-2 border-emerald-400/60 ring-2 ring-emerald-400/20 scale-[1.03]"
+          : isSelected
+          ? "bg-zinc-900/95 border border-blue-500/70 ring-1 ring-blue-500/30 shadow-lg shadow-blue-500/10"
+          : "bg-zinc-900/90 border border-zinc-700/80 hover:border-zinc-500/60 shadow-lg shadow-black/30 hover:shadow-xl hover:shadow-black/40"
+        }
+        backdrop-blur-sm
+      `}
+    >
+      {/* Status gradient bar at top */}
+      <div className={`absolute inset-x-0 top-0 h-8 bg-gradient-to-b ${statusCfg.bar} pointer-events-none`} />
+
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!w-2.5 !h-1 !rounded-full !bg-zinc-600/80 !border-0 !-top-0.5 hover:!bg-blue-400 hover:!h-1.5 transition-all"
+      />
+
+      <div className="relative px-3.5 py-2.5">
+        {/* Header row */}
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className={`w-2 h-2 rounded-full shrink-0 ${statusCfg.dot} ${statusCfg.glow} shadow-sm`} />
+            <span className="text-[13px] font-semibold text-zinc-100 truncate leading-tight">
+              {data.name}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {hasChildren && (
+              <span className="text-[8px] font-mono text-violet-300 bg-violet-900/40 border border-violet-700/30 px-1.5 py-0.5 rounded-md">
+                {descendantCount} sub
+              </span>
+            )}
+            <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-md ${tierCfg.color}`}>
+              {tierCfg.label}
+            </span>
+          </div>
+        </div>
+
+        {/* Runtime badge — prefers workspace.runtime (DB column) over
+            agent_card.runtime (agent-reported). Phase 30 remote agents
+            (runtime='external') get a distinct purple "REMOTE" pill.
+            We treat empty-string DB values as "missing" so an unbackfilled
+            row falls through to the agent-card value rather than rendering
+            a blank pill. */}
+        {(() => {
+          const dbRuntime = typeof data.runtime === "string" && data.runtime !== ""
+            ? data.runtime : null;
+          const cardRuntime = data.agentCard && typeof (data.agentCard as Record<string, unknown>).runtime === "string"
+            ? (data.agentCard as Record<string, string>).runtime
+            : null;
+          const runtime = dbRuntime ?? cardRuntime;
+          if (!runtime) return null;
+          return (
+            <div className="mb-1 flex items-center gap-1">
+              {runtime === "external" ? (
+                <span
+                  className="text-[7px] font-mono px-1.5 py-0.5 rounded-md text-violet-200 bg-violet-900/50 border border-violet-500/40"
+                  title="Phase 30 remote agent — runs outside this platform's Docker network. Lifecycle managed via heartbeat-based polling, not Docker exec."
+                >
+                  ★ REMOTE
+                </span>
+              ) : (
+                <span className="text-[7px] font-mono px-1.5 py-0.5 rounded-md text-zinc-400 bg-zinc-800/60 border border-zinc-700/30">
+                  {runtime}
+                </span>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Role */}
+        {data.role && (
+          <div className="text-[10px] text-zinc-400 mb-1.5 leading-tight">{data.role}</div>
+        )}
+
+        {/* Skills */}
+        {skills.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-1.5">
+            {skills.slice(0, 4).map((skill) => (
+              <span
+                key={skill}
+                className={`text-[8px] px-1.5 py-0.5 rounded-md border ${
+                  isOnline
+                    ? "text-emerald-300/80 bg-emerald-950/30 border-emerald-800/30"
+                    : "text-zinc-400 bg-zinc-800/60 border-zinc-700/40"
+                }`}
+              >
+                {skill}
+              </span>
+            ))}
+            {skills.length > 4 && (
+              <span className="text-[8px] text-zinc-500 self-center">
+                +{skills.length - 4}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Embedded children — rendered INSIDE the parent node */}
+        {hasChildren && (
+          <EmbeddedTeam members={children} depth={0} onSelect={selectNode} onExtract={handleExtract} />
+        )}
+
+        {/* Current task */}
+        {data.currentTask && (
+          <Tooltip text={String(data.currentTask)}>
+            <div className="flex items-center gap-1.5 mt-1 bg-amber-950/20 px-2 py-1 rounded-md border border-amber-800/20 cursor-default">
+              <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+              <span className="text-[8px] text-amber-300/80 truncate">{data.currentTask}</span>
+            </div>
+          </Tooltip>
+        )}
+
+        {/* Needs restart banner */}
+        {data.needsRestart && !data.currentTask && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              useCanvasStore.getState().restartWorkspace(id).catch(() => showToast("Restart failed", "error"));
+            }}
+            className="flex items-center gap-1.5 mt-1 w-full bg-sky-950/30 px-2 py-1 rounded-md border border-sky-800/30 hover:bg-sky-900/40 transition-colors text-left"
+          >
+            <span className="text-[8px]">↻</span>
+            <span className="text-[8px] text-sky-300/80">Restart to apply changes</span>
+          </button>
+        )}
+
+        {/* Bottom row: status / active tasks */}
+        <div className="flex items-center justify-between mt-0.5">
+          {data.status !== "online" ? (
+            <div className={`text-[8px] uppercase tracking-widest font-medium ${
+              data.status === "failed" ? "text-red-400" :
+              data.status === "degraded" ? "text-amber-400" :
+              data.status === "provisioning" ? "text-sky-400" :
+              "text-zinc-500"
+            }`}>
+              {statusCfg.label}
+            </div>
+          ) : <div />}
+
+          {data.activeTasks > 0 && (
+            <div className="flex items-center gap-1">
+              <div className="w-1 h-1 rounded-full bg-amber-400 animate-pulse" />
+              <span className="text-[8px] text-amber-300/80 tabular-nums">
+                {data.activeTasks} task{data.activeTasks > 1 ? "s" : ""}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Degraded error preview */}
+        {data.status === "degraded" && data.lastSampleError && (
+          <div
+            className="text-[8px] text-amber-300/60 truncate mt-1 bg-amber-950/20 px-1.5 py-0.5 rounded border border-amber-800/20"
+            title={data.lastSampleError}
+          >
+            {data.lastSampleError}
+          </div>
+        )}
+      </div>
+
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!w-2.5 !h-1 !rounded-full !bg-zinc-600/80 !border-0 !-bottom-0.5 hover:!bg-blue-400 hover:!h-1.5 transition-all"
+      />
+    </div>
+  );
+}
+
+const MAX_NESTING_DEPTH = 3;
+
+/** Count all descendants (children + grandchildren + ...) */
+function countDescendants(nodeId: string, allNodes: Node<WorkspaceNodeData>[], visited = new Set<string>()): number {
+  if (visited.has(nodeId)) return 0;
+  visited.add(nodeId);
+  const directChildren = allNodes.filter((n) => n.data.parentId === nodeId);
+  let count = directChildren.length;
+  for (const child of directChildren) {
+    count += countDescendants(child.id, allNodes, visited);
+  }
+  return count;
+}
+
+/** Subscribes to allNodes only when children exist — isolates re-renders from parent */
+function EmbeddedTeam({ members, depth, onSelect, onExtract }: {
+  members: Node<WorkspaceNodeData>[];
+  depth: number;
+  onSelect: (id: string) => void;
+  onExtract: (id: string) => void;
+}) {
+  const allNodes = useCanvasStore((s) => s.nodes);
+  // Use grid layout at depth 0 when there are multiple members (departments side-by-side)
+  const useGrid = depth === 0 && members.length >= 2;
+  return (
+    <div className="mt-2 pt-2 border-t border-zinc-700/30">
+      <div className="text-[8px] text-zinc-500 uppercase tracking-widest mb-1.5">Team Members</div>
+      <div className={useGrid
+        ? "grid grid-cols-2 gap-1.5 lg:grid-cols-3"
+        : "space-y-1.5"
+      }>
+        {members.map((child) => (
+          <TeamMemberChip key={child.id} node={child} allNodes={allNodes} depth={depth} onSelect={onSelect} onExtract={onExtract} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Recursive mini-card — mirrors parent card layout at smaller scale */
+function TeamMemberChip({
+  node,
+  allNodes,
+  depth,
+  onSelect,
+  onExtract,
+}: {
+  node: Node<WorkspaceNodeData>;
+  allNodes: Node<WorkspaceNodeData>[];
+  depth: number;
+  onSelect: (id: string) => void;
+  onExtract: (id: string) => void;
+}) {
+  const { data } = node;
+  const statusCfg = STATUS_CONFIG[data.status] || STATUS_CONFIG.offline;
+  const tierCfg = TIER_CONFIG[data.tier] || { label: `T${data.tier}`, color: "text-zinc-500 bg-zinc-800" };
+  const isOnline = data.status === "online";
+  const skills = getSkillNames(data.agentCard);
+
+  const subChildren = useMemo(
+    () => allNodes.filter((n) => n.data.parentId === node.id),
+    [allNodes, node.id]
+  );
+  const hasSubChildren = subChildren.length > 0;
+  const descendantCount = useMemo(
+    () => hasSubChildren ? countDescendants(node.id, allNodes) : 0,
+    [allNodes, node.id, hasSubChildren]
+  );
+
+  return (
+    <div
+      className="group/child relative rounded-lg bg-zinc-800/60 hover:bg-zinc-700/70 border border-zinc-700/30 hover:border-zinc-600/40 overflow-hidden transition-colors cursor-pointer"
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect(node.id);
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        useCanvasStore.getState().openContextMenu({ x: e.clientX, y: e.clientY, nodeId: node.id, nodeData: data });
+      }}
+    >
+      {/* Status gradient bar */}
+      <div className={`absolute inset-x-0 top-0 h-5 bg-gradient-to-b ${statusCfg.bar} pointer-events-none`} />
+
+      <div className="relative px-2 py-1.5">
+        {/* Header: name + badges + extract */}
+        <div className="flex items-center justify-between gap-1 mb-0.5">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusCfg.dot}`} />
+            <span className="text-[9px] font-semibold text-zinc-200 truncate leading-tight">
+              {data.name}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            {hasSubChildren && (
+              <span className="text-[7px] font-mono text-violet-300 bg-violet-900/40 border border-violet-700/30 px-1 py-0.5 rounded">
+                {descendantCount}
+              </span>
+            )}
+            <span className={`text-[7px] font-mono px-1 py-0.5 rounded ${tierCfg.color}`}>
+              {tierCfg.label}
+            </span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onExtract(node.id);
+              }}
+              title="Extract from team"
+              className="opacity-0 group-hover/child:opacity-100 text-zinc-500 hover:text-sky-400 transition-all"
+            >
+              <EjectIcon />
+            </button>
+          </div>
+        </div>
+
+        {/* Role */}
+        {data.role && (
+          <div className="text-[8px] text-zinc-500 mb-1 leading-tight truncate">{data.role}</div>
+        )}
+
+        {/* Skills */}
+        {skills.length > 0 && (
+          <div className="flex flex-wrap gap-0.5 mb-1">
+            {skills.slice(0, 3).map((skill) => (
+              <span
+                key={skill}
+                className={`text-[7px] px-1 py-0.5 rounded border ${
+                  isOnline
+                    ? "text-emerald-300/70 bg-emerald-950/20 border-emerald-800/20"
+                    : "text-zinc-500 bg-zinc-800/40 border-zinc-700/30"
+                }`}
+              >
+                {skill}
+              </span>
+            ))}
+            {skills.length > 3 && (
+              <span className="text-[7px] text-zinc-500 self-center">+{skills.length - 3}</span>
+            )}
+          </div>
+        )}
+
+        {/* Status + active tasks row */}
+        <div className="flex items-center justify-between">
+          {data.status !== "online" ? (
+            <span className={`text-[7px] uppercase tracking-widest font-medium ${
+              data.status === "failed" ? "text-red-400" :
+              data.status === "degraded" ? "text-amber-400" :
+              data.status === "provisioning" ? "text-sky-400" :
+              "text-zinc-500"
+            }`}>
+              {statusCfg.label}
+            </span>
+          ) : <div />}
+          {data.activeTasks > 0 && (
+            <div className="flex items-center gap-0.5">
+              <div className="w-1 h-1 rounded-full bg-amber-400 animate-pulse" />
+              <span className="text-[7px] text-amber-300/80 tabular-nums">
+                {data.activeTasks}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Current task banner for sub-agents */}
+        {data.currentTask && (
+          <Tooltip text={String(data.currentTask)}>
+            <div className="flex items-center gap-1 mt-0.5 px-1.5 py-0.5 bg-amber-950/20 rounded border border-amber-800/20 cursor-default">
+              <div className="w-1 h-1 rounded-full bg-amber-400 animate-pulse shrink-0" />
+              <span className="text-[7px] text-amber-300/70 truncate">{data.currentTask}</span>
+            </div>
+          </Tooltip>
+        )}
+
+        {/* Recursive sub-children rendered inside this card */}
+        {hasSubChildren && depth < MAX_NESTING_DEPTH && (
+          <div className="mt-1.5 pt-1.5 border-t border-zinc-700/20">
+            <div className="text-[7px] text-zinc-600 uppercase tracking-widest mb-1">Team</div>
+            <div className={subChildren.length >= 2 ? "grid grid-cols-2 gap-1" : "space-y-1"}>
+              {subChildren.map((sub) => (
+                <TeamMemberChip key={sub.id} node={sub} allNodes={allNodes} depth={depth + 1} onSelect={onSelect} onExtract={onExtract} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function getSkillNames(agentCard: Record<string, unknown> | null): string[] {
+  if (!agentCard) return [];
+  const skills = agentCard.skills;
+  if (!Array.isArray(skills)) return [];
+  return skills.map((s: Record<string, unknown>) =>
+    String(s.name || s.id || "")
+  ).filter(Boolean);
+}

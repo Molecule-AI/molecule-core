@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "mcp__a2a(*)"
+    ],
+    "deny": []
+  },
+  "enabledMcpServers": ["a2a"]
+}

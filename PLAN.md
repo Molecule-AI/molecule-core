@@ -1,0 +1,304 @@
+# PLAN.md — Molecule AI Build Plan
+
+> Completed phases (1–11, 13–14) are documented in `/docs` and removed from here.
+> This file tracks only **in-progress and upcoming work**.
+
+---
+
+## Completed Phases (see /docs for details)
+
+| Phase | Name | Docs |
+|-------|------|------|
+| 1 | Core Loop | `docs/architecture/architecture.md`, `CLAUDE.md` |
+| 2 | E2E Validation | `CLAUDE.md` (build/test commands) |
+| 3 | Hierarchy & Communication | `docs/api-protocol/communication-rules.md` |
+| 4 | Provisioner | `docs/architecture/provisioner.md` |
+| 5 | Agent Management | `CLAUDE.md` (API routes) |
+| 6 | Bundle Export/Import | `docs/agent-runtime/bundle-system.md` |
+| 7 | Team Expansion | `docs/agent-runtime/team-expansion.md` |
+| 8 | Human-in-the-Loop Approvals | `docs/agent-runtime/system-prompt-structure.md` |
+| 9 | Hierarchical Memory | `docs/architecture/memory.md` |
+| 10 | Observability (Langfuse) | `docs/development/observability.md` |
+| 11 | Canvas Polish & UX | `docs/frontend/canvas.md` |
+| 13 | Runtime Enhancements | `docs/agent-runtime/workspace-runtime.md` |
+| 14 | Production Hardening | `docs/architecture/provisioner.md`, `CLAUDE.md` |
+| 15 | Per-Workspace Dir | PR #38 — `workspace_dir` per workspace |
+| 16 | Plugin System | PR #39 — per-workspace plugins with registry |
+| 17 | Agent GitHub Access | PR #40 — git/gh in images, GITHUB_TOKEN env |
+| 18 | File Browser Lazy Loading | PR #37 — depth=1, path traversal protection |
+| 19 | MCP Full Coverage | PR #40 — 52→54 tools (plugins, global secrets, pause/resume, org, delegation) |
+| 20 | Canvas UX Sprint | PRs #4, #21, #39 — Settings Panel, Onboarding, Plugins UI, Pause/Resume |
+| 21 | Claude Agent SDK Migration | PR #48 — `ClaudeSDKExecutor` replaces CLI subprocess |
+| 22 | Cron Scheduling | PR #49 — recurring tasks via cron expressions, Canvas Schedule tab |
+| 23 | Code Quality & Multi-Provider | PR #50 — model fallback, DeepAgents full SDK, 7 LLM providers, 100% test coverage |
+| 24 | Async Delegation | PR #41 — non-blocking delegation with status polling, `check_delegation_status` tool |
+| 25 | Social Channels | PR #54 — adapter-based Telegram integration, Canvas Channels tab, 7 MCP tools, hot reload, multi-chat IDs, auto-detect, /start auto-reply, full Telegram Bot API audit fixes |
+| 26 | Auth Env Vars | PR #55 — `required_env` config replaces `.auth-token` files, env-var only path; reno-stars 15-agent org template |
+| 27 | Channel Polish & Org Auto-link | PR #56 — poller lifetime fix (bgCtx), Restart Pending button (only when needed), org template `channels:` field auto-links Telegram on import |
+
+---
+
+## Phase 12: Code Sandbox — PARTIAL
+
+> MVP done (subprocess + Docker backends). Production backends not started.
+
+- [x] `run_code` tool — `tools/sandbox.py`
+- [x] Docker-in-Docker backend (MVP) — throwaway container with resource limits
+- [ ] Firecracker backend (production) — MicroVM isolation, faster cold starts
+- [ ] E2B backend (cloud) — cloud-hosted via E2B API
+- [x] Sandbox config — `SandboxConfig` dataclass in config.py
+
+---
+
+## Phase 20: Canvas UX Sprint — MOSTLY COMPLETE
+
+> UX specs created by UIUX Designer agent. See `docs/ux-specs/` for full specs.
+
+### 20.1 Settings Panel (Global Secrets UI) — DONE
+**Spec**: `docs/ux-specs/ux-spec-settings-panel.md`
+
+- [x] Gear icon in canvas top bar (Cmd+, shortcut)
+- [x] Slide-over drawer (480px, right-anchored)
+- [x] Service groups (GitHub, Anthropic, OpenRouter, Custom)
+- [x] CRUD: add, view (masked), edit, delete secrets
+- [x] Empty state with guided setup
+- [x] Unsaved changes guard on close
+
+### 20.2 Onboarding / Deploy Interception — DONE
+**Spec**: `docs/ux-specs/ux-spec-onboarding-interception.md`
+
+- [x] Pre-deploy secret check — detect missing API keys per runtime
+- [x] Missing Keys Modal — inline form, only asks for what's needed
+- [x] Provisioning timeout → named error state with recovery actions
+- [x] No dead ends — every error has a fix action
+
+### 20.3 Canvas UI Improvements — PARTIAL
+**Spec**: `docs/ux-specs/ux-spec-canvas-improvements.md`
+
+- [x] Plugins install/uninstall in Skills tab (PR #39)
+- [x] Pause/resume from context menu
+- [x] Org template import from canvas (PR — `OrgTemplatesSection` in TemplatePalette)
+- [ ] Workspace search (Cmd+K)
+- [ ] Batch operations
+
+---
+
+## Phase 30: SaaS — Remote Workspaces & Cross-Network Federation — IN PROGRESS
+
+**Goal:** let a Python agent running on a laptop in another city boot,
+register, authenticate, accept A2A from its parent PM on the platform,
+and appear on the canvas as a first-class workspace.
+
+**Why now:** the self-hostable single-box model has landed; the next
+meaningful expansion is letting orgs span machines and networks. This
+is the step that turns Molecule AI from "Docker-compose on one box" into
+a multi-tenant SaaS-shaped product.
+
+**Design thesis:** ride the existing `runtime='external'` escape hatch.
+Every Docker-touching handler already short-circuits when a workspace
+is external. We don't need a parallel subsystem — we need to close
+four small gaps and add per-workspace auth. See
+[`docs/remote-workspaces-readiness.md`](docs/remote-workspaces-readiness.md)
+for the full code audit.
+
+### Shipping order (eight bounded steps, ~2 weeks to GA)
+
+- [x] **30.1 Workspace auth tokens** — foundation; prevents spoofing.
+  New `workspace_auth_tokens` table; `POST /registry/register` issues
+  a token; middleware validates `Authorization: Bearer <token>` on
+  `/registry/heartbeat`, `/registry/update-card`. Lazy bootstrap so
+  in-flight workspaces upgrade gracefully. Transparent to local
+  containers — provisioner carries the token through the existing env-var
+  pattern. No feature flag.
+
+- [x] **30.2 Secrets pull endpoint** — `GET /workspaces/:id/secrets/values`
+  returns decrypted secrets JSON, gated by the 30.1 token. Local agents
+  can use it too (removes env-at-create coupling for rotating secrets).
+
+- [x] **30.3 Plugin tarball download** — `GET /plugins/:name/download`
+  returns a tarball; agent unpacks locally. Replaces Docker-exec plugin
+  install for remote agents. Behind `REMOTE_PLUGIN_DOWNLOAD_ENABLED`.
+
+- [x] **30.4 Workspace state polling** — `GET /workspaces/:id/state`
+  returns `{status, paused, deleted_at, pending_events[]}` as a drop-in
+  for the WebSocket feed remote agents can't reach. Behind
+  `REMOTE_STATE_POLLING_ENABLED`.
+
+- [x] **30.5 A2A proxy token validation** — the proxy enforces the caller's
+  auth token on `POST /workspaces/:id/a2a`. Mutual auth between agents.
+
+- [x] **30.6 Direct sibling discovery + URL caching** — agents call
+  `GET /registry/{parent_id}/peers` once, cache sibling URLs, call them
+  directly for A2A. Resilient to brief platform outages.
+
+- [x] **30.7 Poll-liveness for external runtime** — `LivenessChecker`
+  interface in `registry/`; `PollLiveness` marks offline if no heartbeat
+  in 90s. Docker checker becomes one implementation, poll-liveness
+  another. Health sweep routes by runtime. Behind
+  `REMOTE_LIVENESS_POLLING_ENABLED`.
+
+- [x] **30.8 Remote-agent SDK + docs** — `sdk/python/molecule_agent/`
+  thin client: register → pull secrets → run A2A loop → poll state →
+  heartbeat. Working `examples/remote-agent/` a new user can run on a
+  laptop. Remove the three feature flags. Remote workspaces become GA.
+
+### Out of scope for Phase 30
+
+- Mutual TLS / platform-identity verification from the agent side.
+  Agent trusts any platform URL in its env. Defer until real multi-
+  tenant deployment forces the question.
+- Agent-to-agent mesh across NATs. Direct sibling calls only work when
+  siblings are reachable from each other. Behind-NAT ↔ behind-NAT needs
+  a relay — defer to Phase 31.
+- Platform-managed persistent state for remote agents. Remote agents
+  own their filesystem; platform never mounts.
+
+### Success criteria
+
+- `examples/remote-agent/` boots on a laptop disconnected from the
+  platform's LAN, registers, receives a task from parent PM via A2A,
+  returns a result, appears on the canvas.
+- `tests/e2e/test_federation.sh` spawns a second platform instance +
+  remote agent pointing at the first; both platforms see the agent as
+  a workspace in the right state.
+- Spoofing test: attempt to impersonate a workspace with a guessed ID
+  but no token → 401.
+
+---
+
+## PR Workflow Rules
+
+All PRs must follow this checklist:
+
+1. **Branch**: Never push to main. Always create a feature/fix branch.
+2. **Code Review**: Run `/code-review` skill and fix all issues before requesting merge.
+3. **Tests**: All existing tests must pass. New features require new tests.
+4. **Documentation**: Run `/update-docs` skill. Every PR must update:
+   - `docs/edit-history/` session log
+   - Relevant docs in `docs/` (API, architecture, frontend, etc.)
+   - `CLAUDE.md` if routes, env vars, or commands changed
+   - `PLAN.md` if the work completes a phase or adds new items
+5. **E2E Test**: Rebuild, restart service, and manually verify before reporting done.
+6. **QA Review**: QA Engineer reviews for edge cases, plan compliance, and documentation completeness before CEO merge approval.
+7. **CEO Approval**: Only the CEO approves merges. Never merge without explicit approval.
+
+---
+
+## Ecosystem Awareness
+
+Adjacent projects worth tracking (Holaboss, Hermes, gstack, …) are catalogued
+in **[`docs/ecosystem-watch.md`](docs/ecosystem-watch.md)**. Skim quarterly,
+add entries liberally, and when one of those projects ships something we
+should react to, file a "Signals to react to" line in that doc and create a
+Backlog entry below pointing at it. Agents doing research or strategy work
+should read `docs/ecosystem-watch.md` first — it's the canonical starting
+point for "what else is out there."
+
+---
+
+## Backlog (prioritized)
+
+1. **Canvas: Org template import** — Phase 20.3 (deploy org from canvas UI)
+2. **Canvas: Workspace search (Cmd+K)** — Phase 20.3 (quick find)
+3. **Canvas: Batch operations** — Phase 20.3 (multi-select delete/restart)
+4. **Sandbox: Firecracker/E2B backends** — Phase 12 (production isolation)
+5. **NemoClaw adapter** — stub exists at `adapters/nemoclaw/`, no implementation yet
+6. **Remote plugin registry** — install plugins from npm/git (currently local only)
+7. **Agent git worktrees** — per-agent branches without full clone
+8. **SDK follow-ups** — live tool-call visibility, cost telemetry, cancel UX, governance hooks
+9. **Real webhook mode for channels** — Phase 27 candidate. Currently polling-only; webhook needs:
+   - `mode: "webhook"|"polling"` config field
+   - `PUBLIC_URL` env var
+   - Platform calls `setWebhook` on channel create (with random `webhook_secret`), `deleteWebhook` on delete
+   - Canvas toggle to enable webhook mode (only when PUBLIC_URL is set)
+   - Polling works fine for ≤hundreds of bots; webhook needed at thousands+ scale or for serverless
+10. **More channel adapters** — Slack (OAuth + Events API), Discord (Bot + Gateway), WhatsApp (Cloud API)
+11. **Delegations list endpoint mismatch** — #64. `GET /workspaces/:id/delegations` returns `[]` while the agent's internal `check_delegation_status` shows active/completed delegations. One source of truth.
+12. **YAML-configurable per-agent repo access** — #65. New `workspace_access: none|read_only|read_write` field in `org.yaml` + `:ro` bind-mount for research agents; eliminates the "PM couriers documents to reports" workaround.
+13. **SDK executor swallows subprocess stderr** — #66. `workspace-template/claude_sdk_executor.py` surfaces only "Command failed with exit code 1 / Check stderr output for details" when the `claude` CLI crashes, making every failure opaque. Capture stderr, log at ERROR, include first ~1 KB in the A2A error response. **High priority** — blocked real debugging during PLAN.md coordination on 2026-04-12.
+14. **Agent MCP client defaults to `localhost:8080`** — #67. Inside a workspace container, `localhost` is the container itself, not the platform — so `mcp__molecule__*` tools fail with "platform unreachable." Inject `MOLECULE_URL=${PLATFORM_URL}` into every container at provision time and change the MCP client default to `http://host.docker.internal:8080`. **High priority** — blocks agents from calling platform tools (e.g. PM couldn't restart its own reports).
+
+---
+
+## Test Coverage
+
+| Stack | Tests | Framework |
+|-------|-------|-----------|
+| Go (platform) | 476 | `go test -race` |
+| Python (workspace) | 1,040 | pytest |
+| Canvas (frontend) | 352 | Vitest |
+| SDK (python) | 87 | pytest |
+| **Total** | **1,955** | |
+
+E2E: 68/68 comprehensive checks passing, 62 API tests.
+
+---
+
+## Team Assignments
+
+| Agent | Current Focus |
+|-------|--------------|
+| PM | Sprint coordination, backlog prioritization |
+| Dev Lead | Engineering planning, PR review |
+| UIUX Designer | UX specs for Phase 20 (DONE — 5 specs delivered) |
+| Frontend Engineer | Phase 20.3 remaining items (org import, search, batch) |
+| Backend Engineer | Sandbox production backends, API completeness |
+| QA Engineer | **Review every PR for docs + plan compliance** |
+| DevOps Engineer | CI/CD, Docker image optimization |
+| Security Auditor | API key handling, path traversal, auth review |
+
+---
+
+## Next Steps
+
+1. Frontend Engineer implements remaining Phase 20.3 items (org import from canvas, Cmd+K search)
+2. Backend Engineer scopes Firecracker/E2B sandbox backends (Phase 12)
+3. QA Engineer reviews PR #52 for docs compliance before merge
+4. All agents use `GITHUB_TOKEN` env var to clone repo, branch, and create PRs
+
+---
+
+## Future Work — Plugin Adaptor System
+
+Landed (see `feat/plugin-adaptor-registry` and `feat/agentskills-compliance`):
+per-runtime plugin adaptors, hybrid resolver (registry > plugin-shipped >
+raw-drop), `AgentskillsAdaptor` covering rule+skill plugins for all
+runtimes, `/plugins?runtime=` filter, `/workspaces/:id/plugins/available`
+endpoint, `molecule-plugin` SDK, gemini org parity with molecule-dev,
+and **full agentskills.io spec compliance** for all first-party skills
+(installable in Claude Code, Cursor, Codex, and ~35 other skill-compatible
+tools — see `docs/plugins/agentskills-compat.md`).
+
+Deferred, not blocking:
+
+- **Upstream `runtime-adapters/` extension to agentskills.io spec** —
+  once we've lived with our own per-runtime adapter model for ~month,
+  propose it as a spec extension to `agentskills/agentskills` so other
+  tools can share Molecule AI-authored adaptors.
+- **Install-from-GitHub-URL flow** — `POST /plugins/install {git_url}` that
+  clones a repo into the registry, validates the manifest, and runs the
+  adaptor through a sandbox. Needs signature/version pinning and a review
+  of the adaptor-execution threat model before shipping.
+- **Promote-to-default UI** — today, promoting a community plugin to
+  "curated" means manually copying its `adapters/<runtime>.py` into
+  `workspace-template/plugins_registry/<plugin>/`. Later add a canvas
+  button + PR template that opens an upstream PR automatically.
+- **Plugin packs** — manifest that lists other plugins to bundle
+  (`superpowers-pack` → install `superpowers-tdd` + `superpowers-debug` + …).
+  Skip until a real user asks; first-party plugins are small enough to
+  install individually today.
+- **Hot-reload on DeepAgents** — upstream docs say skills/sub-agents are
+  startup-only; would need platform-level container restart on plugin
+  file change. Defer until users complain.
+- **Atomic split of first-party plugins** — `superpowers` and `ecc` still
+  ship as multi-skill bundles. Pipeline already supports splitting but
+  non-urgent.
+- **Sub-agent plugins for non-DeepAgents runtimes** — Claude Code /
+  LangGraph don't have a native sub-agent feature; emulating via
+  tool-routing is possible but invasive. Defer.
+- **Workspace install tracking table** — a `workspace_plugin_installs`
+  table would let uninstall call the adaptor's `uninstall()` path
+  reliably. Today uninstall is a `rm -rf /configs/plugins/<name>` which
+  leaves copied skill dirs behind. Low user impact.
+- **Shared org-template `system-prompt.md` via `_shared/`** — DRY molecule-dev
+  and molecule-worker-gemini. Drift risk; revisit at 3+ orgs.

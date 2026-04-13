@@ -1,0 +1,11 @@
+name: browser-automation
+version: 1.0.0
+description: Browser automation via puppeteer-core + Chrome CDP proxy. Install on agents that need to interact with web pages (posting, scraping, form filling).
+author: Reno Stars
+tags: [browser, puppeteer, cdp, automation]
+
+runtimes:
+  - claude_code
+
+skills:
+  - browser-automation

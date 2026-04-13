@@ -1,0 +1,44 @@
+# MeDo Smoke Test Org — single OpenClaw workspace for Miaoda App Builder skill testing.
+# Use this to validate the MeDo integration before wiring it into molecule-dev.
+#
+# Prerequisites (operator must do these before importing):
+#   1. bash workspace-template/build-all.sh openclaw
+#      (or full rebuild: bash workspace-template/build-all.sh)
+#   2. Verify: docker images | grep workspace-template:openclaw
+#
+# Import via platform API (inline — no file on platform FS needed):
+#   POST http://platform:8080/org/import
+#   Body: see docs/adapters/medo-integration.md §2.3 for full inline payload
+#
+# Required secrets (at least one LLM key + the Miaoda key):
+#   MIAODA_API_KEY    — from MeDo website → Settings → API Keys
+#   AISTUDIO_API_KEY  — Google AI Studio (OpenAI-compat, works with gemini-2.0-flash)
+#   OR OPENROUTER_API_KEY / OPENAI_API_KEY / GROQ_API_KEY / QIANFAN_API_KEY
+
+name: MeDo Smoke Test
+description: Single openclaw workspace for validating Miaoda App Builder skill end-to-end
+
+defaults:
+  runtime: openclaw
+  tier: 2
+  required_env:
+    - MIAODA_API_KEY
+  # Model: use AISTUDIO_API_KEY + gemini-2.0-flash (available hackathon key).
+  # OpenClaw will use AISTUDIO_API_KEY → https://generativelanguage.googleapis.com/v1beta/openai
+  # once the adapter fix (Issue A in smoke-test-log.md §8) is applied.
+  model: "gemini-2.0-flash"
+  config:
+    provider_url: "https://generativelanguage.googleapis.com/v1beta/openai"
+
+workspaces:
+  - name: MeDo Builder
+    role: Builds and publishes MeDo applications via the Miaoda App Builder OpenClaw skill
+    canvas: { x: 400, y: 300 }
+    initial_prompt: |
+      You are a MeDo App Builder. On first boot:
+      1. Install the Miaoda App Builder skill by sending yourself:
+         "Install the Miaoda App Builder skill from ClawHub: seiriosPlus/miaoda-app-builder"
+         Wait for confirmation before proceeding.
+      2. Report ready to parent.
+      When you receive a build task, relay it to the Miaoda skill verbatim.
+      App generation takes 5-8 minutes — wait and return the published URL.

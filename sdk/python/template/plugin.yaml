@@ -1,0 +1,21 @@
+name: my-plugin
+version: 0.1.0
+description: One-sentence description of what this plugin adds.
+author: your-name
+tags: [example]
+
+# List every workspace runtime your plugin supports. Each entry must have a
+# matching file under adapters/<runtime>.py. The Molecule AI platform resolves
+# the right adaptor at workspace startup; unsupported runtimes fall through
+# to a raw-drop (files copied, no tools wired — warning surfaced to user).
+runtimes:
+  - claude_code
+  - deepagents
+
+# Optional: list of skill directory names under skills/ (for documentation).
+# skills:
+#   - my-skill
+
+# Optional: list of rule file names under rules/ (for documentation).
+# rules:
+#   - rules/my-rule.md

@@ -1,0 +1,5 @@
+# Hermes models are accessed via OpenAI-compatible endpoints (Nous Portal or OpenRouter).
+# openai: primary client for both Nous Portal (custom base_url) and OpenRouter routing.
+# If NousResearch publishes a dedicated hermes-agent PyPI package, add it here and
+# verify the import path before implementing adapter.py (see PR 2 open questions).
+openai>=1.0.0

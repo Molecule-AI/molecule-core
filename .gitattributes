@@ -1,0 +1,9 @@
+# Shell scripts must stay LF so they execute inside Linux containers
+# when cloned on Windows with core.autocrlf=true.
+*.sh text eol=lf
+workspace-template/entrypoint.sh text eol=lf
+
+# Dockerfiles and compose files are parsed by tools that tolerate CRLF,
+# but keep LF for consistency across platforms.
+Dockerfile text eol=lf
+*.dockerfile text eol=lf

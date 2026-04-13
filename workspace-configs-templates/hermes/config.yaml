@@ -1,0 +1,37 @@
+name: Hermes Agent
+description: >-
+  NousResearch Hermes-3 agent workspace. Supports Nous Portal and
+  OpenRouter as inference providers. Compatible with Hermes-3 70B / 405B
+  and any Hermes-family fine-tune served through an OpenAI-compatible API.
+version: 1.0.0
+tier: 2
+
+runtime: hermes
+runtime_config:
+  # Model identifier — exact string depends on your provider:
+  #   Nous Portal:  nous-hermes-3-70b  |  nous-hermes-3-405b
+  #   OpenRouter:   nousresearch/hermes-3-llama-3.1-70b
+  # Override at runtime without editing this file by setting HERMES_MODEL env var.
+  model: nous-hermes-3-70b
+
+  # Authentication — supply ONE of these env vars (checked in order):
+  #   NOUS_API_KEY       — Nous Research portal (https://portal.nousresearch.com)
+  #   OPENROUTER_API_KEY — OpenRouter as a Nous proxy (useful for dev / cost control)
+  required_env:
+    - NOUS_API_KEY
+
+  # 0 = no timeout; increase for long-running research tasks.
+  timeout: 0
+
+skills: []
+
+a2a:
+  port: 8000
+  streaming: true
+  push_notifications: true
+
+delegation:
+  retry_attempts: 3
+  retry_delay: 5
+  timeout: 120
+  escalate: true

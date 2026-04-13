@@ -1,0 +1,25 @@
+{
+  "name": "@molecule/mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for Molecule AI Agent Team — manage workspaces, agents, and skills from any AI coding tool",
+  "type": "module",
+  "bin": {
+    "molecule-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.0.0",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.9",
+    "typescript": "^5.5.0"
+  }
+}
