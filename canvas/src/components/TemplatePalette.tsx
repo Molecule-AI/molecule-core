@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import { checkDeploySecrets, type PreflightResult } from "@/lib/deploy-preflight";
 import { MissingKeysModal } from "./MissingKeysModal";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 interface Template {
   id: string;
@@ -144,6 +145,7 @@ const TIER_LABELS: Record<number, { label: string; color: string }> = {
 
 function ImportAgentButton({ onImported }: { onImported: () => void }) {
   const [importing, setImporting] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = async (fileList: FileList) => {
@@ -173,7 +175,7 @@ function ImportAgentButton({ onImported }: { onImported: () => void }) {
       }
 
       if (Object.keys(files).length === 0) {
-        alert("No files found in the selected folder");
+        setNotice("No files found in the selected folder");
         return;
       }
 
@@ -181,7 +183,7 @@ function ImportAgentButton({ onImported }: { onImported: () => void }) {
       await api.post("/templates/import", { name, files });
       onImported();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Import failed");
+      setNotice(e instanceof Error ? e.message : "Import failed");
     } finally {
       setImporting(false);
     }
@@ -205,6 +207,16 @@ function ImportAgentButton({ onImported }: { onImported: () => void }) {
       >
         {importing ? "Importing..." : "Import Agent Folder"}
       </button>
+      <ConfirmDialog
+        open={!!notice}
+        title="Import"
+        message={notice ?? ""}
+        confirmLabel="OK"
+        confirmVariant="primary"
+        singleButton
+        onConfirm={() => setNotice(null)}
+        onCancel={() => setNotice(null)}
+      />
     </div>
   );
 }
