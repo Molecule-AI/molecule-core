@@ -62,12 +62,23 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// Scrape with: curl http://localhost:8080/metrics
 	r.GET("/metrics", metrics.Handler())
 
-	// Workspaces CRUD — bare /workspaces and /workspaces/:id (no sub-path), unauthenticated for canvas
-	r.POST("/workspaces", wh.Create)
+	// Workspaces read + position-patch — left open for the canvas browser frontend
+	// which has no bearer token. C19 (GET /workspaces exposes topology) requires a
+	// canvas service-token refactor and is tracked as a follow-up issue.
 	r.GET("/workspaces", wh.List)
 	r.GET("/workspaces/:id", wh.Get)
 	r.PATCH("/workspaces/:id", wh.Update)
-	r.DELETE("/workspaces/:id", wh.Delete)
+
+	// C20 + C18-adjacent: mutating workspace operations require any valid workspace
+	// bearer token (AdminAuth — same fail-open bootstrap contract as global secrets).
+	// Blocks: mass deletion (C20), unauthenticated workspace creation.
+	// Canvas Create Workspace dialog passes through because no global tokens exist
+	// on a fresh install; once any workspace is online the dialog requires auth.
+	{
+		wsAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		wsAdmin.POST("/workspaces", wh.Create)
+		wsAdmin.DELETE("/workspaces/:id", wh.Delete)
+	}
 
 	// A2A proxy — registered outside the auth group; already enforces CanCommunicate access control.
 	r.POST("/workspaces/:id/a2a", wh.ProxyA2A)
