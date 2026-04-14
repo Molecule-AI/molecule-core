@@ -138,18 +138,39 @@ export function SidePanel() {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-zinc-800/40 overflow-x-auto bg-zinc-900/20 px-1">
+      <div
+        role="tablist"
+        aria-label="Workspace panel tabs"
+        className="flex border-b border-zinc-800/40 overflow-x-auto bg-zinc-900/20 px-1"
+        onKeyDown={(e) => {
+          const idx = TABS.findIndex((t) => t.id === panelTab);
+          let next: number | null = null;
+          if (e.key === "ArrowRight") { e.preventDefault(); next = (idx + 1) % TABS.length; }
+          else if (e.key === "ArrowLeft") { e.preventDefault(); next = (idx - 1 + TABS.length) % TABS.length; }
+          else if (e.key === "Home") { e.preventDefault(); next = 0; }
+          else if (e.key === "End") { e.preventDefault(); next = TABS.length - 1; }
+          if (next !== null) {
+            setPanelTab(TABS[next].id);
+            requestAnimationFrame(() => { document.getElementById(`tab-${TABS[next!].id}`)?.focus(); });
+          }
+        }}
+      >
         {TABS.map((tab) => (
           <button
             key={tab.id}
+            id={`tab-${tab.id}`}
+            role="tab"
+            aria-selected={panelTab === tab.id}
+            aria-controls={`panel-${tab.id}`}
+            tabIndex={panelTab === tab.id ? 0 : -1}
             onClick={() => setPanelTab(tab.id)}
-            className={`shrink-0 px-3 py-2.5 text-[10px] font-medium tracking-wide transition-all rounded-t-lg mx-0.5 ${
+            className={`shrink-0 px-3 py-2.5 text-[10px] font-medium tracking-wide transition-all rounded-t-lg mx-0.5 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600 ${
               panelTab === tab.id
                 ? "text-zinc-100 bg-zinc-800/40 border-b-2 border-blue-500"
                 : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/20"
             }`}
           >
-            <span className="mr-1 opacity-50">{tab.icon}</span>
+            <span className="mr-1 opacity-50" aria-hidden="true">{tab.icon}</span>
             {tab.label}
           </button>
         ))}
@@ -183,7 +204,13 @@ export function SidePanel() {
       )}
 
       {/* Tab Content */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        role="tabpanel"
+        id={`panel-${panelTab}`}
+        aria-labelledby={`tab-${panelTab}`}
+        tabIndex={0}
+        className="flex-1 overflow-y-auto focus:outline-none"
+      >
         {panelTab === "details" && <DetailsTab key={selectedNodeId} workspaceId={selectedNodeId} data={node.data} />}
         {panelTab === "skills" && <SkillsTab key={selectedNodeId} data={node.data} />}
         {panelTab === "activity" && <ActivityTab key={selectedNodeId} workspaceId={selectedNodeId} />}
