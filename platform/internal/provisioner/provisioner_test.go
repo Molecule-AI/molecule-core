@@ -662,3 +662,98 @@ func TestImageNotFoundErrorIncludesBuildHint(t *testing.T) {
 		}
 	}
 }
+
+// ---- issue #14: configurable per-tier memory/CPU limits ----
+
+// TestGetTierMemoryMB_DefaultsMatchLegacy asserts that with no env overrides,
+// getTierMemoryMB returns the agreed (issue #14) defaults.
+func TestGetTierMemoryMB_DefaultsMatchLegacy(t *testing.T) {
+	for _, k := range []string{"TIER2_MEMORY_MB", "TIER3_MEMORY_MB", "TIER4_MEMORY_MB"} {
+		os.Unsetenv(k)
+	}
+	cases := map[int]int64{
+		1: 0, // no cap
+		2: 512,
+		3: 2048,
+		4: 4096,
+		9: 0, // unknown
+	}
+	for tier, want := range cases {
+		if got := getTierMemoryMB(tier); got != want {
+			t.Errorf("getTierMemoryMB(%d): got %d, want %d", tier, got, want)
+		}
+	}
+}
+
+// TestGetTierMemoryMB_EnvOverride asserts TIERn_MEMORY_MB takes precedence,
+// and that malformed / non-positive values fall back to the default.
+func TestGetTierMemoryMB_EnvOverride(t *testing.T) {
+	t.Setenv("TIER3_MEMORY_MB", "512")
+	if got := getTierMemoryMB(3); got != 512 {
+		t.Errorf("with TIER3_MEMORY_MB=512, got %d, want 512", got)
+	}
+	t.Setenv("TIER3_MEMORY_MB", "not-a-number")
+	if got := getTierMemoryMB(3); got != defaultTier3MemoryMB {
+		t.Errorf("malformed TIER3_MEMORY_MB: got %d, want default %d", got, defaultTier3MemoryMB)
+	}
+	t.Setenv("TIER3_MEMORY_MB", "0")
+	if got := getTierMemoryMB(3); got != defaultTier3MemoryMB {
+		t.Errorf("zero TIER3_MEMORY_MB: got %d, want default %d", got, defaultTier3MemoryMB)
+	}
+}
+
+// TestGetTierCPUShares_EnvOverride asserts TIERn_CPU_SHARES takes precedence.
+func TestGetTierCPUShares_EnvOverride(t *testing.T) {
+	t.Setenv("TIER3_CPU_SHARES", "4096")
+	if got := getTierCPUShares(3); got != 4096 {
+		t.Errorf("with TIER3_CPU_SHARES=4096, got %d, want 4096", got)
+	}
+	os.Unsetenv("TIER3_CPU_SHARES")
+	if got := getTierCPUShares(3); got != defaultTier3CPUShares {
+		t.Errorf("unset TIER3_CPU_SHARES: got %d, want default %d", got, defaultTier3CPUShares)
+	}
+}
+
+// TestApplyTierConfig_T3_UsesEnvOverride is the wiring test: env vars must
+// flow through ApplyTierConfig into hostCfg.Resources.
+func TestApplyTierConfig_T3_UsesEnvOverride(t *testing.T) {
+	t.Setenv("TIER3_MEMORY_MB", "8192")
+	t.Setenv("TIER3_CPU_SHARES", "4096") // 4 CPU == 4e9 NanoCPUs
+
+	hc := baseHostConfig("")
+	cfg := WorkspaceConfig{WorkspaceID: "abc123", Tier: 3}
+	ApplyTierConfig(hc, cfg, "ws-abc123-configs:/configs", "ws-abc123")
+
+	wantMem := int64(8192) * 1024 * 1024
+	if hc.Resources.Memory != wantMem {
+		t.Errorf("T3 memory override: got %d, want %d", hc.Resources.Memory, wantMem)
+	}
+	wantCPU := int64(4_000_000_000)
+	if hc.Resources.NanoCPUs != wantCPU {
+		t.Errorf("T3 CPU override: got %d NanoCPUs, want %d", hc.Resources.NanoCPUs, wantCPU)
+	}
+	if !hc.Privileged || hc.PidMode != "host" {
+		t.Errorf("T3 override should preserve privileged/pid-host flags, got Privileged=%v PidMode=%q",
+			hc.Privileged, hc.PidMode)
+	}
+}
+
+// TestApplyTierConfig_T3_DefaultCap asserts T3 now gets a memory/CPU cap by
+// default (previously uncapped — behaviour change per issue #14).
+func TestApplyTierConfig_T3_DefaultCap(t *testing.T) {
+	for _, k := range []string{"TIER3_MEMORY_MB", "TIER3_CPU_SHARES"} {
+		os.Unsetenv(k)
+	}
+	hc := baseHostConfig("")
+	cfg := WorkspaceConfig{WorkspaceID: "abc123", Tier: 3}
+	ApplyTierConfig(hc, cfg, "ws-abc123-configs:/configs", "ws-abc123")
+
+	wantMem := int64(defaultTier3MemoryMB) * 1024 * 1024
+	if hc.Resources.Memory != wantMem {
+		t.Errorf("T3 default memory: got %d, want %d", hc.Resources.Memory, wantMem)
+	}
+	wantCPU := int64(defaultTier3CPUShares) * 1_000_000_000 / 1024
+	if hc.Resources.NanoCPUs != wantCPU {
+		t.Errorf("T3 default NanoCPUs: got %d, want %d", hc.Resources.NanoCPUs, wantCPU)
+	}
+}
