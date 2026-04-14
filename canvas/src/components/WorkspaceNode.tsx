@@ -126,11 +126,11 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             {hasChildren && (
-              <span className="text-[8px] font-mono text-violet-300 bg-violet-900/40 border border-violet-700/30 px-1.5 py-0.5 rounded-md">
+              <span className="text-[10px] font-mono text-violet-300 bg-violet-900/40 border border-violet-700/30 px-1.5 py-0.5 rounded-md">
                 {descendantCount} sub
               </span>
             )}
-            <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-md ${tierCfg.color}`}>
+            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${tierCfg.color}`}>
               {tierCfg.label}
             </span>
           </div>
@@ -179,7 +179,7 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
             {skills.slice(0, 4).map((skill) => (
               <span
                 key={skill}
-                className={`text-[8px] px-1.5 py-0.5 rounded-md border ${
+                className={`text-[10px] px-1.5 py-0.5 rounded-md border ${
                   isOnline
                     ? "text-emerald-300/80 bg-emerald-950/30 border-emerald-800/30"
                     : "text-zinc-400 bg-zinc-800/60 border-zinc-700/40"
@@ -189,7 +189,7 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
               </span>
             ))}
             {skills.length > 4 && (
-              <span className="text-[8px] text-zinc-500 self-center">
+              <span className="text-[10px] text-zinc-500 self-center">
                 +{skills.length - 4}
               </span>
             )}
@@ -206,7 +206,7 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
           <Tooltip text={String(data.currentTask)}>
             <div className="flex items-center gap-1.5 mt-1 bg-amber-950/20 px-2 py-1 rounded-md border border-amber-800/20 cursor-default">
               <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
-              <span className="text-[8px] text-amber-300/80 truncate">{data.currentTask}</span>
+              <span className="text-[10px] text-amber-300/80 truncate">{data.currentTask}</span>
             </div>
           </Tooltip>
         )}
@@ -220,15 +220,15 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
             }}
             className="flex items-center gap-1.5 mt-1 w-full bg-sky-950/30 px-2 py-1 rounded-md border border-sky-800/30 hover:bg-sky-900/40 transition-colors text-left"
           >
-            <span className="text-[8px]">↻</span>
-            <span className="text-[8px] text-sky-300/80">Restart to apply changes</span>
+            <span className="text-[10px]">↻</span>
+            <span className="text-[10px] text-sky-300/80">Restart to apply changes</span>
           </button>
         )}
 
         {/* Bottom row: status / active tasks */}
         <div className="flex items-center justify-between mt-0.5">
           {data.status !== "online" ? (
-            <div className={`text-[8px] uppercase tracking-widest font-medium ${
+            <div className={`text-[10px] uppercase tracking-widest font-medium ${
               data.status === "failed" ? "text-red-400" :
               data.status === "degraded" ? "text-amber-400" :
               data.status === "provisioning" ? "text-sky-400" :
@@ -241,7 +241,7 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
           {data.activeTasks > 0 && (
             <div className="flex items-center gap-1">
               <div className="w-1 h-1 rounded-full bg-amber-400 animate-pulse" />
-              <span className="text-[8px] text-amber-300/80 tabular-nums">
+              <span className="text-[10px] text-amber-300/80 tabular-nums">
                 {data.activeTasks} task{data.activeTasks > 1 ? "s" : ""}
               </span>
             </div>
@@ -251,7 +251,7 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
         {/* Degraded error preview */}
         {data.status === "degraded" && data.lastSampleError && (
           <div
-            className="text-[8px] text-amber-300/60 truncate mt-1 bg-amber-950/20 px-1.5 py-0.5 rounded border border-amber-800/20"
+            className="text-[10px] text-amber-300/60 truncate mt-1 bg-amber-950/20 px-1.5 py-0.5 rounded border border-amber-800/20"
             title={data.lastSampleError}
           >
             {data.lastSampleError}
@@ -294,7 +294,7 @@ function EmbeddedTeam({ members, depth, onSelect, onExtract }: {
   const useGrid = depth === 0 && members.length >= 2;
   return (
     <div className="mt-2 pt-2 border-t border-zinc-700/30">
-      <div className="text-[8px] text-zinc-500 uppercase tracking-widest mb-1.5">Team Members</div>
+      <div className="text-[10px] text-zinc-500 uppercase tracking-widest mb-1.5">Team Members</div>
       <div className={useGrid
         ? "grid grid-cols-2 gap-1.5 lg:grid-cols-3"
         : "space-y-1.5"
@@ -358,7 +358,7 @@ function TeamMemberChip({
         <div className="flex items-center justify-between gap-1 mb-0.5">
           <div className="flex items-center gap-1.5 min-w-0">
             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusCfg.dot}`} />
-            <span className="text-[9px] font-semibold text-zinc-200 truncate leading-tight">
+            <span className="text-[10px] font-semibold text-zinc-200 truncate leading-tight">
               {data.name}
             </span>
           </div>
@@ -386,7 +386,7 @@ function TeamMemberChip({
 
         {/* Role */}
         {data.role && (
-          <div className="text-[8px] text-zinc-500 mb-1 leading-tight truncate">{data.role}</div>
+          <div className="text-[10px] text-zinc-500 mb-1 leading-tight truncate">{data.role}</div>
         )}
 
         {/* Skills */}
