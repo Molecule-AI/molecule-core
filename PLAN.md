@@ -452,7 +452,7 @@ self-hosted per-customer). Ordered by dependency + ROI.
 
 ### Success criteria for Phase 32
 
-- Customer can sign up at molecule.ai, create an org, deploy their
+- Customer can sign up at moleculesai.app, create an org, deploy their
   first workspace, send their first message in < 5 minutes.
 - Two orgs on the same cluster cannot observe each other's
   workspaces, secrets, memory, or activity — verified by automated
