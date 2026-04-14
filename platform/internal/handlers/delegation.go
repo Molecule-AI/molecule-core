@@ -323,6 +323,9 @@ func (h *DelegationHandler) updateDelegationStatus(workspaceID, delegationID, st
 // (preserves OTEL trace-context propagation + retry logic) — this endpoint
 // lets them register the row without double-firing the request.
 //
+// C3 security fix: requires workspace bearer-token auth. Unauthenticated callers
+// could previously inject arbitrary delegation records into any workspace's log.
+//
 // Body: {"target_id": "...", "task": "...", "delegation_id": "..."}
 //   - delegation_id is the agent-generated task_id (matches what
 //     check_delegation_status returns, so a single ID correlates the two
@@ -330,6 +333,11 @@ func (h *DelegationHandler) updateDelegationStatus(workspaceID, delegationID, st
 func (h *DelegationHandler) Record(c *gin.Context) {
 	sourceID := c.Param("id")
 	ctx := c.Request.Context()
+
+	// C3: the recording workspace must authenticate as itself.
+	if err := requireWorkspaceAuth(ctx, c, sourceID); err != nil {
+		return
+	}
 
 	var body struct {
 		TargetID     string `json:"target_id" binding:"required"`
@@ -373,11 +381,22 @@ func (h *DelegationHandler) Record(c *gin.Context) {
 // UpdateStatus handles POST /workspaces/:id/delegations/:delegation_id/update — agent
 // reports completion/failure for a delegation it recorded via Record (#64).
 //
+// C4 security fix: requires workspace bearer-token auth. Without auth, any caller
+// could overwrite delegation status records for any workspace (exploited by Security
+// Auditor to inject "INJECTED fake completion" into PM's delegation log).
+// Ownership is enforced doubly: auth proves the caller IS the workspace identified
+// by :id, and the SQL WHERE workspace_id = :id constrains which rows are updated.
+//
 // Body: {"status": "completed"|"failed", "error": "...", "response_preview": "..."}
 func (h *DelegationHandler) UpdateStatus(c *gin.Context) {
 	sourceID := c.Param("id")
 	delegationID := c.Param("delegation_id")
 	ctx := c.Request.Context()
+
+	// C4: the updating workspace must authenticate as itself.
+	if err := requireWorkspaceAuth(ctx, c, sourceID); err != nil {
+		return
+	}
 
 	var body struct {
 		Status          string `json:"status" binding:"required"`
@@ -422,9 +441,17 @@ func (h *DelegationHandler) UpdateStatus(c *gin.Context) {
 
 // ListDelegations handles GET /workspaces/:id/delegations
 // Returns recent delegations for a workspace with their status.
+// C5 security fix: requires workspace bearer-token auth. Without auth, any caller
+// could retrieve delegation history (response_preview, commit SHAs, branch names,
+// task details) for any workspace — a data leak.
 func (h *DelegationHandler) ListDelegations(c *gin.Context) {
 	workspaceID := c.Param("id")
 	ctx := c.Request.Context()
+
+	// C5: only the owning workspace (or an admin) may read its delegation history.
+	if err := requireWorkspaceAuth(ctx, c, workspaceID); err != nil {
+		return
+	}
 
 	rows, err := db.DB.QueryContext(ctx, `
 		SELECT id, activity_type, COALESCE(source_id::text, ''), COALESCE(target_id::text, ''),

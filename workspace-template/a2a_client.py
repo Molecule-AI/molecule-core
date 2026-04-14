@@ -41,7 +41,12 @@ async def discover_peer(target_id: str) -> dict | None:
 
 async def send_a2a_message(target_url: str, message: str) -> str:
     """Send an A2A message/send to a target workspace."""
-    async with httpx.AsyncClient(timeout=None) as client:
+    # H2 security fix: finite timeout prevents a hung/malicious peer from
+    # stalling the agent indefinitely. 300 s read timeout accommodates long
+    # delegation responses; connect/write/pool are kept tight.
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0)
+    ) as client:
         try:
             resp = await client.post(
                 target_url,

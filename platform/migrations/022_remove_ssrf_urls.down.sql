@@ -1,0 +1,3 @@
+-- Down: no-op. Removed SSRF URLs are not restored — they should never have
+-- been in the database. To re-register a workspace, call POST /registry/register
+-- with a safe URL.

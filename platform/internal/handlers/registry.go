@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
@@ -23,11 +25,63 @@ func NewRegistryHandler(b *events.Broadcaster) *RegistryHandler {
 	return &RegistryHandler{broadcaster: b}
 }
 
+// validateRegistrationURL checks that a workspace-supplied URL is safe to store.
+//
+// C6 security fix: blocks SSRF-capable URLs. An attacker who can register an
+// arbitrary URL could trick the platform into fetching cloud metadata endpoints
+// (169.254.169.254 — AWS/GCP IMDS) or probing RFC-1918 internal services.
+//
+// Allowed: http:// or https:// with a public host (including 127.0.0.1 which is
+// used legitimately by Docker-provisioned workspaces).
+// Rejected: non-http/https schemes, link-local (169.254.*), RFC-1918 private
+// ranges (10.*, 172.16-31.*, 192.168.*).
+func validateRegistrationURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("URL scheme %q is not allowed — only http and https are accepted", u.Scheme)
+	}
+	hostname := u.Hostname()
+	ip := net.ParseIP(hostname)
+	if ip == nil {
+		// DNS hostname — not an IP; allow (DNS-based SSRF is out of scope here).
+		return nil
+	}
+	// Block link-local (169.254.0.0/16) — AWS/GCP instance metadata service.
+	if ip.IsLinkLocalUnicast() {
+		return fmt.Errorf("URL %q targets a link-local address (169.254.x.x) which is not allowed", rawURL)
+	}
+	// Block RFC-1918 private ranges: 10/8, 172.16/12, 192.168/16.
+	privateRanges := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+	}
+	for _, cidr := range privateRanges {
+		_, network, _ := net.ParseCIDR(cidr)
+		if network.Contains(ip) {
+			return fmt.Errorf("URL %q targets a private IP range which is not allowed", rawURL)
+		}
+	}
+	// 127.0.0.0/8 (loopback) is intentionally ALLOWED — the provisioner sets
+	// workspace URLs to http://127.0.0.1:<port> for Docker-hosted agents.
+	return nil
+}
+
 // Register handles POST /registry/register
 // Upserts workspace, sets Redis TTL, broadcasts WORKSPACE_ONLINE.
 func (h *RegistryHandler) Register(c *gin.Context) {
 	var payload models.RegisterPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// C6: reject SSRF-capable URLs before persisting to the database.
+	if err := validateRegistrationURL(payload.URL); err != nil {
+		log.Printf("Registry register SSRF attempt blocked (id=%s url=%s): %v", payload.ID, payload.URL, err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

@@ -287,8 +287,17 @@ func (h *ActivityHandler) Notify(c *gin.Context) {
 }
 
 // Report handles POST /workspaces/:id/activity — agents self-report activity logs.
+// C2 security fix: requires workspace bearer-token auth and validates that
+// source_id matches the authenticated workspace — prevents audit-log spoofing
+// where an unauthenticated caller injects records on behalf of a different workspace.
 func (h *ActivityHandler) Report(c *gin.Context) {
 	workspaceID := c.Param("id")
+
+	// C2: enforce workspace auth before accepting any data.
+	if err := requireWorkspaceAuth(c.Request.Context(), c, workspaceID); err != nil {
+		return
+	}
+
 	var body struct {
 		ActivityType string      `json:"activity_type" binding:"required"`
 		Method       string      `json:"method"`
@@ -329,7 +338,14 @@ func (h *ActivityHandler) Report(c *gin.Context) {
 	if reqBody == nil {
 		reqBody = body.Metadata
 	}
+
+	// C2: source_id must be the authenticated workspace. Reject spoofed source_id
+	// values so one workspace cannot inject logs attributed to a different workspace.
 	sourceID := body.SourceID
+	if sourceID != "" && sourceID != workspaceID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "source_id must match the authenticated workspace"})
+		return
+	}
 	if sourceID == "" {
 		sourceID = workspaceID
 	}

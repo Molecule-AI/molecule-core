@@ -247,7 +247,13 @@ const workspaceListQuery = `
 	ORDER BY w.created_at`
 
 // List handles GET /workspaces
+// C1 security fix: requires INTERNAL_API_SECRET bearer token when the env var is set.
+// Prevents unauthenticated callers from enumerating the full workspace topology
+// (IDs, roles, URLs, workspace_dir).
 func (h *WorkspaceHandler) List(c *gin.Context) {
+	if err := requireInternalAPISecret(c); err != nil {
+		return
+	}
 	rows, err := db.DB.QueryContext(c.Request.Context(), workspaceListQuery)
 	if err != nil {
 		log.Printf("List workspaces error: %v", err)
