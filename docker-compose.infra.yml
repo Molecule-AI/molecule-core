@@ -65,6 +65,38 @@ services:
       timeout: 5s
       retries: 10
 
+  # dev-only: no-auth on 0.0.0.0:7233; production must gate via mTLS or API key
+  temporal:
+    image: temporalio/auto-setup:1.25
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-dev}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:-dev}
+      POSTGRES_SEEDS: postgres
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+    ports:
+      - "7233:7233"
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  temporal-ui:
+    image: temporalio/ui:2.31.2
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:8233
+    ports:
+      - "8233:8080"
+
   langfuse-web:
     image: langfuse/langfuse:2
     depends_on:
@@ -83,6 +115,11 @@ services:
       SALT: langfuse-dev-salt
     ports:
       - "3001:3000"
+
+networks:
+  default:
+    name: molecule-monorepo-net
+    external: true
 
 volumes:
   pgdata:
