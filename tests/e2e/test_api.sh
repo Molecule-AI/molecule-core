@@ -241,7 +241,7 @@ R=$(curl -s "$BASE/workspaces")
 check "current_task in list response" '"current_task"' "$R"
 
 # Test 21: Delete
-R=$(curl -s -X DELETE "$BASE/workspaces/$ECHO_ID")
+R=$(curl -s -X DELETE "$BASE/workspaces/$ECHO_ID" -H "Authorization: Bearer $ECHO_TOKEN")
 check "DELETE /workspaces/:id" '"status":"removed"' "$R"
 
 R=$(curl -s "$BASE/workspaces")
@@ -261,7 +261,7 @@ ORIG_NAME=$(echo "$BUNDLE" | python3 -c "import sys,json; print(json.load(sys.st
 ORIG_TIER=$(echo "$BUNDLE" | python3 -c "import sys,json; print(json.load(sys.stdin)['tier'])")
 
 # Delete the workspace
-R=$(curl -s -X DELETE "$BASE/workspaces/$SUM_ID")
+R=$(curl -s -X DELETE "$BASE/workspaces/$SUM_ID" -H "Authorization: Bearer $SUM_TOKEN")
 check "Delete before re-import" '"status":"removed"' "$R"
 
 R=$(curl -s "$BASE/workspaces")
@@ -318,7 +318,7 @@ REBUNDLE=$(curl -s "$BASE/bundles/export/$NEW_ID")
 check "Re-exported bundle has agent_card" '"agent_card"' "$REBUNDLE"
 
 # Clean up
-curl -s -X DELETE "$BASE/workspaces/$NEW_ID" > /dev/null
+curl -s -X DELETE "$BASE/workspaces/$NEW_ID" -H "Authorization: Bearer $SUM_TOKEN" > /dev/null
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
