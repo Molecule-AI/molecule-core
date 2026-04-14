@@ -100,6 +100,7 @@ Shared plugins in `plugins/` are auto-loaded by every workspace:
 - **`molecule-dev`**: Codebase conventions (rules injected into CLAUDE.md) + `review-loop` skill for multi-round QA cycles
 - **`superpowers`**: `verification-before-completion`, `test-driven-development`, `systematic-debugging`, `writing-plans`
 - **`ecc`**: General Claude Code guardrails
+- **`browser-automation`**: Puppeteer/CDP-based web scraping and live canvas screenshots (opt-in per workspace — wired into Research + UIUX roles in `org-templates/molecule-dev/org.yaml`)
 
 ### Scripts
 ```bash
