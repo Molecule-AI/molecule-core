@@ -39,6 +39,22 @@ defaults:
     - molecule-session-context
     - molecule-skill-cron-learnings
     - molecule-skill-update-docs
+
+  # Audit-summary routing — generic per-template mapping (issue #51).
+  # Auditors (Security Auditor, UIUX Designer, QA Engineer) send A2A messages
+  # with metadata.audit_summary.category set. The receiver (PM) reads this
+  # table from its own /configs/config.yaml and delegates to each listed role.
+  # Each org template owns its own mapping — role names are NOT hardcoded in
+  # prompts, so adding/renaming roles is a config-only change.
+  category_routing:
+    security: [Backend Engineer, DevOps Engineer]
+    ui: [Frontend Engineer]
+    ux: [Frontend Engineer]
+    infra: [DevOps Engineer]
+    qa: [QA Engineer]
+    performance: [Backend Engineer]
+    mixed: [Dev Lead]
+
   # workspace_dir: not set by default — each agent gets an isolated Docker volume
   # Set per-workspace to bind-mount a host directory as /workspace
 
