@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
@@ -23,11 +25,47 @@ func NewRegistryHandler(b *events.Broadcaster) *RegistryHandler {
 	return &RegistryHandler{broadcaster: b}
 }
 
+// validateAgentURL rejects URLs that could be used as SSRF vectors against
+// cloud metadata services or other internal infrastructure.
+//
+// Allowed: http:// or https:// only (no file://, ftp://, etc.).
+// Blocked: 169.254.0.0/16 (link-local — AWS/GCP/Azure metadata endpoints).
+// Allowed: RFC-1918 private ranges (Docker networking uses 172.16–31.x.x).
+//
+// Returns a non-nil error string suitable for including in a 400 response.
+func validateAgentURL(rawURL string) error {
+	if rawURL == "" {
+		return errors.New("url is required")
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("url is not valid: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("url scheme must be http or https, got %q", parsed.Scheme)
+	}
+	hostname := parsed.Hostname()
+	if ip := net.ParseIP(hostname); ip != nil {
+		// Block 169.254.0.0/16 — cloud metadata (AWS IMDSv1/v2, GCP, Azure).
+		_, linkLocal, _ := net.ParseCIDR("169.254.0.0/16")
+		if linkLocal.Contains(ip) {
+			return errors.New("url targets a link-local address (cloud metadata endpoint)")
+		}
+	}
+	return nil
+}
+
 // Register handles POST /registry/register
 // Upserts workspace, sets Redis TTL, broadcasts WORKSPACE_ONLINE.
 func (h *RegistryHandler) Register(c *gin.Context) {
 	var payload models.RegisterPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// C6: reject SSRF-capable URLs before persisting or caching them.
+	if err := validateAgentURL(payload.URL); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
