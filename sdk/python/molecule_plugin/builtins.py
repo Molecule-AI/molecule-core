@@ -19,6 +19,7 @@ class in Python — unlimited expressiveness, no framework constraint.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
