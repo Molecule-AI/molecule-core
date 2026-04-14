@@ -22,3 +22,21 @@ This repo uses the standard monorepo testing convention: **unit tests live with 
 ## Running E2E
 
 Every E2E script here assumes the platform is running at `localhost:8080` and (where noted) provisioned agents are online. See the header comment of each `.sh` for specifics.
+
+## Cleaning up rogue test workspaces
+
+If an E2E run aborts before its teardown runs (Ctrl-C, crash, CI timeout),
+the platform can be left with workspaces whose config volume is stale or
+empty — Docker's `unless-stopped` restart policy then spins those
+containers in a FileNotFoundError loop. The platform's pre-flight check
+(#17) marks such workspaces `failed` on the next restart, but a manual
+cleanup is useful:
+
+```bash
+bash scripts/cleanup-rogue-workspaces.sh               # deletes ws with id/name starting aaaaaaaa-, bbbbbbbb-, cccccccc-, test-ws-
+MOLECULE_URL=http://host:8080 bash scripts/cleanup-rogue-workspaces.sh
+```
+
+The script DELETEs each matching workspace via the API and
+force-removes the `ws-<id[:12]>` container as a belt-and-suspenders
+fallback.
