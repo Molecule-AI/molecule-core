@@ -216,6 +216,14 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		adminAuth.DELETE("/admin/secrets/:key", sechGlobal.DeleteGlobal)
 	}
 
+	// Admin — test token minting (issue #6). Hidden in production via TestTokensEnabled().
+	// Registered at root (not inside AdminAuth) because it is itself the bootstrap for
+	// acquiring a token, and it's gated on MOLECULE_ENV / MOLECULE_ENABLE_TEST_TOKENS.
+	{
+		tokh := handlers.NewAdminTestTokenHandler()
+		r.GET("/admin/workspaces/:id/test-token", tokh.GetTestToken)
+	}
+
 	// Terminal — shares Docker client with provisioner
 	var dockerCli *client.Client
 	if prov != nil {
