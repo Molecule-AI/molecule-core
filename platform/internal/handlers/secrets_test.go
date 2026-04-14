@@ -684,3 +684,103 @@ func TestSecretsValues_InvalidWorkspaceID(t *testing.T) {
 		t.Errorf("expected 400, got %d", w.Code)
 	}
 }
+
+// ==================== Global secret auto-restart (issue #15) ====================
+
+// TestSetGlobal_AutoRestartsAffectedWorkspaces documents the fix for #15:
+// rotating a global secret (e.g. CLAUDE_CODE_OAUTH_TOKEN) must propagate to
+// every running workspace without a manual restart loop. The handler should
+// fire RestartByID for each non-paused/non-removed workspace that does NOT
+// have a workspace-level override of the same key.
+func TestSetGlobal_AutoRestartsAffectedWorkspaces(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	restarted := make(chan string, 4)
+	restartFunc := func(wsID string) { restarted <- wsID }
+	handler := NewSecretsHandler(restartFunc)
+
+	// INSERT ... ON CONFLICT for the global secret itself.
+	mock.ExpectExec("INSERT INTO global_secrets").
+		WithArgs("CLAUDE_CODE_OAUTH_TOKEN", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Query for affected workspaces — ws-A inherits, ws-B overrides (excluded).
+	mock.ExpectQuery("SELECT id FROM workspaces").
+		WithArgs("CLAUDE_CODE_OAUTH_TOKEN").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).
+			AddRow("ws-a").
+			AddRow("ws-c"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"key":"CLAUDE_CODE_OAUTH_TOKEN","value":"sk-ant-oat01-new"}`
+	c.Request = httptest.NewRequest("POST", "/admin/secrets", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.SetGlobal(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Collect both expected restarts (order not guaranteed).
+	seen := map[string]bool{}
+	deadline := time.After(2 * time.Second)
+	for len(seen) < 2 {
+		select {
+		case id := <-restarted:
+			seen[id] = true
+		case <-deadline:
+			t.Fatalf("auto-restart not fired for all affected workspaces; got %v", seen)
+		}
+	}
+	if !seen["ws-a"] || !seen["ws-c"] {
+		t.Errorf("expected ws-a and ws-c restarted, got %v", seen)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestDeleteGlobal_AutoRestartsAffectedWorkspaces covers the delete branch of #15.
+func TestDeleteGlobal_AutoRestartsAffectedWorkspaces(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	restarted := make(chan string, 2)
+	handler := NewSecretsHandler(func(id string) { restarted <- id })
+
+	mock.ExpectExec("DELETE FROM global_secrets").
+		WithArgs("OLD_KEY").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	mock.ExpectQuery("SELECT id FROM workspaces").
+		WithArgs("OLD_KEY").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ws-x"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "key", Value: "OLD_KEY"}}
+	c.Request = httptest.NewRequest("DELETE", "/admin/secrets/OLD_KEY", nil)
+
+	handler.DeleteGlobal(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	select {
+	case id := <-restarted:
+		if id != "ws-x" {
+			t.Errorf("expected ws-x, got %q", id)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("auto-restart not fired")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
