@@ -16,7 +16,16 @@ defaults:
   # be ready yet. Keep it local: clone, read, memorize. Wait for tasks.
   initial_prompt: |
     You just started. Set up your environment silently — do NOT contact other agents yet.
-    1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
+    1. Clone the repo (authenticated when GITHUB_TOKEN is available, anonymous otherwise).
+       When a token is present, use it in-URL ONLY for the clone, then immediately scrub
+       the remote URL so the token is never persisted to /workspace/repo/.git/config:
+       if [ -n "$GITHUB_TOKEN" ]; then
+         git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git" /workspace/repo 2>/dev/null \
+           && (cd /workspace/repo && git remote set-url origin "https://github.com/${GITHUB_REPO}.git") \
+           || (cd /workspace/repo && git pull)
+       else
+         git clone "https://github.com/${GITHUB_REPO}.git" /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
+       fi
     2. Set up git hooks: cd /workspace/repo && git config core.hooksPath .githooks
     3. Read /workspace/repo/CLAUDE.md to understand the project
     4. Read your system prompt at /configs/system-prompt.md to understand your role
