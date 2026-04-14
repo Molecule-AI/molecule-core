@@ -165,53 +165,53 @@ echo ""
 echo "--- Activity Log Tests ---"
 
 # Test: Report activity log
-R=$(curl -s -X POST "$BASE/workspaces/$ECHO_ID/activity" -H "Content-Type: application/json" \
+R=$(curl -s -X POST "$BASE/workspaces/$ECHO_ID/activity" -H "Content-Type: application/json" -H "Authorization: Bearer $ECHO_TOKEN" \
   -d '{"activity_type":"agent_log","method":"inference","summary":"Processing user query"}')
 check "POST /workspaces/:id/activity (report)" '"status":"logged"' "$R"
 
 # Test: Report A2A activity
-R=$(curl -s -X POST "$BASE/workspaces/$ECHO_ID/activity" -H "Content-Type: application/json" \
+R=$(curl -s -X POST "$BASE/workspaces/$ECHO_ID/activity" -H "Content-Type: application/json" -H "Authorization: Bearer $ECHO_TOKEN" \
   -d "{\"activity_type\":\"a2a_send\",\"method\":\"message/send\",\"summary\":\"Sent to summarizer\",\"target_id\":\"$SUM_ID\",\"duration_ms\":150}")
 check "POST activity (a2a_send)" '"status":"logged"' "$R"
 
 # Test: Report error activity
-R=$(curl -s -X POST "$BASE/workspaces/$ECHO_ID/activity" -H "Content-Type: application/json" \
+R=$(curl -s -X POST "$BASE/workspaces/$ECHO_ID/activity" -H "Content-Type: application/json" -H "Authorization: Bearer $ECHO_TOKEN" \
   -d '{"activity_type":"error","summary":"Connection timeout","status":"error","error_detail":"dial tcp: timeout after 30s"}')
 check "POST activity (error)" '"status":"logged"' "$R"
 
 # Test: Report task update
-R=$(curl -s -X POST "$BASE/workspaces/$ECHO_ID/activity" -H "Content-Type: application/json" \
+R=$(curl -s -X POST "$BASE/workspaces/$ECHO_ID/activity" -H "Content-Type: application/json" -H "Authorization: Bearer $ECHO_TOKEN" \
   -d '{"activity_type":"task_update","method":"start","summary":"Started data analysis"}')
 check "POST activity (task_update)" '"status":"logged"' "$R"
 
 # Test: Invalid activity type rejected
-R=$(curl -s -X POST "$BASE/workspaces/$ECHO_ID/activity" -H "Content-Type: application/json" \
+R=$(curl -s -X POST "$BASE/workspaces/$ECHO_ID/activity" -H "Content-Type: application/json" -H "Authorization: Bearer $ECHO_TOKEN" \
   -d '{"activity_type":"bad_type","summary":"test"}')
 check "POST activity (invalid type → 400)" 'invalid activity_type' "$R"
 
 # Test: List all activities
-R=$(curl -s "$BASE/workspaces/$ECHO_ID/activity")
+R=$(curl -s "$BASE/workspaces/$ECHO_ID/activity" -H "Authorization: Bearer $ECHO_TOKEN")
 COUNT=$(echo "$R" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
 check "GET /workspaces/:id/activity (has entries)" "4" "$COUNT"
 
 # Test: List activities filtered by type
-R=$(curl -s "$BASE/workspaces/$ECHO_ID/activity?type=error")
+R=$(curl -s "$BASE/workspaces/$ECHO_ID/activity?type=error" -H "Authorization: Bearer $ECHO_TOKEN")
 COUNT=$(echo "$R" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
 check "GET activity?type=error (count=1)" "1" "$COUNT"
 check "GET activity?type=error (has error_detail)" 'dial tcp' "$R"
 
-R=$(curl -s "$BASE/workspaces/$ECHO_ID/activity?type=a2a_send")
+R=$(curl -s "$BASE/workspaces/$ECHO_ID/activity?type=a2a_send" -H "Authorization: Bearer $ECHO_TOKEN")
 COUNT=$(echo "$R" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
 check "GET activity?type=a2a_send (count=1)" "1" "$COUNT"
 check "GET activity?type=a2a_send (has target_id)" "$SUM_ID" "$R"
 
 # Test: List with custom limit
-R=$(curl -s "$BASE/workspaces/$ECHO_ID/activity?limit=2")
+R=$(curl -s "$BASE/workspaces/$ECHO_ID/activity?limit=2" -H "Authorization: Bearer $ECHO_TOKEN")
 COUNT=$(echo "$R" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
 check "GET activity?limit=2 (capped)" "2" "$COUNT"
 
 # Test: Empty activity list for other workspace
-R=$(curl -s "$BASE/workspaces/$SUM_ID/activity")
+R=$(curl -s "$BASE/workspaces/$SUM_ID/activity" -H "Authorization: Bearer $SUM_TOKEN")
 check "GET activity (empty for summarizer)" '[]' "$R"
 
 # ---------- Current Task Tests ----------

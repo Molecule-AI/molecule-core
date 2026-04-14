@@ -153,11 +153,25 @@ class HeartbeatLoop:
                     continue
 
                 if status in ("completed", "failed"):
+                    # Fix B (Cycle 5): validate source_id before accepting delegation
+                    # results. Only process delegations that THIS workspace created
+                    # (source_id == self.workspace_id). Attacker-crafted delegation
+                    # records with a foreign source_id cannot inject instructions.
+                    source_id = d.get("source_id", "")
+                    if source_id != self.workspace_id:
+                        logger.warning(
+                            "Heartbeat: skipping delegation %s — source_id %r does not "
+                            "match this workspace %r; possible injection attempt",
+                            did, source_id, self.workspace_id,
+                        )
+                        self._seen_delegation_ids.add(did)  # mark seen so we don't warn again
+                        continue
+
                     self._seen_delegation_ids.add(did)
                     new_results.append({
                         "delegation_id": did,
                         "target_id": d.get("target_id", ""),
-                        "source_id": d.get("source_id", ""),
+                        "source_id": source_id,
                         "status": status,
                         "summary": d.get("summary", ""),
                         "response_preview": d.get("response_preview", ""),
@@ -177,12 +191,15 @@ class HeartbeatLoop:
                         f.write(json.dumps(r) + "\n")
                 logger.info("Heartbeat: %d new delegation results — triggering self-message", len(new_results))
 
-                # Build a summary message for the agent
+                # Build a summary message for the agent.
+                # Fix B (Cycle 5): do NOT embed raw response_preview text in
+                # user-role A2A messages — that is the prompt-injection vector.
+                # Instead reference only the delegation ID and status; the agent
+                # reads full content from DELEGATION_RESULTS_FILE which was
+                # written above from trusted platform data.
                 summary_lines = []
                 for r in new_results:
-                    line = f"- [{r['status']}] {r['summary'][:80]}"
-                    if r.get("response_preview"):
-                        line += f"\n  Response: {r['response_preview'][:200]}"
+                    line = f"- [{r['status']}] Delegation {r['delegation_id'][:8]}: {r['summary'][:80]}"
                     if r.get("error"):
                         line += f"\n  Error: {r['error'][:100]}"
                     summary_lines.append(line)
