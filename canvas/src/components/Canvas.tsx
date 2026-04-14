@@ -288,6 +288,13 @@ function CanvasInner() {
         />
       </ReactFlow>
 
+      {/* Screen-reader live region: announces workspace count when canvas loads or changes */}
+      <div role="status" aria-live="polite" className="sr-only">
+        {nodes.filter((n) => !n.data.parentId).length === 0
+          ? "No workspaces on canvas"
+          : `${nodes.filter((n) => !n.data.parentId).length} workspace${nodes.filter((n) => !n.data.parentId).length !== 1 ? "s" : ""} on canvas`}
+      </div>
+
       {nodes.length === 0 && <EmptyState />}
       <OnboardingWizard />
       <Toolbar />
