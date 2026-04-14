@@ -1,0 +1,11 @@
+name: molecule-audit-trail
+version: 1.0.0
+description: Append every Edit/Write to .claude/audit.jsonl. PostToolUse hook for accountability.
+author: Molecule AI
+tags: [molecule, guardrails]
+
+runtimes:
+  - claude_code
+
+hooks:
+  - post-edit-audit

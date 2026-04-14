@@ -1,0 +1,11 @@
+name: molecule-skill-update-docs
+version: 1.0.0
+description: Review recent edits and update all documentation (architecture docs, API specs, edit history, README mirrors). Creates missing docs for new implementations.
+author: Molecule AI
+tags: [molecule, guardrails, documentation]
+
+runtimes:
+  - claude_code
+
+skills:
+  - update-docs
