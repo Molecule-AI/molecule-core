@@ -19,6 +19,7 @@ class in Python — unlimited expressiveness, no framework constraint.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -108,6 +109,11 @@ class AgentskillsAdaptor:
                 result.warnings.append("setup.sh timed out (120s)")
                 ctx.logger.warning("%s: setup.sh timed out", self.plugin_name)
 
+        # Claude Code layer — hooks/, commands/, settings-fragment.json.
+        # Mirrors workspace-template/plugins_registry/builtins.py — drift
+        # guarded by tests/test_plugins_builtins_drift.py.
+        _install_claude_layer(ctx, result, self.plugin_name)
+
         return result
 
     async def uninstall(self, ctx: InstallContext) -> None:
@@ -125,3 +131,82 @@ class AgentskillsAdaptor:
             memory_path.write_text("".join(kept))
 
 
+
+
+# ----------------------------------------------------------------------
+# Claude Code layer — mirrors workspace-template/plugins_registry/builtins.py.
+# Drift-guarded by workspace-template/tests/test_plugins_builtins_drift.py.
+# ----------------------------------------------------------------------
+
+def _install_claude_layer(ctx: InstallContext, result: InstallResult, plugin_name: str) -> None:
+    claude_dir = ctx.configs_dir / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    _copy_dir_files(ctx.plugin_root / "hooks", claude_dir / "hooks", result, executable_suffix=".sh")
+    _copy_dir_files(ctx.plugin_root / "commands", claude_dir / "commands", result, only_suffix=".md")
+    _merge_settings_fragment(ctx, claude_dir, result, plugin_name)
+
+
+def _copy_dir_files(src: Path, dst: Path, result: InstallResult,
+                    executable_suffix: str | None = None,
+                    only_suffix: str | None = None) -> None:
+    if not src.is_dir():
+        return
+    dst.mkdir(parents=True, exist_ok=True)
+    for f in src.iterdir():
+        if not f.is_file():
+            continue
+        if only_suffix and f.suffix != only_suffix:
+            if not (executable_suffix and f.suffix == ".py"):
+                continue
+        target = dst / f.name
+        shutil.copy2(f, target)
+        if executable_suffix and f.suffix == executable_suffix:
+            target.chmod(0o755)
+        result.files_written.append(str(target.relative_to(target.parents[2])))
+
+
+def _merge_settings_fragment(ctx: InstallContext, claude_dir: Path,
+                              result: InstallResult, plugin_name: str) -> None:
+    fragment_path = ctx.plugin_root / "settings-fragment.json"
+    if not fragment_path.is_file():
+        return
+    try:
+        fragment = json.loads(fragment_path.read_text())
+    except Exception as e:
+        result.warnings.append(f"settings-fragment.json invalid: {e}")
+        return
+    settings_path = claude_dir / "settings.json"
+    if settings_path.is_file():
+        try:
+            existing = json.loads(settings_path.read_text())
+        except Exception:
+            existing = {}
+    else:
+        existing = {}
+    rewritten = _rewrite_hook_paths(fragment, claude_dir)
+    merged = _deep_merge_hooks(existing, rewritten)
+    settings_path.write_text(json.dumps(merged, indent=2) + "\n")
+    result.files_written.append(str(settings_path.relative_to(ctx.configs_dir)))
+    ctx.logger.info("%s: merged hook config into %s", plugin_name, settings_path)
+
+
+def _rewrite_hook_paths(fragment: dict, claude_dir: Path) -> dict:
+    out = json.loads(json.dumps(fragment))
+    for handlers in out.get("hooks", {}).values():
+        for handler in handlers:
+            for h in handler.get("hooks", []):
+                h["command"] = h.get("command", "").replace("${CLAUDE_DIR}", str(claude_dir))
+    return out
+
+
+def _deep_merge_hooks(existing: dict, fragment: dict) -> dict:
+    out = dict(existing)
+    out.setdefault("hooks", {})
+    for event, handlers in fragment.get("hooks", {}).items():
+        out["hooks"].setdefault(event, [])
+        out["hooks"][event].extend(handlers)
+    for key, val in fragment.items():
+        if key == "hooks":
+            continue
+        out.setdefault(key, val)
+    return out

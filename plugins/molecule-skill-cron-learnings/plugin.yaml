@@ -1,0 +1,11 @@
+name: molecule-skill-cron-learnings
+version: 1.0.0
+description: Defines the per-tick operational-memory JSONL format used by automated cron loops. End each cron tick by appending 1-3 learning lines; replay at next tick start. Pairs with molecule-session-context for auto-loading.
+author: Molecule AI
+tags: [molecule, guardrails, memory]
+
+runtimes:
+  - claude_code
+
+skills:
+  - cron-learnings

@@ -183,6 +183,28 @@ Shared plugins in `plugins/` are auto-loaded by every workspace:
 - **`ecc`**: General Claude Code guardrails
 - **`browser-automation`**: Puppeteer/CDP-based web scraping and live canvas screenshots (opt-in per workspace — wired into Research + UIUX roles in `org-templates/molecule-dev/org.yaml`)
 
+**Modular guardrails** (Claude Code only — pick what you need, or install several):
+
+*Hook plugins (ambient enforcement at the harness layer)*
+- **`molecule-careful-bash`** — REFUSES `git push --force` to main, `rm -rf` at root, `DROP TABLE` against prod schema. Ships the `careful-mode` skill as documentation.
+- **`molecule-freeze-scope`** — locks edits to a single path glob via `.claude/freeze`. Useful while debugging.
+- **`molecule-audit-trail`** — appends every Edit/Write to `.claude/audit.jsonl` for accountability.
+- **`molecule-session-context`** — auto-loads recent cron-learnings + open PR/issue counts at session start. Pairs with `molecule-skill-cron-learnings`.
+- **`molecule-prompt-watchdog`** — injects warning context when the user prompt mentions destructive keywords ("force push", "drop table", "delete all", etc).
+
+*Skill plugins (on-demand, via the `Skill` tool)*
+- **`molecule-skill-code-review`** — 16-criteria multi-axis review.
+- **`molecule-skill-cross-vendor-review`** — adversarial second-model review (use for noteworthy PRs).
+- **`molecule-skill-llm-judge`** — score whether a deliverable addresses the request.
+- **`molecule-skill-update-docs`** — sync repo docs after merges.
+- **`molecule-skill-cron-learnings`** — defines the operational-memory JSONL format consumed by `molecule-session-context`.
+
+*Workflow plugins (slash commands that compose skills)*
+- **`molecule-workflow-triage`** — `/triage` runs a full PR-triage cycle (gates 1–7 + code-review + merge if green). Recommends installing `molecule-skill-code-review` + `molecule-skill-cron-learnings` first.
+- **`molecule-workflow-retro`** — `/retro` posts a weekly retrospective issue. Recommends `molecule-skill-cron-learnings` first.
+
+These are distilled from the harness-level guardrails the orchestrator uses on itself. A workspace can install one (e.g., just `molecule-careful-bash` for safety) or stack the full set for the same posture as the Molecule AI orchestrator.
+
 ### Scripts
 ```bash
 bash scripts/setup-default-org.sh              # Create PM + 3 teams (Marketing/Research/Dev) via API
