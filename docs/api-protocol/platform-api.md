@@ -64,14 +64,16 @@ Workspace creation also assigns an `awareness_namespace` on the workspace row. T
 
 ### Registry
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/registry/register` | Workspace registration on startup |
-| `POST` | `/registry/heartbeat` | Liveness and task updates |
-| `POST` | `/registry/update-card` | Push Agent Card updates after runtime/skill changes |
-| `GET` | `/registry/discover/:id` | Resolve workspace URL for A2A calls |
-| `GET` | `/registry/:id/peers` | List reachable peers |
-| `POST` | `/registry/check-access` | Validate reachability/access |
+| Method | Path | Description | Auth |
+|---|---|---|---|
+| `POST` | `/registry/register` | Workspace registration on startup. First register issues a per-workspace bearer token in the response body (`auth_token`); re-register is idempotent and omits the token. | — |
+| `POST` | `/registry/heartbeat` | Liveness and task updates. | Phase 30.1 — `Authorization: Bearer <token>` required if the workspace has any live token on file; legacy workspaces grandfathered (fail-open). |
+| `POST` | `/registry/update-card` | Push Agent Card updates after runtime/skill changes. | Phase 30.1 — same grandfather rule as `/heartbeat`. |
+| `GET` | `/registry/discover/:id` | Resolve workspace URL for A2A calls. | Phase 30.6 — caller sends `X-Workspace-ID` + own bearer token; fail-open on DB hiccup (hierarchy check is primary gate). |
+| `GET` | `/registry/:id/peers` | List reachable peers. | Phase 30.6 — same as `/discover/:id`. |
+| `POST` | `/registry/check-access` | Validate reachability/access. | — |
+
+**Why the auth callout matters:** remote (Phase 30) agents authenticate themselves with the bearer token returned by `POST /registry/register`. Local containers are transparent to this during the lazy-bootstrap grace window — the provisioner threads the token in as an env var on first register. See `docs/development/testing-e2e.md` for how E2E scripts handle token capture. If you change these routes, update `tests/e2e/test_api.sh` in the same PR.
 
 ### Activity and recall
 
