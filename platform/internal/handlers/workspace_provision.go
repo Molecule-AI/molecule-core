@@ -77,6 +77,30 @@ func (h *WorkspaceHandler) provisionWorkspace(workspaceID, templatePath string, 
 	awarenessNamespace := h.loadAwarenessNamespace(ctx, workspaceID)
 	cfg := h.buildProvisionerConfig(workspaceID, templatePath, configFiles, payload, envVars, pluginsPath, awarenessNamespace)
 
+	// Preflight #17: refuse to start a container we already know will crash on missing config.yaml.
+	// When the caller supplies neither a template dir nor in-memory configFiles (the auto-restart
+	// path), probe the existing Docker named volume. If it's empty/missing config.yaml, mark the
+	// workspace 'failed' instead of handing it to Docker's unless-stopped restart policy, which
+	// would otherwise loop forever on FileNotFoundError.
+	if srcErr := provisioner.ValidateConfigSource(templatePath, configFiles); srcErr != nil {
+		hasConfig, probeErr := h.provisioner.VolumeHasFile(ctx, workspaceID, "config.yaml")
+		if probeErr != nil {
+			log.Printf("Provisioner: config.yaml preflight probe failed for %s: %v (proceeding)", workspaceID, probeErr)
+		} else if !hasConfig {
+			msg := fmt.Sprintf("cannot start workspace %s: no config.yaml source and config volume is empty — delete the workspace or provide a template", workspaceID)
+			log.Printf("Provisioner: %s", msg)
+			if _, dbErr := db.DB.ExecContext(ctx,
+				`UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
+				workspaceID, msg); dbErr != nil {
+				log.Printf("Provisioner: failed to mark workspace %s as failed: %v", workspaceID, dbErr)
+			}
+			h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+				"error": msg,
+			})
+			return
+		}
+	}
+
 	url, err := h.provisioner.Start(ctx, cfg)
 	if err != nil {
 		// Persist the error text to last_sample_error so the canvas and

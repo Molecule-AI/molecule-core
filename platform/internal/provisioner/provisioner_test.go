@@ -1,11 +1,66 @@
 package provisioner
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/docker/docker/api/types/container"
 )
+
+// TestValidateConfigSource covers issue #17: a workspace restart with no
+// template and no in-memory configFiles must be caught before Docker
+// starts a container destined to crash-loop on FileNotFoundError.
+func TestValidateConfigSource_ConfigFilesPresent(t *testing.T) {
+	files := map[string][]byte{"config.yaml": []byte("name: test\n")}
+	if err := ValidateConfigSource("", files); err != nil {
+		t.Fatalf("expected nil error when configFiles has config.yaml, got %v", err)
+	}
+}
+
+func TestValidateConfigSource_ConfigFilesEmptyValue(t *testing.T) {
+	files := map[string][]byte{"config.yaml": {}}
+	if err := ValidateConfigSource("", files); !errors.Is(err, ErrNoConfigSource) {
+		t.Fatalf("expected ErrNoConfigSource for empty config.yaml bytes, got %v", err)
+	}
+}
+
+func TestValidateConfigSource_TemplatePathWithConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("name: x\n"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := ValidateConfigSource(dir, nil); err != nil {
+		t.Fatalf("expected nil when template dir has config.yaml, got %v", err)
+	}
+}
+
+func TestValidateConfigSource_TemplatePathMissingConfig(t *testing.T) {
+	dir := t.TempDir() // empty dir
+	if err := ValidateConfigSource(dir, nil); !errors.Is(err, ErrNoConfigSource) {
+		t.Fatalf("expected ErrNoConfigSource for template dir without config.yaml, got %v", err)
+	}
+}
+
+func TestValidateConfigSource_BothEmpty(t *testing.T) {
+	if err := ValidateConfigSource("", nil); !errors.Is(err, ErrNoConfigSource) {
+		t.Fatalf("expected ErrNoConfigSource when both sources empty, got %v", err)
+	}
+}
+
+func TestValidateConfigSource_TemplateIsDirName(t *testing.T) {
+	// If `config.yaml` at the template path is itself a directory (weird
+	// but possible), the validator should reject it.
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "config.yaml"), 0755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := ValidateConfigSource(dir, nil); !errors.Is(err, ErrNoConfigSource) {
+		t.Fatalf("expected ErrNoConfigSource when config.yaml is a dir, got %v", err)
+	}
+}
 
 // baseHostConfig returns a fresh HostConfig with typical pre-tier binds,
 // mimicking what Start() builds before calling ApplyTierConfig.
