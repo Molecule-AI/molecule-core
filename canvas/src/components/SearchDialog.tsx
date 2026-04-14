@@ -145,7 +145,7 @@ export function SearchDialog() {
                   className={`w-2 h-2 rounded-full shrink-0 ${
                     node.data.status === "online" ? "bg-emerald-400" :
                     node.data.status === "failed" ? "bg-red-400" :
-                    node.data.status === "provisioning" ? "bg-sky-400 animate-pulse" :
+                    node.data.status === "provisioning" ? "bg-sky-400 motion-safe:animate-pulse" :
                     "bg-zinc-500"
                   }`}
                 />

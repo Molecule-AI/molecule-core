@@ -33,7 +33,7 @@ const STATUS_CONFIG: Record<string, { dot: string; glow: string; label: string; 
   paused: { dot: "bg-indigo-400", glow: "", label: "Paused", bar: "from-indigo-500/10 to-transparent" },
   degraded: { dot: "bg-amber-400", glow: "shadow-amber-400/50", label: "Degraded", bar: "from-amber-500/20 to-transparent" },
   failed: { dot: "bg-red-400", glow: "shadow-red-400/50", label: "Failed", bar: "from-red-500/20 to-transparent" },
-  provisioning: { dot: "bg-sky-400 animate-pulse", glow: "shadow-sky-400/50", label: "Starting", bar: "from-sky-500/20 to-transparent" },
+  provisioning: { dot: "bg-sky-400 motion-safe:animate-pulse", glow: "shadow-sky-400/50", label: "Starting", bar: "from-sky-500/20 to-transparent" },
 };
 
 /** Eject/extract arrow icon — visually distinct from delete ✕ */
@@ -205,7 +205,7 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
         {data.currentTask && (
           <Tooltip text={String(data.currentTask)}>
             <div className="flex items-center gap-1.5 mt-1 bg-amber-950/20 px-2 py-1 rounded-md border border-amber-800/20 cursor-default">
-              <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+              <div className="w-1.5 h-1.5 rounded-full bg-amber-400 motion-safe:animate-pulse shrink-0" />
               <span className="text-[10px] text-amber-300/80 truncate">{data.currentTask}</span>
             </div>
           </Tooltip>
@@ -240,7 +240,7 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
 
           {data.activeTasks > 0 && (
             <div className="flex items-center gap-1">
-              <div className="w-1 h-1 rounded-full bg-amber-400 animate-pulse" />
+              <div className="w-1 h-1 rounded-full bg-amber-400 motion-safe:animate-pulse" />
               <span className="text-[10px] text-amber-300/80 tabular-nums">
                 {data.activeTasks} task{data.activeTasks > 1 ? "s" : ""}
               </span>
@@ -424,7 +424,7 @@ function TeamMemberChip({
           ) : <div />}
           {data.activeTasks > 0 && (
             <div className="flex items-center gap-0.5">
-              <div className="w-1 h-1 rounded-full bg-amber-400 animate-pulse" />
+              <div className="w-1 h-1 rounded-full bg-amber-400 motion-safe:animate-pulse" />
               <span className="text-[7px] text-amber-300/80 tabular-nums">
                 {data.activeTasks}
               </span>
@@ -436,7 +436,7 @@ function TeamMemberChip({
         {data.currentTask && (
           <Tooltip text={String(data.currentTask)}>
             <div className="flex items-center gap-1 mt-0.5 px-1.5 py-0.5 bg-amber-950/20 rounded border border-amber-800/20 cursor-default">
-              <div className="w-1 h-1 rounded-full bg-amber-400 animate-pulse shrink-0" />
+              <div className="w-1 h-1 rounded-full bg-amber-400 motion-safe:animate-pulse shrink-0" />
               <span className="text-[7px] text-amber-300/70 truncate">{data.currentTask}</span>
             </div>
           </Tooltip>

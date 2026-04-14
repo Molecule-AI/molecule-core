@@ -125,7 +125,7 @@ export function Toolbar() {
           <StatusPill color="bg-zinc-500" count={counts.offline} label="offline" />
         )}
         {counts.provisioning > 0 && (
-          <StatusPill color="bg-sky-400 animate-pulse" count={counts.provisioning} label="starting" />
+          <StatusPill color="bg-sky-400 motion-safe:animate-pulse" count={counts.provisioning} label="starting" />
         )}
         {counts.failed > 0 && (
           <StatusPill color="bg-red-400" count={counts.failed} label="failed" />
@@ -266,7 +266,7 @@ function WsStatusPill({ status }: { status: "connected" | "connecting" | "discon
   if (status === "connecting") {
     return (
       <div className="flex items-center gap-1.5" title="Real-time updates: reconnecting…">
-        <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+        <div className="w-1.5 h-1.5 rounded-full bg-amber-400 motion-safe:animate-pulse" />
         <span className="text-[10px] text-zinc-500">Reconnecting</span>
       </div>
     );
