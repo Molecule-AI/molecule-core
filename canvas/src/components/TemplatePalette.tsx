@@ -82,7 +82,8 @@ export function OrgTemplatesSection() {
         </h3>
         <button
           onClick={loadOrgs}
-          className="text-[9px] text-zinc-500 hover:text-zinc-300"
+          aria-label="Refresh org templates"
+          className="text-[10px] text-zinc-500 hover:text-zinc-300"
         >
           ↻
         </button>
@@ -314,6 +315,7 @@ export function TemplatePalette() {
             : "bg-zinc-900/90 border border-zinc-700/50 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600"
         }`}
         title="Template Palette"
+        aria-label="Template Palette"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />

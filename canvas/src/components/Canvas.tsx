@@ -228,6 +228,7 @@ function CanvasInner() {
   return (
     <div className="w-screen h-screen bg-zinc-950">
       <ReactFlow
+        colorMode="dark"
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
