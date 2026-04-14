@@ -21,7 +21,7 @@
   全球最强大的 Agent Team 治理方案。
 </p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-orange.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/go-1.25+-00ADD8?logo=go)](https://golang.org/)
 [![Python Version](https://img.shields.io/badge/python-3.11+-3776AB?logo=python)](https://www.python.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)](https://nextjs.org/)
@@ -287,4 +287,6 @@ npm run dev
 
 ## License
 
-MIT
+[Business Source License 1.1](LICENSE) — 版权所有 © 2025 Molecule AI。
+
+允许个人、内部与非商业用途。不得使用本作品提供与本产品竞争的商业服务。2029 年 1 月 1 日起转为 Apache 2.0。
