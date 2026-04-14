@@ -89,7 +89,11 @@ export function OrgTemplatesSection() {
         </button>
       </div>
 
-      {loading && <div className="text-[10px] text-zinc-500">Loading…</div>}
+      {loading && (
+        <div role="status" aria-live="polite" className="text-[10px] text-zinc-500">
+          Loading…
+        </div>
+      )}
 
       {!loading && orgs.length === 0 && (
         <div className="text-[10px] text-zinc-500">
@@ -350,11 +354,13 @@ export function TemplatePalette() {
 
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {loading && (
-              <div className="text-xs text-zinc-500 text-center py-8">Loading...</div>
+              <div role="status" aria-live="polite" className="text-xs text-zinc-500 text-center py-8">
+                Loading…
+              </div>
             )}
 
             {!loading && templates.length === 0 && (
-              <div className="text-xs text-zinc-500 text-center py-8">
+              <div role="status" aria-live="polite" className="text-xs text-zinc-500 text-center py-8">
                 No templates found in<br />workspace-configs-templates/
               </div>
             )}
