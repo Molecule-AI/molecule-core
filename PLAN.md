@@ -318,6 +318,131 @@ Deferred, not blocking:
 - **Shared org-template `system-prompt.md` via `_shared/`** — DRY molecule-dev
   and molecule-worker-gemini. Drift risk; revisit at 3+ orgs.
 
+## Phase 32 — Cloud SaaS launch (2026-Q2/Q3)
+
+Goal: ship Molecule AI as a multi-tenant cloud SaaS (not just
+self-hosted per-customer). Ordered by dependency + ROI.
+
+### Tier 1 — blocks multi-tenant launch
+
+- [ ] **Multi-tenancy**: `organizations` table, `org_id` FK +
+  `WHERE org_id = $caller_org` filter on every row-returning
+  handler (`workspaces`, `workspace_secrets`, `global_secrets`,
+  `activity_logs`, `structure_events`, `agent_memories`,
+  `workspace_schedules`, `workspace_channels`). Middleware resolves
+  caller's org from session token → ctx. Full security audit of
+  tenant isolation before first external user.
+- [ ] **Human auth + orgs**: **WorkOS AuthKit** (NOT build-yourself,
+  NOT Clerk — WorkOS treats per-org SSO as first-class; Clerk
+  treats it as an upsell). Keep Phase 30.1 bearer tokens for
+  machine-to-machine (agents). Stripe integration via WorkOS hooks.
+- [ ] **Container isolation**: replace raw-Docker-socket provisioner
+  with **Fly Machines API** (Firecracker microVMs, per-workspace
+  isolation, sub-second boot, pay-per-second). Today's shared
+  `/var/run/docker.sock` is an RCE-to-host footgun that cannot ship
+  multi-tenant. `provisioner` interface stays — only backend swaps.
+  Docker path remains for local dev.
+- [ ] **Stripe billing**: subscriptions + usage metering
+  (workspace-hours, LLM-token pass-through, storage), trial flow,
+  dunning, invoices.
+- [ ] **Per-org resource quotas**: tier memory/CPU is configurable
+  (PR #58) but unenforced at provision time. Add per-org ceilings:
+  max workspaces, max concurrent-running, max total memory.
+- [ ] **Managed Postgres + Redis**: move off `docker-compose` for
+  prod. **Neon** (serverless, branch-per-PR) for Postgres; **Upstash**
+  for Redis. Alternative: drop Redis entirely — `LISTEN/NOTIFY`
+  + advisory locks cover heartbeat TTL + URL cache.
+- [ ] **Secrets at rest via KMS**: current `SECRETS_ENCRYPTION_KEY`
+  is a single static AES-256 key. Move to **AWS/GCP KMS**-backed
+  envelope encryption; the `secrets_encryption_version` table slot
+  is already reserved for rotation.
+- [ ] **Migration runner out of app boot**: a bad migration
+  currently crashes platform boot with no rollback. Extract to
+  **goose** as a release step / init container. Auto-discovery
+  runner stays for dev mode only.
+
+### Tier 1 follow-ups (before customer #1)
+
+- [ ] **Observability**: wire `/metrics` to a scraper (Grafana
+  Cloud or self-hosted). Add **Sentry** for Go + Next.js error
+  tracking. Langfuse stays for LLM traces.
+- [ ] **Rate limiting per-org**: global `RATE_LIMIT=600/min` is a
+  shared bucket today. Needs per-org + per-endpoint buckets.
+- [ ] **Cloudflare in front**: WAF + CDN + DDoS. Free tier covers
+  pre-revenue.
+- [ ] **Sign-up / onboarding flow**: landing → signup → first
+  workspace in 60 seconds. No such flow today.
+- [ ] **Transactional email**: Resend or Postmark.
+- [ ] **Admin panel**: view orgs, suspend accounts, see usage,
+  issue refunds. SQL-only at first; UI by ~50 orgs.
+- [ ] **Privacy policy + ToS + DPA**: real ones, vetted. GDPR /
+  CCPA data-export + deletion endpoints (workspace-export already
+  exists; need org-level).
+
+### Tier 2 — tech-stack upgrades (high ROI, non-blocking)
+
+- [ ] **Go platform**: migrate `lib/pq` → **pgx/v5** (1–2 days;
+  `lib/pq` in maintenance since ~2021). Then **sqlc** incrementally
+  for new queries — keeps the no-ORM philosophy + typed Go.
+- [ ] **Platform async: River** (Postgres-backed, Go-native job
+  queue). Delegation dispatch, `workspace_schedules` cron, future
+  billing events + webhook fan-out all migrate cleanly. **NOT**
+  Temporal — Temporal already ships in workspace-template as an
+  agent tool; keep the separation.
+- [ ] **Frontend: TanStack Query** for server state. Zustand keeps
+  pure UI state. Stops reimplementing cache / refetch / dedup. WS
+  updates flow via `qc.setQueryData`. Single highest-ROI frontend
+  refactor.
+- [ ] **Turbopack for `next build`**: one flag, 2–5× cold-build
+  speedup.
+- [ ] **Python workspace runtime → uv**: `uv pip install` in
+  `entrypoint.sh` cuts workspace cold-start 10–100×. User-visible
+  latency win.
+- [ ] **Python MCP client inside runtime**: today `mcp-server/`
+  exposes the platform as an MCP server; agents inside workspaces
+  can't yet consume external MCP servers. Closing the gap joins
+  the winning 2026 ecosystem.
+- [ ] **shadcn/ui CLI convention**: already Radix + Tailwind;
+  adopt `npx shadcn add …` passively for new components.
+  No rewrite.
+
+### Tier 3 — explicitly NOT doing
+
+- **Kubernetes**: company-of-one cannot run K8s. Fly Machines
+  covers isolation without the ops tax.
+- **ORM** (GORM / ent / bun): raw-SQL + sqlc covers every case.
+- **Framework swap** (Next → Vite / TanStack Start): 2-week
+  rewrite buys nothing users see.
+- **Auth-from-scratch**: every hour on auth is an hour not on
+  product.
+- **Canvas library swap** (xyflow → tldraw): xyflow is still the
+  correct tool for typed node graphs.
+
+### Tier 4 — compliance / enterprise (when revenue lands)
+
+- [ ] SOC 2 via Drata / Vanta
+- [ ] Status page (Betterstack or Instatus)
+- [ ] Staging environment that mirrors prod
+- [ ] Blue-green / canary deploy pipeline
+- [ ] Per-org backup + point-in-time restore
+- [ ] Load testing (`hey` / `vegeta`) — current per-node ceiling
+  unknown
+
+### Success criteria for Phase 32
+
+- Customer can sign up at molecule.ai, create an org, deploy their
+  first workspace, send their first message in < 5 minutes.
+- Two orgs on the same cluster cannot observe each other's
+  workspaces, secrets, memory, or activity — verified by automated
+  tenant-isolation test + manual red-team.
+- Fly Machines cost per active workspace-hour documented and
+  reproducible.
+- Stripe-backed subscription + usage-based add-ons working end-to-
+  end in sandbox.
+- One paying design partner on the cluster, paying a real invoice.
+
+---
+
 ## Infra footnote — Temporal
 
 `docker-compose.infra.yml` now includes Temporal (`:7233` gRPC, `:8233` Web
