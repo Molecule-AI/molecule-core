@@ -110,10 +110,10 @@ OPENAI_API_KEY=... bash scripts/test-team-e2e.sh           # E2E: Multi-template
 
 ### Unit Tests
 ```bash
-cd platform && go test -race ./...               # 536 Go tests (handlers, registry, provisioner, CLI, delegation, org, channels, wsauth — sqlmock + miniredis; +47 on 2026-04-13 covering extracted helpers from the a2a_proxy / delegation / discovery / activity refactor)
+cd platform && go test -race ./...               # 695 Go tests (handlers, registry, provisioner, CLI, delegation, org, channels, wsauth — sqlmock + miniredis; +47 on 2026-04-13 covering extracted helpers from the a2a_proxy / delegation / discovery / activity refactor)
 cd canvas && npm test                            # 357 Vitest tests (store, components, hydration, buildTree, secrets API, org template import, ConfirmDialog singleButton + 7 native-dialog replacements)
-cd workspace-template && python -m pytest -v     # 1084 pytest tests (adds platform_auth token store for Phase 30.1, memory_write activity logging)
-cd sdk/python && python -m pytest -v              # 121 SDK tests (agentskills.io spec validator, CLI, AgentskillsAdaptor round-trip, workspace/org/channel validators, RemoteAgentClient Phase 30 flows)
+cd workspace-template && python -m pytest -v     # 1140 pytest tests (adds platform_auth token store for Phase 30.1, memory_write activity logging)
+cd sdk/python && python -m pytest -v              # 132 SDK tests (agentskills.io spec validator, CLI, AgentskillsAdaptor round-trip, workspace/org/channel validators, RemoteAgentClient Phase 30 flows)
 cd mcp-server && npm test                        # 97 Jest tests (per-domain tool modules + smoke test on tool count)
 ```
 
