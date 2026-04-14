@@ -14,6 +14,75 @@ overlap / differentiation / terminology-collision notes. Cross-referenced
 from `PLAN.md` and `README.md`; it's the canonical starting point for
 "what else is out there."
 
+## Agent operating rules (auto-loaded — read first)
+
+The following are project-level rules that override default behavior. They
+apply to every conversation in this repo, automated cron tick, and every
+subagent the orchestrator spawns.
+
+### Cron / triage discipline
+
+1. **Always read the most recent cron-learnings before reviewing PRs.** Open
+   `~/.claude/projects/-Users-hongming-Documents-GitHub-molecule-monorepo/memory/cron-learnings.jsonl`,
+   read the last 20 lines. Patterns recur — a finding that was a false-positive
+   last tick is likely a false-positive again. A fix that worked last tick is
+   likely the fix this tick. The SessionStart hook auto-injects this; read
+   anyway when starting a triage from the middle of a conversation.
+
+2. **Treat `docs/sync-*` PRs that touch CLAUDE.md or PLAN.md as ALWAYS
+   noteworthy.** Those two files are the agent-facing source of truth — a
+   bad merge there silently corrupts every future triage tick. Run code-review
+   skill at minimum, ideally cross-vendor-review too.
+
+3. **After any cron tick, write a 1-line reflection** to
+   `.claude/per-tick-reflections.md` (gitignored). Format: `2026-MM-DDTHH:MMZ
+   — what surprised me / what I'd do differently next tick`. This is for
+   YOUR future self; the cron-learnings JSONL is for the operational pattern
+   memory. They are distinct.
+
+### Hooks active in this repo
+
+The following ambient guardrails fire automatically (configured in
+`.claude/settings.json`). When a hook blocks a tool call, the response will
+include a `permissionDecisionReason` — read it carefully before retrying.
+
+| Hook | Event | Effect |
+|------|-------|--------|
+| `pre-bash-careful.sh` | PreToolUse:Bash | REFUSES `git push --force` to main, `rm -rf` at root/HOME, `DROP TABLE` against prod schema. WARNs on `--force-with-lease`, `gh pr close/issue close`. |
+| `pre-edit-freeze.sh` | PreToolUse:Edit/Write | Blocks edits outside the path in `.claude/freeze` if that file exists. Use to lock scope while debugging. |
+| `session-start-context.sh` | SessionStart | Auto-loads recent cron-learnings, freeze status, open PR/issue counts. |
+| `post-edit-audit.sh` | PostToolUse:Edit/Write | Appends every edit to `.claude/audit.jsonl` (gitignored). |
+| `user-prompt-tag.sh` | UserPromptSubmit | Injects warning into context when prompt mentions force-push / drop-table / "delete all" / etc. |
+| `subagent-stop-judge.sh` | SubagentStop | Off by default (touch `.claude/judge-subagents` to enable). When on, prompts the orchestrator to verify the subagent's output addresses the original task. |
+
+### Skills active in this repo
+
+These are documented in `.claude/skills/*/SKILL.md`. Invoke explicitly via
+the `Skill` tool — they are NOT auto-applied. The cron prompt invokes them
+at fixed steps; for ad-hoc work, decide if the skill matches your situation:
+
+- `code-review` — full 16-criteria rubric on a diff
+- `cross-vendor-review` — adversarial second-model review (use for noteworthy PRs)
+- `careful-mode` — the doc backing the bash hook above
+- `cron-learnings` — defines the JSONL format
+- `cron-retro` — weekly retrospective generator
+- `llm-judge` — score whether a deliverable addresses the request
+- `update-docs` — sync repo docs after merges
+
+### Standing rules (inviolable)
+
+- Never push directly to main — use feat/fix/chore/docs branches
+- Merge-commits only (`gh pr merge --merge`) — never `--squash` / `--rebase`
+- Never commit without explicit user approval EXCEPT on:
+  - Open PR branches you're fixing for a gate
+  - Issue-pickup branches you opened a draft PR for
+  - Docs-sync branches
+  - Main is untouchable without a merge
+- Dark theme only (no white/light CSS classes; pre-commit hook enforces)
+- No native browser dialogs (`confirm`/`alert`/`prompt`) — use `ConfirmDialog`
+- Delegate through PM, never bypass hierarchy
+- Only PM mounts the repo (`workspace_dir` bind-mount); other agents get isolated Docker volumes
+
 ## Architecture
 
 ```
