@@ -108,6 +108,7 @@ Shared plugins in `plugins/` are auto-loaded by every workspace:
 - **`superpowers`**: `verification-before-completion`, `test-driven-development`, `systematic-debugging`, `writing-plans`
 - **`ecc`**: General Claude Code guardrails
 - **`browser-automation`**: Puppeteer/CDP-based web scraping and live canvas screenshots (opt-in per workspace — wired into Research + UIUX roles in `org-templates/molecule-dev/org.yaml`)
+- **`molecule-guardrails`**: Ambient discipline for Claude Code agents — careful-mode hooks (refuses force-push to main, rm -rf at root, DROP TABLE prod), audit log of every Edit/Write, freeze-scope mechanism, session-start context loader, prompt-watchdog. Also installs the `code-review`, `cross-vendor-review`, `careful-mode`, `cron-learnings`, `llm-judge`, `update-docs` skills and `/triage` + `/retro` slash commands. Distilled from the harness-level rules the orchestrator uses on itself. Claude Code only.
 
 ### Scripts
 ```bash

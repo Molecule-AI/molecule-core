@@ -1,0 +1,39 @@
+name: molecule-guardrails
+version: 1.0.0
+description: Ambient discipline for agent workspaces — careful-mode hooks that block destructive commands, code-review + cross-vendor-review skills, audit logging, session-start context loading, prompt-watchdog, freeze/scope-lock. Distilled from the harness-level guardrails the Molecule AI orchestrator uses against itself.
+author: Molecule AI
+tags: [safety, discipline, code-review, audit, hooks, careful-mode]
+
+# Per-runtime adaptors live under adapters/<runtime>.py and are resolved
+# via the platform's plugin registry. Hooks are Claude-Code-specific
+# (other runtimes don't have a hook lifecycle); skills + rules apply to
+# any runtime that supports CLAUDE.md and a Skill loader.
+runtimes:
+  - claude_code
+
+skills:
+  - careful-mode
+  - code-review
+  - cron-learnings
+  - cross-vendor-review
+  - llm-judge
+  - update-docs
+
+rules:
+  - operating-rules
+
+# Hooks shipped by this plugin. Installed into the workspace's
+# .claude/hooks/ directory and wired into .claude/settings.json by the
+# adapter at install time.
+hooks:
+  - pre-bash-careful
+  - pre-edit-freeze
+  - session-start-context
+  - post-edit-audit
+  - user-prompt-tag
+
+# Slash commands shipped by this plugin. Installed into the workspace's
+# .claude/commands/ directory.
+commands:
+  - triage
+  - retro
