@@ -163,7 +163,7 @@ export function SidePanel() {
             onClick={() => {
               useCanvasStore.getState().restartWorkspace(selectedNodeId).catch(() => showToast("Restart failed", "error"));
             }}
-            className="text-[9px] px-2 py-1 bg-sky-800/40 hover:bg-sky-700/50 text-sky-200 rounded transition-colors"
+            className="text-[11px] px-2 py-1 bg-sky-800/40 hover:bg-sky-700/50 text-sky-200 rounded transition-colors"
           >
             Restart Now
           </button>

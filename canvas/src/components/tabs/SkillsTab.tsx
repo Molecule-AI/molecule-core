@@ -175,9 +175,9 @@ export function SkillsTab({ data }: Props) {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-[11px] font-medium text-zinc-200">{p.name}</span>
-                      {p.version && <span className="text-[9px] text-zinc-600">v{p.version}</span>}
+                      {p.version && <span className="text-[10px] text-zinc-600">v{p.version}</span>}
                       {inert && (
-                        <span className="rounded-full border border-amber-700/50 bg-amber-950/30 px-1.5 py-0.5 text-[8px] text-amber-300">
+                        <span className="rounded-full border border-amber-700/50 bg-amber-950/30 px-1.5 py-0.5 text-[10px] text-amber-300">
                           inert on this runtime
                         </span>
                       )}
@@ -186,10 +186,10 @@ export function SkillsTab({ data }: Props) {
                     {p.skills && p.skills.length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {p.skills.slice(0, 4).map((s) => (
-                          <span key={s} className="rounded-full bg-zinc-800/60 px-1.5 py-0.5 text-[8px] text-zinc-400">{s}</span>
+                          <span key={s} className="rounded-full bg-zinc-800/60 px-1.5 py-0.5 text-[10px] text-zinc-400">{s}</span>
                         ))}
                         {p.skills.length > 4 && (
-                          <span className="text-[8px] text-zinc-600">+{p.skills.length - 4}</span>
+                          <span className="text-[10px] text-zinc-600">+{p.skills.length - 4}</span>
                         )}
                       </div>
                     )}
@@ -197,7 +197,7 @@ export function SkillsTab({ data }: Props) {
                   <button
                     onClick={() => handleUninstall(p.name)}
                     disabled={uninstalling === p.name}
-                    className="shrink-0 rounded-full border border-red-800/40 bg-red-950/20 px-2 py-0.5 text-[9px] text-red-400 hover:bg-red-900/30 disabled:opacity-30"
+                    className="shrink-0 rounded-full border border-red-800/40 bg-red-950/20 px-2 py-0.5 text-[11px] text-red-400 hover:bg-red-900/30 disabled:opacity-30"
                   >
                     {uninstalling === p.name ? "..." : "Remove"}
                   </button>
@@ -213,7 +213,7 @@ export function SkillsTab({ data }: Props) {
             {/* Install from any source (github://, clawhub://, …) */}
             <div className="mb-3 rounded-lg border border-zinc-800/60 bg-zinc-950/40 p-2.5">
               <div className="flex items-center justify-between gap-2 mb-1.5">
-                <div className="text-[9px] uppercase tracking-[0.2em] text-zinc-600">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-600">
                   Install from source
                 </div>
                 {sourceSchemes.length > 0 && (
@@ -221,7 +221,7 @@ export function SkillsTab({ data }: Props) {
                     {sourceSchemes.map((s) => (
                       <span
                         key={s}
-                        className="rounded-full border border-zinc-700/50 bg-zinc-900/50 px-1.5 py-0.5 text-[8px] text-zinc-500"
+                        className="rounded-full border border-zinc-700/50 bg-zinc-900/50 px-1.5 py-0.5 text-[10px] text-zinc-500"
                       >
                         {s}://
                       </span>
@@ -244,16 +244,16 @@ export function SkillsTab({ data }: Props) {
                 <button
                   onClick={handleInstallCustom}
                   disabled={!customSource.trim() || installing !== null}
-                  className="shrink-0 rounded-full border border-violet-700/50 bg-violet-950/30 px-2.5 py-1 text-[9px] text-violet-300 hover:bg-violet-900/40 disabled:opacity-30"
+                  className="shrink-0 rounded-full border border-violet-700/50 bg-violet-950/30 px-2.5 py-1 text-[11px] text-violet-300 hover:bg-violet-900/40 disabled:opacity-30"
                 >
                   {installing === customSource.trim() ? "Installing..." : "Install"}
                 </button>
               </div>
-              <div className="mt-1 text-[9px] text-zinc-600">
+              <div className="mt-1 text-[10px] text-zinc-600">
                 Local registry plugins below; paste any scheme URL above for GitHub or other sources.
               </div>
             </div>
-            <div className="text-[9px] uppercase tracking-[0.2em] text-zinc-600 mb-2">Available plugins</div>
+            <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-2">Available plugins</div>
             {registry.length === 0 ? (
               <div className="text-[10px] text-zinc-600">No plugins in registry</div>
             ) : (
@@ -265,31 +265,31 @@ export function SkillsTab({ data }: Props) {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-[11px] text-zinc-300">{p.name}</span>
-                          {p.version && <span className="text-[9px] text-zinc-600">v{p.version}</span>}
+                          {p.version && <span className="text-[10px] text-zinc-600">v{p.version}</span>}
                         </div>
                         {p.description && <div className="text-[10px] text-zinc-500 truncate">{p.description}</div>}
                         {p.tags && p.tags.length > 0 && (
                           <div className="mt-1 flex flex-wrap gap-1">
                             {p.tags.map((t) => (
-                              <span key={t} className="rounded-full border border-zinc-700/40 px-1.5 py-0.5 text-[8px] text-zinc-500">{t}</span>
+                              <span key={t} className="rounded-full border border-zinc-700/40 px-1.5 py-0.5 text-[10px] text-zinc-500">{t}</span>
                             ))}
                           </div>
                         )}
                         {p.runtimes && p.runtimes.length > 0 && (
                           <div className="mt-1 flex flex-wrap gap-1">
                             {p.runtimes.map((r) => (
-                              <span key={r} className="rounded-full border border-blue-800/40 bg-blue-950/20 px-1.5 py-0.5 text-[8px] text-blue-300">{r}</span>
+                              <span key={r} className="rounded-full border border-blue-800/40 bg-blue-950/20 px-1.5 py-0.5 text-[10px] text-blue-300">{r}</span>
                             ))}
                           </div>
                         )}
                       </div>
                       {isInstalled ? (
-                        <span className="shrink-0 text-[9px] text-emerald-500">Installed</span>
+                        <span className="shrink-0 text-[10px] text-emerald-500">Installed</span>
                       ) : (
                         <button
                           onClick={() => handleInstall(p.name)}
                           disabled={installing === p.name}
-                          className="shrink-0 rounded-full border border-violet-700/50 bg-violet-950/30 px-2.5 py-0.5 text-[9px] text-violet-300 hover:bg-violet-900/40 disabled:opacity-30"
+                          className="shrink-0 rounded-full border border-violet-700/50 bg-violet-950/30 px-2.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-900/40 disabled:opacity-30"
                         >
                           {installing === p.name ? "Installing..." : "Install"}
                         </button>

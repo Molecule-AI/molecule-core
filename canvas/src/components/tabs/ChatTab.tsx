@@ -395,7 +395,7 @@ function MyChatPanel({ workspaceId, data }: Props) {
             {!isOnline && (
               <button
                 onClick={() => setConfirmRestart(true)}
-                className="text-[9px] px-2 py-0.5 bg-red-800/40 text-red-300 rounded hover:bg-red-700/50"
+                className="text-[11px] px-2 py-0.5 bg-red-800/40 text-red-300 rounded hover:bg-red-700/50"
               >
                 Restart
               </button>
