@@ -433,3 +433,41 @@ func TestHeartbeat_SkipsRemovedRows(t *testing.T) {
 		t.Errorf("#73 guard not present in heartbeat UPDATE SQL: %v", err)
 	}
 }
+
+// ------------------------------------------------------------
+// validateAgentURL (C6 SSRF fix)
+// ------------------------------------------------------------
+
+func TestValidateAgentURL(t *testing.T) {
+	cases := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		// Valid Docker-internal URLs (must be allowed).
+		{"valid docker http", "http://172.18.0.5:8000", false},
+		{"valid localhost http", "http://127.0.0.1:8000", false},
+		{"valid https", "https://agent.example.com:443", false},
+		{"valid RFC1918 10.x", "http://10.0.0.5:8080", false},
+		{"valid RFC1918 192.168.x", "http://192.168.1.100:8080", false},
+		// SSRF vectors that must be rejected.
+		{"empty url", "", true},
+		{"link-local IMDS AWS", "http://169.254.169.254/latest/meta-data/", true},
+		{"link-local IMDS GCP", "http://169.254.169.254/computeMetadata/v1/", true},
+		{"link-local other", "http://169.254.0.1/anything", true},
+		{"non-http scheme file", "file:///etc/passwd", true},
+		{"non-http scheme ftp", "ftp://internal-server/secrets", true},
+		{"malformed url", "://not-a-url", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateAgentURL(tc.url)
+			if tc.wantErr && err == nil {
+				t.Errorf("validateAgentURL(%q) = nil, want error", tc.url)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("validateAgentURL(%q) = %v, want nil", tc.url, err)
+			}
+		})
+	}
+}

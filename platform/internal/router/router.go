@@ -190,17 +190,19 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		wsAuth.GET("/model", sech.GetModel)
 	}
 
-	// Global secrets — /settings/secrets is the canonical path; /admin/secrets kept for backward compat
-	// These are admin-level paths outside the per-workspace auth group.
+	// Global secrets — /settings/secrets is the canonical path; /admin/secrets kept for backward compat.
+	// Fix (Cycle 7): protected by AdminAuth — any valid workspace bearer token grants access.
+	// Fail-open when no tokens exist (fresh install / pre-Phase-30 upgrade).
 	{
+		adminAuth := r.Group("", middleware.AdminAuth(db.DB))
 		sechGlobal := handlers.NewSecretsHandler(wh.RestartByID)
-		r.GET("/settings/secrets", sechGlobal.ListGlobal)
-		r.PUT("/settings/secrets", sechGlobal.SetGlobal)
-		r.POST("/settings/secrets", sechGlobal.SetGlobal)
-		r.DELETE("/settings/secrets/:key", sechGlobal.DeleteGlobal)
-		r.GET("/admin/secrets", sechGlobal.ListGlobal)
-		r.POST("/admin/secrets", sechGlobal.SetGlobal)
-		r.DELETE("/admin/secrets/:key", sechGlobal.DeleteGlobal)
+		adminAuth.GET("/settings/secrets", sechGlobal.ListGlobal)
+		adminAuth.PUT("/settings/secrets", sechGlobal.SetGlobal)
+		adminAuth.POST("/settings/secrets", sechGlobal.SetGlobal)
+		adminAuth.DELETE("/settings/secrets/:key", sechGlobal.DeleteGlobal)
+		adminAuth.GET("/admin/secrets", sechGlobal.ListGlobal)
+		adminAuth.POST("/admin/secrets", sechGlobal.SetGlobal)
+		adminAuth.DELETE("/admin/secrets/:key", sechGlobal.DeleteGlobal)
 	}
 
 	// Terminal — shares Docker client with provisioner
