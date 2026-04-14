@@ -10,6 +10,8 @@ import uuid
 
 import httpx
 
+from platform_auth import auth_headers
+
 logger = logging.getLogger(__name__)
 
 WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")
@@ -94,7 +96,10 @@ async def get_workspace_info() -> dict:
     """Get this workspace's info from the platform."""
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
-            resp = await client.get(f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}")
+            resp = await client.get(
+                f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}",
+                headers=auth_headers(),
+            )
             if resp.status_code == 200:
                 return resp.json()
             return {"error": "not found"}

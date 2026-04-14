@@ -17,6 +17,8 @@ from pathlib import Path
 
 import httpx
 
+from platform_auth import auth_headers
+
 logger = logging.getLogger(__name__)
 
 HEARTBEAT_INTERVAL = 30  # seconds
@@ -83,7 +85,6 @@ class HeartbeatLoop:
                 while True:
                     # 1. Send heartbeat (Phase 30.1: include auth header if token known)
                     try:
-                        from platform_auth import auth_headers
                         await client.post(
                             f"{self.platform_url}/registry/heartbeat",
                             json={
@@ -135,7 +136,8 @@ class HeartbeatLoop:
         """Check for completed delegations and store results for the agent."""
         try:
             resp = await client.get(
-                f"{self.platform_url}/workspaces/{self.workspace_id}/delegations"
+                f"{self.platform_url}/workspaces/{self.workspace_id}/delegations",
+                headers=auth_headers(),
             )
             if resp.status_code != 200:
                 return
@@ -208,13 +210,15 @@ class HeartbeatLoop:
                 if self._parent_name is None:
                     try:
                         parent_resp = await client.get(
-                            f"{self.platform_url}/workspaces/{self.workspace_id}"
+                            f"{self.platform_url}/workspaces/{self.workspace_id}",
+                            headers=auth_headers(),
                         )
                         if parent_resp.status_code == 200:
                             parent_id = parent_resp.json().get("parent_id", "")
                             if parent_id:
                                 parent_info = await client.get(
-                                    f"{self.platform_url}/workspaces/{parent_id}"
+                                    f"{self.platform_url}/workspaces/{parent_id}",
+                                    headers=auth_headers(),
                                 )
                                 if parent_info.status_code == 200:
                                     self._parent_name = parent_info.json().get("name", "")
@@ -262,6 +266,7 @@ class HeartbeatLoop:
                                     },
                                 },
                             },
+                            headers=auth_headers(),
                             timeout=120.0,
                         )
                         logger.info("Heartbeat: self-message sent to process delegation results")
@@ -277,6 +282,7 @@ class HeartbeatLoop:
                         await client.post(
                             f"{self.platform_url}/workspaces/{self.workspace_id}/notify",
                             json={"message": msg, "type": "delegation_result"},
+                            headers=auth_headers(),
                         )
                     except Exception:
                         pass
