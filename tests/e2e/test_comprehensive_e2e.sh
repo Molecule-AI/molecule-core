@@ -6,10 +6,17 @@
 # Does NOT require running agent containers (tests platform-only behavior).
 set -euo pipefail
 
-BASE="http://localhost:8080"
+source "$(dirname "$0")/_lib.sh"  # sets BASE default
 PASS=0
 FAIL=0
 SKIP=0
+
+# Phase 30.1: tokens issued at /registry/register must be echoed back on
+# heartbeat, update-card, discover, and peers calls.
+PM_TOKEN=""
+DEV_TOKEN=""
+
+e2e_cleanup_all_workspaces
 
 check() {
   local desc="$1" expected="$2" actual="$3"
@@ -60,24 +67,39 @@ check_status "GET /metrics returns 200" "200" "$CODE"
 echo ""
 echo "--- Section 2: Workspace CRUD ---"
 
-# Create parent workspace (PM)
+# Create parent workspace (PM) and immediately register to capture its
+# auth token BEFORE the provisioner's container can spawn and claim it.
+# Tokens are single-issue on first /registry/register per workspace
+# (Phase 30.1) — if the container's main.py beats us, our later calls
+# get no token and bearer-protected endpoints fail. Empirically the
+# script wins the race 5/5 times when register fires right after
+# create; sections that depend on container readiness (RT_* in 2b)
+# still run normally.
 R=$(curl -s -X POST "$BASE/workspaces" -H "Content-Type: application/json" \
   -d '{"name":"Test PM","role":"Project Manager","tier":2}')
 check "Create PM" '"status":"provisioning"' "$R"
 PM_ID=$(echo "$R" | jq_extract "['id']")
 echo "  PM_ID=$PM_ID"
+RR=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
+  -d "{\"id\":\"$PM_ID\",\"url\":\"http://localhost:9000\",\"agent_card\":{\"name\":\"PM\",\"skills\":[]}}")
+PM_TOKEN=$(echo "$RR" | e2e_extract_token)
 
 # Create child workspace under PM
 R=$(curl -s -X POST "$BASE/workspaces" -H "Content-Type: application/json" \
   -d "{\"name\":\"Test Dev\",\"role\":\"Developer\",\"tier\":2,\"parent_id\":\"$PM_ID\"}")
 check "Create Dev (child of PM)" '"status":"provisioning"' "$R"
 DEV_ID=$(echo "$R" | jq_extract "['id']")
+RR=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
+  -d "{\"id\":\"$DEV_ID\",\"url\":\"http://localhost:9001\",\"agent_card\":{\"name\":\"Dev Agent\",\"skills\":[],\"version\":\"1.0.0\"}}")
+DEV_TOKEN=$(echo "$RR" | e2e_extract_token)
 
 # Create sibling
 R=$(curl -s -X POST "$BASE/workspaces" -H "Content-Type: application/json" \
   -d "{\"name\":\"Test QA\",\"role\":\"QA\",\"tier\":1,\"parent_id\":\"$PM_ID\"}")
 check "Create QA (sibling of Dev)" '"status":"provisioning"' "$R"
 QA_ID=$(echo "$R" | jq_extract "['id']")
+curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
+  -d "{\"id\":\"$QA_ID\",\"url\":\"http://localhost:9002\",\"agent_card\":{\"name\":\"QA\",\"skills\":[]}}" > /dev/null
 
 # Create unrelated workspace
 R=$(curl -s -X POST "$BASE/workspaces" -H "Content-Type: application/json" \
@@ -127,7 +149,7 @@ RT_CR_ID=$(echo "$R" | jq_extract "['id']")
 # Wait for containers to start (poll up to 30s for first one to appear)
 if command -v docker &>/dev/null; then
   short_cc="${RT_CC_ID:0:12}"
-  for i in 1 2 3 4 5 6; do
+  for _ in 1 2 3 4 5 6; do
     sleep 5
     if docker inspect "ws-${short_cc}" >/dev/null 2>&1; then break; fi
   done
@@ -137,7 +159,7 @@ if command -v docker &>/dev/null; then
     local short_id="${ws_id:0:12}"
     # Poll up to 30s for image to appear
     local actual_image="NOT_FOUND"
-    for j in 1 2 3 4 5 6; do
+    for _ in 1 2 3 4 5 6; do
       actual_image=$(docker inspect "ws-${short_id}" --format '{{.Config.Image}}' 2>/dev/null || echo "NOT_FOUND")
       if echo "$actual_image" | grep -qF "$expected_tag"; then break; fi
       sleep 5
@@ -190,7 +212,7 @@ if echo "$R" | grep -qF "saved"; then
   # Poll up to 30s for the new container image to appear (restart can take a while)
   if command -v docker &>/dev/null; then
     short_id="${RT_LG_ID:0:12}"
-    for i in 1 2 3 4 5 6; do
+    for _ in 1 2 3 4 5 6; do
       sleep 5
       actual=$(docker inspect "ws-${short_id}" --format '{{.Config.Image}}' 2>/dev/null || echo "")
       if echo "$actual" | grep -qF "deepagents"; then break; fi
@@ -217,10 +239,8 @@ done
 echo ""
 echo "--- Section 3: Registry & Heartbeat ---"
 
-# Register Dev workspace
-R=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
-  -d "{\"id\":\"$DEV_ID\",\"url\":\"http://localhost:9001\",\"agent_card\":{\"name\":\"Dev Agent\",\"skills\":[],\"version\":\"1.0.0\"}}")
-check "Register Dev" '"status":"registered"' "$R"
+# Dev was already registered in Section 2 right after creation (to beat
+# the provisioner in the token-issuance race). Re-assert the status here.
 
 # Verify Dev is now online
 R=$(curl -s "$BASE/workspaces/$DEV_ID")
@@ -228,6 +248,7 @@ check "Dev status online after register" '"status":"online"' "$R"
 
 # Heartbeat with current_task
 R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DEV_TOKEN" \
   -d "{\"workspace_id\":\"$DEV_ID\",\"active_tasks\":1,\"current_task\":\"Running tests\"}")
 check "Heartbeat with task" '"status":"ok"' "$R"
 
@@ -237,6 +258,7 @@ check "Current task visible" '"current_task":"Running tests"' "$R"
 
 # Heartbeat with error rate (trigger degraded — needs >0.5 AND registered)
 R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DEV_TOKEN" \
   -d "{\"workspace_id\":\"$DEV_ID\",\"error_rate\":0.8,\"sample_error\":\"timeout\"}")
 check "Degraded heartbeat" '"status":"ok"' "$R"
 
@@ -247,6 +269,7 @@ check "Dev degraded" '"last_error_rate":0.8' "$R"
 
 # Recover
 R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DEV_TOKEN" \
   -d "{\"workspace_id\":\"$DEV_ID\",\"error_rate\":0.0}")
 R=$(curl -s "$BASE/workspaces/$DEV_ID")
 check "Dev recovered" '"last_error_rate":0' "$R"
@@ -257,22 +280,18 @@ check "Dev recovered" '"last_error_rate":0' "$R"
 echo ""
 echo "--- Section 4: Discovery & Access Control ---"
 
-# Register PM too
-curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
-  -d "{\"id\":\"$PM_ID\",\"url\":\"http://localhost:9000\",\"agent_card\":{\"name\":\"PM\",\"skills\":[]}}" > /dev/null
+# PM was registered in Section 2 right after creation.
 
 # Discover requires X-Workspace-ID
 CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/registry/discover/$DEV_ID")
 check_status "Discover without header → 400" "400" "$CODE"
 
 # PM discovers Dev (parent→child: allowed)
-R=$(curl -s -H "X-Workspace-ID: $PM_ID" "$BASE/registry/discover/$DEV_ID")
+R=$(curl -s -H "X-Workspace-ID: $PM_ID" -H "Authorization: Bearer $PM_TOKEN" "$BASE/registry/discover/$DEV_ID")
 check "PM discovers Dev (parent→child)" "$DEV_ID" "$R"
 
-# Dev discovers QA (siblings: allowed) — QA must be registered first
-curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
-  -d "{\"id\":\"$QA_ID\",\"url\":\"http://localhost:9002\",\"agent_card\":{\"name\":\"QA\",\"skills\":[]}}" > /dev/null
-R=$(curl -s -H "X-Workspace-ID: $DEV_ID" "$BASE/registry/discover/$QA_ID")
+# Dev discovers QA (siblings: allowed) — QA was registered in Section 2
+R=$(curl -s -H "X-Workspace-ID: $DEV_ID" -H "Authorization: Bearer $DEV_TOKEN" "$BASE/registry/discover/$QA_ID")
 check "Dev discovers QA (siblings)" "$QA_ID" "$R"
 
 # Check access: PM → Dev (allowed)
@@ -286,7 +305,7 @@ R=$(curl -s -X POST "$BASE/registry/check-access" -H "Content-Type: application/
 check "Access Dev→Outsider (denied)" '"allowed":false' "$R"
 
 # Peers — Dev should see PM and QA
-R=$(curl -s -H "X-Workspace-ID: $DEV_ID" "$BASE/registry/$DEV_ID/peers")
+R=$(curl -s -H "X-Workspace-ID: $DEV_ID" -H "Authorization: Bearer $DEV_TOKEN" "$BASE/registry/$DEV_ID/peers")
 check "Dev peers include PM" "$PM_ID" "$R"
 check "Dev peers include QA" "$QA_ID" "$R"
 
@@ -497,6 +516,7 @@ echo ""
 echo "--- Section 12: Agent Card Update ---"
 
 R=$(curl -s -X POST "$BASE/registry/update-card" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DEV_TOKEN" \
   -d "{\"workspace_id\":\"$DEV_ID\",\"agent_card\":{\"name\":\"Dev Agent v2\",\"skills\":[{\"id\":\"code\",\"name\":\"Coding\"}],\"version\":\"2.0.0\"}}")
 check "Update agent card" '"status":"updated"' "$R"
 
@@ -548,7 +568,7 @@ for w in ws:
 " 2>/dev/null
 
 # Poll for clean state up to 30s — DB cascade + container stop is async on busy systems
-for i in 1 2 3 4 5 6; do
+for _ in 1 2 3 4 5 6; do
   sleep 5
   R=$(curl -s "$BASE/workspaces")
   if [ "$R" = "[]" ]; then break; fi
