@@ -10,7 +10,7 @@ export function Legend() {
         <div className="text-[11px] text-zinc-500 font-medium mb-1">Status</div>
         <div className="flex flex-wrap gap-x-3 gap-y-1">
           <StatusItem color="bg-emerald-400" label="Online" />
-          <StatusItem color="bg-sky-400 animate-pulse" label="Starting" />
+          <StatusItem color="bg-sky-400 motion-safe:animate-pulse" label="Starting" />
           <StatusItem color="bg-amber-400" label="Degraded" />
           <StatusItem color="bg-red-400" label="Failed" />
           <StatusItem color="bg-indigo-400" label="Paused" />

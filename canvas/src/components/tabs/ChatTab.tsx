@@ -367,9 +367,9 @@ function MyChatPanel({ workspaceId, data }: Props) {
             <div className="bg-zinc-800/50 border border-zinc-700/30 rounded-lg px-3 py-2 max-w-[85%]">
               <div className="flex items-center gap-2 text-xs text-zinc-400">
                 <span className="flex gap-0.5">
-                  <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                  <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                  <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                  <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full motion-safe:animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full motion-safe:animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full motion-safe:animate-bounce" style={{ animationDelay: "300ms" }} />
                 </span>
                 {thinkingElapsed}s
               </div>

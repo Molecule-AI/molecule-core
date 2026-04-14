@@ -110,3 +110,39 @@ body {
 .react-flow__node {
   animation: node-appear 0.3s ease-out;
 }
+
+/* ============================================================
+   REDUCED MOTION — WCAG 2.3.3
+   Disable all animations/transitions for users who prefer it.
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Custom slide-in / animate-in classes used by Toaster & ApprovalBanner */
+  .animate-in,
+  .slide-in-from-bottom,
+  .slide-in-from-top,
+  .slide-in-from-right {
+    animation: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+
+  /* React Flow animated edges */
+  .react-flow__edge.animated .react-flow__edge-path {
+    animation: none !important;
+    stroke-dasharray: none !important;
+  }
+
+  /* React Flow node appear animation */
+  .react-flow__node {
+    animation: none !important;
+  }
+}

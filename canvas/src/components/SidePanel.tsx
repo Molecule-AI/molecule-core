@@ -195,7 +195,7 @@ export function SidePanel() {
       {node.data.currentTask && (
         <Tooltip text={node.data.currentTask as string}>
           <div className="px-4 py-2 bg-amber-950/20 border-b border-amber-800/20 flex items-center gap-2 cursor-default">
-            <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+            <div className="w-1.5 h-1.5 rounded-full bg-amber-400 motion-safe:animate-pulse shrink-0" />
             <span className="text-[10px] text-amber-300/90 truncate">
               {node.data.currentTask}
             </span>

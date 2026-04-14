@@ -411,7 +411,7 @@ export function TemplatePalette() {
                   )}
 
                   {isDeploying && (
-                    <div className="text-[10px] text-sky-400 mt-1.5 animate-pulse">Deploying...</div>
+                    <div className="text-[10px] text-sky-400 mt-1.5 motion-safe:animate-pulse">Deploying...</div>
                   )}
                 </button>
               );

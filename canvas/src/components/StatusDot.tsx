@@ -6,7 +6,7 @@ export const STATUS_COLORS: Record<string, string> = {
   paused: "bg-indigo-400",
   degraded: "bg-amber-400",
   failed: "bg-red-400",
-  provisioning: "bg-sky-400 animate-pulse",
+  provisioning: "bg-sky-400 motion-safe:animate-pulse",
 };
 
 export function StatusDot({
