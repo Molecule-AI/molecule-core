@@ -189,6 +189,27 @@ function CanvasInner() {
           state.selectNode(null);
         }
       }
+
+      // Z — keyboard equivalent for double-click zoom-to-team (WCAG 2.1.1)
+      if (e.key === "z" || e.key === "Z") {
+        const tag = (e.target as HTMLElement).tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          (e.target as HTMLElement).isContentEditable
+        )
+          return;
+        const state = useCanvasStore.getState();
+        const selectedId = state.selectedNodeId;
+        if (!selectedId) return;
+        const hasChildren = state.nodes.some((n) => n.data.parentId === selectedId);
+        if (hasChildren) {
+          window.dispatchEvent(
+            new CustomEvent("molecule:zoom-to-team", { detail: { nodeId: selectedId } })
+          );
+        }
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
