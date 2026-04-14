@@ -19,6 +19,32 @@ e2e_extract_token() {
 
 # Delete every workspace currently on the platform. Use at the top of a
 # script so count-based assertions are reproducible across runs.
+# Mint a fresh workspace auth token via the admin endpoint (issue #6).
+# Use this INSTEAD of racing /registry/register from the test harness —
+# GET /admin/workspaces/:id/test-token is deterministic and gated by
+# MOLECULE_ENV (off in production, on in dev / CI).
+#
+# Usage:
+#   TOKEN=$(e2e_mint_test_token "$workspace_id") || exit 1
+e2e_mint_test_token() {
+  local wid="$1"
+  if [ -z "$wid" ]; then
+    echo "e2e_mint_test_token: workspace id required" >&2
+    return 2
+  fi
+  local body
+  body=$(curl -s -w "\n%{http_code}" "$BASE/admin/workspaces/$wid/test-token")
+  local code
+  code=$(printf '%s' "$body" | tail -n1)
+  local json
+  json=$(printf '%s' "$body" | sed '$d')
+  if [ "$code" != "200" ]; then
+    echo "e2e_mint_test_token: got HTTP $code (is MOLECULE_ENV!=production?)" >&2
+    return 1
+  fi
+  printf '%s' "$json" | python3 -c "import json,sys; print(json.load(sys.stdin)['auth_token'])"
+}
+
 e2e_cleanup_all_workspaces() {
   for _wid in $(curl -s "$BASE/workspaces" | python3 -c "import json,sys
 try:
