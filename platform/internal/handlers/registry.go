@@ -71,6 +71,22 @@ func (h *RegistryHandler) Register(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
+
+	// C18: prevent workspace URL hijacking on re-registration.
+	//
+	// An attacker can overwrite any workspace's agent_card URL by calling
+	// /registry/register with that workspace's ID and their own URL, redirecting
+	// all A2A messages to their server.
+	//
+	// Fix: if this workspace already has any live auth tokens on file, the caller
+	// must prove they own it by supplying a valid bearer token in Authorization.
+	// First-ever registration (no tokens yet) is bootstrap-allowed — the token
+	// is issued at the end of this function. This mirrors the same pattern used
+	// for /registry/heartbeat and /registry/update-card.
+	if err := h.requireWorkspaceToken(ctx, c, payload.ID); err != nil {
+		return // 401 response already written by requireWorkspaceToken
+	}
+
 	agentCardStr := string(payload.AgentCard)
 
 	// Upsert workspace: update url, agent_card, status if already exists.

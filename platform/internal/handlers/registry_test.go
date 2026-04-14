@@ -471,3 +471,96 @@ func TestValidateAgentURL(t *testing.T) {
 		})
 	}
 }
+
+// ==================== C18 — Register ownership ====================
+
+// TestRegister_C18_BootstrapAllowedNoTokens verifies that a workspace with NO
+// live tokens (i.e. first-ever registration) is allowed through without a bearer
+// token. This is the bootstrap path — the token is issued at the end of Register.
+func TestRegister_C18_BootstrapAllowedNoTokens(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewRegistryHandler(broadcaster)
+
+	// requireWorkspaceToken → HasAnyLiveToken → COUNT(*) returns 0 (no tokens).
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM workspace_auth_tokens").
+		WithArgs("ws-new").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	// Workspace upsert proceeds normally.
+	mock.ExpectExec("INSERT INTO workspaces").
+		WithArgs("ws-new", "ws-new", "http://localhost:9100", `{"name":"new-agent"}`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	mock.ExpectQuery("SELECT url FROM workspaces WHERE id").
+		WithArgs("ws-new").
+		WillReturnRows(sqlmock.NewRows([]string{"url"}).AddRow("http://localhost:9100"))
+
+	mock.ExpectExec("INSERT INTO structure_events").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// HasAnyLiveToken check for token issuance at end of Register.
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM workspace_auth_tokens").
+		WithArgs("ws-new").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	// IssueToken INSERT.
+	mock.ExpectExec("INSERT INTO workspace_auth_tokens").
+		WithArgs("ws-new", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/registry/register",
+		bytes.NewBufferString(`{"id":"ws-new","url":"http://localhost:9100","agent_card":{"name":"new-agent"}}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Register(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("C18 bootstrap: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	// Token should be present in response (first registration).
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if resp["auth_token"] == nil {
+		t.Errorf("C18 bootstrap: expected auth_token in first-registration response, got %v", resp)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("C18 bootstrap: unmet expectations: %v", err)
+	}
+}
+
+// TestRegister_C18_HijackBlockedNoBearer verifies the C18 attack is blocked:
+// when a workspace already has a live token, /register without a bearer → 401.
+func TestRegister_C18_HijackBlockedNoBearer(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewRegistryHandler(broadcaster)
+
+	// HasAnyLiveToken returns 1 — workspace already has an active token.
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM workspace_auth_tokens").
+		WithArgs("ws-victim").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	// No Authorization header — simulates attacker with no credentials.
+	c.Request = httptest.NewRequest("POST", "/registry/register",
+		bytes.NewBufferString(`{"id":"ws-victim","url":"http://attacker.example.com:9999/steal","agent_card":{"name":"hijacked"}}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Register(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("C18 hijack: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+	// The malicious URL must NOT have been persisted — no INSERT expectation was set.
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("C18 hijack: unmet expectations: %v", err)
+	}
+}
