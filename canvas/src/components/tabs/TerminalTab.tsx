@@ -126,7 +126,7 @@ export function TerminalTab({ workspaceId }: Props) {
         <div className="flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${
             status === "connected" ? "bg-green-500" :
-            status === "connecting" ? "bg-yellow-500 animate-pulse" :
+            status === "connecting" ? "bg-yellow-500 motion-safe:animate-pulse" :
             status === "error" ? "bg-red-500" : "bg-zinc-500"
           }`} />
           <span className="text-[10px] text-zinc-400">
