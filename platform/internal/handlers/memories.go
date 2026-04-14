@@ -32,9 +32,16 @@ func NewMemoriesHandler() *MemoriesHandler {
 // namespace (defaults to "general"). Namespaces implement the Holaboss
 // knowledge/{facts,procedures,blockers,reference}/ pattern so agents can
 // file and recall memories by category.
+//
+// C8 security fix: requires workspace bearer-token auth — prevents unauthenticated
+// callers from injecting arbitrary prompt content into any agent's persistent memory.
 func (h *MemoriesHandler) Commit(c *gin.Context) {
 	workspaceID := c.Param("id")
 	ctx := c.Request.Context()
+
+	if err := requireWorkspaceAuth(ctx, c, workspaceID); err != nil {
+		return // 401 already written
+	}
 
 	var body struct {
 		Content   string `json:"content" binding:"required"`
@@ -92,8 +99,16 @@ func (h *MemoriesHandler) Commit(c *gin.Context) {
 //   - ?q=... full-text search (ts_rank ordered) when len>=memoryFTSMinQueryLen;
 //     falls back to ILIKE for shorter strings
 //   - ?namespace=... additional filter on the Holaboss-style namespace tag
+//
+// C8 security fix: requires workspace bearer-token auth — prevents unauthenticated
+// callers from reading any agent's memory store.
 func (h *MemoriesHandler) Search(c *gin.Context) {
 	workspaceID := c.Param("id")
+
+	if err := requireWorkspaceAuth(c.Request.Context(), c, workspaceID); err != nil {
+		return // 401 already written
+	}
+
 	scope := c.DefaultQuery("scope", "")
 	query := c.DefaultQuery("q", "")
 	namespace := c.DefaultQuery("namespace", "")
@@ -209,10 +224,16 @@ func (h *MemoriesHandler) Search(c *gin.Context) {
 }
 
 // Delete handles DELETE /workspaces/:id/memories/:memoryId
+// C8 security fix: requires workspace bearer-token auth — prevents unauthenticated
+// callers from wiping another agent's memory store.
 func (h *MemoriesHandler) Delete(c *gin.Context) {
 	workspaceID := c.Param("id")
 	memoryID := c.Param("memoryId")
 	ctx := c.Request.Context()
+
+	if err := requireWorkspaceAuth(ctx, c, workspaceID); err != nil {
+		return // 401 already written
+	}
 
 	result, err := db.DB.ExecContext(ctx,
 		`DELETE FROM agent_memories WHERE id = $1 AND workspace_id = $2`, memoryID, workspaceID)

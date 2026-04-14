@@ -257,8 +257,16 @@ func scanSessionSearchRows(rows interface {
 // Notify handles POST /workspaces/:id/notify — agents push messages to the canvas chat.
 // This enables agents to send interim updates ("I'll check on it") and follow-up results
 // without waiting for the user to poll. Messages are broadcast via WebSocket only.
+//
+// Security fix: requires workspace bearer-token auth — prevents unauthenticated callers
+// from pushing arbitrary messages to any workspace's canvas chat.
 func (h *ActivityHandler) Notify(c *gin.Context) {
 	workspaceID := c.Param("id")
+
+	if err := requireWorkspaceAuth(c.Request.Context(), c, workspaceID); err != nil {
+		return // 401 already written
+	}
+
 	var body struct {
 		Message string `json:"message" binding:"required"`
 	}

@@ -294,8 +294,14 @@ func (h *SecretsHandler) Delete(c *gin.Context) {
 // Workspace-level secrets with the same key override globals.
 // ---------------------------------------------------------------------------
 
-// ListGlobal handles GET /admin/secrets
+// ListGlobal handles GET /admin/secrets (also /settings/secrets)
+//
+// C10 security fix: requires INTERNAL_API_SECRET bearer token — prevents
+// unauthenticated enumeration of all global secret key names.
 func (h *SecretsHandler) ListGlobal(c *gin.Context) {
+	if err := requireInternalAPISecret(c); err != nil {
+		return // 401 already written
+	}
 	ctx := c.Request.Context()
 	rows, err := db.DB.QueryContext(ctx,
 		`SELECT key, created_at, updated_at FROM global_secrets ORDER BY key`)
@@ -323,8 +329,15 @@ func (h *SecretsHandler) ListGlobal(c *gin.Context) {
 	c.JSON(http.StatusOK, secrets)
 }
 
-// SetGlobal handles POST /admin/secrets
+// SetGlobal handles POST /admin/secrets (also /settings/secrets)
+//
+// C11 security fix: requires INTERNAL_API_SECRET bearer token — prevents
+// unauthenticated callers from overwriting global secrets (ANTHROPIC_API_KEY, etc.)
+// which get injected into running workspace containers at runtime: potential RCE.
 func (h *SecretsHandler) SetGlobal(c *gin.Context) {
+	if err := requireInternalAPISecret(c); err != nil {
+		return // 401 already written
+	}
 	ctx := c.Request.Context()
 	var body struct {
 		Key   string `json:"key" binding:"required"`
@@ -358,8 +371,13 @@ func (h *SecretsHandler) SetGlobal(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "saved", "key": body.Key, "scope": "global"})
 }
 
-// DeleteGlobal handles DELETE /admin/secrets/:key
+// DeleteGlobal handles DELETE /admin/secrets/:key (also /settings/secrets/:key)
+//
+// C11 security fix: requires INTERNAL_API_SECRET bearer token.
 func (h *SecretsHandler) DeleteGlobal(c *gin.Context) {
+	if err := requireInternalAPISecret(c); err != nil {
+		return // 401 already written
+	}
 	key := c.Param("key")
 	ctx := c.Request.Context()
 

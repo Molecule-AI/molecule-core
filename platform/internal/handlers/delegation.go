@@ -45,9 +45,17 @@ type delegateRequest struct {
 // Delegate handles POST /workspaces/:id/delegate
 // Sends an A2A message to the target workspace in the background.
 // Returns immediately with a delegation_id.
+//
+// C9 security fix: requires workspace bearer-token auth — prevents an
+// unauthenticated caller from impersonating a workspace and triggering
+// arbitrary delegations to any agent in the hierarchy.
 func (h *DelegationHandler) Delegate(c *gin.Context) {
 	sourceID := c.Param("id")
 	ctx := c.Request.Context()
+
+	if err := requireWorkspaceAuth(ctx, c, sourceID); err != nil {
+		return // 401 already written
+	}
 
 	var body delegateRequest
 	if err := bindDelegateRequest(c, &body); err != nil {
