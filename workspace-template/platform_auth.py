@@ -58,7 +58,12 @@ def get_token() -> str | None:
 
 
 def save_token(token: str) -> None:
-    """Persist a newly-issued token. Creates the file with 0600 mode.
+    """Persist a newly-issued token. Creates the file with 0600 mode atomically.
+
+    Uses ``os.open(O_CREAT, 0o600)`` so the file is never world-readable,
+    even transiently. The previous ``write_text()`` + ``chmod()`` approach
+    had a TOCTOU window where a concurrent reader could access the token
+    between the two syscalls (M4 — flagged in security audit cycle 10).
 
     Idempotent — if an identical token is already on disk we skip the
     write so we don't churn the file's mtime or trigger spurious
@@ -71,13 +76,14 @@ def save_token(token: str) -> None:
         return
     path = _token_file()
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Write + chmod before assigning — if the chmod fails we don't want
-    # a world-readable copy of the token sitting around.
-    path.write_text(token)
+    # O_CREAT | O_WRONLY | O_TRUNC with mode=0o600 atomically creates (or
+    # truncates) the file with restricted permissions in a single syscall,
+    # eliminating the TOCTOU window.
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        os.chmod(path, 0o600)
-    except OSError as exc:
-        logger.warning("platform_auth: chmod 0600 on %s failed: %s", path, exc)
+        os.write(fd, token.encode())
+    finally:
+        os.close(fd)
     _cached_token = token
 
 
