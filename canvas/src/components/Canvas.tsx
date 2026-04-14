@@ -226,7 +226,14 @@ function CanvasInner() {
   const settingsWorkspaceId = selectedNodeId ?? "global";
 
   return (
-    <div className="w-screen h-screen bg-zinc-950">
+    <>
+      <a
+        href="#canvas-main"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:px-4 focus:py-2 focus:bg-zinc-900 focus:text-zinc-100 focus:rounded-lg focus:border focus:border-zinc-700"
+      >
+        Skip to canvas
+      </a>
+      <main id="canvas-main" className="w-screen h-screen bg-zinc-950">
       <ReactFlow
         colorMode="dark"
         nodes={nodes}
@@ -244,6 +251,7 @@ function CanvasInner() {
         minZoom={0.1}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
+        aria-label="Molecule AI workspace canvas"
       >
         <Background
           variant={BackgroundVariant.Dots}
@@ -310,6 +318,7 @@ function CanvasInner() {
       {/* Settings Panel — global secrets management drawer */}
       <SettingsPanel workspaceId={settingsWorkspaceId} />
       <DeleteConfirmDialog workspaceId={settingsWorkspaceId} />
-    </div>
+      </main>
+    </>
   );
 }
