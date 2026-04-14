@@ -224,6 +224,7 @@ export function Toolbar() {
               <HelpRow shortcut="Right-click" text="Use node actions for expand, duplicate, export, restart, or delete." />
               <HelpRow shortcut="Chat" text="If a task is still running, the chat tab resumes that session automatically." />
               <HelpRow shortcut="Config" text="Use the Config tab for skills, model, secrets, and runtime settings." />
+              <HelpRow shortcut="Dbl-click / Z" text="Zoom canvas to fit a team node and all its sub-workspaces." />
             </div>
           </div>
         )}
