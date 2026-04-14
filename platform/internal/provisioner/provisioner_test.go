@@ -389,6 +389,53 @@ func TestConfigVolumeName(t *testing.T) {
 	}
 }
 
+// ---------- #12 — claude-sessions volume naming ----------
+
+// TestClaudeSessionVolumeName_Deterministic: same ID → same volume name, and
+// the name follows the ws-<id[:12]>-claude-sessions shape used everywhere
+// else in the provisioner.
+func TestClaudeSessionVolumeName_Deterministic(t *testing.T) {
+	tests := []struct {
+		id   string
+		want string
+	}{
+		{"short", "ws-short-claude-sessions"},
+		{"exactly12ch", "ws-exactly12ch-claude-sessions"},
+		{"longer-than-twelve-characters", "ws-longer-than--claude-sessions"},
+		{"abc", "ws-abc-claude-sessions"},
+	}
+	for _, tt := range tests {
+		got := ClaudeSessionVolumeName(tt.id)
+		if got != tt.want {
+			t.Errorf("ClaudeSessionVolumeName(%q) = %q, want %q", tt.id, got, tt.want)
+		}
+		// Deterministic: calling twice returns the same value.
+		if again := ClaudeSessionVolumeName(tt.id); again != got {
+			t.Errorf("ClaudeSessionVolumeName not deterministic: %q vs %q", got, again)
+		}
+	}
+}
+
+// TestClaudeSessionVolumeName_DistinctFromConfig ensures we never alias the
+// claude-sessions volume onto the config volume (deleting one must not wipe
+// the other in RemoveVolume's cleanup path).
+func TestClaudeSessionVolumeName_DistinctFromConfig(t *testing.T) {
+	id := "abc123def456"
+	if ClaudeSessionVolumeName(id) == ConfigVolumeName(id) {
+		t.Fatalf("claude-sessions and config volume names must differ (both = %q)", ConfigVolumeName(id))
+	}
+}
+
+// TestWorkspaceConfig_ResetClaudeSessionFieldPresent is a compile-time check
+// that the ResetClaudeSession knob exists on WorkspaceConfig so handlers can
+// plumb ?reset=true through to the provisioner without a struct tag dance.
+func TestWorkspaceConfig_ResetClaudeSessionFieldPresent(t *testing.T) {
+	cfg := WorkspaceConfig{WorkspaceID: "x", Runtime: "claude-code", ResetClaudeSession: true}
+	if !cfg.ResetClaudeSession {
+		t.Fatal("ResetClaudeSession should round-trip through struct literal")
+	}
+}
+
 // ---------- buildContainerEnv — #67 MOLECULE_URL injection ----------
 
 func TestBuildContainerEnv_InjectsBothPlatformURLAndMoleculeAIURL(t *testing.T) {
