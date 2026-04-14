@@ -1,0 +1,68 @@
+name: publish-platform-image
+
+# Builds and pushes the tenant-platform Docker image to GHCR whenever a
+# commit lands on main. The private molecule-controlplane provisioner sets
+# TENANT_IMAGE=ghcr.io/molecule-ai/platform:<tag> to spawn tenant Fly
+# Machines from this image. See molecule-controlplane README for the pairing.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # Only rebuild when something platform-relevant changes — saves GHA
+      # minutes on docs-only / canvas-only / MCP-only PRs.
+      - 'platform/**'
+      - '.github/workflows/publish-platform-image.yml'
+  # Manual trigger for re-publishing a tag after a non-platform merge.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write   # required to push to ghcr.io/${{ github.repository_owner }}/*
+
+env:
+  # GHCR accepts mixed-case, but most tooling lowercases — keep us consistent.
+  IMAGE_NAME: ghcr.io/molecule-ai/platform
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        # Buildx enables cache-from/cache-to via GHA cache and multi-arch
+        # builds without local docker daemon wrangling.
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: tags
+        # Emit two tags per build: `latest` (floating, always the main tip)
+        # and the short commit SHA (immutable, pin-friendly). Control plane
+        # can deploy `latest` today and pin to :sha in Phase H hardening.
+        run: |
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./platform
+          file: ./platform/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:sha-${{ steps.tags.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.description=Molecule AI tenant platform (one instance per org)
