@@ -21,11 +21,13 @@ class ReconnectingSocket {
   }
 
   connect() {
+    useCanvasStore.getState().setWsStatus("connecting");
     this.ws = new WebSocket(this.url);
 
     this.ws.onopen = () => {
       this.attempt = 0;
       this.lastEventTime = Date.now();
+      useCanvasStore.getState().setWsStatus("connected");
       this.rehydrate();
       this.startHealthCheck();
     };
@@ -42,6 +44,7 @@ class ReconnectingSocket {
 
     this.ws.onclose = () => {
       this.stopHealthCheck();
+      useCanvasStore.getState().setWsStatus("connecting");
       const delay = Math.min(1000 * 2 ** this.attempt, 30000);
       this.attempt++;
       setTimeout(() => this.connect(), delay);
@@ -90,6 +93,7 @@ class ReconnectingSocket {
       this.ws.close();
       this.ws = null;
     }
+    useCanvasStore.getState().setWsStatus("disconnected");
   }
 }
 
