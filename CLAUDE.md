@@ -35,9 +35,15 @@ Four main components:
 
 ### Infrastructure
 ```bash
-./infra/scripts/setup.sh    # Start Postgres, Redis, Langfuse; run migrations
+./infra/scripts/setup.sh    # Start Postgres, Redis, Langfuse, Temporal; run migrations
 ./infra/scripts/nuke.sh     # Tear down everything, remove volumes
 ```
+
+Infra services (via `docker-compose.infra.yml`, all attached to the shared `molecule-monorepo-net` network — `setup.sh` creates it idempotently):
+- **Postgres** `:5432` — primary datastore (also backs Langfuse + Temporal via separate DBs)
+- **Redis** `:6379` — pub/sub, heartbeat TTLs
+- **Langfuse** `:3001` — LLM trace viewer (backed by Clickhouse)
+- **Temporal** `:7233` (gRPC) + `:8233` (Web UI) — durable workflow engine for `workspace-template/builtin_tools/temporal_workflow.py`. **Dev-only posture:** the auto-setup image runs with no auth on `0.0.0.0:7233`; production deployments must gate access via mTLS or an API key / reverse proxy.
 
 ### Platform (Go)
 ```bash
