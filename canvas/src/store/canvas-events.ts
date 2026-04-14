@@ -92,9 +92,11 @@ export function handleCanvasEvent(
         const GRID_COL_WIDTH = 320;
         const GRID_ROW_HEIGHT = 160;
         const GRID_COLS = 4;
-        const rootIndex = nodes.filter((n) => !n.data.parentId).length;
-        const x = (rootIndex % GRID_COLS) * GRID_COL_WIDTH;
-        const y = Math.floor(rootIndex / GRID_COLS) * GRID_ROW_HEIGHT;
+        const GRID_ORIGIN_X = 100;
+        const GRID_ORIGIN_Y = 100;
+        const idx = nodes.length;
+        const x = GRID_ORIGIN_X + (idx % GRID_COLS) * GRID_COL_WIDTH;
+        const y = GRID_ORIGIN_Y + Math.floor(idx / GRID_COLS) * GRID_ROW_HEIGHT;
 
         set({
           nodes: [
