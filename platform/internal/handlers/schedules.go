@@ -32,7 +32,7 @@ type scheduleResponse struct {
 	RunCount    int        `json:"run_count"`
 	LastStatus  string     `json:"last_status"`
 	LastError   string     `json:"last_error"`
-	Source      string     `json:"source"` // 'template' (seeded by org/import) | 'runtime' (created via Canvas/API). Issue #24.
+	Source      string     `json:"source,omitempty"` // 'template' (seeded by org/import) | 'runtime' (created via Canvas/API). Issue #24.
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 }
