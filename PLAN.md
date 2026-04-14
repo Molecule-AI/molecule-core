@@ -239,6 +239,9 @@ point for "what else is out there."
 - **GitHub issue #15** — Provisioner: auto-refresh `CLAUDE_CODE_OAUTH_TOKEN` from `global_secrets` on workspace restart → **DONE** via PR #64 (`SetGlobal` / `DeleteGlobal` now fan out `RestartByID` to every affected workspace).
 - **GitHub issue #19 Layer 1** — Platform-generated restart context → **DONE** via PR #65 (synthetic A2A `message/send` with `metadata.kind=restart_context`, `system:restart-context` caller prefix, 30s re-register wait). Layer 2 deferred to issue #66 (see Backlog item 15 above).
 
+### Recently launched (2026-04-14 tick-8)
+- **Phase 32 PR #1** — `TenantGuard` middleware (PR #78, merged `57a05686`). Public repo's only SaaS hook: when `MOLECULE_ORG_ID` env is set, non-allowlisted requests require matching `X-Molecule-Org-Id` header or 404. Unset → passthrough (self-hosted unchanged). Allowlist is exact-match: `/health` + `/metrics`. Paired with the private `Molecule-AI/molecule-controlplane` repo scaffolded this tick (Fly Machines provisioner stub, `/cp/orgs` CRUD, subdomain→fly-replay router, migrations 001-003 for `organizations`/`org_instances`/`org_members`). +6 `TestTenantGuard_*` tests. Phase 32 plan: follow-up PRs wire real Fly provisioner, WorkOS AuthKit, Stripe, Cloudflare, signup UX — all in the private repo except the single public middleware.
+
 ### Recently launched (2026-04-14 tick-7)
 - **GitHub issue #24** — Runtime-added workspace_schedules drift on org re-import → **DONE** via PR #76 (new `source` column on `workspace_schedules` via migration `022`; org/import now upserts with `ON CONFLICT (workspace_id, name) DO UPDATE ... WHERE source='template'`, so runtime-added rows survive re-imports; legacy rows backfilled to `'template'`; +3 tests).
 - **GitHub issue #51** — PM hardcoded audit-category routing → **DONE** via PR #75 (generic `category_routing:` block in `org-templates/<name>/org.yaml` `defaults` + per-workspace override; rendered into each workspace's `config.yaml` via `renderCategoryRoutingYAML` using `yaml.Node` + `yaml.Marshal` for safe escaping; PM prompt replaced with generic config-lookup; +6 tests).
@@ -449,7 +452,7 @@ self-hosted per-customer). Ordered by dependency + ROI.
 
 ### Success criteria for Phase 32
 
-- Customer can sign up at molecule.ai, create an org, deploy their
+- Customer can sign up at moleculesai.app, create an org, deploy their
   first workspace, send their first message in < 5 minutes.
 - Two orgs on the same cluster cannot observe each other's
   workspaces, secrets, memory, or activity — verified by automated
