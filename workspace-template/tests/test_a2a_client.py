@@ -119,14 +119,11 @@ class TestDiscoverPeer:
             await a2a_client.discover_peer("ws-xyz")
 
         mock_client.get.assert_called_once()
-        call_args = mock_client.get.call_args
-        url = call_args[0][0] if call_args[0] else call_args[1].get("url") or call_args[0][0]
-        # The first positional arg is the URL
         positional_url = mock_client.get.call_args.args[0]
         assert "ws-xyz" in positional_url
-        assert mock_client.get.call_args.kwargs.get("headers") == {
-            "X-Workspace-ID": a2a_client.WORKSPACE_ID
-        }
+        # X-Workspace-ID must be present; bearer token also merged in when available
+        headers_sent = mock_client.get.call_args.kwargs.get("headers", {})
+        assert headers_sent.get("X-Workspace-ID") == a2a_client.WORKSPACE_ID
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +308,19 @@ class TestGetPeers:
 
         url = mock_client.get.call_args.args[0]
         assert "peers" in url
+
+    async def test_request_sends_workspace_id_header(self):
+        """GET /registry/:id/peers must send X-Workspace-ID header (Phase 30.6)."""
+        import a2a_client
+
+        resp = _make_response(200, [])
+        mock_client = _make_mock_client(get_resp=resp)
+
+        with patch("a2a_client.httpx.AsyncClient", return_value=mock_client):
+            await a2a_client.get_peers()
+
+        headers_sent = mock_client.get.call_args.kwargs.get("headers", {})
+        assert headers_sent.get("X-Workspace-ID") == a2a_client.WORKSPACE_ID
 
 
 # ---------------------------------------------------------------------------

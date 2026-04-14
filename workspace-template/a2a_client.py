@@ -31,7 +31,7 @@ async def discover_peer(target_id: str) -> dict | None:
         try:
             resp = await client.get(
                 f"{PLATFORM_URL}/registry/discover/{target_id}",
-                headers={"X-Workspace-ID": WORKSPACE_ID},
+                headers={"X-Workspace-ID": WORKSPACE_ID, **auth_headers()},
             )
             if resp.status_code == 200:
                 return resp.json()
@@ -84,7 +84,10 @@ async def get_peers() -> list[dict]:
     """Get this workspace's peers from the platform registry."""
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
-            resp = await client.get(f"{PLATFORM_URL}/registry/{WORKSPACE_ID}/peers")
+            resp = await client.get(
+                f"{PLATFORM_URL}/registry/{WORKSPACE_ID}/peers",
+                headers={"X-Workspace-ID": WORKSPACE_ID, **auth_headers()},
+            )
             if resp.status_code == 200:
                 return resp.json()
             return []
