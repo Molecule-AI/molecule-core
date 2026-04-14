@@ -1,0 +1,69 @@
+package middleware
+
+import (
+	"os"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+)
+
+// Tenant-mode guard — public repo's only SaaS hook.
+//
+// The SaaS control plane (private `molecule-controlplane` repo) provisions one
+// platform instance per customer org on Fly Machines and sets:
+//   - MOLECULE_ORG_ID=<uuid>                       (env on the machine)
+//   - forwards requests with X-Molecule-Org-Id=<uuid> (control-plane router)
+//
+// TenantGuard wraps every non-allowlisted route so a mis-routed request from
+// another org bounces with 404 (not 403 — don't leak existence).
+//
+// When MOLECULE_ORG_ID is unset (self-hosted / dev / CI), the guard is a
+// passthrough — self-hosters see no behavior change.
+//
+// The guard intentionally knows nothing about orgs, signup, billing, or
+// provisioning. Those live in the private control-plane repo. All this code
+// does is: "am I the tenant for this request? if not, 404."
+
+// tenantOrgIDHeader is the HTTP header the control-plane router sets when it
+// uses fly-replay to route a request to a tenant machine. Case-insensitive at
+// the HTTP layer (Gin normalizes).
+const tenantOrgIDHeader = "X-Molecule-Org-Id"
+
+// tenantGuardAllowlist is the set of paths that MUST remain accessible even in
+// tenant mode without the org header (health checks, Prometheus scrapes).
+// Exact-match — no prefix semantics — to avoid accidentally exposing admin
+// routes via e.g. "/health/debug/admin".
+var tenantGuardAllowlist = map[string]struct{}{
+	"/health":  {},
+	"/metrics": {},
+}
+
+// TenantGuard returns a Gin middleware configured from the MOLECULE_ORG_ID env
+// var. Reads env once at construction — changing the env at runtime requires
+// a restart (matches every other platform env var). Pass the orgID directly to
+// TenantGuardWithOrgID if you need to test a specific configuration without
+// mutating the process environment.
+func TenantGuard() gin.HandlerFunc {
+	return TenantGuardWithOrgID(strings.TrimSpace(os.Getenv("MOLECULE_ORG_ID")))
+}
+
+// TenantGuardWithOrgID is the constructor used by tests; ordinary callers use
+// TenantGuard. When configuredOrgID is empty the guard is a no-op.
+func TenantGuardWithOrgID(configuredOrgID string) gin.HandlerFunc {
+	if configuredOrgID == "" {
+		return func(c *gin.Context) { c.Next() }
+	}
+	return func(c *gin.Context) {
+		if _, ok := tenantGuardAllowlist[c.Request.URL.Path]; ok {
+			c.Next()
+			return
+		}
+		if c.GetHeader(tenantOrgIDHeader) != configuredOrgID {
+			// 404 not 403 — existence of this tenant must not be inferable by
+			// probing other orgs' machines.
+			c.AbortWithStatus(404)
+			return
+		}
+		c.Next()
+	}
+}
