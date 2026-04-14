@@ -65,12 +65,12 @@ function SecretRow({ label, secretKey, isSet, scope, globalMode, onSave, onDelet
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {isSet && <span className="text-[8px] text-green-500 bg-green-900/30 px-1.5 py-0.5 rounded">Set</span>}
+          {isSet && <span className="text-[10px] text-green-500 bg-green-900/30 px-1.5 py-0.5 rounded">Set</span>}
           {scope && <ScopeBadge scope={scope} />}
           {!editing && isSet && (globalMode || scope !== "global") && (
-            <button onClick={onDelete} className="text-[9px] text-red-400 hover:text-red-300">Remove</button>
+            <button onClick={onDelete} className="text-[11px] text-red-400 hover:text-red-300">Remove</button>
           )}
-          <button onClick={() => setEditing(!editing)} className="text-[9px] text-blue-400 hover:text-blue-300">
+          <button onClick={() => setEditing(!editing)} className="text-[11px] text-blue-400 hover:text-blue-300">
             {actionLabel()}
           </button>
         </div>
@@ -117,13 +117,13 @@ function CustomSecretRow({ secretKey, scope, globalMode, onSave, onDelete }: {
           <span className="text-[9px] font-mono text-zinc-500 tracking-widest ml-2">•••••</span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[8px] text-green-500">Set</span>
+          <span className="text-[10px] text-green-500">Set</span>
           {!globalMode && <ScopeBadge scope={scope} />}
           {canDelete && !editing && (
-            <button onClick={onDelete} className="text-[9px] text-red-400 hover:text-red-300">Remove</button>
+            <button onClick={onDelete} className="text-[11px] text-red-400 hover:text-red-300">Remove</button>
           )}
           {(canDelete || showOverride) && (
-            <button onClick={() => setEditing(!editing)} className="text-[9px] text-blue-400 hover:text-blue-300">
+            <button onClick={() => setEditing(!editing)} className="text-[11px] text-blue-400 hover:text-blue-300">
               {editing ? "Cancel" : showOverride ? "Override" : "Update"}
             </button>
           )}
