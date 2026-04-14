@@ -257,8 +257,10 @@ _PII_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(?:sk|pk|api|secret|token|auth)[-_][A-Za-z0-9_\-]{20,}\b", re.I), "[REDACTED:api_key]"),
     # AWS Access Key IDs
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[REDACTED:aws_key]"),
-    # GitHub personal access tokens
+    # GitHub personal access tokens — classic format (36-char alphanumeric suffix)
     (re.compile(r"\bghp_[A-Za-z0-9]{36}\b"), "[REDACTED:github_token]"),
+    # GitHub personal access tokens — fine-grained format (82-char alphanumeric+underscore suffix)
+    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{82}\b"), "[REDACTED:github_token]"),
     # Email addresses
     (re.compile(r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b"), "[REDACTED:email]"),
 ]
