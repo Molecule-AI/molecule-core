@@ -10,12 +10,30 @@ import { showToast } from "@/components/Toaster";
 
 export function Toolbar() {
   const nodes = useCanvasStore((s) => s.nodes);
+  const wsStatus = useCanvasStore((s) => s.wsStatus);
 
   const [stopping, setStopping] = useState(false);
   const [restartingAll, setRestartingAll] = useState(false);
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const helpRef = useRef<HTMLDivElement>(null);
+
+  // Suppress toast on the very first connect at page load; only fire on reconnects.
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    const t = setTimeout(() => { mountedRef.current = true; }, 2000);
+    return () => clearTimeout(t);
+  }, []);
+
+  const prevWsStatus = useRef<string>("connecting");
+  useEffect(() => {
+    if (prevWsStatus.current === "connecting" && wsStatus === "connected") {
+      if (mountedRef.current) {
+        showToast("Live updates restored", "success");
+      }
+    }
+    prevWsStatus.current = wsStatus;
+  }, [wsStatus]);
 
   const counts = useMemo(() => {
     const c = { total: nodes.length, roots: 0, children: 0, online: 0, offline: 0, failed: 0, provisioning: 0, activeTasks: 0 };
@@ -120,6 +138,11 @@ export function Toolbar() {
           {counts.roots} workspace{counts.roots !== 1 ? "s" : ""}
           {counts.children > 0 && <span className="text-zinc-600"> + {counts.children} sub</span>}
         </span>
+      </div>
+
+      {/* WebSocket connection status */}
+      <div className="pl-3 border-l border-zinc-800/60">
+        <WsStatusPill status={wsStatus} />
       </div>
 
       {/* Stop All — visible when agents have active tasks */}
@@ -227,6 +250,31 @@ function StatusPill({ color, count, label }: { color: string; count: number; lab
     <div className="flex items-center gap-1.5" title={`${count} ${label}`}>
       <div className={`w-1.5 h-1.5 rounded-full ${color}`} />
       <span className="text-[10px] text-zinc-400 tabular-nums">{count}</span>
+    </div>
+  );
+}
+
+function WsStatusPill({ status }: { status: "connected" | "connecting" | "disconnected" }) {
+  if (status === "connected") {
+    return (
+      <div className="flex items-center gap-1.5" title="Real-time updates: connected">
+        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+        <span className="text-[10px] text-zinc-500">Live</span>
+      </div>
+    );
+  }
+  if (status === "connecting") {
+    return (
+      <div className="flex items-center gap-1.5" title="Real-time updates: reconnecting…">
+        <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+        <span className="text-[10px] text-zinc-500">Reconnecting</span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1.5" title="Real-time updates: disconnected">
+      <div className="w-1.5 h-1.5 rounded-full bg-red-400" />
+      <span className="text-[10px] text-zinc-500">Offline</span>
     </div>
   );
 }

@@ -1,6 +1,10 @@
 import { useCanvasStore } from "./canvas";
 
-export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080/ws";
+export const WS_URL =
+  process.env.NEXT_PUBLIC_WS_URL ??
+  (process.env.NEXT_PUBLIC_PLATFORM_URL ?? "http://localhost:8080")
+    .replace(/^http/, "ws")
+    .concat("/ws");
 
 export interface WSMessage {
   event: string;
@@ -21,11 +25,13 @@ class ReconnectingSocket {
   }
 
   connect() {
+    useCanvasStore.getState().setWsStatus("connecting");
     this.ws = new WebSocket(this.url);
 
     this.ws.onopen = () => {
       this.attempt = 0;
       this.lastEventTime = Date.now();
+      useCanvasStore.getState().setWsStatus("connected");
       this.rehydrate();
       this.startHealthCheck();
     };
@@ -42,6 +48,7 @@ class ReconnectingSocket {
 
     this.ws.onclose = () => {
       this.stopHealthCheck();
+      useCanvasStore.getState().setWsStatus("connecting");
       const delay = Math.min(1000 * 2 ** this.attempt, 30000);
       this.attempt++;
       setTimeout(() => this.connect(), delay);
@@ -90,6 +97,7 @@ class ReconnectingSocket {
       this.ws.close();
       this.ws = null;
     }
+    useCanvasStore.getState().setWsStatus("disconnected");
   }
 }
 

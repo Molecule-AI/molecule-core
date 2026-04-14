@@ -8,6 +8,7 @@ vi.mock("../canvas", () => ({
     getState: vi.fn(() => ({
       applyEvent: vi.fn(),
       hydrate: vi.fn(),
+      setWsStatus: vi.fn(),
     })),
   },
 }));
@@ -80,6 +81,7 @@ beforeEach(() => {
   vi.mocked(useCanvasStore.getState).mockReturnValue({
     applyEvent: vi.fn(),
     hydrate: vi.fn(),
+    setWsStatus: vi.fn(),
   } as unknown as ReturnType<typeof useCanvasStore.getState>);
 });
 
@@ -180,6 +182,7 @@ describe("WebSocket onmessage", () => {
     vi.mocked(useCanvasStore.getState).mockReturnValue({
       applyEvent,
       hydrate: vi.fn(),
+      setWsStatus: vi.fn(),
     } as unknown as ReturnType<typeof useCanvasStore.getState>);
 
     const msg = {
