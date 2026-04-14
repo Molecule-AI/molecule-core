@@ -214,7 +214,7 @@ OPENAI_API_KEY=... bash scripts/test-team-e2e.sh           # E2E: Multi-template
 
 ### Unit Tests
 ```bash
-cd platform && go test -race ./...               # 699 Go tests (handlers, registry, provisioner, CLI, delegation, org, channels, wsauth — sqlmock + miniredis; +4 on 2026-04-14 tick-3 for TestAdminTestToken_* covering the dev-only /admin/workspaces/:id/test-token route)
+cd platform && go test -race ./...               # 726 Go tests (handlers, registry, provisioner, CLI, delegation, org, channels, wsauth — sqlmock + miniredis; +2 on 2026-04-14 tick-4 for TestSetGlobal_* / TestDeleteGlobal_* auto-restart branches (#64); +4 on 2026-04-14 tick-4 for TestRestartContext_* covering the synthetic restart-context A2A message (#65); raw PASS-line count is higher due to table-driven subtests)
 cd canvas && npm test                            # 357 Vitest tests (store, components, hydration, buildTree, secrets API, org template import, ConfirmDialog singleButton + 7 native-dialog replacements)
 cd workspace-template && python -m pytest -v     # 1140 pytest tests (adds platform_auth token store for Phase 30.1, memory_write activity logging)
 cd sdk/python && python -m pytest -v              # 132 SDK tests (agentskills.io spec validator, CLI, AgentskillsAdaptor round-trip, workspace/org/channel validators, RemoteAgentClient Phase 30 flows)
@@ -334,6 +334,8 @@ Agents can auto-execute a prompt on startup before any user interaction. Configu
 ### Workspace Lifecycle
 `provisioning` → `online` (on register) → `degraded` (error_rate > 0.5) → `online` (recovered) → `offline` (Redis TTL expired OR health sweep detects dead container) → auto-restart → `provisioning` → ... → `removed` (deleted). Any state → `paused` (user pauses) → `provisioning` (user resumes). Paused workspaces skip health sweep, liveness monitor, and auto-restart.
 
+**Restart context message (issue #19 Layer 1):** After any restart (HTTP `/restart` or programmatic `RestartByID`) and successful re-registration, the platform sends a synthetic A2A `message/send` to the workspace with `metadata.kind=restart_context` — body contains restart timestamp, previous session end + duration, and env-var keys (keys only, never values) now available. Sender uses the `system:restart-context` caller prefix so it bypasses `CanCommunicate` via `isSystemCaller()`. If the workspace does not re-register within 30s the message is dropped (logged). Handler: `platform/internal/handlers/restart_context.go`. Layer 2 (user-defined `restart_prompt` from `config.yaml` / `org.yaml`) is tracked as GitHub issue #66.
+
 ## Platform API Routes
 
 | Method | Path | Handler |
@@ -350,8 +352,8 @@ Agents can auto-execute a prompt on startup before any user interaction. Configu
 | DELETE | /workspaces/:id/secrets/:key | secrets.go (DELETE auto-restarts workspace) |
 | GET | /workspaces/:id/model | secrets.go |
 | GET | /settings/secrets | secrets.go — list global secrets (keys only, values masked) |
-| PUT/POST | /settings/secrets | secrets.go — set a global secret {key, value} |
-| DELETE | /settings/secrets/:key | secrets.go — delete a global secret |
+| PUT/POST | /settings/secrets | secrets.go — set a global secret {key, value}; auto-restarts every non-paused/non-removed/non-external workspace that does not shadow the key with a workspace-level override (issue #15 / PR #64) |
+| DELETE | /settings/secrets/:key | secrets.go — delete a global secret; same auto-restart fan-out as SetGlobal |
 | GET | /admin/workspaces/:id/test-token | admin_test_token.go — mint a fresh bearer token for E2E scripts; 404 unless `MOLECULE_ENV != production` or `MOLECULE_ENABLE_TEST_TOKENS=1` |
 | GET/POST/DELETE | /admin/secrets[/:key] | secrets.go — legacy aliases for /settings/secrets |
 | WS | /workspaces/:id/terminal | terminal.go |
