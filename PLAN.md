@@ -239,6 +239,11 @@ point for "what else is out there."
 - **GitHub issue #15** — Provisioner: auto-refresh `CLAUDE_CODE_OAUTH_TOKEN` from `global_secrets` on workspace restart → **DONE** via PR #64 (`SetGlobal` / `DeleteGlobal` now fan out `RestartByID` to every affected workspace).
 - **GitHub issue #19 Layer 1** — Platform-generated restart context → **DONE** via PR #65 (synthetic A2A `message/send` with `metadata.kind=restart_context`, `system:restart-context` caller prefix, 30s re-register wait). Layer 2 deferred to issue #66 (see Backlog item 15 above).
 
+### Recently launched (2026-04-14 tick-7)
+- **GitHub issue #24** — Runtime-added workspace_schedules drift on org re-import → **DONE** via PR #76 (new `source` column on `workspace_schedules` via migration `022`; org/import now upserts with `ON CONFLICT (workspace_id, name) DO UPDATE ... WHERE source='template'`, so runtime-added rows survive re-imports; legacy rows backfilled to `'template'`; +3 tests).
+- **GitHub issue #51** — PM hardcoded audit-category routing → **DONE** via PR #75 (generic `category_routing:` block in `org-templates/<name>/org.yaml` `defaults` + per-workspace override; rendered into each workspace's `config.yaml` via `renderCategoryRoutingYAML` using `yaml.Node` + `yaml.Marshal` for safe escaping; PM prompt replaced with generic config-lookup; +6 tests).
+- **PR #74** — `org-templates/molecule-dev/org.yaml` role overrides shrunk to just the deltas now that UNION semantics (PR #71) are in effect — removes verbose re-listing of defaults across PM, Research Lead, Research sub-roles, Security Auditor, UIUX Designer.
+
 ### Recently launched (2026-04-14 tick-6)
 - **GitHub issue #68** — Per-workspace `plugins:` REPLACE semantics caveat → **DONE** via PR #71 (`mergePlugins` helper in `platform/internal/handlers/org.go` now UNIONs per-workspace with `defaults.plugins`; `!plugin` or `-plugin` prefix on a per-workspace entry opts a default out; +5 `TestPlugins_*` tests). Role overrides in `org-templates/*/org.yaml` can now declare just the delta instead of restating every default.
 
