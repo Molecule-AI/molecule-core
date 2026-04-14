@@ -392,20 +392,29 @@ workspaces:
               - name: Hourly UI/UX audit with live screenshots
                 cron_expr: "11 * * * *"
                 prompt: |
-                  Hourly UX audit of the live Molecule AI canvas. Prefer real screenshots;
-                  if the container sandbox prevents Chromium (see #23), fall back to HTML
-                  analysis and note the limitation in the deliverable.
+                  Hourly UX audit of the live Molecule AI canvas. Take real screenshots
+                  and analyse actual user flows. The runtime discovered a working Chromium
+                  path that bypasses the missing-libglib issue; use it rather than the
+                  bundled `playwright install --with-deps` path (which fails in our sandbox).
 
-                  1. SETUP PLAYWRIGHT (best-effort — continue on failure):
-                     pip install -q playwright 2>/dev/null || true
-                     playwright install chromium --with-deps 2>/dev/null || \
-                     playwright install chromium 2>/dev/null || true
+                  1. SETUP BROWSER (proven-working recipe from Run 6, 2026-04-14):
+                     # Install @sparticuz/chromium + puppeteer-core via npm if not present
+                     # and reuse the NSS/NSPR libs bundled with Playwright's Firefox binary.
+                     cd /tmp && [ -d uiux-browser ] || (mkdir uiux-browser && cd uiux-browser && \
+                       npm init -y >/dev/null && npm install --quiet @sparticuz/chromium puppeteer-core 2>&1 | tail -3)
+                     # Ensure Playwright's firefox is present (ships libnss3.so, libnspr4.so)
+                     npx playwright install firefox 2>/dev/null || true
+                     FIREFOX_LIBS=$(ls -d /home/agent/.cache/ms-playwright/firefox-*/firefox 2>/dev/null | head -1)
+                     [ -z "$FIREFOX_LIBS" ] && FIREFOX_LIBS=$(ls -d /root/.cache/ms-playwright/firefox-*/firefox 2>/dev/null | head -1)
 
-                  2. ATTEMPT SCREENSHOTS:
-                     Write a small playwright script to http://host.docker.internal:3000
-                     capturing: home / empty state, create-workspace modal, full canvas,
-                     viewport at 1280px. If library deps are missing, skip to step 3 and
-                     note "screenshots unavailable" in the PM report.
+                  2. TAKE SCREENSHOTS against http://host.docker.internal:3000:
+                     Write a small puppeteer script capturing: home/empty state, create-workspace
+                     modal, full canvas, help dropdown, settings panel (open + detail), template
+                     palette, mobile 375px, responsive 1280px. Save to /tmp/ux-screenshots/.
+                     Invoke with:
+                        LD_LIBRARY_PATH="$FIREFOX_LIBS" node /tmp/uiux-browser/capture.cjs
+                     Then Read each PNG in /tmp/ux-screenshots/ to analyse with vision.
+                     If the browser still won't launch, fall back to curl+HTML and note it.
 
                   3. HTML / CSS ANALYSIS (always runs):
                      - curl http://host.docker.internal:3000 — verify build ID / HTML size
