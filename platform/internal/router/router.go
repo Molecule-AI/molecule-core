@@ -51,6 +51,13 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// Must be registered after rate limiter so aborted requests are also counted.
 	r.Use(metrics.Middleware())
 
+	// Tenant guard — the public repo's only SaaS hook. When MOLECULE_ORG_ID is
+	// set (only by the private molecule-controlplane provisioner on tenant Fly
+	// Machines), rejects requests whose X-Molecule-Org-Id header doesn't match.
+	// Unset (self-hosted / dev / CI) → no-op. Registered after metrics so
+	// rejected requests still land on the 4xx counter.
+	r.Use(middleware.TenantGuard())
+
 	// Health
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
