@@ -159,7 +159,12 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 		log.Printf("Restart: reset=true — will discard claude-sessions volume for %s (%s)", wsName, id)
 	}
 
+	// Capture restart-context data BEFORE provisionWorkspaceOpts flips
+	// last_heartbeat_at with the new session. Issue #19 Layer 1.
+	restartData := loadRestartContextData(ctx, id)
+
 	go h.provisionWorkspaceOpts(id, templatePath, configFiles, payload, resetClaudeSession)
+	go h.sendRestartContext(id, restartData)
 
 	c.JSON(http.StatusOK, gin.H{"status": "provisioning", "config_dir": configLabel, "reset_session": resetClaudeSession})
 }
@@ -219,8 +224,13 @@ func (h *WorkspaceHandler) RestartByID(workspaceID string) {
 	// Runtime from DB — no more config file parsing
 	payload := models.CreateWorkspacePayload{Name: wsName, Tier: tier, Runtime: dbRuntime}
 
+	// Snapshot restart-context data before the new session overwrites
+	// last_heartbeat_at. Issue #19 Layer 1.
+	restartData := loadRestartContextData(ctx, workspaceID)
+
 	// On auto-restart, do NOT re-apply templates — preserve existing config volume.
 	go h.provisionWorkspace(workspaceID, "", nil, payload)
+	go h.sendRestartContext(workspaceID, restartData)
 }
 
 // Pause handles POST /workspaces/:id/pause
