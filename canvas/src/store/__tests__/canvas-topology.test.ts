@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildNodesAndEdges, extractSkillNames } from "../canvas-topology";
+import { buildNodesAndEdges, extractSkillNames, computeAutoLayout } from "../canvas-topology";
 import type { WorkspaceData } from "../socket";
 
 // ---------------------------------------------------------------------------
@@ -261,5 +261,99 @@ describe("extractSkillNames – mixed valid/invalid skills", () => {
       ],
     };
     expect(extractSkillNames(card)).toEqual(["Coding", "Testing"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeAutoLayout
+// ---------------------------------------------------------------------------
+
+describe("computeAutoLayout – all nodes already positioned", () => {
+  it("returns empty map when all nodes have non-zero positions", () => {
+    const workspaces = [
+      makeWS({ id: "a", x: 100, y: 200 }),
+      makeWS({ id: "b", x: 400, y: 200 }),
+    ];
+    const overrides = computeAutoLayout(workspaces);
+    expect(overrides.size).toBe(0);
+  });
+});
+
+describe("computeAutoLayout – empty workspace list", () => {
+  it("returns empty map", () => {
+    const overrides = computeAutoLayout([]);
+    expect(overrides.size).toBe(0);
+  });
+});
+
+describe("computeAutoLayout – single zero-position root node", () => {
+  it("assigns a position to the zero node", () => {
+    const workspaces = [makeWS({ id: "ws-1", x: 0, y: 0 })];
+    const overrides = computeAutoLayout(workspaces);
+    expect(overrides.has("ws-1")).toBe(true);
+    const pos = overrides.get("ws-1")!;
+    expect(typeof pos.x).toBe("number");
+    expect(typeof pos.y).toBe("number");
+  });
+});
+
+describe("computeAutoLayout – multiple zero-position root nodes", () => {
+  it("spreads siblings horizontally (distinct x values)", () => {
+    const workspaces = [
+      makeWS({ id: "a", x: 0, y: 0 }),
+      makeWS({ id: "b", x: 0, y: 0 }),
+      makeWS({ id: "c", x: 0, y: 0 }),
+    ];
+    const overrides = computeAutoLayout(workspaces);
+    const positions = ["a", "b", "c"].map((id) => overrides.get(id)!);
+    const xs = positions.map((p) => p.x);
+    // All x values should be unique (nodes spread horizontally)
+    const uniqueXs = new Set(xs);
+    expect(uniqueXs.size).toBe(3);
+    // All at depth 0 → y should be 0
+    for (const p of positions) {
+      expect(p.y).toBe(0);
+    }
+  });
+});
+
+describe("computeAutoLayout – parent with zero-position children", () => {
+  it("places child at greater y than parent", () => {
+    const workspaces = [
+      makeWS({ id: "parent", x: 0, y: 0 }),
+      makeWS({ id: "child", parent_id: "parent", x: 0, y: 0 }),
+    ];
+    const overrides = computeAutoLayout(workspaces);
+    const parentPos = overrides.get("parent")!;
+    const childPos = overrides.get("child")!;
+    expect(childPos.y).toBeGreaterThan(parentPos.y);
+  });
+});
+
+describe("computeAutoLayout – anchored node not overridden", () => {
+  it("does not include already-positioned node in overrides", () => {
+    const workspaces = [
+      makeWS({ id: "anchored", x: 500, y: 300 }),
+      makeWS({ id: "zero", x: 0, y: 0 }),
+    ];
+    const overrides = computeAutoLayout(workspaces);
+    expect(overrides.has("anchored")).toBe(false);
+    expect(overrides.has("zero")).toBe(true);
+  });
+});
+
+describe("buildNodesAndEdges – layoutOverrides applied", () => {
+  it("uses override position instead of ws.x/ws.y for zero-position nodes", () => {
+    const workspaces = [makeWS({ id: "ws-1", x: 0, y: 0 })];
+    const overrides = new Map([["ws-1", { x: 150, y: 250 }]]);
+    const { nodes } = buildNodesAndEdges(workspaces, overrides);
+    expect(nodes[0].position).toEqual({ x: 150, y: 250 });
+  });
+
+  it("leaves non-overridden node at its own position", () => {
+    const workspaces = [makeWS({ id: "ws-2", x: 100, y: 200 })];
+    const overrides = new Map<string, { x: number; y: number }>();
+    const { nodes } = buildNodesAndEdges(workspaces, overrides);
+    expect(nodes[0].position).toEqual({ x: 100, y: 200 });
   });
 });

@@ -8,7 +8,7 @@ import {
 import { api } from "@/lib/api";
 import type { WorkspaceData, WSMessage } from "./socket";
 import { handleCanvasEvent } from "./canvas-events";
-import { buildNodesAndEdges } from "./canvas-topology";
+import { buildNodesAndEdges, computeAutoLayout } from "./canvas-topology";
 
 // Re-export extracted types and functions so existing imports from "@/store/canvas" keep working
 export { summarizeWorkspaceCapabilities } from "./canvas-capabilities";
@@ -209,8 +209,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   hydrate: (workspaces: WorkspaceData[]) => {
-    const { nodes, edges } = buildNodesAndEdges(workspaces);
+    const layoutOverrides = computeAutoLayout(workspaces);
+    const { nodes, edges } = buildNodesAndEdges(workspaces, layoutOverrides);
     set({ nodes, edges });
+    for (const [nodeId, { x, y }] of layoutOverrides) {
+      api.patch(`/workspaces/${nodeId}`, { x, y }).catch(() => {});
+    }
   },
 
   applyEvent: (msg: WSMessage) => {
