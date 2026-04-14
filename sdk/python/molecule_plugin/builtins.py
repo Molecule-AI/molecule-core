@@ -26,6 +26,46 @@ from pathlib import Path
 
 from .protocol import SKILLS_SUBDIR, InstallContext, InstallResult
 
+# ---------------------------------------------------------------------------
+# Security: credential scrubbing for plugin setup.sh subprocesses
+# ---------------------------------------------------------------------------
+# setup.sh runs arbitrary bash inside the workspace container. It must not
+# inherit credentials from the parent process environment — an attacker who
+# controls setup.sh content (via a malicious plugin) would otherwise be able
+# to exfiltrate ANTHROPIC_API_KEY, WORKSPACE_AUTH_TOKEN, GITHUB_TOKEN, etc.
+#
+# Strategy: denylist by suffix/name rather than allowlist, so legitimate
+# npm/pip env vars (NPM_CONFIG_*, PIP_*) keep working without maintenance.
+# Mirrors workspace-template/plugins_registry/builtins.py — must stay in sync
+# (drift guard: tests/test_plugins_builtins_drift.py).
+
+_SENSITIVE_SUFFIXES = (
+    "_KEY", "_TOKEN", "_SECRET", "_PASSWORD",
+    "_CREDENTIAL", "_API_KEY",
+)
+_SENSITIVE_NAMES = frozenset({
+    "DATABASE_URL", "REDIS_URL", "AWARENESS_URL",
+})
+
+
+def _scrub_env_for_setup(extra: dict | None = None) -> dict:
+    """Return a copy of os.environ with credentials stripped.
+
+    setup.sh should never see API keys, auth tokens, or DB credentials that
+    are present in the parent-process environment.
+    """
+    safe: dict = {}
+    for k, v in os.environ.items():
+        ku = k.upper()
+        if ku in _SENSITIVE_NAMES:
+            continue
+        if any(ku.endswith(suffix) for suffix in _SENSITIVE_SUFFIXES):
+            continue
+        safe[k] = v
+    if extra:
+        safe.update(extra)
+    return safe
+
 # Files at the plugin root that are never treated as prompt fragments.
 SKIP_ROOT_MD = frozenset({"readme.md", "changelog.md", "license.md", "contributing.md"})
 
@@ -97,7 +137,7 @@ class AgentskillsAdaptor:
                     ["bash", str(setup_script)],
                     capture_output=True, text=True, timeout=120,
                     cwd=str(ctx.plugin_root),
-                    env={**os.environ, "CONFIGS_DIR": str(ctx.configs_dir)},
+                    env=_scrub_env_for_setup({"CONFIGS_DIR": str(ctx.configs_dir)}),
                 )
                 if proc.returncode == 0:
                     ctx.logger.info("%s: setup.sh completed successfully", self.plugin_name)

@@ -394,6 +394,14 @@ type stageResult struct {
 
 func (h *PluginsHandler) Install(c *gin.Context) {
 	workspaceID := c.Param("id")
+	// Security fix: require workspace bearer-token auth before accepting a
+	// plugin install. Without this gate, any unauthenticated caller could
+	// stage a plugin whose setup.sh runs inside the workspace container.
+	// Uses the same Phase 30.1 bootstrap-aware pattern as other endpoints:
+	// workspaces with no live token on file are grandfathered through.
+	if err := requireWorkspaceAuth(c.Request.Context(), c, workspaceID); err != nil {
+		return // 401 already written
+	}
 	// Cap the JSON body so a pathological POST can't exhaust parser memory.
 	bodyMax := envx.Int64("PLUGIN_INSTALL_BODY_MAX_BYTES", defaultInstallBodyMaxBytes)
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, bodyMax)
