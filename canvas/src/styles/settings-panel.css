@@ -8,7 +8,7 @@
   --backdrop-color: rgba(0, 0, 0, 0.3);
   --slide-duration: 200ms;
   --slide-easing: ease-out;
-  --focus-ring: 2px solid #0066cc;
+  --focus-ring: 2px solid #3b82f6;
   --focus-ring-offset: 2px;
   --status-valid: #16a34a;
   --status-invalid: #dc2626;
@@ -277,8 +277,8 @@
 }
 
 .secret-row__save-btn {
-  background: #f4f4f5;
-  color: #18181b;
+  background: #2563eb;
+  color: #ffffff;
   border: none;
   padding: 6px 12px;
   border-radius: 6px;
@@ -323,6 +323,8 @@
   border-radius: 6px;
   font-size: 14px;
   font-family: inherit;
+  background: #18181b;
+  color: #f4f4f5;
 }
 
 .add-key-form__select:focus,
@@ -353,8 +355,8 @@
 }
 
 .add-key-form__save-btn {
-  background: #f4f4f5;
-  color: #18181b;
+  background: #2563eb;
+  color: #ffffff;
   border: none;
   padding: 8px 16px;
   border-radius: 6px;
@@ -396,6 +398,8 @@
   border-radius: 6px;
   font-size: 14px;
   font-family: monospace;
+  background: #18181b;
+  color: #f4f4f5;
 }
 
 .key-value-field input:focus {
@@ -481,8 +485,8 @@
 .empty-state__body { font-size: 14px; color: #a1a1aa; margin: 0 0 24px; line-height: 1.5; }
 
 .empty-state__cta {
-  background: #f4f4f5;
-  color: #18181b;
+  background: #2563eb;
+  color: #ffffff;
   border: none;
   padding: 10px 20px;
   border-radius: 8px;
@@ -532,8 +536,8 @@
 .secrets-tab__error p { color: var(--status-invalid); margin: 0 0 12px; }
 
 .secrets-tab__refresh-btn {
-  background: #f4f4f5;
-  color: #18181b;
+  background: #2563eb;
+  color: #ffffff;
   border: none;
   padding: 8px 16px;
   border-radius: 6px;
@@ -550,7 +554,7 @@
 .secrets-tab__clear-search {
   background: none;
   border: none;
-  color: #0066cc;
+  color: #3b82f6;
   cursor: pointer;
   margin-left: 8px;
   font-size: 14px;
@@ -656,8 +660,8 @@
 }
 
 .guard-dialog__discard-btn {
-  background: #f4f4f5;
-  color: #18181b;
+  background: #2563eb;
+  color: #ffffff;
   border: none;
   padding: 8px 16px;
   border-radius: 6px;
@@ -679,7 +683,7 @@
 }
 
 .settings-button:hover { background: #27272a; color: #f4f4f5; }
-.settings-button--active { color: #0066cc; background: #1e3a5f; }
+.settings-button--active { color: #3b82f6; background: #1e3a5f; }
 .settings-button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-ring-offset); }
 
 .settings-button__tooltip {
@@ -708,8 +712,8 @@
 .top-bar__name { font-size: 14px; font-weight: 500; color: #d4d4d8; }
 
 .top-bar__btn {
-  background: #f4f4f5;
-  color: #18181b;
+  background: #2563eb;
+  color: #ffffff;
   border: none;
   padding: 6px 12px;
   border-radius: 6px;
