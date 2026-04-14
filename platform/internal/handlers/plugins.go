@@ -547,10 +547,19 @@ func (h *PluginsHandler) deliverToContainer(ctx context.Context, workspaceID str
 }
 
 // Uninstall handles DELETE /workspaces/:id/plugins/:name — removes a plugin.
+// Uninstall handles DELETE /workspaces/:id/plugins/:name.
+//
+// C13 security fix: requires workspace bearer-token auth before accepting a
+// plugin uninstall. Without this gate any unauthenticated caller could silently
+// remove plugins from any running workspace container.
 func (h *PluginsHandler) Uninstall(c *gin.Context) {
 	workspaceID := c.Param("id")
 	pluginName := c.Param("name")
 	ctx := c.Request.Context()
+
+	if err := requireWorkspaceAuth(ctx, c, workspaceID); err != nil {
+		return // 401 already written
+	}
 
 	if err := validatePluginName(pluginName); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

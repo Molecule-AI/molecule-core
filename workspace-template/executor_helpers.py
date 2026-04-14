@@ -81,6 +81,20 @@ def reset_http_client_for_tests() -> None:
 # Memory recall + commit
 # ========================================================================
 
+def _platform_auth_headers() -> dict[str, str]:
+    """Return Authorization header for platform API calls.
+
+    Uses the Phase 30.1 workspace bearer-token (stored in /configs/.auth_token).
+    Returns an empty dict when no token is on file — callers send the request as-is
+    and the server's bootstrap-aware grandfathering allows legacy workspaces through.
+    """
+    try:
+        from platform_auth import auth_headers as _auth
+        return _auth()
+    except Exception:
+        return {}
+
+
 async def recall_memories() -> str:
     """Recall recent memories from the platform API.
 
@@ -95,6 +109,7 @@ async def recall_memories() -> str:
     try:
         resp = await get_http_client().get(
             f"{platform_url}/workspaces/{workspace_id}/memories",
+            headers=_platform_auth_headers(),
         )
         if not 200 <= resp.status_code < 300:
             logger.debug(
@@ -125,6 +140,7 @@ async def commit_memory(content: str) -> None:
         await get_http_client().post(
             f"{platform_url}/workspaces/{workspace_id}/memories",
             json={"content": content, "scope": "LOCAL"},
+            headers=_platform_auth_headers(),
         )
     except Exception as exc:
         logger.debug("commit_memory: request failed: %s", exc)

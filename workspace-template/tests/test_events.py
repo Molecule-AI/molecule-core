@@ -269,7 +269,13 @@ async def test_connect_resets_reconnect_delay():
 
 @pytest.mark.asyncio
 async def test_connect_uses_workspace_id_header():
-    """_connect() passes X-Workspace-ID header to websockets.connect."""
+    """_connect() passes X-Workspace-ID header to websockets.connect.
+
+    Since Phase 30.1 the bearer token is also included when available so
+    the platform can authenticate agent WebSocket connections. The test only
+    verifies that X-Workspace-ID is present; Authorization may or may not
+    be included depending on whether a token is on file in the test env.
+    """
     sub = PlatformEventSubscriber("http://p:8080", "ws-hdr", on_peer_change=None)
     sub._running = True
 
@@ -282,7 +288,12 @@ async def test_connect_uses_workspace_id_header():
         await sub._connect()
 
     call_kwargs = websockets_mod.connect.call_args[1]
-    assert call_kwargs.get("additional_headers") == {"X-Workspace-ID": "ws-hdr"}
+    headers = call_kwargs.get("additional_headers", {})
+    # X-Workspace-ID must be present (core requirement)
+    assert headers.get("X-Workspace-ID") == "ws-hdr"
+    # Authorization header may be present if a token is on file (Phase 30.1)
+    if "Authorization" in headers:
+        assert headers["Authorization"].startswith("Bearer ")
 
 
 # ---------------------------------------------------------------------------

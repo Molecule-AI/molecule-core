@@ -63,6 +63,14 @@ class PlatformEventSubscriber:
             return
 
         headers = {"X-Workspace-ID": self.workspace_id}
+        # Include bearer token so the platform can verify this is the legitimate
+        # workspace agent (Phase 30.1 auth). Falls back gracefully when no token
+        # is on file yet — the platform grandfathers pre-token workspaces through.
+        try:
+            from platform_auth import auth_headers as _auth
+            headers.update(_auth())
+        except Exception:
+            pass  # no token yet — send without auth, platform will grandfather
         logger.info("Connecting to platform WebSocket: %s", self.ws_url)
 
         async with websockets.connect(self.ws_url, additional_headers=headers) as ws:
