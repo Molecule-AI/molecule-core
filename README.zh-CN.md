@@ -252,6 +252,10 @@ git clone https://github.com/Molecule-AI/molecule-monorepo.git
 cd molecule-monorepo
 
 ./infra/scripts/setup.sh
+# 启动 Postgres (:5432)、Redis (:6379)、Langfuse (:3001)
+# 以及 Temporal (:7233 gRPC, :8233 UI)，全部挂在共享的
+# `molecule-monorepo-net` Docker 网络上。Temporal 默认无鉴权，
+# 仅用于本地开发；生产环境必须加 mTLS / API Key。
 
 cd platform
 go run ./cmd/server

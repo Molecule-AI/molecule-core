@@ -317,3 +317,13 @@ Deferred, not blocking:
   leaves copied skill dirs behind. Low user impact.
 - **Shared org-template `system-prompt.md` via `_shared/`** — DRY molecule-dev
   and molecule-worker-gemini. Drift risk; revisit at 3+ orgs.
+
+## Infra footnote — Temporal
+
+`docker-compose.infra.yml` now includes Temporal (`:7233` gRPC, `:8233` Web
+UI) backing `workspace-template/builtin_tools/temporal_workflow.py` for
+durable long-running agent workflows. All infra services share the
+`molecule-monorepo-net` Docker network, which `infra/scripts/setup.sh`
+creates idempotently. Temporal currently runs with **no auth** on
+`0.0.0.0:7233` — dev-only; any production deployment must front it with
+mTLS, API keys, or a reverse proxy before exposing the cluster.
