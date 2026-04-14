@@ -15,10 +15,11 @@ runtime_config:
   model: nous-hermes-3-70b
 
   # Authentication — supply ONE of these env vars (checked in order):
-  #   NOUS_API_KEY       — Nous Research portal (https://portal.nousresearch.com)
-  #   OPENROUTER_API_KEY — OpenRouter as a Nous proxy (useful for dev / cost control)
+  #   HERMES_API_KEY     — Nous Research portal key (https://portal.nousresearch.com)
+  #   OPENROUTER_API_KEY — OpenRouter as a Hermes proxy (useful for dev / cost control)
+  # Both are checked by adapters/hermes/executor.py; at least one must be set.
   required_env:
-    - NOUS_API_KEY
+    - HERMES_API_KEY
 
   # 0 = no timeout; increase for long-running research tasks.
   timeout: 0
