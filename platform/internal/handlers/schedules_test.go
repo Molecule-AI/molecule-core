@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -61,7 +60,7 @@ func TestRuntimeSchedule_HasSourceRuntime(t *testing.T) {
 // regression that would silently break user-created schedules across
 // re-imports without needing a full provisioner harness.
 func TestImport_OrgScheduleSQLShape(t *testing.T) {
-	got := orgImportScheduleSQL(t)
+	got := orgImportScheduleSQL
 
 	// Single test covers four CEO requirements at once: additive seed
 	// (template marker), idempotent refresh (ON CONFLICT DO UPDATE),
@@ -81,27 +80,6 @@ func TestImport_OrgScheduleSQLShape(t *testing.T) {
 	if regexp.MustCompile(`(?i)\bDELETE\b\s+FROM\s+workspace_schedules`).MatchString(got) {
 		t.Error("org/import schedule SQL must never DELETE — additive only")
 	}
-}
-
-// orgImportScheduleSQL pulls the relevant SQL fragment from org.go for shape
-// assertions. Keeps this test independent of the provisioner.
-func orgImportScheduleSQL(t *testing.T) string {
-	t.Helper()
-	// Test runs from package dir (platform/internal/handlers) so org.go is local.
-	data, err := os.ReadFile("org.go")
-	if err != nil {
-		t.Fatalf("read org.go: %v", err)
-	}
-	src := string(data)
-	idx := strings.Index(src, "INSERT INTO workspace_schedules")
-	if idx < 0 {
-		t.Fatalf("could not find schedules INSERT in org.go")
-	}
-	end := strings.Index(src[idx:], "`")
-	if end < 0 {
-		t.Fatalf("could not find closing backtick after schedules INSERT")
-	}
-	return src[idx : idx+end]
 }
 
 // TestList_IncludesSourceColumn asserts GET /workspaces/:id/schedules
