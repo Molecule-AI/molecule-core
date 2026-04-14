@@ -11,10 +11,24 @@
 if [ "$(id -u)" = "0" ]; then
     # Fix /configs recursively (plugins, CLAUDE.md, skills — small directory)
     chown -R agent:agent /configs 2>/dev/null
-    # Fix /workspace top-level only — it may be a bind-mounted host repo with
-    # thousands of files. Recursive chown would take minutes and change the
-    # host filesystem's ownership. The agent only needs to write at the top level.
+    # /workspace handling:
+    #   - Always fix the top-level dir so agent can create files in it.
+    #   - If the contents are root-owned (common on Docker Desktop / Windows
+    #     bind mounts where host uid maps to 0 inside the container), do a
+    #     full recursive chown — otherwise git clone, pip install, and file
+    #     writes under /workspace fail with EACCES (issue #13). On normal
+    #     Linux Docker with matching uids this branch is skipped, so we keep
+    #     the fast startup for the common case.
     chown agent:agent /workspace 2>/dev/null
+    if [ -d /workspace ]; then
+        # Sample the first entry inside /workspace; if it's root-owned assume
+        # the whole tree is a root-owned bind mount and recursively chown.
+        first_entry=$(find /workspace -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)
+        if [ -n "$first_entry" ] && [ "$(stat -c '%u' "$first_entry" 2>/dev/null)" = "0" ]; then
+            echo "[entrypoint] /workspace contents are root-owned — chowning recursively to agent (uid 1000)"
+            chown -R agent:agent /workspace 2>/dev/null
+        fi
+    fi
     # Re-exec this script as the agent user via gosu (clean PID 1 handoff)
     exec gosu agent "$0" "$@"
 fi
