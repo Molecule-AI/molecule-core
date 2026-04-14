@@ -282,7 +282,10 @@ async def test_connect_uses_workspace_id_header():
         await sub._connect()
 
     call_kwargs = websockets_mod.connect.call_args[1]
-    assert call_kwargs.get("additional_headers") == {"X-Workspace-ID": "ws-hdr"}
+    # Fix D (Cycle 5): headers now include Authorization when platform_auth available.
+    # Assert X-Workspace-ID is present; allow optional Authorization header.
+    actual_headers = call_kwargs.get("additional_headers", {})
+    assert actual_headers.get("X-Workspace-ID") == "ws-hdr"
 
 
 # ---------------------------------------------------------------------------

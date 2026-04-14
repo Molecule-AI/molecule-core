@@ -62,7 +62,15 @@ class PlatformEventSubscriber:
             self._running = False
             return
 
+        # Fix D (Cycle 5): include bearer token in WebSocket upgrade so the
+        # server's new auth check can validate this agent connection.
+        # Graceful fallback for workspaces that have no token yet.
         headers = {"X-Workspace-ID": self.workspace_id}
+        try:
+            from platform_auth import auth_headers as _auth_headers
+            headers.update(_auth_headers())
+        except Exception:
+            pass  # No token available — connect unauthenticated (grandfathered)
         logger.info("Connecting to platform WebSocket: %s", self.ws_url)
 
         async with websockets.connect(self.ws_url, additional_headers=headers) as ws:

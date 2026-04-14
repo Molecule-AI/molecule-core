@@ -184,6 +184,7 @@ async def test_check_delegations_writes_results_file(tmp_path):
 
     delegations = [
         {"delegation_id": "d-1", "status": "completed", "target_id": "ws-t",
+         "source_id": "ws-abc",  # must match workspace_id for Fix B source validation
          "summary": "Done", "response_preview": "Result here", "error": ""},
     ]
 
@@ -245,6 +246,7 @@ async def test_check_delegations_sends_self_message(tmp_path):
 
     delegations = [
         {"delegation_id": "d-new", "status": "completed", "target_id": "ws-t",
+         "source_id": "ws-abc",  # must match workspace_id for Fix B source validation
          "summary": "Task done", "response_preview": "All good", "error": ""},
     ]
 
