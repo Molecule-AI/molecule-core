@@ -1,0 +1,14 @@
+name: molecule-careful-bash
+version: 1.0.0
+description: Refuse destructive bash commands (git push --force to main, rm -rf at root, DROP TABLE prod). PreToolUse:Bash hook.
+author: Molecule AI
+tags: [molecule, guardrails]
+
+runtimes:
+  - claude_code
+
+skills:
+  - careful-mode
+
+hooks:
+  - pre-bash-careful

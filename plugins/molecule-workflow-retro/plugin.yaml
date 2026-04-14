@@ -1,0 +1,14 @@
+name: molecule-workflow-retro
+version: 1.0.0
+description: Provides /retro slash command — weekly retrospective generator. Recommends installing molecule-skill-cron-learnings first.
+author: Molecule AI
+tags: [molecule, guardrails]
+
+runtimes:
+  - claude_code
+
+skills:
+  - cron-retro
+
+commands:
+  - retro

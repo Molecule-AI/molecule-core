@@ -1,0 +1,11 @@
+name: molecule-skill-llm-judge
+version: 1.0.0
+description: Cheap LLM-as-judge gate that catches "agent shipped the wrong thing". Scores whether a deliverable (PR diff, A2A response, generated config) actually addresses the original request — the failure mode unit tests miss.
+author: Molecule AI
+tags: [molecule, guardrails, evaluation]
+
+runtimes:
+  - claude_code
+
+skills:
+  - llm-judge
