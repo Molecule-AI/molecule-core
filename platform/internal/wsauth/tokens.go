@@ -146,3 +146,42 @@ func BearerTokenFromHeader(h string) string {
 	}
 	return strings.TrimSpace(h[len(prefix):])
 }
+
+// HasAnyLiveTokenGlobal reports whether ANY workspace has at least one live
+// (non-revoked) token on file. Used by AdminAuth to decide whether to enforce
+// auth on global/admin routes — fresh installs with no tokens fail open.
+func HasAnyLiveTokenGlobal(ctx context.Context, db *sql.DB) (bool, error) {
+	var n int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM workspace_auth_tokens WHERE revoked_at IS NULL
+	`).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// ValidateAnyToken confirms the presented plaintext matches any live workspace
+// token (not scoped to a specific workspace). Used for admin/global routes
+// where workspace-scoped auth is not applicable — any authenticated agent may
+// access platform-wide settings.
+func ValidateAnyToken(ctx context.Context, db *sql.DB, plaintext string) error {
+	if plaintext == "" {
+		return ErrInvalidToken
+	}
+	hash := sha256.Sum256([]byte(plaintext))
+
+	var tokenID string
+	err := db.QueryRowContext(ctx, `
+		SELECT id FROM workspace_auth_tokens
+		WHERE token_hash = $1 AND revoked_at IS NULL
+	`, hash[:]).Scan(&tokenID)
+	if err != nil {
+		return ErrInvalidToken
+	}
+
+	// Best-effort last_used_at update.
+	_, _ = db.ExecContext(ctx,
+		`UPDATE workspace_auth_tokens SET last_used_at = now() WHERE id = $1`, tokenID)
+	return nil
+}
