@@ -70,6 +70,9 @@ interface CanvasState {
   /** Agent-pushed messages keyed by workspace ID. ChatTab consumes and clears these. */
   agentMessages: Record<string, Array<{ id: string; content: string; timestamp: string }>>;
   consumeAgentMessages: (workspaceId: string) => Array<{ id: string; content: string; timestamp: string }>;
+  /** WebSocket connection status — drives the live indicator in the Toolbar. */
+  wsStatus: "connected" | "connecting" | "disconnected";
+  setWsStatus: (status: "connected" | "connecting" | "disconnected") => void;
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -79,6 +82,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   panelTab: "chat",
   dragOverNodeId: null,
   contextMenu: null,
+  wsStatus: "connecting",
+  setWsStatus: (status) => set({ wsStatus: status }),
 
   viewport: { x: 0, y: 0, zoom: 1 },
 
