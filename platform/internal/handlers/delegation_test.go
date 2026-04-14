@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -644,5 +645,202 @@ func TestDelegate_IdempotentRaceUniqueViolationReturnsExisting(t *testing.T) {
 	}
 	if resp["idempotent_hit"] != true {
 		t.Errorf("expected idempotent_hit=true on race resolution, got %v", resp["idempotent_hit"])
+	}
+}
+
+// ==================== Direct unit tests for extracted helpers ====================
+
+// --- bindDelegateRequest ---
+
+func TestBindDelegateRequest_ValidJSON(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"target_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","task":"hi"}`
+	c.Request = httptest.NewRequest("POST", "/x", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	var out delegateRequest
+	if err := bindDelegateRequest(c, &out); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.Task != "hi" {
+		t.Errorf("got task %q", out.Task)
+	}
+}
+
+func TestBindDelegateRequest_InvalidJSON(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/x", bytes.NewBufferString("not json"))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	var out delegateRequest
+	if err := bindDelegateRequest(c, &out); err == nil {
+		t.Fatal("expected error")
+	}
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestBindDelegateRequest_InvalidTargetUUID(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/x", bytes.NewBufferString(`{"target_id":"not-uuid","task":"x"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	var out delegateRequest
+	if err := bindDelegateRequest(c, &out); err == nil {
+		t.Fatal("expected error")
+	}
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+// --- lookupIdempotentDelegation ---
+
+func TestLookupIdempotentDelegation_NoKey(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	if hit := lookupIdempotentDelegation(context.Background(), c, "ws-x", ""); hit {
+		t.Error("empty key should never hit")
+	}
+}
+
+func TestLookupIdempotentDelegation_NoMatch(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	mock.ExpectQuery("SELECT request_body->>'delegation_id', status, target_id").
+		WithArgs("ws-x", "some-key").
+		WillReturnError(fmt.Errorf("sql: no rows"))
+
+	if hit := lookupIdempotentDelegation(context.Background(), c, "ws-x", "some-key"); hit {
+		t.Error("expected false when no row found")
+	}
+}
+
+func TestLookupIdempotentDelegation_FailedRowDeleted(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	mock.ExpectQuery("SELECT request_body->>'delegation_id', status, target_id").
+		WithArgs("ws-x", "k").
+		WillReturnRows(sqlmock.NewRows([]string{"delegation_id", "status", "target_id"}).
+			AddRow("old", "failed", "ws-target"))
+	mock.ExpectExec("DELETE FROM activity_logs").
+		WithArgs("ws-x", "k").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if hit := lookupIdempotentDelegation(context.Background(), c, "ws-x", "k"); hit {
+		t.Error("failed row should be released, returning false")
+	}
+}
+
+func TestLookupIdempotentDelegation_ExistingPending(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	mock.ExpectQuery("SELECT request_body->>'delegation_id', status, target_id").
+		WithArgs("ws-x", "k").
+		WillReturnRows(sqlmock.NewRows([]string{"delegation_id", "status", "target_id"}).
+			AddRow("del-123", "pending", "ws-target"))
+
+	if hit := lookupIdempotentDelegation(context.Background(), c, "ws-x", "k"); !hit {
+		t.Fatal("expected hit=true")
+	}
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["delegation_id"] != "del-123" || resp["idempotent_hit"] != true {
+		t.Errorf("unexpected response: %v", resp)
+	}
+}
+
+// --- insertDelegationRow ---
+
+func TestInsertDelegationRow_Success(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	mock.ExpectExec("INSERT INTO activity_logs").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	out := insertDelegationRow(context.Background(), c,
+		"ws-src",
+		delegateRequest{TargetID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", Task: "hi"},
+		"del-1")
+	if out != insertOK {
+		t.Errorf("got %v, want insertOK", out)
+	}
+}
+
+func TestInsertDelegationRow_IdempotentConflict(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	mock.ExpectExec("INSERT INTO activity_logs").
+		WillReturnError(fmt.Errorf("pq: duplicate key value violates unique constraint"))
+	mock.ExpectQuery("SELECT request_body->>'delegation_id', status").
+		WithArgs("ws-src", "k1").
+		WillReturnRows(sqlmock.NewRows([]string{"delegation_id", "status"}).
+			AddRow("winner-del", "pending"))
+
+	out := insertDelegationRow(context.Background(), c,
+		"ws-src",
+		delegateRequest{TargetID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", Task: "hi", IdempotencyKey: "k1"},
+		"loser-del")
+	if out != insertHandledByIdempotent {
+		t.Errorf("got %v, want insertHandledByIdempotent", out)
+	}
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestInsertDelegationRow_OtherDBError(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	// Without IdempotencyKey, the follow-up SELECT is skipped — any insert
+	// error falls straight to insertTrackingUnavailable.
+	mock.ExpectExec("INSERT INTO activity_logs").
+		WillReturnError(fmt.Errorf("connection refused"))
+
+	out := insertDelegationRow(context.Background(), c,
+		"ws-src",
+		delegateRequest{TargetID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", Task: "hi"},
+		"del-x")
+	if out != insertTrackingUnavailable {
+		t.Errorf("got %v, want insertTrackingUnavailable", out)
+	}
+}
+
+// Verify the enum zero-value sentinel is defined and distinct from real outcomes.
+func TestInsertDelegationOutcome_ZeroValueIsUnknown(t *testing.T) {
+	var zero insertDelegationOutcome
+	if zero != insertOutcomeUnknown {
+		t.Errorf("zero-value insertDelegationOutcome should equal insertOutcomeUnknown")
+	}
+	if insertOutcomeUnknown == insertOK {
+		t.Errorf("insertOutcomeUnknown must not collide with insertOK")
 	}
 }

@@ -12,7 +12,11 @@ interface Props {
   onConfirm: () => void;
   onCancel: () => void;
   // Hide the Cancel button for single-action info toasts.
-  // onCancel is still invoked on Esc / backdrop-click.
+  // onCancel is still invoked on Esc / backdrop-click, so when using this
+  // dialog as a simple info toast the caller should pass the SAME handler
+  // for both `onConfirm` and `onCancel` — otherwise dismissing via Esc /
+  // backdrop click will run different logic than clicking the OK button,
+  // which is almost never what you want for an info dialog.
   singleButton?: boolean;
 }
 
