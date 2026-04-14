@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -65,6 +66,7 @@ type WorkspaceConfig struct {
 	AwarenessURL       string
 	AwarenessNamespace string
 	WorkspaceAccess    string // #65: "none" (default), "read_only", or "read_write"
+	ResetClaudeSession bool   // #12: if true, discard the claude-sessions volume before start (fresh session dir)
 }
 
 // Workspace-access constants for #65. Matches the CHECK constraint on
@@ -82,6 +84,18 @@ func ConfigVolumeName(workspaceID string) string {
 		id = id[:12]
 	}
 	return fmt.Sprintf("ws-%s-configs", id)
+}
+
+// ClaudeSessionVolumeName returns the Docker named volume for a workspace's
+// Claude Code session directory (/root/.claude/sessions). Separate from the
+// config volume so it can be discarded independently (via WORKSPACE_RESET_SESSION
+// or ?reset=true) without wiping the user's config. Issue #12.
+func ClaudeSessionVolumeName(workspaceID string) string {
+	id := workspaceID
+	if len(id) > 12 {
+		id = id[:12]
+	}
+	return fmt.Sprintf("ws-%s-claude-sessions", id)
 }
 
 // Provisioner manages Docker containers for workspace agents.
@@ -158,6 +172,33 @@ func (p *Provisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string, e
 	binds := []string{
 		configMount,
 		workspaceMount,
+	}
+
+	// #12: Preserve Claude Code session directory across restarts.
+	// The claude-code SDK stores conversations in /root/.claude/sessions/
+	// and Postgres keeps current_session_id. Without a persistent volume,
+	// restarts drop the session file and the SDK dies with
+	// "No conversation found with session ID: <uuid>".
+	//
+	// Only mount for runtime=claude-code (other runtimes don't use the path).
+	// Opt-out: ResetClaudeSession or env WORKSPACE_RESET_SESSION=1 → we
+	// remove the existing volume before recreating it, so the agent
+	// boots with a clean session dir.
+	if cfg.Runtime == "claude-code" {
+		claudeSessionsVolume := ClaudeSessionVolumeName(cfg.WorkspaceID)
+		resetEnv, _ := strconv.ParseBool(cfg.EnvVars["WORKSPACE_RESET_SESSION"])
+		if cfg.ResetClaudeSession || resetEnv {
+			if rmErr := p.cli.VolumeRemove(ctx, claudeSessionsVolume, true); rmErr != nil {
+				log.Printf("Provisioner: claude-sessions volume reset warning for %s: %v", claudeSessionsVolume, rmErr)
+			} else {
+				log.Printf("Provisioner: claude-sessions volume %s reset (fresh session)", claudeSessionsVolume)
+			}
+		}
+		if _, cvErr := p.cli.VolumeCreate(ctx, volume.CreateOptions{Name: claudeSessionsVolume}); cvErr != nil {
+			return "", fmt.Errorf("failed to create claude-sessions volume %s: %w", claudeSessionsVolume, cvErr)
+		}
+		binds = append(binds, fmt.Sprintf("%s:/root/.claude/sessions", claudeSessionsVolume))
+		log.Printf("Provisioner: claude-sessions volume %s mounted at /root/.claude/sessions", claudeSessionsVolume)
 	}
 
 	hostCfg := &container.HostConfig{
@@ -349,13 +390,95 @@ func buildContainerEnv(cfg WorkspaceConfig) []string {
 	return env
 }
 
+// Per-tier resource defaults. Configurable via TIERn_MEMORY_MB and
+// TIERn_CPU_SHARES env vars (n in {2,3,4}). CPU shares follow the convention
+// 1024 shares == 1 CPU; internally translated to NanoCPUs for a hard cap.
+//
+// Defaults reflect the tier sizing agreed in issue #14:
+//   - T2: 512 MiB,  1024 shares (1 CPU)  — unchanged historical default
+//   - T3: 2048 MiB, 2048 shares (2 CPU)  — new cap (previously uncapped)
+//   - T4: 4096 MiB, 4096 shares (4 CPU)  — new cap (previously uncapped)
+const (
+	defaultTier2MemoryMB  = 512
+	defaultTier2CPUShares = 1024
+	defaultTier3MemoryMB  = 2048
+	defaultTier3CPUShares = 2048
+	defaultTier4MemoryMB  = 4096
+	defaultTier4CPUShares = 4096
+)
+
+// getTierMemoryMB returns the memory cap (MiB) for the given tier, reading
+// TIERn_MEMORY_MB env var with fallback to the hardcoded default. Returns 0
+// for tiers with no cap (e.g. tier 1).
+func getTierMemoryMB(tier int) int64 {
+	var def int64
+	switch tier {
+	case 2:
+		def = defaultTier2MemoryMB
+	case 3:
+		def = defaultTier3MemoryMB
+	case 4:
+		def = defaultTier4MemoryMB
+	default:
+		return 0
+	}
+	if v := os.Getenv(fmt.Sprintf("TIER%d_MEMORY_MB", tier)); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
+
+// getTierCPUShares returns the CPU allocation (shares, where 1024 == 1 CPU)
+// for the given tier, reading TIERn_CPU_SHARES env var with fallback to the
+// hardcoded default. Returns 0 for tiers with no cap.
+func getTierCPUShares(tier int) int64 {
+	var def int64
+	switch tier {
+	case 2:
+		def = defaultTier2CPUShares
+	case 3:
+		def = defaultTier3CPUShares
+	case 4:
+		def = defaultTier4CPUShares
+	default:
+		return 0
+	}
+	if v := os.Getenv(fmt.Sprintf("TIER%d_CPU_SHARES", tier)); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
+
+// applyTierResources writes Memory + NanoCPUs to hostCfg from the tier's
+// configured limits (env override or default). Returns the resolved values
+// for logging.
+func applyTierResources(hostCfg *container.HostConfig, tier int) (memMB, cpuShares int64) {
+	memMB = getTierMemoryMB(tier)
+	cpuShares = getTierCPUShares(tier)
+	if memMB > 0 {
+		hostCfg.Resources.Memory = memMB * 1024 * 1024
+	}
+	if cpuShares > 0 {
+		// shares -> NanoCPUs: 1024 shares == 1 CPU == 1e9 NanoCPUs
+		hostCfg.Resources.NanoCPUs = (cpuShares * 1_000_000_000) / 1024
+	}
+	return memMB, cpuShares
+}
+
 // ApplyTierConfig configures a HostConfig based on the workspace tier.
 // Extracted from Start() so it can be tested independently.
 //
 //   - Tier 1 (Sandboxed):  readonly rootfs, tmpfs /tmp, strip /workspace mount
-//   - Tier 2 (Standard):   resource limits (512 MiB memory, 1 CPU), no special flags (default)
-//   - Tier 3 (Privileged):  privileged mode, host PID, Docker network (not host)
-//   - Tier 4 (Full access): privileged, host PID, host network, Docker socket mount, all capabilities
+//   - Tier 2 (Standard):   resource limits (default 512 MiB, 1 CPU)
+//   - Tier 3 (Privileged): privileged + host PID, Docker network, capped resources
+//   - Tier 4 (Full access): privileged, host PID, host network, Docker socket, capped resources
+//
+// Per-tier memory/CPU caps are overridable via TIERn_MEMORY_MB /
+// TIERn_CPU_SHARES env vars (n in {2,3,4}).
 //
 // Unknown/zero tiers default to Tier 2 behavior (safe resource-limited container).
 func ApplyTierConfig(hostCfg *container.HostConfig, cfg WorkspaceConfig, configMount, name string) {
@@ -378,7 +501,8 @@ func ApplyTierConfig(hostCfg *container.HostConfig, cfg WorkspaceConfig, configM
 		// causes port collisions when multiple T3 containers run simultaneously.
 		hostCfg.Privileged = true
 		hostCfg.PidMode = "host"
-		log.Printf("Provisioner: T3 privileged mode for %s (privileged, host PID)", name)
+		memMB, shares := applyTierResources(hostCfg, 3)
+		log.Printf("Provisioner: T3 privileged mode for %s (privileged, host PID, %dm memory, %d CPU shares)", name, memMB, shares)
 
 	case 4:
 		// Full host access: everything from T3 + host network + Docker socket + all capabilities.
@@ -388,14 +512,14 @@ func ApplyTierConfig(hostCfg *container.HostConfig, cfg WorkspaceConfig, configM
 		hostCfg.NetworkMode = "host"
 		// Mount Docker socket so workspace can manage containers
 		hostCfg.Binds = append(hostCfg.Binds, "/var/run/docker.sock:/var/run/docker.sock")
-		log.Printf("Provisioner: T4 full-host mode for %s (privileged, host PID, host network, docker socket)", name)
+		memMB, shares := applyTierResources(hostCfg, 4)
+		log.Printf("Provisioner: T4 full-host mode for %s (privileged, host PID, host network, docker socket, %dm memory, %d CPU shares)", name, memMB, shares)
 
 	default:
 		// Tier 2 (Standard) and unknown tiers: normal container with resource limits.
 		// This is the safe default — no privileged access, reasonable resource caps.
-		hostCfg.Resources.Memory = 512 * 1024 * 1024    // 512 MiB
-		hostCfg.Resources.NanoCPUs = 1_000_000_000       // 1.0 CPU
-		log.Printf("Provisioner: T2 standard mode for %s (512m memory, 1 CPU)", name)
+		memMB, shares := applyTierResources(hostCfg, 2)
+		log.Printf("Provisioner: T2 standard mode for %s (%dm memory, %d CPU shares)", name, memMB, shares)
 	}
 }
 
@@ -585,12 +709,20 @@ func (p *Provisioner) execInContainer(ctx context.Context, containerID string, c
 }
 
 // RemoveVolume removes the config volume for a workspace.
+// Also removes the claude-sessions volume (best-effort, may not exist
+// for non claude-code runtimes). Issue #12.
 func (p *Provisioner) RemoveVolume(ctx context.Context, workspaceID string) error {
 	volName := ConfigVolumeName(workspaceID)
 	if err := p.cli.VolumeRemove(ctx, volName, true); err != nil {
 		return fmt.Errorf("failed to remove volume %s: %w", volName, err)
 	}
 	log.Printf("Provisioner: removed config volume %s", volName)
+	csName := ClaudeSessionVolumeName(workspaceID)
+	if rmErr := p.cli.VolumeRemove(ctx, csName, true); rmErr != nil {
+		log.Printf("Provisioner: claude-sessions volume cleanup warning for %s: %v", csName, rmErr)
+	} else {
+		log.Printf("Provisioner: removed claude-sessions volume %s", csName)
+	}
 	return nil
 }
 
