@@ -66,6 +66,7 @@ type WorkspaceConfig struct {
 	AwarenessURL       string
 	AwarenessNamespace string
 	WorkspaceAccess    string // #65: "none" (default), "read_only", or "read_write"
+	ResetClaudeSession bool   // #12: if true, discard the claude-sessions volume before start (fresh session dir)
 }
 
 // Workspace-access constants for #65. Matches the CHECK constraint on
@@ -83,6 +84,18 @@ func ConfigVolumeName(workspaceID string) string {
 		id = id[:12]
 	}
 	return fmt.Sprintf("ws-%s-configs", id)
+}
+
+// ClaudeSessionVolumeName returns the Docker named volume for a workspace's
+// Claude Code session directory (/root/.claude/sessions). Separate from the
+// config volume so it can be discarded independently (via WORKSPACE_RESET_SESSION
+// or ?reset=true) without wiping the user's config. Issue #12.
+func ClaudeSessionVolumeName(workspaceID string) string {
+	id := workspaceID
+	if len(id) > 12 {
+		id = id[:12]
+	}
+	return fmt.Sprintf("ws-%s-claude-sessions", id)
 }
 
 // Provisioner manages Docker containers for workspace agents.
@@ -159,6 +172,33 @@ func (p *Provisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string, e
 	binds := []string{
 		configMount,
 		workspaceMount,
+	}
+
+	// #12: Preserve Claude Code session directory across restarts.
+	// The claude-code SDK stores conversations in /root/.claude/sessions/
+	// and Postgres keeps current_session_id. Without a persistent volume,
+	// restarts drop the session file and the SDK dies with
+	// "No conversation found with session ID: <uuid>".
+	//
+	// Only mount for runtime=claude-code (other runtimes don't use the path).
+	// Opt-out: ResetClaudeSession or env WORKSPACE_RESET_SESSION=1 → we
+	// remove the existing volume before recreating it, so the agent
+	// boots with a clean session dir.
+	if cfg.Runtime == "claude-code" {
+		claudeSessionsVolume := ClaudeSessionVolumeName(cfg.WorkspaceID)
+		resetEnv, _ := strconv.ParseBool(cfg.EnvVars["WORKSPACE_RESET_SESSION"])
+		if cfg.ResetClaudeSession || resetEnv {
+			if rmErr := p.cli.VolumeRemove(ctx, claudeSessionsVolume, true); rmErr != nil {
+				log.Printf("Provisioner: claude-sessions volume reset warning for %s: %v", claudeSessionsVolume, rmErr)
+			} else {
+				log.Printf("Provisioner: claude-sessions volume %s reset (fresh session)", claudeSessionsVolume)
+			}
+		}
+		if _, cvErr := p.cli.VolumeCreate(ctx, volume.CreateOptions{Name: claudeSessionsVolume}); cvErr != nil {
+			return "", fmt.Errorf("failed to create claude-sessions volume %s: %w", claudeSessionsVolume, cvErr)
+		}
+		binds = append(binds, fmt.Sprintf("%s:/root/.claude/sessions", claudeSessionsVolume))
+		log.Printf("Provisioner: claude-sessions volume %s mounted at /root/.claude/sessions", claudeSessionsVolume)
 	}
 
 	hostCfg := &container.HostConfig{
@@ -669,12 +709,20 @@ func (p *Provisioner) execInContainer(ctx context.Context, containerID string, c
 }
 
 // RemoveVolume removes the config volume for a workspace.
+// Also removes the claude-sessions volume (best-effort, may not exist
+// for non claude-code runtimes). Issue #12.
 func (p *Provisioner) RemoveVolume(ctx context.Context, workspaceID string) error {
 	volName := ConfigVolumeName(workspaceID)
 	if err := p.cli.VolumeRemove(ctx, volName, true); err != nil {
 		return fmt.Errorf("failed to remove volume %s: %w", volName, err)
 	}
 	log.Printf("Provisioner: removed config volume %s", volName)
+	csName := ClaudeSessionVolumeName(workspaceID)
+	if rmErr := p.cli.VolumeRemove(ctx, csName, true); rmErr != nil {
+		log.Printf("Provisioner: claude-sessions volume cleanup warning for %s: %v", csName, rmErr)
+	} else {
+		log.Printf("Provisioner: removed claude-sessions volume %s", csName)
+	}
 	return nil
 }
 

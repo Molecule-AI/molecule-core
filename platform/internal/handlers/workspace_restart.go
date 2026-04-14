@@ -104,8 +104,9 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 
 	// Read template from request body or try to find matching config
 	var body struct {
-		Template       string `json:"template"`
-		ApplyTemplate  bool   `json:"apply_template"`  // force re-apply runtime-default template (e.g. after runtime change)
+		Template      string `json:"template"`
+		ApplyTemplate bool   `json:"apply_template"` // force re-apply runtime-default template (e.g. after runtime change)
+		Reset         bool   `json:"reset"`          // #12: discard claude-sessions volume before restart
 	}
 	c.ShouldBindJSON(&body)
 
@@ -151,9 +152,16 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 		}
 	}
 
-	go h.provisionWorkspace(id, templatePath, configFiles, payload)
+	// #12: ?reset=true (or body.Reset) discards the claude-sessions volume
+	// before restart, giving the agent a clean /root/.claude/sessions dir.
+	resetClaudeSession := c.Query("reset") == "true" || body.Reset
+	if resetClaudeSession {
+		log.Printf("Restart: reset=true — will discard claude-sessions volume for %s (%s)", wsName, id)
+	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "provisioning", "config_dir": configLabel})
+	go h.provisionWorkspaceOpts(id, templatePath, configFiles, payload, resetClaudeSession)
+
+	c.JSON(http.StatusOK, gin.H{"status": "provisioning", "config_dir": configLabel, "reset_session": resetClaudeSession})
 }
 
 // RestartByID restarts a workspace by ID — for programmatic use (e.g., auto-restart after secret change).

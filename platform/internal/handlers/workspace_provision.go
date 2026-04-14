@@ -16,6 +16,14 @@ import (
 
 // provisionWorkspace handles async container deployment with timeout.
 func (h *WorkspaceHandler) provisionWorkspace(workspaceID, templatePath string, configFiles map[string][]byte, payload models.CreateWorkspacePayload) {
+	h.provisionWorkspaceOpts(workspaceID, templatePath, configFiles, payload, false)
+}
+
+// provisionWorkspaceOpts is the workhorse variant of provisionWorkspace that
+// accepts extra per-invocation knobs (e.g. resetClaudeSession for issue #12)
+// that should NOT be persisted on CreateWorkspacePayload because they're
+// request-scoped flags.
+func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath string, configFiles map[string][]byte, payload models.CreateWorkspacePayload, resetClaudeSession bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), provisioner.ProvisionTimeout)
 	defer cancel()
 
@@ -76,6 +84,7 @@ func (h *WorkspaceHandler) provisionWorkspace(workspaceID, templatePath string, 
 	pluginsPath, _ := filepath.Abs(filepath.Join(h.configsDir, "..", "plugins"))
 	awarenessNamespace := h.loadAwarenessNamespace(ctx, workspaceID)
 	cfg := h.buildProvisionerConfig(workspaceID, templatePath, configFiles, payload, envVars, pluginsPath, awarenessNamespace)
+	cfg.ResetClaudeSession = resetClaudeSession // #12
 
 	// Preflight #17: refuse to start a container we already know will crash on missing config.yaml.
 	// When the caller supplies neither a template dir nor in-memory configFiles (the auto-restart
