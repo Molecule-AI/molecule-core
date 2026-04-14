@@ -14,6 +14,8 @@ import os
 
 import httpx
 
+from platform_auth import auth_headers
+
 logger = logging.getLogger(__name__)
 
 PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://platform:8080")
@@ -53,6 +55,7 @@ class ConsolidationLoop:
             resp = await client.get(
                 f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/memories",
                 params={"scope": "LOCAL"},
+                headers=auth_headers(),
             )
             if resp.status_code != 200:
                 return
@@ -95,12 +98,14 @@ class ConsolidationLoop:
                         resp = await client.post(
                             f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/memories",
                             json={"content": f"[Consolidated] {summary}", "scope": "TEAM"},
+                            headers=auth_headers(),
                         )
                         if resp.status_code in (200, 201):
                             # Safe to delete originals — consolidated version is saved
                             for m in memories:
                                 await client.delete(
-                                    f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/memories/{m['id']}"
+                                    f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/memories/{m['id']}",
+                                    headers=auth_headers(),
                                 )
                             logger.info("Consolidated %d memories into team knowledge", len(memories))
                         else:
@@ -118,6 +123,7 @@ class ConsolidationLoop:
                 await client.post(
                     f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/memories",
                     json={"content": f"[Consolidated] {combined}", "scope": "TEAM"},
+                    headers=auth_headers(),
                 )
                 logger.info("Consolidated %d memories via concatenation fallback", len(memories))
 
