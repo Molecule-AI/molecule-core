@@ -64,10 +64,10 @@ def test_init_defaults_on_reload(tmp_config):
 # ---------------------------------------------------------------------------
 
 def test_hash_file_real_file(tmp_path, watcher):
-    """_hash_file returns md5 hex digest of the file's bytes."""
+    """_hash_file returns sha256 hex digest of the file's bytes."""
     f = tmp_path / "sample.txt"
     f.write_bytes(b"hello world")
-    expected = hashlib.md5(b"hello world").hexdigest()
+    expected = hashlib.sha256(b"hello world").hexdigest()
     assert watcher._hash_file(str(f)) == expected
 
 
