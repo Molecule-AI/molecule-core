@@ -190,3 +190,82 @@ func TestBearerTokenFromHeader(t *testing.T) {
 		}
 	}
 }
+
+// ------------------------------------------------------------
+// HasAnyLiveTokenGlobal
+// ------------------------------------------------------------
+
+func TestHasAnyLiveTokenGlobal(t *testing.T) {
+	cases := []struct {
+		name  string
+		count int
+		want  bool
+	}{
+		{"no tokens anywhere", 0, false},
+		{"one live token", 1, true},
+		{"many live tokens", 5, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock := setupMock(t)
+			mock.ExpectQuery(`SELECT COUNT\(\*\) FROM workspace_auth_tokens`).
+				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(tc.count))
+
+			got, err := HasAnyLiveTokenGlobal(context.Background(), db)
+			if err != nil {
+				t.Fatalf("err: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// ------------------------------------------------------------
+// ValidateAnyToken
+// ------------------------------------------------------------
+
+func TestValidateAnyToken_HappyPath(t *testing.T) {
+	db, mock := setupMock(t)
+
+	// Issue a token for some workspace.
+	mock.ExpectExec(`INSERT INTO workspace_auth_tokens`).WillReturnResult(sqlmock.NewResult(1, 1))
+	tok, err := IssueToken(context.Background(), db, "ws-admin")
+	if err != nil {
+		t.Fatalf("IssueToken: %v", err)
+	}
+
+	// ValidateAnyToken: lookup by hash only (no workspace binding).
+	mock.ExpectQuery(`SELECT id FROM workspace_auth_tokens`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-id-global"))
+	// Best-effort last_used_at update.
+	mock.ExpectExec(`UPDATE workspace_auth_tokens SET last_used_at`).
+		WithArgs("tok-id-global").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := ValidateAnyToken(context.Background(), db, tok); err != nil {
+		t.Errorf("expected valid token, got error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestValidateAnyToken_UnknownTokenRejected(t *testing.T) {
+	db, mock := setupMock(t)
+	mock.ExpectQuery(`SELECT id FROM workspace_auth_tokens`).
+		WillReturnError(sql.ErrNoRows)
+
+	if err := ValidateAnyToken(context.Background(), db, "not-a-real-token"); err != ErrInvalidToken {
+		t.Errorf("got %v, want ErrInvalidToken", err)
+	}
+}
+
+func TestValidateAnyToken_EmptyTokenRejected(t *testing.T) {
+	db, _ := setupMock(t)
+	if err := ValidateAnyToken(context.Background(), db, ""); err != ErrInvalidToken {
+		t.Errorf("got %v, want ErrInvalidToken", err)
+	}
+}
