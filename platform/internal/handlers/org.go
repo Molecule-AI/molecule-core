@@ -340,11 +340,10 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 			}
 		}
 
-		// Pre-install plugins: copy from registry into configFiles as plugins/<name>/*
-		plugins := ws.Plugins
-		if len(plugins) == 0 {
-			plugins = defaults.Plugins
-		}
+		// Pre-install plugins: copy from registry into configFiles as plugins/<name>/*.
+		// Per-workspace plugins UNION with defaults.plugins (issue #68).
+		// A leading "!" or "-" on a per-workspace entry opts that plugin out.
+		plugins := mergePlugins(defaults.Plugins, ws.Plugins)
 		if len(plugins) > 0 {
 			if configFiles == nil {
 				configFiles = map[string][]byte{}
@@ -641,4 +640,46 @@ func parseEnvFile(path string, out map[string]string) {
 			out[key] = value
 		}
 	}
+}
+
+// mergePlugins returns the union of defaults and per-workspace plugin lists
+// (deduplicated, defaults first). A per-workspace entry starting with "!" or
+// "-" opts that plugin OUT of the union. See issue #68.
+func mergePlugins(defaultPlugins, wsPlugins []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(defaultPlugins)+len(wsPlugins))
+	for _, p := range defaultPlugins {
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	for _, p := range wsPlugins {
+		if p == "" {
+			continue
+		}
+		if strings.HasPrefix(p, "!") || strings.HasPrefix(p, "-") {
+			target := strings.TrimLeft(p, "!-")
+			if target == "" {
+				continue
+			}
+			if seen[target] {
+				delete(seen, target)
+				filtered := out[:0]
+				for _, existing := range out {
+					if existing != target {
+						filtered = append(filtered, existing)
+					}
+				}
+				out = filtered
+			}
+			continue
+		}
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out
 }

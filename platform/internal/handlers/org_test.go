@@ -383,3 +383,57 @@ func TestHasUnresolvedVarRef_DollarVarSyntax(t *testing.T) {
 		t.Error("$VAR syntax should be detected as ref when unresolved")
 	}
 }
+
+func eqStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestPlugins_UnionWithDefaults(t *testing.T) {
+	got := mergePlugins([]string{"a", "b"}, []string{"c"})
+	want := []string{"a", "b", "c"}
+	if !eqStringSlice(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestPlugins_DedupesDuplicates(t *testing.T) {
+	got := mergePlugins([]string{"a", "b"}, []string{"b", "c"})
+	want := []string{"a", "b", "c"}
+	if !eqStringSlice(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestPlugins_OptOutWithBang(t *testing.T) {
+	got := mergePlugins([]string{"a", "b", "c"}, []string{"!b", "d"})
+	want := []string{"a", "c", "d"}
+	if !eqStringSlice(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestPlugins_OptOutWithDash(t *testing.T) {
+	got := mergePlugins([]string{"a", "b"}, []string{"-a"})
+	want := []string{"b"}
+	if !eqStringSlice(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestPlugins_BackwardCompat(t *testing.T) {
+	// Re-listing defaults in per-workspace plugins still yields the same list
+	// (dedupe keeps behavior stable for existing org.yaml files).
+	got := mergePlugins([]string{"a", "b"}, []string{"a", "b", "c"})
+	want := []string{"a", "b", "c"}
+	if !eqStringSlice(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
