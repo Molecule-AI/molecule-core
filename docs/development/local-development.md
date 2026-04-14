@@ -92,26 +92,33 @@ Docker Compose  2.x
 ### Unit Tests
 
 ```bash
-cd platform && go test -race ./...               # Go tests with race detection (358 tests)
-cd canvas && npm test                            # Vitest tests (188 tests)
-cd workspace-template && python -m pytest -v     # Workspace runtime tests (148 tests)
+cd platform && go test -race ./...               # Go tests with race detection (695 tests)
+cd canvas && npm test                            # Vitest tests (357 tests)
+cd workspace-template && python -m pytest -v     # Workspace runtime tests (1140 tests)
+cd sdk/python && python -m pytest -v             # SDK tests (121 tests)
+cd mcp-server && npm test                        # MCP server tests (97 Jest tests)
 ```
 
 ### Integration Tests
 
 ```bash
-bash test_api.sh             # 62 API tests (requires platform running)
-bash test_a2a_e2e.sh         # 22 A2A e2e tests (requires platform + 2 agents)
-bash test_activity_e2e.sh    # 25 activity/task E2E tests (requires platform + 1 agent)
+bash tests/e2e/test_api.sh                 # 62 API tests (quick local verify; Phase 30.1 bearer-auth aware; also runs in CI)
+bash tests/e2e/test_a2a_e2e.sh             # 22 A2A e2e tests (requires platform + 2 agents)
+bash tests/e2e/test_activity_e2e.sh        # 25 activity/task E2E tests (requires platform + 1 agent)
+bash tests/e2e/test_comprehensive_e2e.sh   # 67 endpoint/memory/bundle/approval checks
 ```
+
+All E2E scripts share `tests/e2e/_lib.sh` helpers and are shellcheck-clean (enforced in CI). See [`./testing-e2e.md`](./testing-e2e.md) for auth prerequisites and what CI runs.
 
 ### CI Pipeline
 
 GitHub Actions runs automatically on push to `main` and on PRs (`.github/workflows/ci.yml`):
-- **platform-build** — Go build, vet, `go test -race` with coverage profiling (25% baseline threshold)
+- **platform-build** — Go build, vet, `go test -race` with coverage profiling (25% baseline threshold; setup-go uses module cache)
 - **canvas-build** — npm build, `vitest run` (no `--passWithNoTests` -- tests must exist and pass)
 - **mcp-server-build** — npm build
 - **python-lint** — `pytest --cov=. --cov-report=term-missing` (pytest-cov enabled)
+- **e2e-api** (added 2026-04-13) — Postgres + Redis service containers, migrations applied via `docker exec`, `tests/e2e/test_api.sh` must pass 62/62
+- **shellcheck** (added 2026-04-13) — lints every `tests/e2e/*.sh`
 
 Postgres and Redis are not exposed to the host -- use `docker compose exec postgres psql` or `docker compose exec redis redis-cli` for direct access.
 

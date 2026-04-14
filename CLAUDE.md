@@ -56,6 +56,8 @@ Must run from `platform/` directory (not repo root). Env vars: `DATABASE_URL`, `
 
 See `docs/plugins/sources.md` for the two-axis source/shape plugin model.
 
+Additional env vars documented in `.env.example` (2026-04-13 sync — all 21 distinct `os.Getenv`/`envx.*` keys now documented): `MOLECULE_ENV`, `GITHUB_WEBHOOK_SECRET`, `MOLECULE_URL` (MCP server target; same semantic as `PLATFORM_URL`).
+
 `molecli` reads `MOLECLI_URL` (default http://localhost:8080) to locate the platform. Logs are written to `molecli.log` in the working directory (already covered by `*.log` in `.gitignore`).
 
 ### Canvas (Next.js)
@@ -108,20 +110,23 @@ OPENAI_API_KEY=... bash scripts/test-team-e2e.sh           # E2E: Multi-template
 
 ### Unit Tests
 ```bash
-cd platform && go test -race ./...               # 487 Go tests (handlers, registry, provisioner, CLI, delegation, org, channels, wsauth — sqlmock + miniredis)
-cd canvas && npm test                            # 352 Vitest tests (store, components, hydration, buildTree, secrets API, org template import)
-cd workspace-template && python -m pytest -v     # 1078 pytest tests (adds platform_auth token store for Phase 30.1)
-cd sdk/python && python -m pytest -v              # 87 SDK tests (agentskills.io spec validator, CLI, AgentskillsAdaptor round-trip, workspace/org/channel validators)
+cd platform && go test -race ./...               # 695 Go tests (handlers, registry, provisioner, CLI, delegation, org, channels, wsauth — sqlmock + miniredis; +47 on 2026-04-13 covering extracted helpers from the a2a_proxy / delegation / discovery / activity refactor)
+cd canvas && npm test                            # 357 Vitest tests (store, components, hydration, buildTree, secrets API, org template import, ConfirmDialog singleButton + 7 native-dialog replacements)
+cd workspace-template && python -m pytest -v     # 1140 pytest tests (adds platform_auth token store for Phase 30.1, memory_write activity logging)
+cd sdk/python && python -m pytest -v              # 132 SDK tests (agentskills.io spec validator, CLI, AgentskillsAdaptor round-trip, workspace/org/channel validators, RemoteAgentClient Phase 30 flows)
+cd mcp-server && npm test                        # 97 Jest tests (per-domain tool modules + smoke test on tool count)
 ```
 
 ### Integration Tests
 ```bash
-bash tests/e2e/test_api.sh             # 62 API tests against localhost:8080
+bash tests/e2e/test_api.sh             # 62 API tests against localhost:8080 (Phase 30.1 bearer-token auth aware; shellcheck-clean; also runs in CI `e2e-api` job)
 bash tests/e2e/test_a2a_e2e.sh         # 22 A2A end-to-end tests (requires 2 online agents)
-bash tests/e2e/test_activity_e2e.sh    # 25 activity/task E2E tests (requires 1 online agent)
-bash tests/e2e/test_comprehensive_e2e.sh # 68 checks — ALL endpoints, memory, runtime, bundles, approvals
+bash tests/e2e/test_activity_e2e.sh    # 25 activity/task E2E tests (requires 1 online agent; re-registers detected agent to capture bearer token)
+bash tests/e2e/test_comprehensive_e2e.sh # 67 checks — ALL endpoints, memory, runtime, bundles, approvals (registers workspaces immediately after create to beat the provisioner token race)
 ```
-`test_api.sh` requires platform running. Tests full CRUD, registry, heartbeat, discovery, peers, access control, events, degraded/recovery lifecycle, activity logging, current task tracking, bundle round-trip (export → delete → import → verify).
+All five E2E scripts share `tests/e2e/_lib.sh` + `tests/e2e/_extract_token.py` helpers and are shellcheck-clean. `test_api.sh` is the quick local-verify command — use it after any platform change. Tests full CRUD, registry, heartbeat, discovery, peers, access control, events, degraded/recovery lifecycle, activity logging, current task tracking, bundle round-trip (export → delete → import → verify).
+
+**Phase 30.1 / 30.6 auth callout (future-proofing):** `/registry/heartbeat` and `/registry/update-card` require `Authorization: Bearer <token>` once a workspace has any live token on file (Phase 30.1 — legacy workspaces grandfathered). `/registry/discover/:id` and `/registry/:id/peers` additionally require `X-Workspace-ID` + bearer token on the caller side (Phase 30.6 — fail-open on DB hiccup since hierarchy check is primary). If you change these routes, update `tests/e2e/test_api.sh` and `docs/api-protocol/platform-api.md` in the same PR.
 
 `test_a2a_e2e.sh` requires platform + two provisioned agents (Echo Agent, SEO Agent) running with a valid `OPENROUTER_API_KEY`. Tests message/send, JSON-RPC wrapping, error handling, peer discovery, agent cards, heartbeat. Timeout configurable via `A2A_TIMEOUT` env var (default 120s).
 
@@ -133,14 +138,18 @@ cd mcp-server
 npm install && npm run build   # Build MCP server
 node dist/index.js             # Run (stdio transport)
 ```
-Exposes 87 tools for managing Molecule AI from Claude Code, Cursor, Codex, or any MCP client. Includes workspace CRUD, async delegation, plugins (install/uninstall/list), global secrets, pause/resume, org import, A2A chat, approvals, memory, files, config, discovery, bundles, templates, traces, activity logs, and social channels (add/update/remove/send/test). Configured in `.mcp.json`. Env: `MOLECULE_URL` (default http://localhost:8080).
+Exposes **87 tools** for managing Molecule AI from Claude Code, Cursor, Codex, or any MCP client. Includes workspace CRUD, async delegation, plugins (install/uninstall/list), global secrets, pause/resume, org import, A2A chat, approvals, memory, files, config, discovery, bundles, templates, traces, activity logs, remote agents (Phase 30), and social channels (add/update/remove/send/test). Configured in `.mcp.json`. Env: `MOLECULE_URL` (default http://localhost:8080).
+
+**Structure (refactored 2026-04-13, PRs #2/#4/#7):** `src/index.ts` shrank from 1697 → 89 lines and now only wires `createServer()`. Per-domain tool modules live in `src/tools/`: `workspaces.ts`, `agents.ts`, `secrets.ts`, `files.ts`, `memory.ts`, `plugins.ts`, `channels.ts`, `delegation.ts`, `schedules.ts`, `approvals.ts`, `discovery.ts`, `remote_agents.ts`. Each exports its handlers and a `registerXxxTools(srv)` function. Shared HTTP layer in `src/api.ts` (`PLATFORM_URL`, `apiCall<T>`, `ApiError`, `isApiError()`, `toMcpResult()`, `toMcpText()`). When adding a tool, pick the matching domain file or create a new one and wire it in `createServer()`.
 
 ### CI Pipeline
 GitHub Actions (`.github/workflows/ci.yml`) runs on push to main and PRs:
-- **platform-build**: Go build, vet, `go test -race` with coverage profiling (25% baseline threshold)
+- **platform-build**: Go build, vet, `go test -race` with coverage profiling (25% baseline threshold; `setup-go` uses module cache)
 - **canvas-build**: npm build, `vitest run` (no `--passWithNoTests` -- tests must exist and pass)
 - **mcp-server-build**: npm build
 - **python-lint**: `pytest --cov=. --cov-report=term-missing` (pytest-cov enabled)
+- **e2e-api** (added 2026-04-13): spins up Postgres + Redis service containers, runs platform migrations via `docker exec`, then executes `tests/e2e/test_api.sh` against a locally-built binary (62/62 must pass)
+- **shellcheck** (added 2026-04-13): lints every `tests/e2e/*.sh` via the shellcheck marketplace action
 
 ### Docker Compose
 ```bash
@@ -182,6 +191,15 @@ When a workspace specifies a template that doesn't exist, the Create handler fal
 - Everything else → denied
 
 The A2A proxy (`POST /workspaces/:id/a2a`) enforces this for agent-to-agent calls. Canvas requests (no `X-Workspace-ID`), self-calls, and system callers (`webhook:*`, `system:*`, `test:*` prefixes via `isSystemCaller()` in `a2a_proxy.go`) bypass the check.
+
+### Handler Decomposition (2026-04-13)
+Four oversize handler functions were split into private helpers (pure refactor, behavior unchanged — 47 new unit tests cover the helpers directly; `handlers` package coverage 56.1% → 57.6%):
+- `a2a_proxy.go::proxyA2ARequest` (257→56 lines) — helpers: `resolveAgentURL`, `normalizeA2APayload`, `dispatchA2A`, `handleA2ADispatchError`, `maybeMarkContainerDead`, `logA2AFailure`, `logA2ASuccess`; sentinel `proxyDispatchBuildError`
+- `delegation.go::Delegate` (127→60 lines) — helpers: `bindDelegateRequest`, `lookupIdempotentDelegation`, `insertDelegationRow`; typed `insertDelegationOutcome` enum replaces `(bool, bool)` positional return
+- `discovery.go::Discover` (125→40 lines) — helpers: `discoverWorkspacePeer`, `writeExternalWorkspaceURL`, `discoverHostPeer`
+- `activity.go::SessionSearch` (109→24 lines) — helpers: `parseSessionSearchParams`, `buildSessionSearchQuery`, `scanSessionSearchRows`
+
+When modifying any of these, prefer extending the helper rather than inlining back.
 
 ### JSONB Gotcha
 When inserting Go `[]byte` (from `json.Marshal`) into Postgres JSONB columns, you must:

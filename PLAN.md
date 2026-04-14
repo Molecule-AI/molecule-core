@@ -166,6 +166,20 @@ for the full code audit.
 
 ---
 
+## Phase 31 — Quality + Infra Pass (Q2 2026) — SHIPPED 2026-04-13
+
+Completed in PRs #1–#8 and documented in `docs/edit-history/2026-04-13.md`:
+
+- [x] **Brand migration cleanup** — LICENSE "Agent Molecule" → "Molecule AI"; new icon assets (PR #1).
+- [x] **Repo structural cleanup** — moved `examples/remote-agent/` → `sdk/python/examples/`, `docs/superpowers/plans/` → `plugins/superpowers/plans/`; deleted empty `platform/plugins/`; gitignored `.agents/`, `platform/workspace-configs-templates/`, `backups/`, `logs/`, `test-results/`; added READMEs under `tests/` and `docs/` (PR #3).
+- [x] **MCP per-domain split** — `mcp-server/src/index.ts` 1697 → 89 lines; 12 per-domain modules in `src/tools/`; shared `src/api.ts`; startup log now reports 87 tools (PRs #2, #4, #7).
+- [x] **Canvas dialog unification** — native `confirm()`/`alert()` replaced with `ConfirmDialog` in 7 sites; new `singleButton` prop + 5 tests (vitest 352 → 357).
+- [x] **Platform handler decomposition** — 4 oversize functions (`proxyA2ARequest`, `Delegate`, `Discover`, `SessionSearch`) split into testable helpers; +47 Go tests; `handlers` coverage 56.1% → 57.6%.
+- [x] **Env-var documentation** — `.env.example` gained 11 previously-undocumented vars; all 21 distinct `os.Getenv`/`envx.*` keys now documented.
+- [x] **E2E hardening + CI** — Phase 30.1 bearer auth + Phase 30.6 `X-Workspace-ID` requirements baked into `test_api.sh` (62/62) and `test_comprehensive_e2e.sh` (67/67); shared `_lib.sh` + `_extract_token.py`; new CI jobs `e2e-api` and `shellcheck`; `setup-go` gains module cache (PRs #5, #7, #8).
+
+---
+
 ## PR Workflow Rules
 
 All PRs must follow this checklist:
@@ -224,13 +238,14 @@ point for "what else is out there."
 
 | Stack | Tests | Framework |
 |-------|-------|-----------|
-| Go (platform) | 476 | `go test -race` |
-| Python (workspace) | 1,040 | pytest |
-| Canvas (frontend) | 352 | Vitest |
-| SDK (python) | 87 | pytest |
-| **Total** | **1,955** | |
+| Go (platform) | 695 | `go test -race` |
+| Python (workspace) | 1,140 | pytest |
+| Canvas (frontend) | 357 | Vitest |
+| SDK (python) | 132 | pytest |
+| MCP server | 97 | Jest |
+| **Total** | **2,421** | |
 
-E2E: 68/68 comprehensive checks passing, 62 API tests.
+E2E: 67/67 comprehensive checks passing, 62/62 API tests (also gated in CI `e2e-api` job), shellcheck-clean across all 5 E2E scripts.
 
 ---
 
