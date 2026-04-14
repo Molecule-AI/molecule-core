@@ -99,13 +99,13 @@ export function EmptyState() {
         <h2 className="text-xl font-semibold text-zinc-100 mb-1">
           Deploy your first agent
         </h2>
-        <p className="text-sm text-zinc-500 mb-6 leading-relaxed">
+        <p className="text-sm text-zinc-400 mb-6 leading-relaxed">
           Pick a template to get started instantly, or create a blank workspace.
         </p>
 
         {/* Template grid */}
         {loading ? (
-          <div className="text-xs text-zinc-600 py-4">Loading templates...</div>
+          <div className="text-xs text-zinc-400 py-4">Loading templates...</div>
         ) : templates.length > 0 ? (
           <div className="grid grid-cols-2 gap-2.5 mb-4 text-left max-h-[240px] overflow-y-auto">
             {templates.slice(0, 6).map((t) => {
@@ -162,7 +162,7 @@ export function EmptyState() {
 
         {/* Tips */}
         <div className="mt-5 pt-4 border-t border-zinc-800/50">
-          <div className="flex items-center justify-center gap-6 text-[10px] text-zinc-600">
+          <div className="flex items-center justify-center gap-6 text-[10px] text-zinc-400">
             <span>Drag to nest workspaces into teams</span>
             <span className="text-zinc-700">|</span>
             <span>Right-click for actions</span>
