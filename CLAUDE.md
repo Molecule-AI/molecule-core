@@ -82,6 +82,7 @@ Each runtime has its own Docker image extending `workspace-template:base`, with 
 | crewai | `workspace-template:crewai` | crewai |
 | autogen | `workspace-template:autogen` | autogen |
 | deepagents | `workspace-template:deepagents` | deepagents |
+| hermes | `workspace-template:hermes` | openai (OpenAI-compatible client; Nous Portal via `HERMES_API_KEY` or OpenRouter via `OPENROUTER_API_KEY` fallback) |
 
 Templates are framework presets in `workspace-configs-templates/`: `claude-code-default`, `langgraph`, `openclaw`, `deepagents`. Agent roles are configured after deployment via Config tab or API.
 
