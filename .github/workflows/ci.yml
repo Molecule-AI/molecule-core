@@ -170,9 +170,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run shellcheck on tests/e2e/*.sh
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
-          shellcheck --severity=warning tests/e2e/*.sh
+        uses: ludeeus/action-shellcheck@master
+        env:
+          SHELLCHECK_OPTS: --severity=warning
+        with:
+          scandir: tests/e2e
 
   python-lint:
     name: Python Lint & Test

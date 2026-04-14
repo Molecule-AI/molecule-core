@@ -13,7 +13,7 @@ import sys
 
 try:
     data = json.load(sys.stdin)
-except Exception as e:
+except (json.JSONDecodeError, ValueError) as e:
     sys.stderr.write(f"e2e_extract_token: invalid JSON response ({e})\n")
     print("")
     raise SystemExit(0)
