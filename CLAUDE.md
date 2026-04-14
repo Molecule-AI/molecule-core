@@ -205,6 +205,8 @@ Shared plugins in `plugins/` are auto-loaded by every workspace:
 
 These are distilled from the harness-level guardrails the orchestrator uses on itself. A workspace can install one (e.g., just `molecule-careful-bash` for safety) or stack the full set for the same posture as the Molecule AI orchestrator.
 
+**Org-template plugin resolution (PR #71, issue #68):** per-workspace `plugins:` lists in `org-templates/*/org.yaml` role overrides **UNION** with `defaults.plugins` (deduplicated, defaults first) — they do **not** REPLACE them. To opt a specific default out for a given role/workspace, prefix the plugin name with `!` or `-` (e.g. `!browser-automation`). Implemented by `mergePlugins` in `platform/internal/handlers/org.go`.
+
 ### Scripts
 ```bash
 bash scripts/setup-default-org.sh              # Create PM + 3 teams (Marketing/Research/Dev) via API
@@ -214,7 +216,7 @@ OPENAI_API_KEY=... bash scripts/test-team-e2e.sh           # E2E: Multi-template
 
 ### Unit Tests
 ```bash
-cd platform && go test -race ./...               # 726 Go tests (handlers, registry, provisioner, CLI, delegation, org, channels, wsauth — sqlmock + miniredis; +2 on 2026-04-14 tick-4 for TestSetGlobal_* / TestDeleteGlobal_* auto-restart branches (#64); +4 on 2026-04-14 tick-4 for TestRestartContext_* covering the synthetic restart-context A2A message (#65); raw PASS-line count is higher due to table-driven subtests)
+cd platform && go test -race ./...               # 731 Go tests (handlers, registry, provisioner, CLI, delegation, org, channels, wsauth — sqlmock + miniredis; +2 on 2026-04-14 tick-4 for TestSetGlobal_* / TestDeleteGlobal_* auto-restart branches (#64); +4 on 2026-04-14 tick-4 for TestRestartContext_* covering the synthetic restart-context A2A message (#65); +5 on 2026-04-14 tick-6 for TestPlugins_* covering the new UNION + `!`/`-` opt-out semantics in org.go mergePlugins (#71, resolves issue #68); raw PASS-line count is higher due to table-driven subtests)
 cd canvas && npm test                            # 357 Vitest tests (store, components, hydration, buildTree, secrets API, org template import, ConfirmDialog singleButton + 7 native-dialog replacements)
 cd workspace-template && python -m pytest -v     # 1140 pytest tests (adds platform_auth token store for Phase 30.1, memory_write activity logging)
 cd sdk/python && python -m pytest -v              # 132 SDK tests (agentskills.io spec validator, CLI, AgentskillsAdaptor round-trip, workspace/org/channel validators, RemoteAgentClient Phase 30 flows)
