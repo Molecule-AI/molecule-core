@@ -30,6 +30,28 @@ import (
 // during org import. Prevents overwhelming Docker when creating many containers.
 const workspaceCreatePacingMs = 50
 
+// orgImportScheduleSQL is the upsert executed for every schedule during
+// org/import. Extracted to a const so TestImport_OrgScheduleSQLShape can
+// assert its shape without regex-scanning org.go (issue #24 follow-up).
+//
+// Guarantees, in one statement:
+//   - INSERT new rows with source='template'
+//   - On (workspace_id, name) collision, only refresh template-source rows
+//     (runtime-added schedules are preserved across re-imports)
+//   - No DELETE — removal is out of scope (additive semantics)
+const orgImportScheduleSQL = `
+INSERT INTO workspace_schedules (workspace_id, name, cron_expr, timezone, prompt, enabled, next_run_at, source)
+VALUES ($1, $2, $3, $4, $5, $6, $7, 'template')
+ON CONFLICT (workspace_id, name) DO UPDATE
+    SET cron_expr   = EXCLUDED.cron_expr,
+        timezone    = EXCLUDED.timezone,
+        prompt      = EXCLUDED.prompt,
+        enabled     = EXCLUDED.enabled,
+        next_run_at = EXCLUDED.next_run_at,
+        updated_at  = now()
+    WHERE workspace_schedules.source = 'template'
+`
+
 type OrgHandler struct {
 	workspace   *WorkspaceHandler
 	broadcaster *events.Broadcaster
@@ -474,13 +496,11 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 			enabled = *sched.Enabled
 		}
 		nextRun, _ := scheduler.ComputeNextRun(sched.CronExpr, tz, time.Now())
-		if _, err := db.DB.ExecContext(context.Background(), `
-			INSERT INTO workspace_schedules (workspace_id, name, cron_expr, timezone, prompt, enabled, next_run_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`, id, sched.Name, sched.CronExpr, tz, sched.Prompt, enabled, nextRun); err != nil {
-			log.Printf("Org import: failed to create schedule '%s' for %s: %v", sched.Name, ws.Name, err)
+		if _, err := db.DB.ExecContext(context.Background(), orgImportScheduleSQL,
+			id, sched.Name, sched.CronExpr, tz, sched.Prompt, enabled, nextRun); err != nil {
+			log.Printf("Org import: failed to upsert schedule '%s' for %s: %v", sched.Name, ws.Name, err)
 		} else {
-			log.Printf("Org import: schedule '%s' (%s) created for %s", sched.Name, sched.CronExpr, ws.Name)
+			log.Printf("Org import: schedule '%s' (%s) upserted for %s (source=template)", sched.Name, sched.CronExpr, ws.Name)
 		}
 	}
 

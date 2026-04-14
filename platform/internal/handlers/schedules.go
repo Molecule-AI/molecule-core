@@ -32,6 +32,7 @@ type scheduleResponse struct {
 	RunCount    int        `json:"run_count"`
 	LastStatus  string     `json:"last_status"`
 	LastError   string     `json:"last_error"`
+	Source      string     `json:"source,omitempty"` // 'template' (seeded by org/import) | 'runtime' (created via Canvas/API). Issue #24.
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 }
@@ -44,7 +45,7 @@ func (h *ScheduleHandler) List(c *gin.Context) {
 	rows, err := db.DB.QueryContext(ctx, `
 		SELECT id, workspace_id, name, cron_expr, timezone, prompt, enabled,
 		       last_run_at, next_run_at, run_count, last_status, last_error,
-		       created_at, updated_at
+		       source, created_at, updated_at
 		FROM workspace_schedules
 		WHERE workspace_id = $1
 		ORDER BY created_at ASC
@@ -61,7 +62,7 @@ func (h *ScheduleHandler) List(c *gin.Context) {
 		if err := rows.Scan(
 			&s.ID, &s.WorkspaceID, &s.Name, &s.CronExpr, &s.Timezone,
 			&s.Prompt, &s.Enabled, &s.LastRunAt, &s.NextRunAt, &s.RunCount,
-			&s.LastStatus, &s.LastError, &s.CreatedAt, &s.UpdatedAt,
+			&s.LastStatus, &s.LastError, &s.Source, &s.CreatedAt, &s.UpdatedAt,
 		); err != nil {
 			log.Printf("Schedules.List: scan error: %v", err)
 			continue
@@ -117,9 +118,12 @@ func (h *ScheduleHandler) Create(c *gin.Context) {
 	}
 
 	var id string
+	// source='runtime' marks this row as user-created (Canvas/API). The
+	// org/import path inserts with source='template' and only refreshes
+	// template-source rows on re-import (issue #24), so runtime rows survive.
 	err = db.DB.QueryRowContext(ctx, `
-		INSERT INTO workspace_schedules (workspace_id, name, cron_expr, timezone, prompt, enabled, next_run_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO workspace_schedules (workspace_id, name, cron_expr, timezone, prompt, enabled, next_run_at, source)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'runtime')
 		RETURNING id
 	`, workspaceID, body.Name, body.CronExpr, body.Timezone, body.Prompt, enabled, nextRun).Scan(&id)
 	if err != nil {
