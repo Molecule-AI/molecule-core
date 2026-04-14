@@ -635,6 +635,83 @@ func (p *Provisioner) Close() error {
 	return p.cli.Close()
 }
 
+// ValidateConfigSource is a pure check that ensures at least one static
+// source of /configs/config.yaml is available before a container starts.
+//
+// Inputs mirror the fields on WorkspaceConfig:
+//   - templatePath: host dir expected to contain config.yaml (copied into /configs)
+//   - configFiles:  in-memory files written into /configs at start time
+//
+// Returns nil if either source will place config.yaml into /configs.
+// When both sources are empty, returns ErrNoConfigSource so callers can
+// fall through to a volume probe (VolumeHasFile) before giving up.
+//
+// Used by the platform's provision flow to catch the rogue-restart-loop
+// case (#17): a workspace whose config volume was wiped and whose
+// auto-restart path passes empty template+configFiles would otherwise
+// boot into a FileNotFoundError crash loop under Docker's
+// `unless-stopped` restart policy.
+func ValidateConfigSource(templatePath string, configFiles map[string][]byte) error {
+	if templatePath != "" {
+		// Stat the template's config.yaml; an empty/stale template dir
+		// without config.yaml is as broken as no template at all.
+		info, err := os.Stat(filepath.Join(templatePath, "config.yaml"))
+		if err == nil && !info.IsDir() {
+			return nil
+		}
+	}
+	if configFiles != nil {
+		if data, ok := configFiles["config.yaml"]; ok && len(data) > 0 {
+			return nil
+		}
+	}
+	return ErrNoConfigSource
+}
+
+// ErrNoConfigSource is returned by ValidateConfigSource when neither the
+// template path nor the in-memory config files supply a config.yaml.
+var ErrNoConfigSource = fmt.Errorf("no config.yaml source: template path missing config.yaml and configFiles empty")
+
+// VolumeHasFile returns true if the named config volume for a workspace
+// already contains the given file path (relative to /configs). Used by
+// the auto-restart path to confirm a previously-provisioned volume is
+// still populated before reusing it — if the volume was wiped, we must
+// regenerate config or fail cleanly rather than loop on FileNotFoundError.
+//
+// Implementation: run a throwaway alpine `test -f` container bound to the
+// volume read-only. Returns (false, nil) if the file is absent and
+// (false, err) only on Docker-level failures.
+func (p *Provisioner) VolumeHasFile(ctx context.Context, workspaceID, relPath string) (bool, error) {
+	volName := ConfigVolumeName(workspaceID)
+	// Confirm the volume exists first — Docker auto-creates on bind otherwise.
+	if _, err := p.cli.VolumeInspect(ctx, volName); err != nil {
+		return false, nil
+	}
+	resp, err := p.cli.ContainerCreate(ctx, &container.Config{
+		Image: "alpine",
+		Cmd:   []string{"test", "-f", "/vol/" + relPath},
+	}, &container.HostConfig{
+		Binds: []string{volName + ":/vol:ro"},
+	}, nil, nil, "")
+	if err != nil {
+		return false, err
+	}
+	defer p.cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+
+	if err := p.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		return false, err
+	}
+	waitCh, errCh := p.cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
+	select {
+	case w := <-waitCh:
+		return w.StatusCode == 0, nil
+	case err := <-errCh:
+		return false, err
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+}
+
 // isImageNotFoundErr classifies a Docker client error as "image not
 // available locally." The daemon wraps this message in a generic
 // SystemError type without exposing a typed sentinel, so we fall back
