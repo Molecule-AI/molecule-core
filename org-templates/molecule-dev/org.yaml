@@ -7,11 +7,9 @@ defaults:
   tier: 2
   required_env:
     - CLAUDE_CODE_OAUTH_TOKEN
-  # Default plugin set applied to every workspace unless the workspace
-  # specifies its own `plugins:` list (which REPLACES defaults — not a union;
-  # see platform/internal/handlers/org.go ~L345). So any workspace that
-  # needs extras must re-list the defaults plus its additions.
-  # Platform union-semantics tracked in #68; until that lands, we list fully.
+  # Default plugin set applied to every workspace. Per-workspace `plugins:`
+  # UNIONs with this set (#71). Use just the additions; prefix `!` (or `-`)
+  # to opt a default OUT for one workspace if needed.
   #
   # Coding / guardrail essentials:
   # - ecc:                            "Everything Claude Code" guardrails + coding skills
@@ -73,10 +71,8 @@ workspaces:
     files_dir: pm
     workspace_dir: ${WORKSPACE_DIR}
     canvas: { x: 400, y: 50 }
-    # PM needs workflow-triage (/triage command for PR triage) and workflow-retro
-    # (/retro for weekly retrospectives) on top of defaults. Re-list full set
-    # (REPLACE semantics today — see #68 for the union-proposal).
-    plugins: [ecc, molecule-dev, superpowers, molecule-careful-bash, molecule-prompt-watchdog, molecule-audit-trail, molecule-session-context, molecule-skill-cron-learnings, molecule-skill-update-docs, molecule-workflow-triage, molecule-workflow-retro]
+    # PM-specific: /triage (PR triage) and /retro (weekly retrospective).
+    plugins: [molecule-workflow-triage, molecule-workflow-retro]
     # Auto-link Telegram so the user can talk to PM directly from Telegram.
     # Bot token + chat ID come from pm/.env (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID).
     channels:
@@ -104,10 +100,9 @@ workspaces:
         role: Market analysis and technical research
         files_dir: research-lead
         canvas: { x: 200, y: 250 }
-        # Research roles extend defaults with browser-automation so they can
-        # scrape the live web (product pages, GitHub trending, docs).
-        # Per-workspace plugins REPLACE defaults, so re-list the full set.
-        plugins: [ecc, molecule-dev, superpowers, molecule-careful-bash, molecule-prompt-watchdog, molecule-audit-trail, molecule-session-context, molecule-skill-cron-learnings, molecule-skill-update-docs, browser-automation]
+        # Research roles add browser-automation for live web scraping
+        # (product pages, GitHub trending, docs).
+        plugins: [browser-automation]
         initial_prompt: |
           You just started as Research Lead. Set up silently — do NOT contact other agents.
           1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
@@ -120,15 +115,15 @@ workspaces:
           - name: Market Analyst
             role: Market sizing, trends, user research
             files_dir: market-analyst
-            plugins: [ecc, molecule-dev, superpowers, molecule-careful-bash, molecule-prompt-watchdog, molecule-audit-trail, molecule-session-context, molecule-skill-cron-learnings, molecule-skill-update-docs, browser-automation]
+            plugins: [browser-automation]  # UNION with defaults (#71)
           - name: Technical Researcher
             role: AI frameworks and protocol evaluation
             files_dir: technical-researcher
-            plugins: [ecc, molecule-dev, superpowers, molecule-careful-bash, molecule-prompt-watchdog, molecule-audit-trail, molecule-session-context, molecule-skill-cron-learnings, molecule-skill-update-docs, browser-automation]
+            plugins: [browser-automation]  # UNION with defaults (#71)
           - name: Competitive Intelligence
             role: Competitor tracking and feature comparison
             files_dir: competitive-intelligence
-            plugins: [ecc, molecule-dev, superpowers, molecule-careful-bash, molecule-prompt-watchdog, molecule-audit-trail, molecule-session-context, molecule-skill-cron-learnings, molecule-skill-update-docs, browser-automation]
+            plugins: [browser-automation]  # UNION with defaults (#71)
 
       - name: Dev Lead
         role: Engineering planning and team coordination
@@ -241,8 +236,7 @@ workspaces:
             # - molecule-skill-cross-vendor-review:  adversarial second opinion via non-Claude model
             #                                        (use ONLY for noteworthy PRs — auth, billing, data)
             # - molecule-skill-llm-judge:            cheap gate that catches "wrong thing shipped"
-            # REPLACE semantics — re-list the full default set. (See #68 for union proposal.)
-            plugins: [ecc, molecule-dev, superpowers, molecule-careful-bash, molecule-prompt-watchdog, molecule-audit-trail, molecule-session-context, molecule-skill-cron-learnings, molecule-skill-update-docs, molecule-skill-code-review, molecule-skill-cross-vendor-review, molecule-skill-llm-judge]
+            plugins: [molecule-skill-code-review, molecule-skill-cross-vendor-review, molecule-skill-llm-judge]
             initial_prompt: |
               You just started as Security Auditor. Set up silently — do NOT contact other agents.
               1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
@@ -403,10 +397,9 @@ workspaces:
             tier: 3
             model: opus
             files_dir: uiux-designer
-            # Add browser-automation for live canvas screenshots via Puppeteer
-            # (Chrome CDP path, works around the Playwright / libglib gap tracked in #23).
-            # Per-workspace plugins REPLACE defaults — re-list the full set.
-            plugins: [ecc, molecule-dev, superpowers, molecule-careful-bash, molecule-prompt-watchdog, molecule-audit-trail, molecule-session-context, molecule-skill-cron-learnings, molecule-skill-update-docs, browser-automation]
+            # browser-automation for live canvas screenshots via Puppeteer
+            # (Chrome CDP path; recipe in the cron prompt below).
+            plugins: [browser-automation]
             initial_prompt: |
               You just started as UIUX Designer. Set up silently — do NOT contact other agents.
               1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
