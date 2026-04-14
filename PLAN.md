@@ -239,6 +239,9 @@ point for "what else is out there."
 - **GitHub issue #15** — Provisioner: auto-refresh `CLAUDE_CODE_OAUTH_TOKEN` from `global_secrets` on workspace restart → **DONE** via PR #64 (`SetGlobal` / `DeleteGlobal` now fan out `RestartByID` to every affected workspace).
 - **GitHub issue #19 Layer 1** — Platform-generated restart context → **DONE** via PR #65 (synthetic A2A `message/send` with `metadata.kind=restart_context`, `system:restart-context` caller prefix, 30s re-register wait). Layer 2 deferred to issue #66 (see Backlog item 15 above).
 
+### Recently launched (2026-04-14 tick-6)
+- **GitHub issue #68** — Per-workspace `plugins:` REPLACE semantics caveat → **DONE** via PR #71 (`mergePlugins` helper in `platform/internal/handlers/org.go` now UNIONs per-workspace with `defaults.plugins`; `!plugin` or `-plugin` prefix on a per-workspace entry opts a default out; +5 `TestPlugins_*` tests). Role overrides in `org-templates/*/org.yaml` can now declare just the delta instead of restating every default.
+
 ### Recently launched (2026-04-14 tick-5)
 - **PR #70** — Wired the 12 modular plugins from PR #63 (tick-4) into the default `molecule-dev` org template. `defaults.plugins` expands from 3 → 9 (safety hooks + operational-memory skills become universal); PM role gains `molecule-workflow-triage` + `molecule-workflow-retro`, Security Auditor gains `molecule-skill-code-review` + `molecule-skill-cross-vendor-review` + `molecule-skill-llm-judge`. Verbose per-role re-listing is a consequence of REPLACE (not UNION) semantics in `platform/internal/handlers/org.go`; union-semantics proposal tracked as issue **#68**.
 - **PR #69** — Backlog items 11–14 stripped of stale sequential refs `#64`–`#67` (see footnote near item 15 above).
