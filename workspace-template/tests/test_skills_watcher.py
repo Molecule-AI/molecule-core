@@ -40,8 +40,8 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _md5(content: str) -> str:
-    return hashlib.md5(content.encode()).hexdigest()
+def _sha256(content: str) -> str:
+    return hashlib.sha256(content.encode()).hexdigest()
 
 
 # ============================================================================
@@ -149,7 +149,7 @@ class TestChangedSkills:
         _write(tmp_path / "skills" / "unwatched" / "SKILL.md", "v2")
         # Also add path for unwatched to new_hashes manually (shouldn't matter)
         new_hashes = w._scan()
-        new_hashes["unwatched/SKILL.md"] = _md5("v2")
+        new_hashes["unwatched/SKILL.md"] = _sha256("v2")
 
         changed = w._changed_skills(new_hashes)
         assert "unwatched" not in changed
@@ -351,13 +351,13 @@ class TestHashFile:
         result = w._hash_file(missing)
         assert result == ""
 
-    def test_hash_file_returns_md5_for_existing_file(self, tmp_path):
-        """_hash_file returns a non-empty hex digest for a readable file."""
+    def test_hash_file_returns_sha256_for_existing_file(self, tmp_path):
+        """_hash_file returns a non-empty SHA-256 hex digest for a readable file."""
         f = tmp_path / "real_file.txt"
         f.write_text("hello")
         w = SkillsWatcher(str(tmp_path), [])
         result = w._hash_file(f)
-        assert len(result) == 32  # MD5 hex digest length
+        assert len(result) == 64  # SHA-256 hex digest length
         assert result != ""
 
 

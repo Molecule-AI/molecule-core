@@ -37,7 +37,11 @@ class ConfigWatcher:
 
     def _hash_file(self, path: str) -> str:
         try:
-            return hashlib.md5(Path(path).read_bytes()).hexdigest()
+            # H1: SHA-256 replaces MD5 for file-integrity change detection.
+            # MD5 is collision-prone; using SHA-256 prevents a crafted config
+            # file from producing the same hash as a benign one, which would
+            # silently suppress the hot-reload callback.
+            return hashlib.sha256(Path(path).read_bytes()).hexdigest()
         except (OSError, IOError):
             return ""
 

@@ -7,7 +7,7 @@ Architecture
 ------------
 ``SkillsWatcher`` runs as a background asyncio task alongside the agent.  It
 polls the skill directories every ``POLL_INTERVAL`` seconds (default 3 s),
-computes MD5 hashes of every file, and fires ``_reload_skill()`` when any
+computes SHA-256 hashes of every file, and fires ``_reload_skill()`` when any
 file inside a skill's folder changes.
 
 ``_reload_skill()`` calls ``load_skills()`` from ``skills.loader`` for the
@@ -71,7 +71,7 @@ class SkillsWatcher:
         self.config_path = config_path
         self.skill_names = list(skill_names)
         self.on_reload   = on_reload
-        self._hashes: dict[str, str] = {}   # rel_path → md5 hex
+        self._hashes: dict[str, str] = {}   # rel_path → sha256 hex
         self._running = False
 
     # ------------------------------------------------------------------
@@ -103,12 +103,13 @@ class SkillsWatcher:
 
     def _hash_file(self, path: Path) -> str:
         try:
-            return hashlib.md5(path.read_bytes()).hexdigest()
+            # H1: SHA-256 replaces MD5 for file-integrity change detection.
+            return hashlib.sha256(path.read_bytes()).hexdigest()
         except OSError:
             return ""
 
     def _scan(self) -> dict[str, str]:
-        """Return {relative_path: md5} for every file in watched skill dirs."""
+        """Return {relative_path: sha256} for every file in watched skill dirs."""
         hashes: dict[str, str] = {}
         root = self._skills_root()
         for skill_name in self.skill_names:
