@@ -250,6 +250,34 @@ workspaces:
                      - CORS: verify Access-Control-Allow-Origin on a cross-origin request
                      - Rate limit headers on /health
 
+                  4a. DAST TEARDOWN (MANDATORY — prevents test-artifact leak into prod DB):
+                      Any workspace, secret, or plugin you CREATE during this audit must be
+                      DELETED before this step exits. Maintain three lists as you go:
+
+                        TESTS_WORKSPACES=""   # workspace IDs you POSTed
+                        TESTS_SECRETS=""      # secret keys you set
+                        TESTS_PLUGINS=""      # "<ws_id>:<plugin_name>" pairs
+
+                      At the end of step 4, iterate each list and DELETE — even if the audit
+                      aborts, the teardown block must run:
+
+                        for ws_id in $TESTS_WORKSPACES; do
+                          curl -s -X DELETE "http://host.docker.internal:8080/workspaces/$ws_id" \
+                            -H "Authorization: Bearer $WORKSPACE_AUTH_TOKEN" > /dev/null || true
+                        done
+                        for key in $TESTS_SECRETS; do
+                          curl -s -X DELETE "http://host.docker.internal:8080/admin/secrets/$key" > /dev/null || true
+                        done
+                        for pair in $TESTS_PLUGINS; do
+                          ws="${pair%:*}"; pl="${pair#*:}"
+                          curl -s -X DELETE "http://host.docker.internal:8080/workspaces/$ws/plugins/$pl" > /dev/null || true
+                        done
+
+                      Prior incident (#17): repeated DAST runs leaked 4 workspaces
+                      (aaaaaaaa-/bbbbbbbb-/cccccccc-/dddddddd-) into the live DB, each trapped
+                      in a restart loop on missing config.yaml. This teardown step prevents
+                      that class of leak regardless of which specific probes you run.
+
                   5. SECRETS SCAN: last 20 commits grepped for token patterns
                      (sk-ant, sk-or, api_key= etc.) excluding test files.
 
