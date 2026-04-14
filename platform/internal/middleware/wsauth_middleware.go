@@ -49,3 +49,38 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// AdminAuth returns a Gin middleware for global/admin routes (e.g.
+// /settings/secrets, /admin/secrets) that have no per-workspace scope.
+//
+// Same lazy-bootstrap contract as WorkspaceAuth: if no live token exists
+// anywhere on the platform (fresh install / pre-Phase-30 upgrade), requests
+// are let through so existing deployments keep working. Once any workspace
+// has a live token every request to these routes MUST present a valid one.
+//
+// Any valid workspace bearer token is accepted — the route is not scoped to
+// a specific workspace so we only verify the token is live and unrevoked.
+func AdminAuth(database *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx := c.Request.Context()
+
+		hasLive, err := wsauth.HasAnyLiveTokenGlobal(ctx, database)
+		if err != nil {
+			log.Printf("wsauth: AdminAuth: HasAnyLiveTokenGlobal failed: %v", err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "auth check failed"})
+			return
+		}
+		if hasLive {
+			tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
+			if tok == "" {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "admin auth required"})
+				return
+			}
+			if err := wsauth.ValidateAnyToken(ctx, database, tok); err != nil {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
+				return
+			}
+		}
+		c.Next()
+	}
+}
