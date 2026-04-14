@@ -1,0 +1,11 @@
+name: molecule-workflow-triage
+version: 1.0.0
+description: Provides /triage slash command — full PR-triage cycle composing code-review, cross-vendor-review, cron-learnings. Recommends installing molecule-skill-code-review and molecule-skill-cron-learnings first.
+author: Molecule AI
+tags: [molecule, guardrails]
+
+runtimes:
+  - claude_code
+
+commands:
+  - triage

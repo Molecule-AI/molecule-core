@@ -1,0 +1,11 @@
+name: molecule-prompt-watchdog
+version: 1.0.0
+description: Inject context warnings when the user prompt mentions destructive keywords (force push, drop table, delete all). UserPromptSubmit hook.
+author: Molecule AI
+tags: [molecule, guardrails]
+
+runtimes:
+  - claude_code
+
+hooks:
+  - user-prompt-tag

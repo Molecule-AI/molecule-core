@@ -1,0 +1,11 @@
+name: molecule-session-context
+version: 1.0.0
+description: Auto-load recent cron-learnings + repo PR/issue counts at SessionStart. Pairs well with molecule-cron-learnings.
+author: Molecule AI
+tags: [molecule, guardrails]
+
+runtimes:
+  - claude_code
+
+hooks:
+  - session-start-context
