@@ -231,6 +231,11 @@ point for "what else is out there."
 12. **YAML-configurable per-agent repo access** — #65. New `workspace_access: none|read_only|read_write` field in `org.yaml` + `:ro` bind-mount for research agents; eliminates the "PM couriers documents to reports" workaround.
 13. **SDK executor swallows subprocess stderr** — #66. `workspace-template/claude_sdk_executor.py` surfaces only "Command failed with exit code 1 / Check stderr output for details" when the `claude` CLI crashes, making every failure opaque. Capture stderr, log at ERROR, include first ~1 KB in the A2A error response. **High priority** — blocked real debugging during PLAN.md coordination on 2026-04-12.
 14. **Agent MCP client defaults to `localhost:8080`** — #67. Inside a workspace container, `localhost` is the container itself, not the platform — so `mcp__molecule__*` tools fail with "platform unreachable." Inject `MOLECULE_URL=${PLATFORM_URL}` into every container at provision time and change the MCP client default to `http://host.docker.internal:8080`. **High priority** — blocks agents from calling platform tools (e.g. PM couldn't restart its own reports).
+15. **Workspace `restart_prompt` — user-defined restart context (#19 Layer 2)** — GitHub issue **#66** (new 2026-04-14 tick-4 follow-up to PR #65 which shipped Layer 1). Let `config.yaml` / `org.yaml` declare a user-authored `restart_prompt` that is delivered alongside the platform-generated restart-context system message — e.g. "re-read your CLAUDE.md, re-hydrate TODOs from memory, resume the active delegation." Layer 1 (platform state snapshot) already ships; Layer 2 adds the user-defined side.
+
+### Recently launched (2026-04-14 tick-4)
+- **GitHub issue #15** — Provisioner: auto-refresh `CLAUDE_CODE_OAUTH_TOKEN` from `global_secrets` on workspace restart → **DONE** via PR #64 (`SetGlobal` / `DeleteGlobal` now fan out `RestartByID` to every affected workspace).
+- **GitHub issue #19 Layer 1** — Platform-generated restart context → **DONE** via PR #65 (synthetic A2A `message/send` with `metadata.kind=restart_context`, `system:restart-context` caller prefix, 30s re-register wait). Layer 2 deferred to issue #66 (see Backlog item 15 above).
 
 ---
 
@@ -238,12 +243,12 @@ point for "what else is out there."
 
 | Stack | Tests | Framework |
 |-------|-------|-----------|
-| Go (platform) | 695 | `go test -race` |
+| Go (platform) | 726 | `go test -race` (raw PASS lines incl. subtests; +6 top-level `Test*` this tick: #64 secrets auto-restart x2, #65 restart-context x4) |
 | Python (workspace) | 1,140 | pytest |
 | Canvas (frontend) | 357 | Vitest |
 | SDK (python) | 132 | pytest |
 | MCP server | 97 | Jest |
-| **Total** | **2,421** | |
+| **Total** | **2,452** | |
 
 E2E: 67/67 comprehensive checks passing, 62/62 API tests (also gated in CI `e2e-api` job), shellcheck-clean across all 5 E2E scripts.
 
