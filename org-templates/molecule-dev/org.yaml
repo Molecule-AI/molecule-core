@@ -193,31 +193,66 @@ workspaces:
               5. Use commit_memory to save security patterns and concerns
               6. Wait for tasks from Dev Lead.
             schedules:
-              - name: Security audit (every 12h)
-                cron_expr: "7 6,18 * * *"
+              - name: Hourly security audit
+                cron_expr: "17 * * * *"
                 prompt: |
-                  Recurring security audit. Be thorough and incremental.
+                  Recurring hourly security audit. Be thorough on recently changed code.
 
-                  1. Pull latest: cd /workspace/repo && git pull
-                  2. Check what you audited last time: use search_memory("security audit") to recall prior findings
-                  3. See what changed since last audit: git log --oneline --since="12 hours ago"
-                  4. For each changed file, do a full security review:
-                     - SQL injection (parameterized queries, not fmt.Sprintf)
-                     - Path traversal (any endpoint accepting file paths)
-                     - Missing access control (every endpoint must check permissions)
-                     - Secrets leaking into logs, errors, or responses
-                     - Command injection (shell exec with user input)
-                     - XSS (user content rendered in canvas)
-                  5. Check for open PRs: cd /workspace/repo && gh pr list --state open
-                     Review each open PR for security issues
-                  6. Record your findings to memory:
-                     Use commit_memory with key "security-audit-latest" and value containing:
-                     - Date and commit hash audited up to
-                     - Files reviewed
-                     - Issues found (or "clean")
-                     - Areas that need deeper review next time
-                  7. If you find issues, report to Dev Lead via delegate_task with file:line references
-                  8. If clean, still record what you checked so next audit covers new ground
+                  1. SETUP:
+                     cd /workspace/repo && git pull 2>/dev/null || true
+                     LAST_SHA=$(cat /tmp/last-security-audit-sha 2>/dev/null || git rev-parse HEAD~48 2>/dev/null || echo '')
+                     CURRENT=$(git rev-parse HEAD)
+                     CHANGED=$(git diff --name-only $LAST_SHA $CURRENT 2>/dev/null)
+
+                  2. STATIC ANALYSIS on changed files:
+                     - Go: gosec -quiet <files>
+                     - Python: bandit -ll <files>
+
+                  3. MANUAL REVIEW of every changed file:
+                     - SQL injection (fmt.Sprintf in DB queries vs $1/$2 params)
+                     - Path traversal (filepath.Join without validation)
+                     - Missing auth on new HTTP handlers
+                     - Secret leakage in logs/errors/responses
+                     - Command injection (exec.Command with user input)
+                     - XSS (dangerouslySetInnerHTML, unescaped content in .tsx)
+
+                  4. LIVE API CHECKS against http://host.docker.internal:8080:
+                     - CanCommunicate bypass: POST /workspaces/<zero-id>/a2a
+                     - CORS: verify Access-Control-Allow-Origin on a cross-origin request
+                     - Rate limit headers on /health
+
+                  5. SECRETS SCAN: last 20 commits grepped for token patterns
+                     (sk-ant, sk-or, api_key= etc.) excluding test files.
+
+                  6. OPEN-PR REVIEW:
+                     gh pr list --repo Molecule-AI/molecule-monorepo --state open --json number
+                     For each: gh pr diff | grep '^+' for injection / exec / unsafe patterns.
+
+                  7. RECORD commit SHA:
+                     echo $CURRENT > /tmp/last-security-audit-sha
+
+                  === FINAL STEP — DELIVERABLE ROUTING (MANDATORY every cycle) ===
+
+                  a. For each CRITICAL or HIGH finding, FILE A GITHUB ISSUE:
+                     - Dedupe first: gh issue list --repo Molecule-AI/molecule-monorepo --search "<category>" --state open
+                     - If not already open: gh issue create --repo Molecule-AI/molecule-monorepo
+                       --title "security(<category>): <short>"
+                       --body with severity, file:line, concrete repro (curl or code), proposed fix, related issues
+                     - Capture the issue number for the PM summary below.
+
+                  b. delegate_task to PM (workspace id: see `list_peers` for "PM") with a summary:
+                     - Audit timestamp + SHA range audited
+                     - Counts by severity (critical / high / medium / low / clean)
+                     - List of GH issue numbers filed this cycle
+                     - Top recommendation
+                     PM decides which dev agent picks up each issue.
+
+                  c. If NOTHING critical or high this cycle: STILL delegate_task to PM with a
+                     one-line "clean, audited <SHA_RANGE>, no new findings" so the audit is observable.
+                     Memory write is a secondary record, not the primary deliverable.
+
+                  d. Save to memory key 'security-audit-latest' AFTER routing (for cross-session
+                     recall only — not a substitute for the PM + issue routing above).
                 enabled: true
           - name: QA Engineer
             role: Testing, quality assurance, test automation
@@ -261,8 +296,20 @@ workspaces:
                      - Files with missing test coverage
                      - Quality issues found
                      - Areas to investigate deeper next time
-                  9. If you find issues, report to Dev Lead via delegate_task
-                  10. If all clean, still record what was checked so next audit covers new ground
+                  === FINAL STEP — DELIVERABLE ROUTING (MANDATORY every cycle) ===
+
+                  a. For each failing test, build break, or coverage regression: FILE A GITHUB ISSUE:
+                     - Dedupe: gh issue list --repo Molecule-AI/molecule-monorepo --search "<suite>" --state open
+                     - If new: gh issue create --title "qa: <suite> — <short>" --body with failure log, commit SHA,
+                       reproducer command, suspected file:line, proposed approach
+                     - Capture issue numbers for the PM summary.
+
+                  b. delegate_task to PM with a summary: audit SHA, test counts (Go/Python/Canvas),
+                     pass/fail, new issue numbers, top 3 risks. PM routes to dev.
+
+                  c. If all clean: delegate_task to PM with "qa clean on SHA <X>" so the audit is observable.
+
+                  d. Save to memory key 'qa-audit-latest' as a secondary record only.
                 enabled: true
           - name: UIUX Designer
             role: User flow design, visual design review, interaction patterns, accessibility
@@ -280,3 +327,55 @@ workspaces:
                  - /workspace/repo/canvas/src/components/SidePanel.tsx
               5. Use commit_memory to save: dark zinc theme (zinc-900/950 bg, zinc-300/400 text, blue-500/600 accents, border-zinc-700/800)
               6. Wait for tasks from Dev Lead.
+            schedules:
+              - name: Hourly UI/UX audit with live screenshots
+                cron_expr: "11 * * * *"
+                prompt: |
+                  Hourly UX audit of the live Molecule AI canvas. Prefer real screenshots;
+                  if the container sandbox prevents Chromium (see #23), fall back to HTML
+                  analysis and note the limitation in the deliverable.
+
+                  1. SETUP PLAYWRIGHT (best-effort — continue on failure):
+                     pip install -q playwright 2>/dev/null || true
+                     playwright install chromium --with-deps 2>/dev/null || \
+                     playwright install chromium 2>/dev/null || true
+
+                  2. ATTEMPT SCREENSHOTS:
+                     Write a small playwright script to http://host.docker.internal:3000
+                     capturing: home / empty state, create-workspace modal, full canvas,
+                     viewport at 1280px. If library deps are missing, skip to step 3 and
+                     note "screenshots unavailable" in the PM report.
+
+                  3. HTML / CSS ANALYSIS (always runs):
+                     - curl http://host.docker.internal:3000 — verify build ID / HTML size
+                     - Grep shipped JS chunks for 'window.alert|window.confirm|window.prompt'
+                       (should be 0 — ConfirmDialog replaces them)
+                     - cd /workspace/repo/canvas && grep-check: every .tsx using hooks has
+                       'use client' as its first line
+                     - Inspect any recently-changed .css / .tsx for light-theme regressions
+                       (hard zinc-900/950 bg mandate — no #fff, #f4f4f5 backgrounds)
+
+                  4. USER-FLOW SANITY:
+                     - Workspace creation modal fields + submit path
+                     - Canvas node positioning and edges
+                     - Side-panel chat input and send
+                     - Toolbar tooltips
+                     - Responsive layout at 1280px
+
+                  === FINAL STEP — DELIVERABLE ROUTING (MANDATORY every cycle) ===
+
+                  a. For each CRITICAL (broken flow, inaccessible control, theme regression):
+                     FILE A GITHUB ISSUE:
+                     - Dedupe: gh issue list --repo Molecule-AI/molecule-monorepo --search "ui OR ux OR theme" --state open
+                     - gh issue create --title "ui: <short>" --body with file:line, screenshot link (if available),
+                       expected vs actual, dark-theme rule cited.
+
+                  b. delegate_task to PM with summary: build ID audited, screenshots count,
+                     violation counts by severity, new issue numbers, top 3 recommended
+                     improvements. PM routes to Frontend Engineer.
+
+                  c. If clean: delegate_task to PM with "ui clean on build <X>" so the audit
+                     is observable.
+
+                  d. Save to memory key 'uiux-audit-latest' as a secondary record only.
+                enabled: true
