@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"net/http"
@@ -355,7 +356,54 @@ func (h *SecretsHandler) SetGlobal(c *gin.Context) {
 		return
 	}
 
+	// Issue #15: global secrets are injected into containers as env vars at
+	// Start() time, so a rotating token (e.g. CLAUDE_CODE_OAUTH_TOKEN) doesn't
+	// reach existing workspaces until the container is recreated. Auto-restart
+	// every workspace whose env is affected — i.e. those WITHOUT a
+	// workspace-level override of the same key.
+	go h.restartAllAffectedByGlobalKey(body.Key)
+
 	c.JSON(http.StatusOK, gin.H{"status": "saved", "key": body.Key, "scope": "global"})
+}
+
+// restartAllAffectedByGlobalKey restarts every non-paused, non-removed
+// workspace that would inherit the given global-secret key (i.e. does NOT
+// have a workspace-level override). Used on SetGlobal / DeleteGlobal so
+// rotated credentials (OAuth tokens, API keys) propagate without a manual
+// restart loop. See issue #15.
+func (h *SecretsHandler) restartAllAffectedByGlobalKey(key string) {
+	if h.restartFunc == nil {
+		return
+	}
+	ctx := context.Background()
+	rows, err := db.DB.QueryContext(ctx, `
+		SELECT id FROM workspaces
+		WHERE status NOT IN ('removed', 'paused')
+		  AND COALESCE(runtime, '') <> 'external'
+		  AND id NOT IN (
+		      SELECT workspace_id FROM workspace_secrets WHERE key = $1
+		  )
+	`, key)
+	if err != nil {
+		log.Printf("Global secret %s: failed to list affected workspaces for auto-restart: %v", key, err)
+		return
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	log.Printf("Global secret %s changed: auto-restarting %d workspace(s) to refresh env", key, len(ids))
+	for _, id := range ids {
+		go h.restartFunc(id)
+	}
 }
 
 // DeleteGlobal handles DELETE /admin/secrets/:key
@@ -375,6 +423,10 @@ func (h *SecretsHandler) DeleteGlobal(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "secret not found"})
 		return
 	}
+
+	// Issue #15: propagate deletion to running containers — otherwise they
+	// keep the stale env var until manual restart.
+	go h.restartAllAffectedByGlobalKey(key)
 
 	c.JSON(http.StatusOK, gin.H{"status": "deleted", "key": key, "scope": "global"})
 }
