@@ -1,7 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
+
+interface WorkspaceOption {
+  id: string;
+  name: string;
+  tier: number;
+}
 
 export function CreateWorkspaceButton() {
   const [open, setOpen] = useState(false);
@@ -31,6 +37,13 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
   const [parentId, setParentId] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
+
+  useEffect(() => {
+    api.get<WorkspaceOption[]>("/workspaces")
+      .then((ws) => setWorkspaces(ws))
+      .catch(() => {});
+  }, []);
 
   const handleCreate = async () => {
     if (!name.trim()) {
@@ -47,7 +60,7 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
         role: role.trim() || undefined,
         template: template.trim() || undefined,
         tier,
-        parent_id: parentId.trim() || undefined,
+        parent_id: parentId || undefined,
         canvas: { x: Math.random() * 400 + 100, y: Math.random() * 300 + 100 },
       });
       onClose();
@@ -87,13 +100,27 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
                   }`}
                 >
                   <div className="text-xs font-mono font-semibold">{t.label}</div>
-                  <div className="text-[9px] mt-0.5 opacity-70">{t.desc}</div>
+                  <div className="text-[10px] mt-0.5 opacity-70">{t.desc}</div>
                 </button>
               ))}
             </div>
           </div>
 
-          <InputField label="Parent Workspace ID" value={parentId} onChange={setParentId} placeholder="Leave empty for root-level" mono />
+          <div>
+            <label className="text-[11px] text-zinc-400 block mb-1">Parent Workspace</label>
+            <select
+              value={parentId}
+              onChange={(e) => setParentId(e.target.value)}
+              className="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/20 transition-colors"
+            >
+              <option value="">None (root level)</option>
+              {workspaces.map((ws) => (
+                <option key={ws.id} value={ws.id}>
+                  T{ws.tier} · {ws.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {error && (

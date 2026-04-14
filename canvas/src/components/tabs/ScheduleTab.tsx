@@ -179,7 +179,7 @@ export function ScheduleTab({ workspaceId }: Props) {
         </span>
         <button
           onClick={() => { resetForm(); setShowForm(true); }}
-          className="text-[9px] px-2 py-0.5 bg-blue-600/20 text-blue-400 rounded hover:bg-blue-600/30 transition-colors"
+          className="text-[11px] px-2 py-0.5 bg-blue-600/20 text-blue-400 rounded hover:bg-blue-600/30 transition-colors"
         >
           + Add Schedule
         </button>
@@ -197,23 +197,23 @@ export function ScheduleTab({ workspaceId }: Props) {
           />
           <div className="flex gap-2">
             <div className="flex-1">
-              <label className="text-[8px] text-zinc-500 block mb-0.5">Cron Expression</label>
+              <label className="text-[10px] text-zinc-500 block mb-0.5">Cron Expression</label>
               <input
                 type="text"
                 value={formCron}
                 onChange={(e) => setFormCron(e.target.value)}
                 className="w-full text-[10px] bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 font-mono"
               />
-              <div className="text-[8px] text-zinc-600 mt-0.5">
+              <div className="text-[10px] text-zinc-600 mt-0.5">
                 {cronToHuman(formCron)}
               </div>
             </div>
             <div className="w-24">
-              <label className="text-[8px] text-zinc-500 block mb-0.5">Timezone</label>
+              <label className="text-[10px] text-zinc-500 block mb-0.5">Timezone</label>
               <select
                 value={formTimezone}
                 onChange={(e) => setFormTimezone(e.target.value)}
-                className="w-full text-[9px] bg-zinc-800 border border-zinc-700 rounded px-1 py-1 text-zinc-200"
+                className="w-full text-[10px] bg-zinc-800 border border-zinc-700 rounded px-1 py-1 text-zinc-200"
               >
                 <option value="UTC">UTC</option>
                 <option value="America/New_York">US Eastern</option>
@@ -229,7 +229,7 @@ export function ScheduleTab({ workspaceId }: Props) {
             </div>
           </div>
           <div>
-            <label className="text-[8px] text-zinc-500 block mb-0.5">Prompt / Task</label>
+            <label className="text-[10px] text-zinc-500 block mb-0.5">Prompt / Task</label>
             <textarea
               value={formPrompt}
               onChange={(e) => setFormPrompt(e.target.value)}
@@ -239,7 +239,7 @@ export function ScheduleTab({ workspaceId }: Props) {
             />
           </div>
           <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1.5 text-[9px] text-zinc-400 cursor-pointer">
+            <label className="flex items-center gap-1.5 text-[10px] text-zinc-400 cursor-pointer">
               <input
                 type="checkbox"
                 checked={formEnabled}
@@ -249,23 +249,23 @@ export function ScheduleTab({ workspaceId }: Props) {
               Enabled
             </label>
           </div>
-          {error && <div className="text-[9px] text-red-400">{error}</div>}
+          {error && <div className="text-[10px] text-red-400">{error}</div>}
           <div className="flex gap-2">
             <button
               onClick={handleSubmit}
               disabled={!formCron || !formPrompt}
-              className="text-[9px] px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-500 disabled:opacity-40 transition-colors"
+              className="text-[11px] px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-500 disabled:opacity-40 transition-colors"
             >
               {editId ? "Update" : "Create"}
             </button>
             <button
               onClick={resetForm}
-              className="text-[9px] px-3 py-1 bg-zinc-800 text-zinc-400 rounded hover:bg-zinc-700 transition-colors"
+              className="text-[11px] px-3 py-1 bg-zinc-800 text-zinc-400 rounded hover:bg-zinc-700 transition-colors"
             >
               Cancel
             </button>
           </div>
-          <div className="text-[8px] text-zinc-600 space-y-0.5">
+          <div className="text-[10px] text-zinc-600 space-y-0.5">
             <div>Common patterns:</div>
             <div className="font-mono">{"0 9 * * *"} — Daily at 9:00 AM</div>
             <div className="font-mono">{"*/30 * * * *"} — Every 30 minutes</div>
@@ -334,21 +334,21 @@ export function ScheduleTab({ workspaceId }: Props) {
                 <div className="flex items-center gap-1 flex-shrink-0">
                   <button
                     onClick={() => handleRunNow(sched)}
-                    className="text-[8px] px-1.5 py-0.5 text-blue-400 hover:bg-blue-600/20 rounded transition-colors"
+                    className="text-[11px] px-1.5 py-0.5 text-blue-400 hover:bg-blue-600/20 rounded transition-colors"
                     title="Run now"
                   >
                     ▶
                   </button>
                   <button
                     onClick={() => handleEdit(sched)}
-                    className="text-[8px] px-1.5 py-0.5 text-zinc-400 hover:bg-zinc-700 rounded transition-colors"
+                    className="text-[11px] px-1.5 py-0.5 text-zinc-400 hover:bg-zinc-700 rounded transition-colors"
                     title="Edit"
                   >
                     ✎
                   </button>
                   <button
                     onClick={() => setPendingDelete({ id: sched.id, name: sched.name })}
-                    className="text-[8px] px-1.5 py-0.5 text-red-400 hover:bg-red-600/20 rounded transition-colors"
+                    className="text-[11px] px-1.5 py-0.5 text-red-400 hover:bg-red-600/20 rounded transition-colors"
                     title="Delete"
                   >
                     ✕
