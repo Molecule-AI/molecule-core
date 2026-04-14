@@ -65,6 +65,7 @@ services:
       timeout: 5s
       retries: 10
 
+  # dev-only: no-auth on 0.0.0.0:7233; production must gate via mTLS or API key
   temporal:
     image: temporalio/auto-setup:1.25
     depends_on:
