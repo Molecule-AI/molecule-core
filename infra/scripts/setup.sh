@@ -4,6 +4,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+echo "==> Ensuring shared docker network exists..."
+docker network create molecule-monorepo-net 2>/dev/null || true
+
 echo "==> Starting infrastructure..."
 docker compose -f "$ROOT_DIR/docker-compose.infra.yml" up -d
 
