@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -101,8 +102,10 @@ type OrgWorkspace struct {
 	WorkspaceAccess string `yaml:"workspace_access" json:"workspace_access"` // #65: "none" (default), "read_only", "read_write"
 	Plugins       []string       `yaml:"plugins" json:"plugins"`
 	InitialPrompt string         `yaml:"initial_prompt" json:"initial_prompt"`
-	// CategoryRouting overrides/extends defaults.category_routing per-workspace.
-	// UNION semantics on the keys (mirroring plugin merge in #68).
+	// CategoryRouting extends/overrides defaults.category_routing per-workspace.
+	// Merge semantics: workspace keys replace defaults' value for the same key
+	// (empty list drops the category entirely); new keys are added. See
+	// mergeCategoryRouting.
 	CategoryRouting map[string][]string `yaml:"category_routing" json:"category_routing"`
 	Schedules     []OrgSchedule  `yaml:"schedules" json:"schedules"`
 	Channels      []OrgChannel   `yaml:"channels" json:"channels"`
@@ -379,7 +382,8 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 
 		// Render category_routing into config.yaml so the agent can read its routing
 		// table at runtime without hardcoded role names in prompts (issue #51).
-		// Per-workspace block UNIONs + per-key overrides defaults (mirrors plugin merge).
+		// Per-workspace keys replace defaults per-key (empty list drops the key);
+		// see mergeCategoryRouting for exact semantics.
 		routing := mergeCategoryRouting(defaults.CategoryRouting, ws.CategoryRouting)
 		if len(routing) > 0 {
 			if configFiles == nil {
@@ -389,8 +393,7 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 			if err != nil {
 				log.Printf("Org import: failed to render category_routing for %s: %v", ws.Name, err)
 			} else {
-				existing := configFiles["config.yaml"]
-				configFiles["config.yaml"] = append(existing, []byte(block)...)
+				configFiles["config.yaml"] = appendYAMLBlock(configFiles["config.yaml"], block)
 			}
 		}
 
@@ -411,8 +414,7 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 				lines[i] = strings.TrimRight(line, " \t")
 			}
 			indented := strings.Join(lines, "\n  ")
-			existing := configFiles["config.yaml"]
-			configFiles["config.yaml"] = append(existing, []byte(fmt.Sprintf("initial_prompt: |\n  %s\n", indented))...)
+			configFiles["config.yaml"] = appendYAMLBlock(configFiles["config.yaml"], fmt.Sprintf("initial_prompt: |\n  %s\n", indented))
 			log.Printf("Org import: injected initial_prompt (%d chars) into config.yaml for %s", len(trimmed), ws.Name)
 		}
 
@@ -701,47 +703,55 @@ func mergeCategoryRouting(defaultRouting, wsRouting map[string][]string) map[str
 // renderCategoryRoutingYAML emits a deterministic YAML block of the form:
 //
 //	category_routing:
-//	  security: ["Backend Engineer", "DevOps"]
-//	  ui: ["Frontend Engineer"]
+//	  security: [Backend Engineer, DevOps]
+//	  ui: [Frontend Engineer]
 //
-// Keys are sorted for stable output (test-friendly + diff-friendly).
+// Keys are sorted for stable, test-friendly output. Uses yaml.Node + yaml.Marshal
+// so role names containing YAML-reserved characters (colons, quotes, unicode line
+// separators, etc.) are escaped by the YAML library — no ad-hoc quoting.
 func renderCategoryRoutingYAML(routing map[string][]string) (string, error) {
 	if len(routing) == 0 {
 		return "", nil
 	}
-	// yaml.v3 marshal with sorted keys — Go map iteration is random, so we
-	// sort and emit by hand for deterministic output.
 	keys := make([]string, 0, len(routing))
 	for k := range routing {
+		if k == "" {
+			continue
+		}
 		keys = append(keys, k)
 	}
-	// simple sort
-	for i := 1; i < len(keys); i++ {
-		for j := i; j > 0 && keys[j-1] > keys[j]; j-- {
-			keys[j-1], keys[j] = keys[j], keys[j-1]
-		}
-	}
-	var b strings.Builder
-	b.WriteString("category_routing:\n")
+	sort.Strings(keys)
+
+	inner := &yaml.Node{Kind: yaml.MappingNode}
 	for _, k := range keys {
-		roles := routing[k]
-		// JSON-marshal each role to handle quoting/escaping safely.
-		jsonRoles, err := json.Marshal(roles)
-		if err != nil {
-			return "", err
+		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: k}
+		valNode := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
+		for _, role := range routing[k] {
+			valNode.Content = append(valNode.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: role})
 		}
-		// Quote the key with json too in case of weird chars.
-		jsonKey, err := json.Marshal(k)
-		if err != nil {
-			return "", err
-		}
-		b.WriteString("  ")
-		b.Write(jsonKey)
-		b.WriteString(": ")
-		b.Write(jsonRoles)
-		b.WriteString("\n")
+		inner.Content = append(inner.Content, keyNode, valNode)
 	}
-	return b.String(), nil
+	doc := &yaml.Node{Kind: yaml.MappingNode}
+	doc.Content = []*yaml.Node{
+		{Kind: yaml.ScalarNode, Value: "category_routing"},
+		inner,
+	}
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// appendYAMLBlock concatenates a YAML fragment to an existing buffer, guaranteeing
+// a newline boundary between them. Upstream code writes config.yaml in fragments
+// (base template → category_routing → initial_prompt) and the base isn't
+// guaranteed to end in \n, which would merge the last line into the next block.
+func appendYAMLBlock(existing []byte, block string) []byte {
+	if len(existing) > 0 && existing[len(existing)-1] != '\n' {
+		existing = append(existing, '\n')
+	}
+	return append(existing, []byte(block)...)
 }
 
 // mergePlugins returns the union of defaults and per-workspace plugin lists

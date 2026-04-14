@@ -524,11 +524,55 @@ func TestCategoryRouting_RenderedIntoWorkspaceConfig(t *testing.T) {
 		t.Errorf("ui roles wrong: %v", cr["ui"])
 	}
 	// Output should be deterministic (keys sorted) — security < ui
-	if !strings.Contains(block, "\"security\":") || !strings.Contains(block, "\"ui\":") {
-		t.Errorf("expected JSON-quoted keys in block: %s", block)
-	}
 	if strings.Index(block, "security") > strings.Index(block, "ui") {
 		t.Errorf("expected sorted keys (security before ui), got:\n%s", block)
+	}
+}
+
+// YAML-reserved characters in role names must be escaped by the YAML library.
+// Regression guard for the earlier hand-rolled JSON-as-YAML implementation.
+func TestCategoryRouting_EscapesYAMLSpecials(t *testing.T) {
+	routing := map[string][]string{
+		"security": {"Role: with colon", `Role "with quotes"`, "Role\nwith newline"},
+	}
+	block, err := renderCategoryRoutingYAML(routing)
+	if err != nil {
+		t.Fatalf("render failed: %v", err)
+	}
+	var parsed map[string]interface{}
+	if err := yaml.Unmarshal([]byte(block), &parsed); err != nil {
+		t.Fatalf("rendered YAML is invalid for special chars: %v\n---\n%s", err, block)
+	}
+	cr := parsed["category_routing"].(map[string]interface{})
+	roles := cr["security"].([]interface{})
+	if len(roles) != 3 || roles[0] != "Role: with colon" {
+		t.Errorf("special-char roles did not round-trip: %v", roles)
+	}
+}
+
+// appendYAMLBlock must guarantee a newline boundary between existing buffer and
+// the new block so downstream parsers see two separate top-level keys.
+func TestAppendYAMLBlock_NewlineGuard(t *testing.T) {
+	cases := []struct {
+		name     string
+		existing string
+		block    string
+	}{
+		{"existing ends without newline", "name: foo", "category_routing:\n  a: [b]\n"},
+		{"existing ends with newline", "name: foo\n", "category_routing:\n  a: [b]\n"},
+		{"empty existing", "", "category_routing:\n  a: [b]\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := appendYAMLBlock([]byte(tc.existing), tc.block)
+			var parsed map[string]interface{}
+			if err := yaml.Unmarshal(got, &parsed); err != nil {
+				t.Fatalf("appended YAML invalid: %v\n---\n%s", err, string(got))
+			}
+			if _, ok := parsed["category_routing"]; !ok {
+				t.Errorf("expected top-level category_routing key, got: %v", parsed)
+			}
+		})
 	}
 }
 
