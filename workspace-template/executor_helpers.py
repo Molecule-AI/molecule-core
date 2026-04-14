@@ -92,9 +92,17 @@ async def recall_memories() -> str:
     platform_url = os.environ.get("PLATFORM_URL", "")
     if not workspace_id or not platform_url:
         return ""
+    # Fix E (Cycle 5): send auth headers so the WorkspaceAuth middleware
+    # (Fix A) allows access once the workspace has a live token on file.
+    try:
+        from platform_auth import auth_headers as _platform_auth
+        _auth = _platform_auth()
+    except Exception:
+        _auth = {}
     try:
         resp = await get_http_client().get(
             f"{platform_url}/workspaces/{workspace_id}/memories",
+            headers=_auth,
         )
         if not 200 <= resp.status_code < 300:
             logger.debug(
@@ -121,10 +129,17 @@ async def commit_memory(content: str) -> None:
     platform_url = os.environ.get("PLATFORM_URL", "")
     if not workspace_id or not platform_url or not content:
         return
+    # Fix E (Cycle 5): include auth header so WorkspaceAuth middleware allows access.
+    try:
+        from platform_auth import auth_headers as _platform_auth
+        _auth = _platform_auth()
+    except Exception:
+        _auth = {}
     try:
         await get_http_client().post(
             f"{platform_url}/workspaces/{workspace_id}/memories",
             json={"content": content, "scope": "LOCAL"},
+            headers=_auth,
         )
     except Exception as exc:
         logger.debug("commit_memory: request failed: %s", exc)

@@ -6,8 +6,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/metrics"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/ws"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
@@ -40,14 +42,40 @@ func NewSocketHandler(hub *ws.Hub) *SocketHandler {
 // HandleConnect handles WebSocket upgrade at GET /ws.
 // Canvas clients connect without X-Workspace-ID — they receive all events.
 // Workspace agents send X-Workspace-ID — events are filtered by CanCommunicate.
+//
+// Fix D (Cycle 5): agent connections (X-Workspace-ID present) are now validated
+// via bearer token before the WebSocket upgrade. Canvas clients (no X-Workspace-ID)
+// remain unauthenticated. Pre-token workspaces are grandfathered through.
 func (h *SocketHandler) HandleConnect(c *gin.Context) {
+	workspaceID := c.GetHeader("X-Workspace-ID")
+
+	// Authenticate workspace agents (not canvas browser clients).
+	if workspaceID != "" {
+		ctx := c.Request.Context()
+		hasLive, err := wsauth.HasAnyLiveToken(ctx, db.DB, workspaceID)
+		if err != nil {
+			log.Printf("wsauth: WebSocket HasAnyLiveToken(%s) failed: %v", workspaceID, err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "auth check failed"})
+			return
+		}
+		if hasLive {
+			tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
+			if tok == "" {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing workspace auth token"})
+				return
+			}
+			if err := wsauth.ValidateToken(ctx, db.DB, workspaceID, tok); err != nil {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid workspace auth token"})
+				return
+			}
+		}
+	}
+
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
 		return
 	}
-
-	workspaceID := c.GetHeader("X-Workspace-ID")
 
 	client := &ws.Client{
 		Conn:        conn,
