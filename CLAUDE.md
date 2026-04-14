@@ -256,6 +256,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main and PRs:
 - **python-lint**: `pytest --cov=. --cov-report=term-missing` (pytest-cov enabled)
 - **e2e-api** (added 2026-04-13): spins up Postgres + Redis service containers, runs platform migrations via `docker exec`, then executes `tests/e2e/test_api.sh` against a locally-built binary (62/62 must pass)
 - **shellcheck** (added 2026-04-13): lints every `tests/e2e/*.sh` via the shellcheck marketplace action
+- **publish-platform-image** (`.github/workflows/publish-platform-image.yml`, added 2026-04-14 tick-9): on push to main touching `platform/**`, builds `platform/Dockerfile` and pushes to `ghcr.io/molecule-ai/platform:latest` + `:sha-<short>`. Used by the private `molecule-controlplane` provisioner as tenant VM image. Manual re-trigger via `workflow_dispatch`.
 
 ### Docker Compose
 ```bash
