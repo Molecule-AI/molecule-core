@@ -32,7 +32,7 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     corsOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "X-Workspace-ID"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "X-Workspace-ID", "Authorization"},
 		AllowCredentials: true,
 	}))
 
@@ -62,61 +62,69 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// Scrape with: curl http://localhost:8080/metrics
 	r.GET("/metrics", metrics.Handler())
 
-	// Workspaces CRUD
+	// Workspaces CRUD — bare /workspaces and /workspaces/:id (no sub-path), unauthenticated for canvas
 	r.POST("/workspaces", wh.Create)
 	r.GET("/workspaces", wh.List)
 	r.GET("/workspaces/:id", wh.Get)
-	// Phase 30.4 — lightweight token-gated state polling for remote agents
-	// that can't reach the platform's WebSocket. Returns {status, paused,
-	// deleted}. Separate from /workspaces/:id so the canvas path stays
-	// unauthenticated and returns its full config payload.
-	r.GET("/workspaces/:id/state", wh.State)
 	r.PATCH("/workspaces/:id", wh.Update)
 	r.DELETE("/workspaces/:id", wh.Delete)
-	r.POST("/workspaces/:id/restart", wh.Restart)
-	r.POST("/workspaces/:id/pause", wh.Pause)
-	r.POST("/workspaces/:id/resume", wh.Resume)
+
+	// A2A proxy — registered outside the auth group; already enforces CanCommunicate access control.
 	r.POST("/workspaces/:id/a2a", wh.ProxyA2A)
 
-	// Async Delegation
-	delh := handlers.NewDelegationHandler(wh, broadcaster)
-	r.POST("/workspaces/:id/delegate", delh.Delegate)
-	r.GET("/workspaces/:id/delegations", delh.ListDelegations)
-	// Record-only endpoint for agent-initiated delegations (#64). Agent-side
-	// delegate_to_workspace fires A2A directly for speed + OTEL propagation;
-	// this endpoint just adds an activity_logs row so GET /delegations returns
-	// the same set the agent's local `check_delegation_status` sees.
-	r.POST("/workspaces/:id/delegations/record", delh.Record)
-	r.POST("/workspaces/:id/delegations/:delegation_id/update", delh.UpdateStatus)
+	// Auth-gated workspace sub-routes — ALL /workspaces/:id/* paths except /a2a.
+	// Fix A (Cycle 5): single WorkspaceAuth middleware blocks C2-C5, C7-C9, C12, C13
+	// by requiring a valid bearer token for any workspace that has one on file.
+	// Legacy workspaces (no token) are grandfathered to allow rolling upgrades.
+	wsAuth := r.Group("/workspaces/:id", middleware.WorkspaceAuth(db.DB))
+	{
+		// Lifecycle
+		wsAuth.GET("/state", wh.State)
+		wsAuth.POST("/restart", wh.Restart)
+		wsAuth.POST("/pause", wh.Pause)
+		wsAuth.POST("/resume", wh.Resume)
 
-	// Traces (Langfuse proxy)
-	trh := handlers.NewTracesHandler()
-	r.GET("/workspaces/:id/traces", trh.List)
+		// Async Delegation
+		delh := handlers.NewDelegationHandler(wh, broadcaster)
+		wsAuth.POST("/delegate", delh.Delegate)
+		wsAuth.GET("/delegations", delh.ListDelegations)
+		// Record-only endpoint for agent-initiated delegations (#64). Agent-side
+		// delegate_to_workspace fires A2A directly for speed + OTEL propagation;
+		// this endpoint just adds an activity_logs row so GET /delegations returns
+		// the same set the agent's local `check_delegation_status` sees.
+		wsAuth.POST("/delegations/record", delh.Record)
+		wsAuth.POST("/delegations/:delegation_id/update", delh.UpdateStatus)
 
-	// Agent Memories (HMA)
-	memsh := handlers.NewMemoriesHandler()
-	r.POST("/workspaces/:id/memories", memsh.Commit)
-	r.GET("/workspaces/:id/memories", memsh.Search)
-	r.DELETE("/workspaces/:id/memories/:memoryId", memsh.Delete)
+		// Traces (Langfuse proxy)
+		trh := handlers.NewTracesHandler()
+		wsAuth.GET("/traces", trh.List)
 
-	// Approvals
-	apph := handlers.NewApprovalsHandler(broadcaster)
-	r.GET("/approvals/pending", apph.ListAll)
-	r.POST("/workspaces/:id/approvals", apph.Create)
-	r.GET("/workspaces/:id/approvals", apph.List)
-	r.POST("/workspaces/:id/approvals/:approvalId/decide", apph.Decide)
+		// Agent Memories (HMA)
+		memsh := handlers.NewMemoriesHandler()
+		wsAuth.POST("/memories", memsh.Commit)
+		wsAuth.GET("/memories", memsh.Search)
+		wsAuth.DELETE("/memories/:memoryId", memsh.Delete)
 
-	// Team Expansion
-	teamh := handlers.NewTeamHandler(broadcaster, prov, platformURL, configsDir)
-	r.POST("/workspaces/:id/expand", teamh.Expand)
-	r.POST("/workspaces/:id/collapse", teamh.Collapse)
+		// Approvals
+		apph := handlers.NewApprovalsHandler(broadcaster)
+		wsAuth.POST("/approvals", apph.Create)
+		wsAuth.GET("/approvals", apph.List)
+		wsAuth.POST("/approvals/:approvalId/decide", apph.Decide)
+		// /approvals/pending is a cross-workspace admin path; keep on root router outside wsAuth.
+		r.GET("/approvals/pending", apph.ListAll)
 
-	// Agents
-	ah := handlers.NewAgentHandler(broadcaster)
-	r.POST("/workspaces/:id/agent", ah.Assign)
-	r.PATCH("/workspaces/:id/agent", ah.Replace)
-	r.DELETE("/workspaces/:id/agent", ah.Remove)
-	r.POST("/workspaces/:id/agent/move", ah.Move)
+		// Team Expansion
+		teamh := handlers.NewTeamHandler(broadcaster, prov, platformURL, configsDir)
+		wsAuth.POST("/expand", teamh.Expand)
+		wsAuth.POST("/collapse", teamh.Collapse)
+
+		// Agents
+		ah := handlers.NewAgentHandler(broadcaster)
+		wsAuth.POST("/agent", ah.Assign)
+		wsAuth.PATCH("/agent", ah.Replace)
+		wsAuth.DELETE("/agent", ah.Remove)
+		wsAuth.POST("/agent/move", ah.Move)
+	}
 
 	// Registry
 	rh := handlers.NewRegistryHandler(broadcaster)
@@ -135,58 +143,65 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	r.GET("/registry/:id/peers", dh.Peers)
 	r.POST("/registry/check-access", dh.CheckAccess)
 
-	// Events
+	// Events (not workspace-scoped — exempt from per-workspace auth)
 	eh := handlers.NewEventsHandler()
 	r.GET("/events", eh.List)
 	r.GET("/events/:workspaceId", eh.ListByWorkspace)
 
-	// Activity Logs
-	acth := handlers.NewActivityHandler(broadcaster)
-	r.GET("/workspaces/:id/activity", acth.List)
-	r.GET("/workspaces/:id/session-search", acth.SessionSearch)
-	r.POST("/workspaces/:id/activity", acth.Report)
-	r.POST("/workspaces/:id/notify", acth.Notify)
+	// Remaining auth-gated workspace sub-routes — appended to wsAuth group declared above.
+	{
+		// Activity Logs
+		acth := handlers.NewActivityHandler(broadcaster)
+		wsAuth.GET("/activity", acth.List)
+		wsAuth.GET("/session-search", acth.SessionSearch)
+		wsAuth.POST("/activity", acth.Report)
+		wsAuth.POST("/notify", acth.Notify)
 
-	// Config
-	cfgh := handlers.NewConfigHandler()
-	r.GET("/workspaces/:id/config", cfgh.Get)
-	r.PATCH("/workspaces/:id/config", cfgh.Patch)
+		// Config
+		cfgh := handlers.NewConfigHandler()
+		wsAuth.GET("/config", cfgh.Get)
+		wsAuth.PATCH("/config", cfgh.Patch)
 
-	// Schedules (cron tasks)
-	schedh := handlers.NewScheduleHandler()
-	r.GET("/workspaces/:id/schedules", schedh.List)
-	r.POST("/workspaces/:id/schedules", schedh.Create)
-	r.PATCH("/workspaces/:id/schedules/:scheduleId", schedh.Update)
-	r.DELETE("/workspaces/:id/schedules/:scheduleId", schedh.Delete)
-	r.POST("/workspaces/:id/schedules/:scheduleId/run", schedh.RunNow)
-	r.GET("/workspaces/:id/schedules/:scheduleId/history", schedh.History)
+		// Schedules (cron tasks)
+		schedh := handlers.NewScheduleHandler()
+		wsAuth.GET("/schedules", schedh.List)
+		wsAuth.POST("/schedules", schedh.Create)
+		wsAuth.PATCH("/schedules/:scheduleId", schedh.Update)
+		wsAuth.DELETE("/schedules/:scheduleId", schedh.Delete)
+		wsAuth.POST("/schedules/:scheduleId/run", schedh.RunNow)
+		wsAuth.GET("/schedules/:scheduleId/history", schedh.History)
 
-	// Memory
-	memh := handlers.NewMemoryHandler()
-	r.GET("/workspaces/:id/memory", memh.List)
-	r.GET("/workspaces/:id/memory/:key", memh.Get)
-	r.POST("/workspaces/:id/memory", memh.Set)
-	r.DELETE("/workspaces/:id/memory/:key", memh.Delete)
+		// Memory
+		memh := handlers.NewMemoryHandler()
+		wsAuth.GET("/memory", memh.List)
+		wsAuth.GET("/memory/:key", memh.Get)
+		wsAuth.POST("/memory", memh.Set)
+		wsAuth.DELETE("/memory/:key", memh.Delete)
 
-	// Secrets (auto-restart workspace after secret change)
-	sech := handlers.NewSecretsHandler(wh.RestartByID)
-	r.GET("/workspaces/:id/secrets", sech.List)
-	// Phase 30.2 — decrypted values pull, token-gated. Canvas uses List
-	// (keys + metadata only); remote agents use Values to bootstrap env.
-	r.GET("/workspaces/:id/secrets/values", sech.Values)
-	r.POST("/workspaces/:id/secrets", sech.Set)
-	r.PUT("/workspaces/:id/secrets", sech.Set)
-	r.DELETE("/workspaces/:id/secrets/:key", sech.Delete)
-	r.GET("/workspaces/:id/model", sech.GetModel)
+		// Secrets (auto-restart workspace after secret change)
+		sech := handlers.NewSecretsHandler(wh.RestartByID)
+		wsAuth.GET("/secrets", sech.List)
+		// Phase 30.2 — decrypted values pull, token-gated. Canvas uses List
+		// (keys + metadata only); remote agents use Values to bootstrap env.
+		wsAuth.GET("/secrets/values", sech.Values)
+		wsAuth.POST("/secrets", sech.Set)
+		wsAuth.PUT("/secrets", sech.Set)
+		wsAuth.DELETE("/secrets/:key", sech.Delete)
+		wsAuth.GET("/model", sech.GetModel)
+	}
 
 	// Global secrets — /settings/secrets is the canonical path; /admin/secrets kept for backward compat
-	r.GET("/settings/secrets", sech.ListGlobal)
-	r.PUT("/settings/secrets", sech.SetGlobal)
-	r.POST("/settings/secrets", sech.SetGlobal)
-	r.DELETE("/settings/secrets/:key", sech.DeleteGlobal)
-	r.GET("/admin/secrets", sech.ListGlobal)
-	r.POST("/admin/secrets", sech.SetGlobal)
-	r.DELETE("/admin/secrets/:key", sech.DeleteGlobal)
+	// These are admin-level paths outside the per-workspace auth group.
+	{
+		sechGlobal := handlers.NewSecretsHandler(wh.RestartByID)
+		r.GET("/settings/secrets", sechGlobal.ListGlobal)
+		r.PUT("/settings/secrets", sechGlobal.SetGlobal)
+		r.POST("/settings/secrets", sechGlobal.SetGlobal)
+		r.DELETE("/settings/secrets/:key", sechGlobal.DeleteGlobal)
+		r.GET("/admin/secrets", sechGlobal.ListGlobal)
+		r.POST("/admin/secrets", sechGlobal.SetGlobal)
+		r.DELETE("/admin/secrets/:key", sechGlobal.DeleteGlobal)
+	}
 
 	// Terminal — shares Docker client with provisioner
 	var dockerCli *client.Client
@@ -194,7 +209,7 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		dockerCli = prov.DockerClient()
 	}
 	th := handlers.NewTerminalHandler(dockerCli)
-	r.GET("/workspaces/:id/terminal", th.HandleConnect)
+	wsAuth.GET("/terminal", th.HandleConnect)
 
 	// Canvas Viewport
 	vh := handlers.NewViewportHandler()
@@ -205,12 +220,12 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	tmplh := handlers.NewTemplatesHandler(configsDir, dockerCli)
 	r.GET("/templates", tmplh.List)
 	r.POST("/templates/import", tmplh.Import)
-	r.GET("/workspaces/:id/shared-context", tmplh.SharedContext)
-	r.PUT("/workspaces/:id/files", tmplh.ReplaceFiles)
-	r.GET("/workspaces/:id/files", tmplh.ListFiles)
-	r.GET("/workspaces/:id/files/*path", tmplh.ReadFile)
-	r.PUT("/workspaces/:id/files/*path", tmplh.WriteFile)
-	r.DELETE("/workspaces/:id/files/*path", tmplh.DeleteFile)
+	wsAuth.GET("/shared-context", tmplh.SharedContext)
+	wsAuth.PUT("/files", tmplh.ReplaceFiles)
+	wsAuth.GET("/files", tmplh.ListFiles)
+	wsAuth.GET("/files/*path", tmplh.ReadFile)
+	wsAuth.PUT("/files/*path", tmplh.WriteFile)
+	wsAuth.DELETE("/files/*path", tmplh.DeleteFile)
 
 	// Plugins
 	pluginsDir := findPluginsDir(configsDir)
@@ -230,14 +245,14 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		WithRuntimeLookup(runtimeLookup)
 	r.GET("/plugins", plgh.ListRegistry)
 	r.GET("/plugins/sources", plgh.ListSources)
-	r.GET("/workspaces/:id/plugins", plgh.ListInstalled)
-	r.GET("/workspaces/:id/plugins/available", plgh.ListAvailableForWorkspace)
-	r.GET("/workspaces/:id/plugins/compatibility", plgh.CheckRuntimeCompatibility)
-	r.POST("/workspaces/:id/plugins", plgh.Install)
-	r.DELETE("/workspaces/:id/plugins/:name", plgh.Uninstall)
+	wsAuth.GET("/plugins", plgh.ListInstalled)
+	wsAuth.GET("/plugins/available", plgh.ListAvailableForWorkspace)
+	wsAuth.GET("/plugins/compatibility", plgh.CheckRuntimeCompatibility)
+	wsAuth.POST("/plugins", plgh.Install)
+	wsAuth.DELETE("/plugins/:name", plgh.Uninstall)
 	// Phase 30.3 — stream plugin as tar.gz so remote agents can pull +
 	// unpack locally instead of going through Docker exec.
-	r.GET("/workspaces/:id/plugins/:name/download", plgh.Download)
+	wsAuth.GET("/plugins/:name/download", plgh.Download)
 
 	// Bundles
 	bh := handlers.NewBundleHandler(broadcaster, prov, platformURL, configsDir, dockerCli)
@@ -253,12 +268,12 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// Channels (social integrations — Telegram, Slack, Discord, etc.)
 	chh := handlers.NewChannelHandler(channelMgr)
 	r.GET("/channels/adapters", chh.ListAdapters)
-	r.GET("/workspaces/:id/channels", chh.List)
-	r.POST("/workspaces/:id/channels", chh.Create)
-	r.PATCH("/workspaces/:id/channels/:channelId", chh.Update)
-	r.DELETE("/workspaces/:id/channels/:channelId", chh.Delete)
-	r.POST("/workspaces/:id/channels/:channelId/send", chh.Send)
-	r.POST("/workspaces/:id/channels/:channelId/test", chh.Test)
+	wsAuth.GET("/channels", chh.List)
+	wsAuth.POST("/channels", chh.Create)
+	wsAuth.PATCH("/channels/:channelId", chh.Update)
+	wsAuth.DELETE("/channels/:channelId", chh.Delete)
+	wsAuth.POST("/channels/:channelId/send", chh.Send)
+	wsAuth.POST("/channels/:channelId/test", chh.Test)
 	r.POST("/channels/discover", chh.Discover)
 	r.POST("/webhooks/:type", chh.Webhook)
 

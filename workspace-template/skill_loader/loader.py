@@ -2,6 +2,7 @@
 
 import importlib.util
 import logging
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -81,8 +82,30 @@ def load_skill_tools(scripts_dir: Path) -> list[Any]:
     # Keeps test environments (and empty skills) from needing langchain.
     from langchain_core.tools import BaseTool
 
+    # Sensitive env vars that must not be readable by skill scripts.
+    # Fix C (Cycle 5): scrub before exec_module() so a malicious skill cannot
+    # exfiltrate credentials even if it somehow bypasses the POST /plugins
+    # auth gate (defence in depth).
+    _SCRUB_KEYS = (
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "WORKSPACE_AUTH_TOKEN",
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+    )
+
     for py_file in sorted(scripts_dir.glob("*.py")):
         if py_file.name.startswith("_"):
+            continue
+
+        # Verify the script is actually inside the expected scripts directory
+        # (path traversal guard — glob shouldn't produce outside paths, but
+        # belt-and-suspenders for symlink attacks).
+        try:
+            py_file.resolve().relative_to(scripts_dir.resolve())
+        except ValueError:
+            logger.warning("skill_loader: rejecting script outside scripts_dir: %s", py_file)
             continue
 
         module_name = f"skill_tool_{py_file.stem}"
@@ -92,7 +115,14 @@ def load_skill_tools(scripts_dir: Path) -> list[Any]:
 
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module
-        spec.loader.exec_module(module)
+
+        # Temporarily remove sensitive env vars before running skill code.
+        _saved_env = {k: os.environ.pop(k) for k in _SCRUB_KEYS if k in os.environ}
+        try:
+            spec.loader.exec_module(module)
+        finally:
+            # Always restore so the rest of the agent process retains them.
+            os.environ.update(_saved_env)
 
         # Look for functions decorated with @tool (BaseTool instances)
         for attr_name in dir(module):
