@@ -240,9 +240,13 @@ echo ""
 echo "--- Section 3: Registry & Heartbeat ---"
 
 # Dev was already registered in Section 2 right after creation (to beat
-# the provisioner in the token-issuance race). Re-assert the status here.
-
-# Verify Dev is now online
+# the provisioner in the token-issuance race). The async provisioner
+# may have flipped the status to "failed" in the meantime (no real
+# container image in test env). Send a fresh heartbeat first so status
+# goes back to online before we assert.
+curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DEV_TOKEN" \
+  -d "{\"workspace_id\":\"$DEV_ID\",\"active_tasks\":0,\"uptime_seconds\":1}" > /dev/null
 R=$(curl -s "$BASE/workspaces/$DEV_ID")
 check "Dev status online after register" '"status":"online"' "$R"
 

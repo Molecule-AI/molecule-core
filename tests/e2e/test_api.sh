@@ -282,9 +282,12 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# Verify re-imported workspace has same config
+# Verify re-imported workspace exists by name — status may be "provisioning",
+# "online", or "failed" depending on runtime availability in the environment
+# (CI has no Docker, so autogen/langgraph containers never come up). The
+# round-trip assertion is about bundle fidelity, not provisioning success.
 R=$(curl -s "$BASE/workspaces/$NEW_ID")
-check "Re-imported workspace exists" '"status":"provisioning"' "$R"
+check "Re-imported workspace exists" "\"id\":\"$NEW_ID\"" "$R"
 
 REIMPORT_NAME=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin)['name'])")
 REIMPORT_TIER=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin)['tier'])")
