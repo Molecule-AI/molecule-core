@@ -18,6 +18,23 @@ export function Toolbar() {
   const [helpOpen, setHelpOpen] = useState(false);
   const helpRef = useRef<HTMLDivElement>(null);
 
+  // Suppress toast on the very first connect at page load; only fire on reconnects.
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    const t = setTimeout(() => { mountedRef.current = true; }, 2000);
+    return () => clearTimeout(t);
+  }, []);
+
+  const prevWsStatus = useRef<string>("connecting");
+  useEffect(() => {
+    if (prevWsStatus.current === "connecting" && wsStatus === "connected") {
+      if (mountedRef.current) {
+        showToast("Live updates restored", "success");
+      }
+    }
+    prevWsStatus.current = wsStatus;
+  }, [wsStatus]);
+
   const counts = useMemo(() => {
     const c = { total: nodes.length, roots: 0, children: 0, online: 0, offline: 0, failed: 0, provisioning: 0, activeTasks: 0 };
     for (const n of nodes) {
