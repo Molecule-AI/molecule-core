@@ -428,6 +428,171 @@ func TestPlugins_OptOutWithDash(t *testing.T) {
 	}
 }
 
+// ==================== category_routing (issue #51) ====================
+
+func TestCategoryRouting_ParsedFromOrgYaml(t *testing.T) {
+	raw := `
+name: Test Org
+defaults:
+  runtime: claude-code
+  category_routing:
+    security: [Backend Engineer, DevOps Engineer]
+    ui: [Frontend Engineer]
+    infra: [DevOps Engineer]
+workspaces:
+  - name: PM
+    role: Project Manager
+    category_routing:
+      performance: [Backend Engineer]
+`
+	var tmpl OrgTemplate
+	if err := yaml.Unmarshal([]byte(raw), &tmpl); err != nil {
+		t.Fatalf("yaml parse failed: %v", err)
+	}
+	if got := tmpl.Defaults.CategoryRouting["security"]; len(got) != 2 || got[0] != "Backend Engineer" {
+		t.Errorf("defaults.category_routing.security wrong: %v", got)
+	}
+	if got := tmpl.Defaults.CategoryRouting["ui"]; len(got) != 1 || got[0] != "Frontend Engineer" {
+		t.Errorf("defaults.category_routing.ui wrong: %v", got)
+	}
+	if len(tmpl.Workspaces) != 1 {
+		t.Fatalf("expected 1 workspace, got %d", len(tmpl.Workspaces))
+	}
+	if got := tmpl.Workspaces[0].CategoryRouting["performance"]; len(got) != 1 || got[0] != "Backend Engineer" {
+		t.Errorf("ws.category_routing.performance wrong: %v", got)
+	}
+}
+
+func TestCategoryRouting_UnionWithDefaults(t *testing.T) {
+	defaults := map[string][]string{
+		"security": {"Backend Engineer", "DevOps"},
+		"ui":       {"Frontend Engineer"},
+		"infra":    {"DevOps"},
+	}
+	ws := map[string][]string{
+		"performance": {"Backend Engineer"}, // new key, added
+		"ui":          {"Designer"},          // override-replace existing key
+		"infra":       {},                    // empty → drop
+	}
+	got := mergeCategoryRouting(defaults, ws)
+
+	if v := got["security"]; len(v) != 2 || v[0] != "Backend Engineer" || v[1] != "DevOps" {
+		t.Errorf("security should be inherited from defaults unchanged, got %v", v)
+	}
+	if v := got["ui"]; len(v) != 1 || v[0] != "Designer" {
+		t.Errorf("ui should be replaced by ws value, got %v", v)
+	}
+	if _, ok := got["infra"]; ok {
+		t.Errorf("infra should be dropped (empty ws list), got %v", got["infra"])
+	}
+	if v := got["performance"]; len(v) != 1 || v[0] != "Backend Engineer" {
+		t.Errorf("performance should be added from ws, got %v", v)
+	}
+}
+
+func TestCategoryRouting_RenderedIntoWorkspaceConfig(t *testing.T) {
+	routing := map[string][]string{
+		"security": {"Backend Engineer", "DevOps"},
+		"ui":       {"Frontend Engineer"},
+	}
+	block, err := renderCategoryRoutingYAML(routing)
+	if err != nil {
+		t.Fatalf("render failed: %v", err)
+	}
+	if block == "" {
+		t.Fatal("expected non-empty block")
+	}
+	// Must parse as valid YAML when concatenated with a base config
+	combined := "name: Test\nruntime: claude-code\n" + block
+	var parsed map[string]interface{}
+	if err := yaml.Unmarshal([]byte(combined), &parsed); err != nil {
+		t.Fatalf("rendered YAML is invalid: %v\n---\n%s", err, combined)
+	}
+	cr, ok := parsed["category_routing"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("category_routing not a map in parsed config: %T", parsed["category_routing"])
+	}
+	sec, ok := cr["security"].([]interface{})
+	if !ok || len(sec) != 2 {
+		t.Fatalf("security routing wrong shape: %v", cr["security"])
+	}
+	if sec[0] != "Backend Engineer" || sec[1] != "DevOps" {
+		t.Errorf("security roles wrong: %v", sec)
+	}
+	ui, ok := cr["ui"].([]interface{})
+	if !ok || len(ui) != 1 || ui[0] != "Frontend Engineer" {
+		t.Errorf("ui roles wrong: %v", cr["ui"])
+	}
+	// Output should be deterministic (keys sorted) — security < ui
+	if strings.Index(block, "security") > strings.Index(block, "ui") {
+		t.Errorf("expected sorted keys (security before ui), got:\n%s", block)
+	}
+}
+
+// YAML-reserved characters in role names must be escaped by the YAML library.
+// Regression guard for the earlier hand-rolled JSON-as-YAML implementation.
+func TestCategoryRouting_EscapesYAMLSpecials(t *testing.T) {
+	routing := map[string][]string{
+		"security": {"Role: with colon", `Role "with quotes"`, "Role\nwith newline"},
+	}
+	block, err := renderCategoryRoutingYAML(routing)
+	if err != nil {
+		t.Fatalf("render failed: %v", err)
+	}
+	var parsed map[string]interface{}
+	if err := yaml.Unmarshal([]byte(block), &parsed); err != nil {
+		t.Fatalf("rendered YAML is invalid for special chars: %v\n---\n%s", err, block)
+	}
+	cr := parsed["category_routing"].(map[string]interface{})
+	roles := cr["security"].([]interface{})
+	if len(roles) != 3 || roles[0] != "Role: with colon" {
+		t.Errorf("special-char roles did not round-trip: %v", roles)
+	}
+}
+
+// appendYAMLBlock must guarantee a newline boundary between existing buffer and
+// the new block so downstream parsers see two separate top-level keys.
+func TestAppendYAMLBlock_NewlineGuard(t *testing.T) {
+	cases := []struct {
+		name     string
+		existing string
+		block    string
+	}{
+		{"existing ends without newline", "name: foo", "category_routing:\n  a: [b]\n"},
+		{"existing ends with newline", "name: foo\n", "category_routing:\n  a: [b]\n"},
+		{"empty existing", "", "category_routing:\n  a: [b]\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := appendYAMLBlock([]byte(tc.existing), tc.block)
+			var parsed map[string]interface{}
+			if err := yaml.Unmarshal(got, &parsed); err != nil {
+				t.Fatalf("appended YAML invalid: %v\n---\n%s", err, string(got))
+			}
+			if _, ok := parsed["category_routing"]; !ok {
+				t.Errorf("expected top-level category_routing key, got: %v", parsed)
+			}
+		})
+	}
+}
+
+func TestCategoryRouting_EmptyRendersNothing(t *testing.T) {
+	got, err := renderCategoryRoutingYAML(nil)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if got != "" {
+		t.Errorf("expected empty render for nil routing, got %q", got)
+	}
+	got, err = renderCategoryRoutingYAML(map[string][]string{})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if got != "" {
+		t.Errorf("expected empty render for empty map, got %q", got)
+	}
+}
+
 func TestPlugins_BackwardCompat(t *testing.T) {
 	// Re-listing defaults in per-workspace plugins still yields the same list
 	// (dedupe keeps behavior stable for existing org.yaml files).
