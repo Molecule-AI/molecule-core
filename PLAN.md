@@ -238,12 +238,12 @@ point for "what else is out there."
 
 | Stack | Tests | Framework |
 |-------|-------|-----------|
-| Go (platform) | 536 | `go test -race` |
-| Python (workspace) | 1,084 | pytest |
+| Go (platform) | 695 | `go test -race` |
+| Python (workspace) | 1,140 | pytest |
 | Canvas (frontend) | 357 | Vitest |
-| SDK (python) | 121 | pytest |
+| SDK (python) | 132 | pytest |
 | MCP server | 97 | Jest |
-| **Total** | **2,295** | |
+| **Total** | **2,421** | |
 
 E2E: 67/67 comprehensive checks passing, 62/62 API tests (also gated in CI `e2e-api` job), shellcheck-clean across all 5 E2E scripts.
 
