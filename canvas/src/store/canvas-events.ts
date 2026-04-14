@@ -88,10 +88,13 @@ export function handleCanvasEvent(
           ),
         });
       } else {
-        // Spread new nodes so they don't stack at (0,0)
-        const offset = nodes.length * 40;
-        const x = offset;
-        const y = offset;
+        // Spread new nodes in a grid so they don't stack
+        const GRID_COL_WIDTH = 320;
+        const GRID_ROW_HEIGHT = 160;
+        const GRID_COLS = 4;
+        const rootIndex = nodes.filter((n) => !n.data.parentId).length;
+        const x = (rootIndex % GRID_COLS) * GRID_COL_WIDTH;
+        const y = Math.floor(rootIndex / GRID_COLS) * GRID_ROW_HEIGHT;
 
         set({
           nodes: [
