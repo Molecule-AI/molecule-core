@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -349,13 +350,95 @@ func buildContainerEnv(cfg WorkspaceConfig) []string {
 	return env
 }
 
+// Per-tier resource defaults. Configurable via TIERn_MEMORY_MB and
+// TIERn_CPU_SHARES env vars (n in {2,3,4}). CPU shares follow the convention
+// 1024 shares == 1 CPU; internally translated to NanoCPUs for a hard cap.
+//
+// Defaults reflect the tier sizing agreed in issue #14:
+//   - T2: 512 MiB,  1024 shares (1 CPU)  — unchanged historical default
+//   - T3: 2048 MiB, 2048 shares (2 CPU)  — new cap (previously uncapped)
+//   - T4: 4096 MiB, 4096 shares (4 CPU)  — new cap (previously uncapped)
+const (
+	defaultTier2MemoryMB  = 512
+	defaultTier2CPUShares = 1024
+	defaultTier3MemoryMB  = 2048
+	defaultTier3CPUShares = 2048
+	defaultTier4MemoryMB  = 4096
+	defaultTier4CPUShares = 4096
+)
+
+// getTierMemoryMB returns the memory cap (MiB) for the given tier, reading
+// TIERn_MEMORY_MB env var with fallback to the hardcoded default. Returns 0
+// for tiers with no cap (e.g. tier 1).
+func getTierMemoryMB(tier int) int64 {
+	var def int64
+	switch tier {
+	case 2:
+		def = defaultTier2MemoryMB
+	case 3:
+		def = defaultTier3MemoryMB
+	case 4:
+		def = defaultTier4MemoryMB
+	default:
+		return 0
+	}
+	if v := os.Getenv(fmt.Sprintf("TIER%d_MEMORY_MB", tier)); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
+
+// getTierCPUShares returns the CPU allocation (shares, where 1024 == 1 CPU)
+// for the given tier, reading TIERn_CPU_SHARES env var with fallback to the
+// hardcoded default. Returns 0 for tiers with no cap.
+func getTierCPUShares(tier int) int64 {
+	var def int64
+	switch tier {
+	case 2:
+		def = defaultTier2CPUShares
+	case 3:
+		def = defaultTier3CPUShares
+	case 4:
+		def = defaultTier4CPUShares
+	default:
+		return 0
+	}
+	if v := os.Getenv(fmt.Sprintf("TIER%d_CPU_SHARES", tier)); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
+
+// applyTierResources writes Memory + NanoCPUs to hostCfg from the tier's
+// configured limits (env override or default). Returns the resolved values
+// for logging.
+func applyTierResources(hostCfg *container.HostConfig, tier int) (memMB, cpuShares int64) {
+	memMB = getTierMemoryMB(tier)
+	cpuShares = getTierCPUShares(tier)
+	if memMB > 0 {
+		hostCfg.Resources.Memory = memMB * 1024 * 1024
+	}
+	if cpuShares > 0 {
+		// shares -> NanoCPUs: 1024 shares == 1 CPU == 1e9 NanoCPUs
+		hostCfg.Resources.NanoCPUs = (cpuShares * 1_000_000_000) / 1024
+	}
+	return memMB, cpuShares
+}
+
 // ApplyTierConfig configures a HostConfig based on the workspace tier.
 // Extracted from Start() so it can be tested independently.
 //
 //   - Tier 1 (Sandboxed):  readonly rootfs, tmpfs /tmp, strip /workspace mount
-//   - Tier 2 (Standard):   resource limits (512 MiB memory, 1 CPU), no special flags (default)
-//   - Tier 3 (Privileged):  privileged mode, host PID, Docker network (not host)
-//   - Tier 4 (Full access): privileged, host PID, host network, Docker socket mount, all capabilities
+//   - Tier 2 (Standard):   resource limits (default 512 MiB, 1 CPU)
+//   - Tier 3 (Privileged): privileged + host PID, Docker network, capped resources
+//   - Tier 4 (Full access): privileged, host PID, host network, Docker socket, capped resources
+//
+// Per-tier memory/CPU caps are overridable via TIERn_MEMORY_MB /
+// TIERn_CPU_SHARES env vars (n in {2,3,4}).
 //
 // Unknown/zero tiers default to Tier 2 behavior (safe resource-limited container).
 func ApplyTierConfig(hostCfg *container.HostConfig, cfg WorkspaceConfig, configMount, name string) {
@@ -378,7 +461,8 @@ func ApplyTierConfig(hostCfg *container.HostConfig, cfg WorkspaceConfig, configM
 		// causes port collisions when multiple T3 containers run simultaneously.
 		hostCfg.Privileged = true
 		hostCfg.PidMode = "host"
-		log.Printf("Provisioner: T3 privileged mode for %s (privileged, host PID)", name)
+		memMB, shares := applyTierResources(hostCfg, 3)
+		log.Printf("Provisioner: T3 privileged mode for %s (privileged, host PID, %dm memory, %d CPU shares)", name, memMB, shares)
 
 	case 4:
 		// Full host access: everything from T3 + host network + Docker socket + all capabilities.
@@ -388,14 +472,14 @@ func ApplyTierConfig(hostCfg *container.HostConfig, cfg WorkspaceConfig, configM
 		hostCfg.NetworkMode = "host"
 		// Mount Docker socket so workspace can manage containers
 		hostCfg.Binds = append(hostCfg.Binds, "/var/run/docker.sock:/var/run/docker.sock")
-		log.Printf("Provisioner: T4 full-host mode for %s (privileged, host PID, host network, docker socket)", name)
+		memMB, shares := applyTierResources(hostCfg, 4)
+		log.Printf("Provisioner: T4 full-host mode for %s (privileged, host PID, host network, docker socket, %dm memory, %d CPU shares)", name, memMB, shares)
 
 	default:
 		// Tier 2 (Standard) and unknown tiers: normal container with resource limits.
 		// This is the safe default — no privileged access, reasonable resource caps.
-		hostCfg.Resources.Memory = 512 * 1024 * 1024    // 512 MiB
-		hostCfg.Resources.NanoCPUs = 1_000_000_000       // 1.0 CPU
-		log.Printf("Provisioner: T2 standard mode for %s (512m memory, 1 CPU)", name)
+		memMB, shares := applyTierResources(hostCfg, 2)
+		log.Printf("Provisioner: T2 standard mode for %s (%dm memory, %d CPU shares)", name, memMB, shares)
 	}
 }
 
