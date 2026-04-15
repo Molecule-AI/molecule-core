@@ -1131,3 +1131,34 @@ func TestActivityHandler_Report_MatchingSourceIDAccepted(t *testing.T) {
 		t.Errorf("matching source_id: got %d, want 200 (%s)", w.Code, w.Body.String())
 	}
 }
+
+// TestActivityHandler_Report_SourceIDLogInjection — #234 regression guard.
+// The security log line must emit the attacker-supplied source_id through
+// %q so control characters (\n, \r, \t) are escaped instead of splitting
+// the log stream into fake entries. Harder to assert directly without a
+// log capture, so we just exercise the code path with a payload containing
+// newlines and confirm the handler still returns 403 cleanly (no panic,
+// no accidental success).
+func TestActivityHandler_Report_SourceIDLogInjection(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewActivityHandler(broadcaster)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-alice"}}
+	// JSON body with explicit \n escapes — json.Unmarshal decodes these
+	// into literal newline bytes before reaching the log call.
+	body := `{"activity_type":"agent_log","summary":"x","source_id":"ws-evil\ntimestamp=FORGED level=INFO msg=fake"}`
+	c.Request = httptest.NewRequest("POST", "/workspaces/ws-alice/activity",
+		bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Report(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("spoof with newline in source_id: got %d, want 403 (%s)",
+			w.Code, w.Body.String())
+	}
+}
