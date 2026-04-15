@@ -53,7 +53,15 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 	// Detect runtime from template config.yaml if not specified in request.
 	// Must happen before DB insert so the correct runtime is persisted.
 	if payload.Runtime == "" && payload.Template != "" {
-		candidatePath := filepath.Join(h.configsDir, payload.Template)
+		// #226: payload.Template is attacker-controllable. resolveInsideRoot
+		// rejects absolute paths and any ".." that escapes configsDir so the
+		// provisioner can't be pointed at host directories.
+		candidatePath, resolveErr := resolveInsideRoot(h.configsDir, payload.Template)
+		if resolveErr != nil {
+			log.Printf("Create: invalid template path %q: %v", payload.Template, resolveErr)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid template"})
+			return
+		}
 		cfgData, readErr := os.ReadFile(filepath.Join(candidatePath, "config.yaml"))
 		if readErr != nil {
 			log.Printf("Create: could not read config.yaml for template %q: %v", payload.Template, readErr)
@@ -149,7 +157,16 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		var templatePath string
 		var configFiles map[string][]byte
 		if payload.Template != "" {
-			candidatePath := filepath.Join(h.configsDir, payload.Template)
+			// #226: re-validate the template path at provision time. Even
+			// though the create-path validates above, provision runs in a
+			// goroutine with a fresh payload copy — duplicate the guard so
+			// a future code path that reaches provisionTenant with an
+			// unchecked payload can't regress the fix.
+			candidatePath, resolveErr := resolveInsideRoot(h.configsDir, payload.Template)
+			if resolveErr != nil {
+				log.Printf("Create provision: rejecting template %q: %v", payload.Template, resolveErr)
+				return
+			}
 			if _, err := os.Stat(candidatePath); err == nil {
 				templatePath = candidatePath
 			} else {
