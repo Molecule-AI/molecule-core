@@ -35,6 +35,10 @@ func TestSecurityHeaders(t *testing.T) {
 		{"X-Frame-Options", "DENY"},
 		{"Content-Security-Policy", "default-src 'self'"},
 		{"Strict-Transport-Security", "max-age=31536000; includeSubDomains"},
+		// #282: regression guards for the two headers that were
+		// documented in CLAUDE.md but missing from the implementation.
+		{"Referrer-Policy", "strict-origin-when-cross-origin"},
+		{"Permissions-Policy", "camera=(), microphone=(), geolocation=()"},
 	}
 
 	for _, tt := range tests {
