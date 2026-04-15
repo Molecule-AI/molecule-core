@@ -54,6 +54,13 @@ func generateDefaultConfig(name string, files map[string]string) string {
 		}
 	}
 
+	// Sanitize: strip newlines and carriage returns to prevent YAML key
+	// injection. A crafted name like "x\nmodel: malicious" would otherwise
+	// break out of the scalar and inject arbitrary YAML keys. Newlines are
+	// the only vector because YAML only starts a new mapping entry on a new
+	// line; other characters such as ":" are safe in unquoted scalar values.
+	name = strings.NewReplacer("\n", "", "\r", "").Replace(name)
+
 	var cfg strings.Builder
 	cfg.WriteString("name: " + name + "\n")
 	cfg.WriteString("description: Imported agent\n")
