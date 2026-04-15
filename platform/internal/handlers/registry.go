@@ -29,10 +29,16 @@ func NewRegistryHandler(b *events.Broadcaster) *RegistryHandler {
 // cloud metadata services or other internal infrastructure.
 //
 // Allowed: http:// or https:// only (no file://, ftp://, etc.).
-// Blocked: 169.254.0.0/16 (link-local — AWS/GCP/Azure metadata endpoints).
-// Allowed: RFC-1918 private ranges (Docker networking uses 172.16–31.x.x).
+// Allowed: public routable addresses and DNS hostnames (including "localhost").
 //
-// Returns a non-nil error string suitable for including in a 400 response.
+// Blocked IP ranges — agents MUST register using DNS hostnames, not IP literals:
+//   - 169.254.0.0/16  link-local — AWS/GCP/Azure metadata (IMDSv1/v2)
+//   - 127.0.0.0/8     loopback   — self-SSRF: redirects A2A traffic back to platform
+//   - 10.0.0.0/8      RFC-1918   — lateral movement within private networks
+//   - 172.16.0.0/12   RFC-1918   — includes Docker bridge/overlay ranges
+//   - 192.168.0.0/16  RFC-1918   — home/office LAN ranges
+//
+// Returns a non-nil error suitable for including in a 400 Bad Request response.
 func validateAgentURL(rawURL string) error {
 	if rawURL == "" {
 		return errors.New("url is required")
@@ -46,10 +52,24 @@ func validateAgentURL(rawURL string) error {
 	}
 	hostname := parsed.Hostname()
 	if ip := net.ParseIP(hostname); ip != nil {
-		// Block 169.254.0.0/16 — cloud metadata (AWS IMDSv1/v2, GCP, Azure).
-		_, linkLocal, _ := net.ParseCIDR("169.254.0.0/16")
-		if linkLocal.Contains(ip) {
-			return errors.New("url targets a link-local address (cloud metadata endpoint)")
+		// All private and reserved ranges are rejected. Agents must register
+		// using DNS hostnames so the platform can reach them; raw IP literals
+		// in registration payloads have no legitimate use case and enable SSRF.
+		blockedRanges := []struct {
+			cidr  string
+			label string
+		}{
+			{"169.254.0.0/16", "link-local (cloud metadata endpoint)"},
+			{"127.0.0.0/8", "loopback"},
+			{"10.0.0.0/8", "RFC-1918 private"},
+			{"172.16.0.0/12", "RFC-1918 private"},
+			{"192.168.0.0/16", "RFC-1918 private"},
+		}
+		for _, r := range blockedRanges {
+			_, network, _ := net.ParseCIDR(r.cidr)
+			if network.Contains(ip) {
+				return errors.New("private/reserved IP ranges are not permitted")
+			}
 		}
 	}
 	return nil
