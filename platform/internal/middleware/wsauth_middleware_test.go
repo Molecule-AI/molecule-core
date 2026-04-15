@@ -272,21 +272,22 @@ func TestWorkspaceAuth_WrongWorkspace_Returns401(t *testing.T) {
 // global bearer-token contract for /admin/secrets, /settings/secrets).
 // ────────────────────────────────────────────────────────────────────────────
 
-// ── Issue #168 regression — canvas session-cookie extension ──────────────────
+// ── Issue #168 regression — canvas Origin fallback ───────────────────────────
 //
 // PR #167 gated PUT /canvas/viewport, GET /events/:workspaceId,
 // GET /bundles/export/:id, and POST /bundles/import behind AdminAuth (Bearer
-// only). Canvas uses credentials:"include" without an Authorization header, so
-// every one of those routes 401'd. The fix: AdminAuth also accepts the token
-// via a "mcp_session" cookie. Bearer takes precedence; cookie is the fallback.
+// only). Canvas sends credentials:"include" without an Authorization header, so
+// every one of those routes 401'd. Fix: AdminAuth also accepts requests whose
+// Origin header matches the configured CORS_ORIGINS or the localhost defaults.
+// Bearer takes precedence; Origin is the canvas fallback.
 //
 // Three tests:
 //   1. Bearer path still works (regression guard)
-//   2. Session cookie path works (new canvas path)
-//   3. No credentials at all → 401
+//   2. Canvas Origin trusted (new canvas fallback path)
+//   3. No credentials and no matching Origin → 401
 
 // TestAdminAuth_Issue168_BearerValid verifies the existing Authorization:Bearer
-// path is not disturbed by the cookie extension.
+// path is not disturbed by the Origin fallback extension.
 func TestAdminAuth_Issue168_BearerValid(t *testing.T) {
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
@@ -324,27 +325,21 @@ func TestAdminAuth_Issue168_BearerValid(t *testing.T) {
 	}
 }
 
-// TestAdminAuth_Issue168_SessionCookieValid verifies that a valid token carried
-// in the mcp_session cookie is accepted, allowing the canvas to call
-// AdminAuth-gated routes with credentials:"include".
-func TestAdminAuth_Issue168_SessionCookieValid(t *testing.T) {
+// TestAdminAuth_Issue168_CanvasOriginTrusted verifies that a canvas request with
+// Origin: http://localhost:3000 (always in the default allowed set) is passed
+// through without a Bearer token. No token DB queries should fire — the Origin
+// check short-circuits before ValidateAnyToken.
+func TestAdminAuth_Issue168_CanvasOriginTrusted(t *testing.T) {
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
 	defer mockDB.Close()
 
-	tok := "canvas-session-cookie-token"
-	h := sha256.Sum256([]byte(tok))
-
+	// Tokens exist → auth is enforced → Origin fallback path is exercised.
 	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery(validateAnyTokenSelectQuery).
-		WithArgs(h[:]).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-canvas-2"))
-	mock.ExpectExec(validateTokenUpdateQuery).
-		WithArgs("tok-canvas-2").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	// No ValidateAnyToken expectation — Origin match must short-circuit before DB.
 
 	r := gin.New()
 	r.GET("/bundles/export/:id", AdminAuth(mockDB), func(c *gin.Context) {
@@ -352,13 +347,14 @@ func TestAdminAuth_Issue168_SessionCookieValid(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/bundles/export/ws-123", nil)
-	// No Authorization header — canvas sends the token via cookie.
-	req.AddCookie(&http.Cookie{Name: "mcp_session", Value: tok})
+	req, _ := http.NewRequest(http.MethodGet, "/bundles/export/ws-abc", nil)
+	// Canvas sends credentials:"include"; no Authorization header; Origin is set
+	// by the browser automatically for all cross-origin fetch() calls.
+	req.Header.Set("Origin", "http://localhost:3000")
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("#168 session cookie: expected 200, got %d: %s", w.Code, w.Body.String())
+		t.Errorf("#168 canvas origin: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
@@ -366,7 +362,7 @@ func TestAdminAuth_Issue168_SessionCookieValid(t *testing.T) {
 }
 
 // TestAdminAuth_Issue168_NoCreds_Returns401 verifies that a request with neither
-// Authorization header nor mcp_session cookie is rejected with 401.
+// Authorization header nor a recognized Origin is rejected with 401.
 func TestAdminAuth_Issue168_NoCreds_Returns401(t *testing.T) {
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
@@ -384,7 +380,7 @@ func TestAdminAuth_Issue168_NoCreds_Returns401(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPut, "/canvas/viewport", nil)
-	// Deliberately: no Authorization header, no mcp_session cookie.
+	// No Authorization header. No Origin header (e.g. curl / agent direct call).
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusUnauthorized {

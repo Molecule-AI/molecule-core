@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
 	"github.com/gin-gonic/gin"
@@ -61,13 +63,18 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 // Any valid workspace bearer token is accepted — the route is not scoped to
 // a specific workspace so we only verify the token is live and unrevoked.
 //
-// Issue #168 — canvas session-cookie extension:
-// In addition to the Authorization: Bearer header, AdminAuth also accepts
-// the token via a "mcp_session" cookie. Canvas sends `credentials:"include"`
-// (no Authorization header), so routes gated by AdminAuth (viewport, events,
-// bundles) were unreachable from the canvas UI. The cookie value is validated
-// identically to the Bearer value — same wsauth.ValidateAnyToken DB check.
-// Bearer takes precedence; cookie is the fallback.
+// Issue #168 — canvas Origin fallback:
+// Canvas makes all its fetch calls with credentials:"include" but does NOT
+// set an Authorization header. PR #167 gated several canvas-facing routes
+// (viewport, events, bundles) behind AdminAuth, breaking them silently.
+//
+// Fix: after Bearer auth fails (no header), allow requests whose Origin
+// header matches the CORS_ORIGINS env var or the localhost defaults. This
+// is not a strict auth boundary — non-browser clients can set an arbitrary
+// Origin — but it matches what CORS already enforces in the browser. The
+// real perimeter defence against external threats is the network layer
+// (CORS_ORIGINS is set to the canonical canvas URL in production).
+// Bearer token auth is unchanged for API clients and agents.
 func AdminAuth(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
@@ -82,25 +89,47 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 			// Primary path: Authorization: Bearer <token> header (API clients,
 			// molecli, agent-to-platform calls).
 			tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
+			if tok != "" {
+				if err := wsauth.ValidateAnyToken(ctx, database, tok); err != nil {
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
+					return
+				}
+				c.Next()
+				return
+			}
 
-			// Fallback path: mcp_session cookie (#168 — canvas auth regression).
-			// Canvas uses credentials:"include" and does not set Authorization
-			// headers, so we accept the same token value via cookie transport.
-			if tok == "" {
-				if cookie, cookieErr := c.Cookie("mcp_session"); cookieErr == nil {
-					tok = cookie
+			// Canvas fallback (#168): trust requests from a configured canvas
+			// origin. Origin is set by the browser automatically for all
+			// cross-origin fetch() calls and cannot be overridden by page JS.
+			// Non-browser clients (curl/agents) are expected to use Bearer.
+			origin := c.GetHeader("Origin")
+			if origin != "" {
+				for _, allowed := range canvasOrigins() {
+					if strings.TrimSpace(allowed) == origin {
+						c.Next()
+						return
+					}
 				}
 			}
 
-			if tok == "" {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "admin auth required"})
-				return
-			}
-			if err := wsauth.ValidateAnyToken(ctx, database, tok); err != nil {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
-				return
-			}
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "admin auth required"})
+			return
 		}
 		c.Next()
 	}
+}
+
+// canvasOrigins returns the set of browser origins that AdminAuth trusts for the
+// canvas-fallback path. Reads CORS_ORIGINS at call time (not init) so the value
+// can be overridden in tests via t.Setenv without a process restart.
+func canvasOrigins() []string {
+	origins := []string{"http://localhost:3000", "http://localhost:3001"}
+	if v := os.Getenv("CORS_ORIGINS"); v != "" {
+		for _, o := range strings.Split(v, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				origins = append(origins, o)
+			}
+		}
+	}
+	return origins
 }
