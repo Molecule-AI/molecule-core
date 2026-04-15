@@ -7,6 +7,8 @@ defaults:
   runtime: claude-code
   tier: 3
   model: opus
+  plugins:
+    - browser-automation
   initial_prompt: |
     You just started. Set up silently — do NOT contact other agents yet.
     1. Read your system prompt at /configs/system-prompt.md — this defines YOUR role
