@@ -569,6 +569,82 @@ func TestWorkspaceAuth_Issue170_SecretDelete_FailOpen_NoTokens(t *testing.T) {
 // requests — the route-level fix in router.go is the enforcement point.
 // ────────────────────────────────────────────────────────────────────────────
 
+// ────────────────────────────────────────────────────────────────────────────
+// Issue #180 regression — unauthenticated GET /approvals/pending
+//
+// GET /approvals/pending was registered on the open router (no middleware)
+// and returned all pending approvals across every workspace to any caller,
+// with no token required.
+// Attack vector confirmed by Security Auditor:
+//   curl http://host/approvals/pending → 200 with full cross-workspace list
+//
+// Fixed by adding inline AdminAuth to the route registration in router.go.
+// This test asserts the gate blocks unauthenticated reads.
+// ────────────────────────────────────────────────────────────────────────────
+
+// TestAdminAuth_Issue180_ApprovalsListing_NoBearer_Returns401 documents the #180
+// attack vector and verifies that AdminAuth returns 401 for GET without a token.
+func TestAdminAuth_Issue180_ApprovalsListing_NoBearer_Returns401(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	// HasAnyLiveTokenGlobal returns 1 — at least one workspace is token-enrolled.
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	r := gin.New()
+	// Mirror the router.go fix: GET /approvals/pending is behind AdminAuth.
+	r.GET("/approvals/pending", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"approvals": []interface{}{}})
+	})
+
+	w := httptest.NewRecorder()
+	// #180 attack: no Authorization header on GET /approvals/pending.
+	req, _ := http.NewRequest(http.MethodGet, "/approvals/pending", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("#180 GET /approvals/pending no-bearer: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestAdminAuth_Issue180_ApprovalsListing_FailOpen_NoTokens documents the
+// fail-open contract: on a fresh install (no tokens anywhere), the middleware
+// must not block the canvas from polling /approvals/pending.
+func TestAdminAuth_Issue180_ApprovalsListing_FailOpen_NoTokens(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	// HasAnyLiveTokenGlobal returns 0 — fresh install, no tokens yet.
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	r := gin.New()
+	r.GET("/approvals/pending", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"approvals": []interface{}{}})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/approvals/pending", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("#180 fail-open (no tokens): expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 // TestAdminAuth_Issue120_PatchWorkspace_NoBearer_Returns401 documents the #120
 // attack vector and verifies that AdminAuth returns 401 for PATCH without a token.
 func TestAdminAuth_Issue120_PatchWorkspace_NoBearer_Returns401(t *testing.T) {
