@@ -178,3 +178,90 @@ func TestPanicRecovery(t *testing.T) {
 		t.Errorf("unmet DB expectations: %v", err)
 	}
 }
+
+// ── TestShort_helper ──────────────────────────────────────────────────────────
+// Regression guard for the short() helper that replaced unsafe [:N] slices
+// after code review. Panicked when IDs were shorter than the slice bound.
+
+func TestShort_helper(t *testing.T) {
+	cases := []struct {
+		in   string
+		n    int
+		want string
+	}{
+		{"abcdef1234567890", 8, "abcdef12"},
+		{"abc", 8, "abc"}, // shorter than n — no panic, no truncation
+		{"", 8, ""},
+		{"12345678", 8, "12345678"}, // exactly n
+	}
+	for _, tc := range cases {
+		if got := short(tc.in, tc.n); got != tc.want {
+			t.Errorf("short(%q, %d) = %q, want %q", tc.in, tc.n, got, tc.want)
+		}
+	}
+}
+
+// ── TestRecordSkipped_writesSkippedStatus ────────────────────────────────────
+// #115 coverage gap: the recordSkipped path wasn't tested at all when it
+// first landed. Exercises the UPDATE workspace_schedules + INSERT into
+// activity_logs via sqlmock. Broadcaster is nil so we don't need to stub
+// RecordAndBroadcast (the nil-check in recordSkipped handles that).
+
+func TestRecordSkipped_writesSkippedStatus(t *testing.T) {
+	mock := setupTestDB(t)
+	s := New(nil, nil)
+
+	sched := scheduleRow{
+		ID:          "11111111-1111-1111-1111-111111111111",
+		WorkspaceID: "22222222-2222-2222-2222-222222222222",
+		Name:        "Hourly security audit",
+		CronExpr:    "17 * * * *",
+		Timezone:    "UTC",
+		Prompt:      "audit",
+	}
+
+	// Expect the schedule-row UPDATE with last_status='skipped' and the
+	// cron_run activity_logs INSERT with status='skipped' + error_detail
+	// carrying the active_tasks reason.
+	mock.ExpectExec(`UPDATE workspace_schedules`).
+		WithArgs(sched.ID, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO activity_logs`).
+		WithArgs(sched.WorkspaceID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s.recordSkipped(context.Background(), sched, 3)
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// ── TestRecordSkipped_shortWorkspaceIDNoPanic ─────────────────────────────────
+// Guards against the short() regression: recordSkipped must not panic if
+// WorkspaceID is unexpectedly shorter than the 12-char prefix used in logs.
+
+func TestRecordSkipped_shortWorkspaceIDNoPanic(t *testing.T) {
+	mock := setupTestDB(t)
+	s := New(nil, nil)
+
+	// 4-char workspace id — shorter than any substring bound in the code.
+	sched := scheduleRow{
+		ID:          "11111111-1111-1111-1111-111111111111",
+		WorkspaceID: "ws-x",
+		Name:        "test",
+		CronExpr:    "0 * * * *",
+		Timezone:    "UTC",
+	}
+	mock.ExpectExec(`UPDATE workspace_schedules`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO activity_logs`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("recordSkipped panicked on short WorkspaceID: %v", r)
+		}
+	}()
+	s.recordSkipped(context.Background(), sched, 1)
+}

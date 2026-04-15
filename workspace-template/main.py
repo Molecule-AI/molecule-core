@@ -12,7 +12,7 @@ import httpx
 import uvicorn
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryTaskStore, InMemoryPushNotificationConfigStore, PushNotificationSender
+from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard, AgentCapabilities, AgentSkill
 
 from adapters import get_adapter, AdapterConfig
@@ -152,12 +152,20 @@ async def main():  # pragma: no cover
         defaultOutputModes=["text/plain", "application/json"],
     )
 
-    # 7. Wrap in A2A
+    # 7. Wrap in A2A.
+    #
+    # Regression fix (#204): PR #198 tried to wire push_config_store +
+    # push_sender to satisfy #175 (push notification capability), but
+    # PushNotificationSender is an abstract base class in the a2a-sdk and
+    # can't be instantiated directly. Passing it crashed main.py on startup
+    # with `TypeError: Can't instantiate abstract class`. Dropped back to
+    # DefaultRequestHandler's own defaults — pushNotifications capability
+    # in the AgentCard below is still advertised via AgentCapabilities so
+    # clients know we COULD do pushes; actually implementing them requires
+    # a concrete sender subclass, tracked as a Phase-H follow-up to #175.
     handler = DefaultRequestHandler(
         agent_executor=executor,
         task_store=InMemoryTaskStore(),
-        push_config_store=InMemoryPushNotificationConfigStore(),
-        push_sender=PushNotificationSender(),
     )
 
     app = A2AStarletteApplication(
@@ -368,12 +376,113 @@ async def main():  # pragma: no cover
 
         initial_prompt_task = asyncio.create_task(_send_initial_prompt())
 
+    # 10c. Idle loop — reflection-on-completion / backlog-pull pattern.
+    # Fires config.idle_prompt every config.idle_interval_seconds while the
+    # workspace has no active task. This turns every role from "waits for cron"
+    # into "self-wakes when idle" — the Hermes/Letta shape from today's
+    # multi-framework survey (see docs/ecosystem-watch.md). Cost collapses to
+    # event-driven in practice: the idle check is local (no LLM call, just
+    # heartbeat.active_tasks==0), and the prompt only fires when there's
+    # actually nothing to do. Gated on idle_prompt being non-empty so existing
+    # workspaces upgrade opt-in — set idle_prompt in org.yaml defaults or
+    # per-workspace to enable.
+    idle_loop_task = None
+    if config.idle_prompt:
+        # Idle-fire HTTP timeout. Kept tight relative to the fire cadence so a
+        # hung platform doesn't accumulate dangling requests — a fire that
+        # takes longer than the idle interval itself is almost certainly stuck.
+        IDLE_FIRE_TIMEOUT_SECONDS = max(60, min(300, config.idle_interval_seconds))
+        # Initial settle delay — never longer than 60s so cold-start races
+        # don't stall the first fire, and never shorter than the configured
+        # interval (short intervals shouldn't fire instantly on boot either).
+        IDLE_INITIAL_SETTLE_SECONDS = min(config.idle_interval_seconds, 60)
+
+        async def _run_idle_loop():
+            """Self-sends config.idle_prompt periodically when the workspace is idle."""
+            await asyncio.sleep(IDLE_INITIAL_SETTLE_SECONDS)
+
+            import json as _json
+            from urllib import request as _urlreq, error as _urlerr
+
+            while True:
+                try:
+                    await asyncio.sleep(config.idle_interval_seconds)
+                except asyncio.CancelledError:
+                    return
+
+                # Local idle check — no platform API call, no LLM call.
+                # heartbeat.active_tasks == 0 means no in-flight work.
+                if heartbeat.active_tasks > 0:
+                    continue
+
+                # Self-post the idle prompt via the platform A2A proxy (same
+                # path as initial_prompt). The agent's own concurrency control
+                # rejects if the workspace becomes busy between this check and
+                # the post — that's the expected safety valve.
+                payload = _json.dumps({
+                    "method": "message/send",
+                    "params": {
+                        "message": {
+                            "role": "user",
+                            "messageId": f"idle-{_uuid.uuid4().hex[:8]}",
+                            "parts": [{"kind": "text", "text": config.idle_prompt}],
+                        },
+                    },
+                }).encode()
+
+                def _post_sync():
+                    # Returns (status_code, error_type) so the caller logs the
+                    # actual outcome instead of a bare "post failed" line.
+                    try:
+                        req = _urlreq.Request(
+                            f"{platform_url}/workspaces/{workspace_id}/a2a",
+                            data=payload,
+                            headers={"Content-Type": "application/json"},
+                        )
+                        with _urlreq.urlopen(req, timeout=IDLE_FIRE_TIMEOUT_SECONDS) as resp:
+                            resp.read()
+                            return resp.status, None
+                    except _urlerr.HTTPError as e:
+                        return e.code, type(e).__name__
+                    except _urlerr.URLError as e:
+                        return None, f"URLError: {e.reason}"
+                    except Exception as e:  # pragma: no cover — catch-all safety net
+                        return None, type(e).__name__
+
+                print(
+                    f"Idle loop: firing (active_tasks=0, interval={config.idle_interval_seconds}s, "
+                    f"timeout={IDLE_FIRE_TIMEOUT_SECONDS}s)",
+                    flush=True,
+                )
+                loop_ref = asyncio.get_running_loop()
+
+                def _log_result(future):
+                    try:
+                        status, err = future.result()
+                        if err:
+                            print(
+                                f"Idle loop: post failed — status={status} err={err}",
+                                flush=True,
+                            )
+                        else:
+                            print(f"Idle loop: post ok status={status}", flush=True)
+                    except Exception as e:  # pragma: no cover
+                        print(f"Idle loop: executor callback crashed — {e}", flush=True)
+
+                fut = loop_ref.run_in_executor(None, _post_sync)
+                fut.add_done_callback(_log_result)
+
+        idle_loop_task = asyncio.create_task(_run_idle_loop())
+
     try:
         await server.serve()
     finally:
         # Cancel initial prompt if still running
         if initial_prompt_task and not initial_prompt_task.done():
             initial_prompt_task.cancel()
+        # Cancel idle loop if running
+        if idle_loop_task and not idle_loop_task.done():
+            idle_loop_task.cancel()
         # Gracefully stop the Temporal worker background task on shutdown
         await temporal_wrapper.stop()
 
