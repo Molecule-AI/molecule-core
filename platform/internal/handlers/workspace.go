@@ -170,12 +170,17 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 			if _, err := os.Stat(candidatePath); err == nil {
 				templatePath = candidatePath
 			} else {
-				// Template not found — try runtime-default template, then generate config
+				// Template not found — try runtime-default template, then generate config.
+				// #241: sanitizeRuntime() filters payload.Runtime through an
+				// allowlist so an attacker can't smuggle a path-traversal
+				// oracle (`runtime: ../../sensitive`) into the filepath.Join
+				// below. Any unknown runtime collapses to the default.
 				log.Printf("Create: template %q not found, falling back for %s", payload.Template, payload.Name)
-				runtimeDefault := filepath.Join(h.configsDir, payload.Runtime+"-default")
+				safeRuntime := sanitizeRuntime(payload.Runtime)
+				runtimeDefault := filepath.Join(h.configsDir, safeRuntime+"-default")
 				if _, err := os.Stat(runtimeDefault); err == nil {
 					templatePath = runtimeDefault
-					log.Printf("Create: using runtime-default template %s for %s", payload.Runtime+"-default", payload.Name)
+					log.Printf("Create: using runtime-default template %s for %s", safeRuntime+"-default", payload.Name)
 				} else {
 					configFiles = h.ensureDefaultConfig(id, payload)
 					log.Printf("Create: generating default config for %s (runtime=%s)", payload.Name, payload.Runtime)
