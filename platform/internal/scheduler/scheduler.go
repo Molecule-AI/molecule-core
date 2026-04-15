@@ -113,6 +113,25 @@ func (s *Scheduler) Start(ctx context.Context) {
 	s.lastTickAt = time.Now()
 	s.mu.Unlock()
 
+	// Independent heartbeat pulse (#140). Decoupled from tick completion so
+	// a single long fire (UIUX audits routinely take 60-120s; max fireTimeout
+	// is 5min) can't make /admin/liveness look stale for the whole fire window.
+	// tick() also calls Heartbeat at its top + each fire goroutine calls it
+	// entry/exit — those are kept as redundant signals but this pulse is the
+	// one that guarantees liveness freshness regardless of tick state.
+	go func() {
+		pulseTicker := time.NewTicker(10 * time.Second)
+		defer pulseTicker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-pulseTicker.C:
+				supervised.Heartbeat("scheduler")
+			}
+		}
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
