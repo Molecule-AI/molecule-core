@@ -230,6 +230,11 @@ jobs:
   python-lint:
     name: Python Lint & Test
     runs-on: [self-hosted, macos, arm64]
+    env:
+      # setup-python@v5 defaults to /Users/runner/hostedtoolcache which does
+      # not exist on the self-hosted runner (user is hongming-claw). Point it
+      # to the runner user's writable directory so Python 3.11 can be cached.
+      AGENT_TOOLSDIRECTORY: /Users/hongming-claw/hostedtoolcache
     defaults:
       run:
         working-directory: workspace-template
