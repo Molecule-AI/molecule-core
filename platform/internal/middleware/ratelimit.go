@@ -4,6 +4,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -71,11 +72,33 @@ func (rl *RateLimiter) Middleware() gin.HandlerFunc {
 			b.lastReset = time.Now()
 		}
 
+		// Issue #105 — advertise the current bucket state so clients and
+		// monitoring tools can back off proactively. Headers are set on every
+		// response (both allowed and throttled) so they're observable against
+		// any endpoint — /health, /metrics, and every /workspaces/* route.
+		//
+		// The `reset` value is seconds until the current bucket refills,
+		// matching the RFC 6585 Retry-After spec for 429 responses and the
+		// de-facto X-RateLimit-Reset convention (GitHub, Stripe, etc.).
+		remaining := b.tokens - 1
+		if remaining < 0 {
+			remaining = 0
+		}
+		resetSeconds := int(time.Until(b.lastReset.Add(rl.interval)).Seconds())
+		if resetSeconds < 0 {
+			resetSeconds = 0
+		}
+		c.Header("X-RateLimit-Limit", strconv.Itoa(rl.rate))
+		c.Header("X-RateLimit-Remaining", strconv.Itoa(remaining))
+		c.Header("X-RateLimit-Reset", strconv.Itoa(resetSeconds))
+
 		if b.tokens <= 0 {
 			rl.mu.Unlock()
+			// Retry-After is the canonical 429 signal per RFC 6585.
+			c.Header("Retry-After", strconv.Itoa(resetSeconds))
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"error":       "rate limit exceeded",
-				"retry_after": rl.interval.Seconds(),
+				"retry_after": resetSeconds,
 			})
 			c.Abort()
 			return
