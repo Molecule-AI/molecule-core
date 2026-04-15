@@ -112,9 +112,9 @@ export function SearchDialog() {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleInputKeyDown}
             placeholder="Search workspaces..."
-            className="flex-1 bg-transparent text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none"
+            className="flex-1 bg-transparent text-sm text-zinc-100 placeholder-zinc-400 focus:outline-none"
           />
-          <kbd className="text-[9px] text-zinc-600 bg-zinc-800/60 px-1.5 py-0.5 rounded border border-zinc-700/40">ESC</kbd>
+          <kbd className="text-[9px] text-zinc-400 bg-zinc-800/60 px-1.5 py-0.5 rounded border border-zinc-700/40">ESC</kbd>
         </div>
 
         {/* Results */}
@@ -125,7 +125,7 @@ export function SearchDialog() {
           className="max-h-[300px] overflow-y-auto py-1"
         >
           {filtered.length === 0 ? (
-            <div role="status" aria-live="polite" className="px-4 py-6 text-center text-xs text-zinc-600">
+            <div role="status" aria-live="polite" className="px-4 py-6 text-center text-xs text-zinc-400">
               {query ? "No workspaces match" : "No workspaces yet"}
             </div>
           ) : (
@@ -156,7 +156,7 @@ export function SearchDialog() {
                   )}
                 </div>
                 <span
-                  className="text-[9px] font-mono text-zinc-600"
+                  className="text-[9px] font-mono text-zinc-400"
                   aria-label={`Tier ${node.data.tier}`}
                 >
                   T{node.data.tier}
@@ -168,10 +168,10 @@ export function SearchDialog() {
 
         {/* Footer */}
         <div className="px-4 py-2 border-t border-zinc-800/40 flex items-center justify-between">
-          <span className="text-[9px] text-zinc-600">{filtered.length} workspace{filtered.length !== 1 ? "s" : ""}</span>
+          <span className="text-[9px] text-zinc-400">{filtered.length} workspace{filtered.length !== 1 ? "s" : ""}</span>
           <div className="flex gap-2">
-            <kbd className="text-[9px] text-zinc-600 bg-zinc-800/60 px-1.5 py-0.5 rounded border border-zinc-700/40">↑↓ navigate</kbd>
-            <kbd className="text-[9px] text-zinc-600 bg-zinc-800/60 px-1.5 py-0.5 rounded border border-zinc-700/40">↵ select</kbd>
+            <kbd className="text-[9px] text-zinc-400 bg-zinc-800/60 px-1.5 py-0.5 rounded border border-zinc-700/40">↑↓ navigate</kbd>
+            <kbd className="text-[9px] text-zinc-400 bg-zinc-800/60 px-1.5 py-0.5 rounded border border-zinc-700/40">↵ select</kbd>
           </div>
         </div>
       </div>
