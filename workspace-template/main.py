@@ -30,6 +30,7 @@ from initial_prompt import (
     mark_initial_prompt_attempted,
     resolve_initial_prompt_marker,
 )
+from platform_auth import auth_headers
 
 
 def get_machine_ip() -> str:  # pragma: no cover
@@ -195,6 +196,7 @@ async def main():  # pragma: no cover
                     "url": workspace_url,
                     "agent_card": agent_card_dict,
                 },
+                headers=auth_headers(),
             )
             print(f"Registered with platform: {resp.status_code}")
             # Phase 30.1 — capture the auth token issued at first register.
