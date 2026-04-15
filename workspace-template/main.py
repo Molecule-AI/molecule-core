@@ -347,6 +347,12 @@ async def main():  # pragma: no cover
                     },
                 }).encode()
 
+                # #220: include platform bearer token so the request isn't
+                # silently rejected once any workspace has a live token on
+                # file. Without this, initial_prompt 401s in multi-tenant
+                # mode exactly like /registry/register did in #215.
+                headers = {"Content-Type": "application/json", **auth_headers()}
+
                 # Retry with backoff — the platform proxy may not be able to
                 # reach us yet (container networking takes a moment to settle).
                 max_retries = 5
@@ -355,7 +361,7 @@ async def main():  # pragma: no cover
                         req = urllib.request.Request(
                             f"{platform_url}/workspaces/{workspace_id}/a2a",
                             data=payload,
-                            headers={"Content-Type": "application/json"},
+                            headers=headers,
                         )
                         with urllib.request.urlopen(req, timeout=600) as resp:
                             resp.read()
@@ -435,11 +441,14 @@ async def main():  # pragma: no cover
                 def _post_sync():
                     # Returns (status_code, error_type) so the caller logs the
                     # actual outcome instead of a bare "post failed" line.
+                    # #220: include auth_headers() on every idle fire. Without
+                    # this, the idle loop 401s in multi-tenant mode.
+                    headers = {"Content-Type": "application/json", **auth_headers()}
                     try:
                         req = _urlreq.Request(
                             f"{platform_url}/workspaces/{workspace_id}/a2a",
                             data=payload,
-                            headers={"Content-Type": "application/json"},
+                            headers=headers,
                         )
                         with _urlreq.urlopen(req, timeout=IDLE_FIRE_TIMEOUT_SECONDS) as resp:
                             resp.read()
