@@ -408,6 +408,12 @@ class LangGraphA2AExecutor(AgentExecutor):
 
         return _result
 
-    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:  # pragma: no cover
-        """Cancel a running task (cancellation via asyncio task cancellation)."""
-        pass
+    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
+        """Cancel a running task — emits canceled state to comply with A2A protocol."""
+        from a2a.types import TaskStatus, TaskState, TaskStatusUpdateEvent
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                status=TaskStatus(state=TaskState.canceled),
+                final=True,
+            )
+        )
