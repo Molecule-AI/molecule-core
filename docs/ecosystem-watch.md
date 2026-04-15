@@ -795,6 +795,66 @@ builders; Molecule AI users are developers building agent companies.
 **Last reviewed:** 2026-04-15 · **Stars / activity:** ~12.8k ⭐, +1,503 today, 36 releases
 
 ---
+
+### Skills CLI — `vercel-labs/skills`
+
+**Pitch:** "The CLI for the open agent skills ecosystem — discover, install, and share reusable skills across 45+ coding agents."
+
+**Shape:** TypeScript (MIT), ~14.2k ⭐, +153 today. `npx skills` package manager backed by Vercel. Skills are `SKILL.md` directories following the [agentskills.io](https://agentskills.io) open spec. Targets Claude Code, Codex, Gemini CLI, Cursor, Cline, OpenCode, Hermes, Holaboss, and 37+ others from a single repository.
+
+**Overlap with us:** Three existing entries (Hermes, gstack, Holaboss) flag "if agentskills.io picks up mass adoption → align our plugin manifest." This is that moment: Vercel ships the canonical install CLI with 14k stars and 45-agent coverage.
+
+**Differentiation:** Skills CLI is a package manager, not an agent runtime. No canvas, A2A, or scheduling. It installs behavior bundles into whatever agent the developer uses; Molecule AI is the runtime those bundles run inside.
+
+**Worth borrowing:** Align our `plugins/` manifest to the agentskills.io `SKILL.md` spec so any `npx skills`-installable skill also installs cleanly into a Molecule AI workspace. Dual compatibility = free distribution channel.
+
+**Terminology collisions:** "skills" — same word, same filesystem convention; full spec alignment is the goal, not a collision to manage.
+
+**Signals to react to:** If `npx skills` becomes the de facto install path industry-wide → our `plugins/install` should natively consume the same manifest format. If agentskills.io publishes a versioned schema → adopt it immediately in `plugins/`.
+
+**Last reviewed:** 2026-04-15 · **Stars / activity:** ~14.2k ⭐, +153 today, Vercel-backed
+
+---
+
+### Archon — `coleam00/Archon`
+
+**Pitch:** "The first open-source harness builder for AI coding — make AI coding deterministic and repeatable."
+
+**Shape:** TypeScript (MIT), ~18.1k ⭐, +396 today. Defines AI coding workflows as YAML DAGs: planning → implementation → validation → review → PR. Each run is git-worktree-isolated. Nodes are either AI-powered (Claude Code generation) or deterministic (bash, test runners). Human approval gates at any phase. Delivery to Slack, Telegram, Discord, GitHub, or web UI. "What Dockerfiles did for infra, Archon does for AI coding."
+
+**Overlap with us:** Wraps Claude Code in a structured pipeline — the same pattern as our Dev Lead delegating to a Claude Code workspace. Approval gates map to our `approvals` table. Git-worktree isolation mirrors our `workspace-template/` worktree pattern.
+
+**Differentiation:** No persistent agent identity, no org hierarchy, no A2A, no canvas, no multi-session scheduling. Archon defines a single delivery run; Molecule AI is the persistent company those runs operate inside.
+
+**Worth borrowing:** YAML-DAG workflow definition (planning → implementation → validation → PR) with mixed AI/deterministic nodes — natural extension of `workspace-template/` for repeatable, auditable delivery pipelines.
+
+**Terminology collisions:** "workflow" — their YAML DAG vs our informal usage. "harness" — Archon, Scion, and our Claude Code runner all claim the word; Molecule AI docs should clarify its own use.
+
+**Signals to react to:** If Archon adds multi-workspace coordination → direct competitor to our orchestration layer. If their YAML workflow schema gains wide adoption → add an Archon import adapter to `workspace-template/`.
+
+**Last reviewed:** 2026-04-15 · **Stars / activity:** ~18.1k ⭐, +396 today, v0.3.6
+
+---
+
+### Claude Code Routines — `anthropic.com` *(commercial, no public repo)*
+
+**Pitch:** "Schedule Claude Code agents to run automatically on timers and GitHub events — agentic workflows in the cloud without manual intervention."
+
+**Shape:** Anthropic-hosted cloud feature. Users define routines that fire a Claude Code session on cron timers or GitHub events (push, PR, issue). Runs serverlessly inside Anthropic infrastructure. No self-hosting, no public API. HN item 47768133: 611 pts, 355 comments at launch today — significant community concern about vendor lock-in.
+
+**Overlap with us:** Direct overlap with `workspace_schedules` + cron-triggered workspace execution. Anthropic now competes in the scheduled agentic execution space with a first-party hosted offering.
+
+**Differentiation:** No persistent agent memory, no org hierarchy, no A2A between agents, no visual canvas, no multi-model support, Anthropic-only lock-in. HN consensus: "trivially reproducible with cron + API." Our differentiators: multi-agent coordination, persistent identity, model-agnosticism, self-hostability.
+
+**Worth borrowing:** GitHub event triggers (push/PR/issue → fire agent) as first-class schedule trigger types. Our `workspace_schedules` is cron-only; this gap is now competitively visible.
+
+**Terminology collisions:** "routine" — Anthropic: a scheduled agent session; near-synonym with our `workspace_schedule` rows.
+
+**Signals to react to:** If Routines adds A2A between routines → direct platform competition from Anthropic with massive distribution advantage. If lock-in backlash grows → double down on "self-hostable, model-agnostic" narrative as the open alternative.
+
+**Last reviewed:** 2026-04-15 · **Stars / activity:** Anthropic cloud feature, 611 HN pts today (item 47768133)
+
+---
 ## Candidates to add (backlog)
 
 Short-list of projects to write up next time someone has an hour:
