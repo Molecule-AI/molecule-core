@@ -329,7 +329,23 @@ func (h *ActivityHandler) Report(c *gin.Context) {
 	if reqBody == nil {
 		reqBody = body.Metadata
 	}
+	// C2 (from #169) — source_id spoof defense. WorkspaceAuth middleware
+	// already proves the caller owns :id, but that check doesn't cover the
+	// body field. Without this guard, workspace A authenticated for its own
+	// /activity endpoint could still set source_id=<workspace B's UUID> in
+	// the payload and attribute the log to B. Reject any body where
+	// source_id is non-empty AND differs from the authenticated workspace.
+	// Empty source_id falls through to the default-to-self branch below.
 	sourceID := body.SourceID
+	if sourceID != "" && sourceID != workspaceID {
+		// Log the spoof attempt as a security event so an auditor cron can
+		// surface repeat probing. Keep the log line stable (greppable) and
+		// avoid echoing attacker-supplied data verbatim beyond the UUIDs.
+		log.Printf("security: source_id spoof attempt — authed_workspace=%s body_source_id=%s remote=%s",
+			workspaceID, sourceID, c.ClientIP())
+		c.JSON(http.StatusForbidden, gin.H{"error": "source_id must match authenticated workspace"})
+		return
+	}
 	if sourceID == "" {
 		sourceID = workspaceID
 	}
