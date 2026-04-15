@@ -37,6 +37,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Isolate Docker config (skip keychain)
+        # The Mac mini self-hosted runner runs as a non-interactive
+        # launchd service; docker/login-action's default credential store
+        # is the macOS Keychain, which raises
+        #   error storing credentials - err: exit status 1, out:
+        #   `User interaction is not allowed. (-25308)`
+        # without an unlocked desktop session. Point DOCKER_CONFIG at a
+        # per-run temp dir so the login step writes a plain config.json
+        # that never touches the keychain. Plus diagnostics: print the
+        # docker path so a future EACCES on /usr/local/bin/docker
+        # surfaces in the log instead of via a cryptic docker-login
+        # failure mid-step.
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/docker-config"
+          echo '{"auths": {}}' > "${RUNNER_TEMP}/docker-config/config.json"
+          echo "DOCKER_CONFIG=${RUNNER_TEMP}/docker-config" >> "${GITHUB_ENV}"
+          echo "=== Runner docker diagnostics ==="
+          echo "PATH=$PATH"
+          command -v docker || echo "(docker not in PATH — the runner is missing the Docker CLI or it's not symlinked to a visible location)"
+          docker --version 2>&1 || true
+          ls -la /usr/local/bin/docker /opt/homebrew/bin/docker 2>&1 || true
+
       - name: Set up QEMU
         # Required on the Apple-silicon self-hosted runner — Fly tenant machines
         # pull linux/amd64, and buildx needs binfmt handlers in Docker Desktop's
