@@ -311,7 +311,11 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	orgDir := findOrgDir(configsDir)
 	orgh := handlers.NewOrgHandler(wh, broadcaster, prov, channelMgr, configsDir, orgDir)
 	r.GET("/org/templates", orgh.ListTemplates)
-	r.POST("/org/import", orgh.Import)
+	// /org/import can create arbitrary workspaces from an uploaded YAML — it
+	// must be an admin-gated route. The handler also path-sanitizes
+	// `dir`/`template`/`files_dir` via resolveInsideRoot, but defence-in-
+	// depth keeps the route behind AdminAuth regardless.
+	r.POST("/org/import", middleware.AdminAuth(db.DB), orgh.Import)
 
 	// Channels (social integrations — Telegram, Slack, Discord, etc.)
 	chh := handlers.NewChannelHandler(channelMgr)

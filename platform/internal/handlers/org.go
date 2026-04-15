@@ -196,7 +196,16 @@ func (h *OrgHandler) Import(c *gin.Context) {
 	var orgBaseDir string // base directory for files_dir resolution
 
 	if body.Dir != "" {
-		orgBaseDir = filepath.Join(h.orgDir, body.Dir)
+		// Reject traversal attempts — `dir` must resolve inside h.orgDir.
+		// Without this, `dir: "../../../etc"` gets joined into h.orgDir and
+		// filepath.Join's lexical cleanup resolves it outside the root,
+		// letting an unauthenticated caller probe arbitrary filesystem paths.
+		resolved, err := resolveInsideRoot(h.orgDir, body.Dir)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid dir: %v", err)})
+			return
+		}
+		orgBaseDir = resolved
 		orgFile := filepath.Join(orgBaseDir, "org.yaml")
 		data, err := os.ReadFile(orgFile)
 		if err != nil {
@@ -349,9 +358,12 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 		}
 		templatePath := ""
 		if ws.Template != "" {
-			tp := filepath.Join(h.configsDir, ws.Template)
-			if _, err := os.Stat(tp); err == nil {
-				templatePath = tp
+			// `template` comes from the uploaded YAML — treat as untrusted.
+			// Only accept paths that stay inside h.configsDir.
+			if tp, err := resolveInsideRoot(h.configsDir, ws.Template); err == nil {
+				if _, statErr := os.Stat(tp); statErr == nil {
+					templatePath = tp
+				}
 			}
 		}
 		if templatePath == "" {
@@ -367,9 +379,12 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 		// Copy files_dir contents on top (system-prompt.md, CLAUDE.md, skills/, etc.)
 		// Uses templatePath for CopyTemplateToContainer — runs AFTER configFiles are written
 		if ws.FilesDir != "" && orgBaseDir != "" {
-			filesPath := filepath.Join(orgBaseDir, ws.FilesDir)
-			if info, err := os.Stat(filesPath); err == nil && info.IsDir() {
-				templatePath = filesPath
+			// `files_dir` also comes from untrusted YAML. Join inside orgBaseDir
+			// (already validated above) and reject anything that escapes.
+			if filesPath, err := resolveInsideRoot(orgBaseDir, ws.FilesDir); err == nil {
+				if info, statErr := os.Stat(filesPath); statErr == nil && info.IsDir() {
+					templatePath = filesPath
+				}
 			}
 		}
 
@@ -814,4 +829,36 @@ func mergePlugins(defaultPlugins, wsPlugins []string) []string {
 		}
 	}
 	return out
+}
+
+// resolveInsideRoot joins `userPath` onto `root` and ensures the lexically
+// cleaned result stays inside root. Rejects absolute paths outright and
+// anything containing ".." that would escape the root.
+//
+// Both arguments are resolved to absolute paths via filepath.Abs before the
+// prefix check so a root passed as a relative path still works correctly.
+// Follows Go's standard pattern for SSRF-class path sanitization; using
+// strings.HasPrefix on an absolute-path pair plus the separator guard rejects
+// sibling directories that share a prefix (e.g. "/foo" vs "/foobar").
+func resolveInsideRoot(root, userPath string) (string, error) {
+	if userPath == "" {
+		return "", fmt.Errorf("path is empty")
+	}
+	if filepath.IsAbs(userPath) {
+		return "", fmt.Errorf("absolute paths are not allowed")
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("root abs: %w", err)
+	}
+	joined := filepath.Join(absRoot, userPath)
+	absJoined, err := filepath.Abs(joined)
+	if err != nil {
+		return "", fmt.Errorf("joined abs: %w", err)
+	}
+	// Allow exact-root match (rare but valid) and any descendant.
+	if absJoined != absRoot && !strings.HasPrefix(absJoined, absRoot+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes root")
+	}
+	return absJoined, nil
 }
