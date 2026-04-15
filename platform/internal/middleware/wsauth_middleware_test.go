@@ -474,6 +474,89 @@ func TestAdminAuth_InvalidBearer_Returns401(t *testing.T) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Issue #170 regression — unauthenticated DELETE /workspaces/:id/secrets/:key
+//
+// Before this fix, the route was registered as:
+//   r.DELETE("/workspaces/:id/secrets/:key", sech.Delete)
+// on the bare Gin router — no auth at all.  Any caller could delete a secret
+// AND trigger a forced workspace restart (the handler calls go restartFunc(id)
+// on every successful delete).  CWE-306.
+//
+// The fix: move the route inside the wsAuth group so it matches all other
+// /workspaces/:id/secrets mutations (POST + PUT are already auth-gated).
+// ────────────────────────────────────────────────────────────────────────────
+
+// TestWorkspaceAuth_Issue170_SecretDelete_NoBearer_Returns401 is the primary
+// regression test: when the workspace has live tokens, a DELETE /secrets/:key
+// without a bearer token must be rejected with 401.
+func TestWorkspaceAuth_Issue170_SecretDelete_NoBearer_Returns401(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	// HasAnyLiveToken returns 1 — workspace is token-enrolled.
+	mock.ExpectQuery(hasLiveTokenQuery).
+		WithArgs("ws-secret-owner").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	r := gin.New()
+	// Mirror the fix: DELETE /secrets/:key is inside the wsAuth group.
+	r.DELETE("/workspaces/:id/secrets/:key",
+		WorkspaceAuth(mockDB),
+		func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "deleted"}) })
+
+	w := httptest.NewRecorder()
+	// #170 attack: no Authorization header.
+	req, _ := http.NewRequest(http.MethodDelete,
+		"/workspaces/ws-secret-owner/secrets/OPENAI_API_KEY", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("#170 secret delete no-bearer: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestWorkspaceAuth_Issue170_SecretDelete_FailOpen_NoTokens verifies the
+// fail-open contract is preserved: a workspace with NO tokens (bootstrap /
+// rolling-upgrade path) lets the DELETE through so legacy workspaces aren't
+// bricked.
+func TestWorkspaceAuth_Issue170_SecretDelete_FailOpen_NoTokens(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	// HasAnyLiveToken returns 0 — no tokens on file (pre-Phase-30 workspace).
+	mock.ExpectQuery(hasLiveTokenQuery).
+		WithArgs("ws-legacy").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	r := gin.New()
+	r.DELETE("/workspaces/:id/secrets/:key",
+		WorkspaceAuth(mockDB),
+		func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "deleted"}) })
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodDelete,
+		"/workspaces/ws-legacy/secrets/SOME_KEY", nil)
+	r.ServeHTTP(w, req)
+
+	// Fail-open: no tokens → must pass through (200).
+	if w.Code != http.StatusOK {
+		t.Errorf("#170 fail-open: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Issue #120 regression — unauthenticated PATCH /workspaces/:id
 //
 // Before PR #125, PATCH /workspaces/:id was registered outside the wsAdmin
