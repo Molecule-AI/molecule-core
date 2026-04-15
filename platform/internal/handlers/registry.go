@@ -25,14 +25,40 @@ func NewRegistryHandler(b *events.Broadcaster) *RegistryHandler {
 	return &RegistryHandler{broadcaster: b}
 }
 
+// ssrfBlockedNets is the set of IP ranges rejected as SSRF vectors.
+// Parsed once at package init; all CIDRs are well-known and never error.
+var ssrfBlockedNets = func() []*net.IPNet {
+	cidrs := []string{
+		"169.254.0.0/16", // link-local / cloud metadata (AWS IMDSv1/v2, GCP, Azure)
+		"10.0.0.0/8",     // RFC-1918 class A
+		"172.16.0.0/12",  // RFC-1918 class B (includes Docker bridge 172.17–31.x.x)
+		"192.168.0.0/16", // RFC-1918 class C
+		"::1/128",        // IPv6 loopback
+		"fc00::/7",       // IPv6 unique-local (fd00::/8 is the most common sub-range)
+	}
+	nets := make([]*net.IPNet, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		_, n, err := net.ParseCIDR(cidr)
+		if err == nil {
+			nets = append(nets, n)
+		}
+	}
+	return nets
+}()
+
 // validateAgentURL rejects URLs that could be used as SSRF vectors against
 // cloud metadata services or other internal infrastructure.
 //
 // Allowed: http:// or https:// only (no file://, ftp://, etc.).
-// Blocked: 169.254.0.0/16 (link-local — AWS/GCP/Azure metadata endpoints).
-// Allowed: RFC-1918 private ranges (Docker networking uses 172.16–31.x.x).
+// Blocked: 169.254.0.0/16 (link-local / AWS-GCP-Azure metadata), 10.0.0.0/8,
+// 172.16.0.0/12, 192.168.0.0/16 (RFC-1918), ::1/128 (IPv6 loopback),
+// fc00::/7 (IPv6 unique-local).
 //
-// Returns a non-nil error string suitable for including in a 400 response.
+// IP-literal hosts are checked directly. Hostname-based URLs are resolved via
+// DNS; if resolution fails the URL is allowed through (fail-open) so transient
+// DNS outages do not block legitimate agent registrations.
+//
+// Returns a non-nil error suitable for including in a 400 response.
 func validateAgentURL(rawURL string) error {
 	if rawURL == "" {
 		return errors.New("url is required")
@@ -45,11 +71,27 @@ func validateAgentURL(rawURL string) error {
 		return fmt.Errorf("url scheme must be http or https, got %q", parsed.Scheme)
 	}
 	hostname := parsed.Hostname()
+
+	var ips []net.IP
 	if ip := net.ParseIP(hostname); ip != nil {
-		// Block 169.254.0.0/16 — cloud metadata (AWS IMDSv1/v2, GCP, Azure).
-		_, linkLocal, _ := net.ParseCIDR("169.254.0.0/16")
-		if linkLocal.Contains(ip) {
-			return errors.New("url targets a link-local address (cloud metadata endpoint)")
+		// URL host is already an IP literal — no DNS lookup needed.
+		ips = []net.IP{ip}
+	} else {
+		// Resolve hostname to catch DNS aliases that point at private/metadata ranges.
+		// Fail-open: DNS unavailability must not block legitimate registrations.
+		addrs, _ := net.LookupHost(hostname)
+		for _, addr := range addrs {
+			if ip := net.ParseIP(addr); ip != nil {
+				ips = append(ips, ip)
+			}
+		}
+	}
+
+	for _, ip := range ips {
+		for _, network := range ssrfBlockedNets {
+			if network.Contains(ip) {
+				return fmt.Errorf("url resolves to a blocked address range (%s)", network.String())
+			}
 		}
 	}
 	return nil

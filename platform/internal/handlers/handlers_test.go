@@ -65,13 +65,13 @@ func TestRegisterHandler(t *testing.T) {
 
 	// Expect the upsert INSERT ... ON CONFLICT
 	mock.ExpectExec("INSERT INTO workspaces").
-		WithArgs("ws-123", "ws-123", "http://localhost:8000", `{"name":"test"}`).
+		WithArgs("ws-123", "ws-123", "http://127.0.0.1:8000", `{"name":"test"}`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// Expect the SELECT url query (for cache URL logic)
 	mock.ExpectQuery("SELECT url FROM workspaces WHERE id =").
 		WithArgs("ws-123").
-		WillReturnRows(sqlmock.NewRows([]string{"url"}).AddRow("http://localhost:8000"))
+		WillReturnRows(sqlmock.NewRows([]string{"url"}).AddRow("http://127.0.0.1:8000"))
 
 	// Expect the RecordAndBroadcast INSERT into structure_events
 	mock.ExpectExec("INSERT INTO structure_events").
@@ -80,7 +80,7 @@ func TestRegisterHandler(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	body := `{"id":"ws-123","url":"http://localhost:8000","agent_card":{"name":"test"}}`
+	body := `{"id":"ws-123","url":"http://127.0.0.1:8000","agent_card":{"name":"test"}}`
 	c.Request = httptest.NewRequest("POST", "/registry/register", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 

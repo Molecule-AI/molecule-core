@@ -62,13 +62,13 @@ func TestRegister_DBError(t *testing.T) {
 
 	// DB insert fails
 	mock.ExpectExec("INSERT INTO workspaces").
-		WithArgs("ws-fail", "ws-fail", "http://localhost:8000", `{"name":"test"}`).
+		WithArgs("ws-fail", "ws-fail", "http://127.0.0.1:8000", `{"name":"test"}`).
 		WillReturnError(sql.ErrConnDone)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	body := `{"id":"ws-fail","url":"http://localhost:8000","agent_card":{"name":"test"}}`
+	body := `{"id":"ws-fail","url":"http://127.0.0.1:8000","agent_card":{"name":"test"}}`
 	c.Request = httptest.NewRequest("POST", "/registry/register", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -374,7 +374,7 @@ func TestRegister_GuardAgainstResurrectingRemovedRow(t *testing.T) {
 	// This regex-ish match requires the guard. If the handler ever drops
 	// the clause the test fails because the emitted SQL won't match.
 	mock.ExpectExec("ON CONFLICT.*WHERE workspaces.status IS DISTINCT FROM 'removed'").
-		WithArgs("ws-resurrect", "ws-resurrect", "http://localhost:8000", `{"name":"x"}`).
+		WithArgs("ws-resurrect", "ws-resurrect", "http://127.0.0.1:8000", `{"name":"x"}`).
 		WillReturnResult(sqlmock.NewResult(0, 0)) // 0 rows affected = correctly guarded
 	mock.ExpectQuery("SELECT url FROM workspaces WHERE id").
 		WithArgs("ws-resurrect").
@@ -383,7 +383,7 @@ func TestRegister_GuardAgainstResurrectingRemovedRow(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/registry/register",
-		bytes.NewBufferString(`{"id":"ws-resurrect","url":"http://localhost:8000","agent_card":{"name":"x"}}`))
+		bytes.NewBufferString(`{"id":"ws-resurrect","url":"http://127.0.0.1:8000","agent_card":{"name":"x"}}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	handler.Register(c)
@@ -444,20 +444,47 @@ func TestValidateAgentURL(t *testing.T) {
 		url     string
 		wantErr bool
 	}{
-		// Valid Docker-internal URLs (must be allowed).
-		{"valid docker http", "http://172.18.0.5:8000", false},
-		{"valid localhost http", "http://127.0.0.1:8000", false},
-		{"valid https", "https://agent.example.com:443", false},
-		{"valid RFC1918 10.x", "http://10.0.0.5:8080", false},
-		{"valid RFC1918 192.168.x", "http://192.168.1.100:8080", false},
-		// SSRF vectors that must be rejected.
+		// ── Valid URLs (public / localhost by name) ───────────────────────────
+		{"valid https public hostname", "https://agent.example.com:443", false},
+		// 127.0.0.1 loopback — blocked by separate PR fix/c6-loopback-ssrf; keep
+		// this case at false until that branch merges so both PRs can coexist.
+		{"valid localhost http (loopback handled by sibling PR)", "http://127.0.0.1:8000", false},
+		// 172.32.x is outside the 172.16.0.0/12 range (which ends at 172.31.255.255).
+		{"valid 172.32.x outside RFC-1918 /12 boundary", "http://172.32.0.1:8080", false},
+
+		// ── Bad input / wrong scheme ──────────────────────────────────────────
 		{"empty url", "", true},
-		{"link-local IMDS AWS", "http://169.254.169.254/latest/meta-data/", true},
-		{"link-local IMDS GCP", "http://169.254.169.254/computeMetadata/v1/", true},
-		{"link-local other", "http://169.254.0.1/anything", true},
 		{"non-http scheme file", "file:///etc/passwd", true},
 		{"non-http scheme ftp", "ftp://internal-server/secrets", true},
 		{"malformed url", "://not-a-url", true},
+
+		// ── 169.254.0.0/16 — link-local / cloud metadata ─────────────────────
+		{"blocked link-local AWS IMDS", "http://169.254.169.254/latest/meta-data/", true},
+		{"blocked link-local GCP metadata", "http://169.254.169.254/computeMetadata/v1/", true},
+		{"blocked link-local 169.254.0.1", "http://169.254.0.1/anything", true},
+
+		// ── 10.0.0.0/8 — RFC-1918 class A ────────────────────────────────────
+		{"blocked RFC-1918 10.0.0.1 (range start)", "http://10.0.0.1:8080", true},
+		{"blocked RFC-1918 10.0.0.5 (mid)", "http://10.0.0.5:8080", true},
+		{"blocked RFC-1918 10.255.255.254 (range end)", "http://10.255.255.254:8080", true},
+
+		// ── 172.16.0.0/12 — RFC-1918 class B (includes Docker bridge) ────────
+		{"blocked RFC-1918 172.16.0.1 (range start)", "http://172.16.0.1:8080", true},
+		{"blocked RFC-1918 172.18.0.5 (Docker bridge)", "http://172.18.0.5:8000", true},
+		{"blocked RFC-1918 172.31.255.255 (range end)", "http://172.31.255.255:8080", true},
+
+		// ── 192.168.0.0/16 — RFC-1918 class C ────────────────────────────────
+		{"blocked RFC-1918 192.168.0.1 (range start)", "http://192.168.0.1:8080", true},
+		{"blocked RFC-1918 192.168.1.100 (mid)", "http://192.168.1.100:8080", true},
+		{"blocked RFC-1918 192.168.255.254 (range end)", "http://192.168.255.254:8080", true},
+
+		// ── ::1/128 — IPv6 loopback ───────────────────────────────────────────
+		{"blocked IPv6 loopback ::1", "http://[::1]:8080", true},
+
+		// ── fc00::/7 — IPv6 unique-local ──────────────────────────────────────
+		{"blocked IPv6 unique-local fc00::1", "http://[fc00::1]:8080", true},
+		{"blocked IPv6 unique-local fd00::1 (common sub-range)", "http://[fd00::1]:8080", true},
+		{"blocked IPv6 unique-local fdff::1 (range end)", "http://[fdff::1]:8080", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -490,12 +517,12 @@ func TestRegister_C18_BootstrapAllowedNoTokens(t *testing.T) {
 
 	// Workspace upsert proceeds normally.
 	mock.ExpectExec("INSERT INTO workspaces").
-		WithArgs("ws-new", "ws-new", "http://localhost:9100", `{"name":"new-agent"}`).
+		WithArgs("ws-new", "ws-new", "http://127.0.0.1:9100", `{"name":"new-agent"}`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	mock.ExpectQuery("SELECT url FROM workspaces WHERE id").
 		WithArgs("ws-new").
-		WillReturnRows(sqlmock.NewRows([]string{"url"}).AddRow("http://localhost:9100"))
+		WillReturnRows(sqlmock.NewRows([]string{"url"}).AddRow("http://127.0.0.1:9100"))
 
 	mock.ExpectExec("INSERT INTO structure_events").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -513,7 +540,7 @@ func TestRegister_C18_BootstrapAllowedNoTokens(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/registry/register",
-		bytes.NewBufferString(`{"id":"ws-new","url":"http://localhost:9100","agent_card":{"name":"new-agent"}}`))
+		bytes.NewBufferString(`{"id":"ws-new","url":"http://127.0.0.1:9100","agent_card":{"name":"new-agent"}}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	handler.Register(c)
