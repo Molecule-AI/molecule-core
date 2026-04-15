@@ -390,6 +390,20 @@ func (h *WorkspaceHandler) State(c *gin.Context) {
 	})
 }
 
+// sensitiveUpdateFields gates the #120/#138 field-level auth check inside
+// Update. Any key in this set requires a valid bearer token even when the
+// rest of the route is open — tier is a resource-escalation vector,
+// parent_id rewrites the A2A hierarchy, runtime swaps the container image
+// on next restart, workspace_dir redirects host bind-mounts. Cosmetic
+// fields (name, role, x, y, canvas) do not appear here and pass through
+// unauthenticated so canvas drag-reposition and inline rename keep working.
+var sensitiveUpdateFields = map[string]struct{}{
+	"tier":          {},
+	"parent_id":     {},
+	"runtime":       {},
+	"workspace_dir": {},
+}
+
 // Update handles PATCH /workspaces/:id
 func (h *WorkspaceHandler) Update(c *gin.Context) {
 	id := c.Param("id")
@@ -401,6 +415,35 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
+
+	// #138 field-level authz: PATCH /workspaces/:id is on the open router so
+	// canvas drag-reposition (cookie-based, no bearer token) keeps working,
+	// BUT the sensitive fields below require a valid bearer via the usual
+	// admin-token check. Lazy-bootstrap: if no live admin tokens exist at all
+	// (fresh install) the check is a no-op and everyone passes through.
+	for field := range body {
+		if _, sensitive := sensitiveUpdateFields[field]; !sensitive {
+			continue
+		}
+		hasLive, hlErr := wsauth.HasAnyLiveTokenGlobal(ctx, db.DB)
+		if hlErr != nil {
+			log.Printf("wsauth: Update HasAnyLiveTokenGlobal failed: %v — allowing request", hlErr)
+			break
+		}
+		if !hasLive {
+			break // fresh install — fail-open
+		}
+		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
+		if tok == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "admin auth required for field: " + field})
+			return
+		}
+		if err := wsauth.ValidateAnyToken(ctx, db.DB, tok); err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
+			return
+		}
+		break // one successful validation covers the whole body
+	}
 
 	// #120: guard — return 404 for nonexistent workspace IDs instead of
 	// silently applying zero-row UPDATEs and returning 200.
