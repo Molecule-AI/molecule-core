@@ -17,6 +17,7 @@ from a2a.types import AgentCard, AgentCapabilities, AgentSkill
 
 from adapters import get_adapter, AdapterConfig
 from config import load_config
+from platform_auth import auth_headers
 from heartbeat import HeartbeatLoop
 from preflight import run_preflight, render_preflight_report
 from builtin_tools.awareness_client import get_awareness_config
@@ -192,6 +193,7 @@ async def main():  # pragma: no cover
                     "url": workspace_url,
                     "agent_card": agent_card_dict,
                 },
+                headers=auth_headers(),
             )
             print(f"Registered with platform: {resp.status_code}")
             # Phase 30.1 — capture the auth token issued at first register.
