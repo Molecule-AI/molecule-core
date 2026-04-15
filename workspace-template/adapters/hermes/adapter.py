@@ -51,7 +51,10 @@ class HermesAdapter(BaseAdapter):
         # Resolve API key: prefer workspace secrets (runtime_config), then env vars
         hermes_api_key = config.runtime_config.get("hermes_api_key") or None
 
-        executor = create_executor(hermes_api_key=hermes_api_key)
+        executor = create_executor(
+            hermes_api_key=hermes_api_key,
+            config_path=config.config_path,  # Phase 2d-i: system-prompt.md injection
+        )
 
         # Override model from config if provided
         model = config.model
