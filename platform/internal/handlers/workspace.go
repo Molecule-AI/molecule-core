@@ -402,6 +402,16 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
+	// #120: guard — return 404 for nonexistent workspace IDs instead of
+	// silently applying zero-row UPDATEs and returning 200.
+	var exists bool
+	if err := db.DB.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM workspaces WHERE id = $1)`, id,
+	).Scan(&exists); err != nil || !exists {
+		c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+		return
+	}
+
 	if name, ok := body["name"]; ok {
 		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET name = $2, updated_at = now() WHERE id = $1`, id, name); err != nil {
 			log.Printf("Update name error for %s: %v", id, err)

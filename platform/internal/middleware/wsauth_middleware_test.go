@@ -472,3 +472,50 @@ func TestAdminAuth_InvalidBearer_Returns401(t *testing.T) {
 		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Issue #120 regression — unauthenticated PATCH /workspaces/:id
+//
+// Before PR #125, PATCH /workspaces/:id was registered outside the wsAdmin
+// group and did NOT enforce AdminAuth.  An attacker could change workspace
+// name, tier, parent_id, runtime, or workspace_dir without any token.
+// Security Auditor confirmed the live exploit:
+//   curl -X PATCH .../workspaces/00000000-.../  -d '{"name":"probe"}' → 200
+//
+// This test asserts AdminAuth applied to the PATCH route blocks unauthenticated
+// requests — the route-level fix in router.go is the enforcement point.
+// ────────────────────────────────────────────────────────────────────────────
+
+// TestAdminAuth_Issue120_PatchWorkspace_NoBearer_Returns401 documents the #120
+// attack vector and verifies that AdminAuth returns 401 for PATCH without a token.
+func TestAdminAuth_Issue120_PatchWorkspace_NoBearer_Returns401(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	// HasAnyLiveTokenGlobal returns 1 — at least one workspace is token-enrolled.
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	r := gin.New()
+	// Mirror the PR #125 router change: PATCH is inside the wsAdmin AdminAuth group.
+	r.PATCH("/workspaces/:id", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "updated"})
+	})
+
+	w := httptest.NewRecorder()
+	// #120 attack: no Authorization header on PATCH.
+	req, _ := http.NewRequest(http.MethodPatch,
+		"/workspaces/00000000-0000-0000-0000-000000000000",
+		nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("#120 PATCH no-bearer: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}

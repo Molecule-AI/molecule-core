@@ -304,6 +304,10 @@ func TestWorkspaceUpdate_MultipleFields(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
+	// #125: existence probe fires once before any field update.
+	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
+		WithArgs("ws-multi").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// Expect name, role, and tier updates
 	mock.ExpectExec("UPDATE workspaces SET name").
 		WithArgs("ws-multi", "Updated Agent").
@@ -348,6 +352,9 @@ func TestWorkspaceUpdate_RuntimeField(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
+	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
+		WithArgs("ws-rt").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectExec("UPDATE workspaces SET runtime").
 		WithArgs("ws-rt", "claude-code").
 		WillReturnResult(sqlmock.NewResult(0, 1))

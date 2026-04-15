@@ -73,6 +73,11 @@ func TestExtended_WorkspaceUpdate(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", "/tmp/configs")
 
+	// #120 fix: existence check runs first — workspace must be found before updates proceed.
+	mock.ExpectQuery("SELECT EXISTS").
+		WithArgs("ws-upd").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
 	// Expect name update
 	mock.ExpectExec("UPDATE workspaces SET name").
 		WithArgs("ws-upd", "New Name").
@@ -105,6 +110,48 @@ func TestExtended_WorkspaceUpdate(t *testing.T) {
 		t.Errorf("expected status 'updated', got %v", resp["status"])
 	}
 
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestExtended_WorkspaceUpdate_NotFound verifies the #120 fix: PATCH /workspaces/:id
+// returns 404 (not 200) when the workspace does not exist in the DB.
+//
+// Before PR #125, the handler ran blind UPDATEs that matched zero rows and still
+// returned {"status":"updated"} HTTP 200 — allowing an attacker to probe and
+// speculatively modify workspace attributes (name, tier, parent_id, runtime,
+// workspace_dir) without any observable error.  The existence guard must fire
+// and return 404 before any UPDATE is attempted.
+func TestExtended_WorkspaceUpdate_NotFound(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", "/tmp/configs")
+
+	// Existence check returns false — workspace does not exist.
+	mock.ExpectQuery("SELECT EXISTS").
+		WithArgs("00000000-0000-0000-0000-000000000000").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	// No UPDATE or INSERT should follow — the handler must short-circuit at 404.
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "00000000-0000-0000-0000-000000000000"}}
+
+	body := `{"name":"probe"}`
+	c.Request = httptest.NewRequest("PATCH",
+		"/workspaces/00000000-0000-0000-0000-000000000000",
+		bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Update(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("#120 regression: expected 404 for nonexistent workspace, got %d: %s",
+			w.Code, w.Body.String())
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
