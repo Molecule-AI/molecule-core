@@ -163,6 +163,13 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		trh := handlers.NewTracesHandler()
 		wsAuth.GET("/traces", trh.List)
 
+		// Live agent transcript proxy — surfaces the runtime-specific session
+		// log (claude-code reads ~/.claude/projects/<cwd>/<session>.jsonl).
+		// Lets canvas / operators see live tool calls + AI thinking instead
+		// of waiting for the high-level activity log to flush.
+		trsh := handlers.NewTranscriptHandler()
+		wsAuth.GET("/transcript", trsh.Get)
+
 		// Agent Memories (HMA)
 		memsh := handlers.NewMemoriesHandler()
 		wsAuth.POST("/memories", memsh.Commit)

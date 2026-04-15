@@ -102,6 +102,36 @@ class BaseAdapter(ABC):
         """
         return None
 
+    async def transcript_lines(self, since: int = 0, limit: int = 100) -> dict:
+        """Return live transcript entries for the most-recent agent session.
+
+        Default implementation returns ``supported: False`` for runtimes
+        that don't expose a per-session log on disk. Override in subclasses
+        that DO (Claude Code reads ``~/.claude/projects/<cwd>/<session>.jsonl``).
+
+        This is the "look over the agent's shoulder" feature — lets canvas /
+        operators see live tool calls + AI thinking instead of waiting for
+        the high-level activity log to flush.
+
+        Args:
+            since: line offset to skip — caller's last cursor (0 = from start)
+            limit: max lines to return (caller-side cap, default 100, max 1000)
+
+        Returns:
+            ``{runtime, supported, lines, cursor, more, source}`` where
+            ``cursor`` is the new offset to pass on the next poll, ``more``
+            is True if additional lines remain past ``limit``, and ``source``
+            is the file path lines were read from (useful for debugging).
+        """
+        return {
+            "runtime": self.name(),
+            "supported": False,
+            "lines": [],
+            "cursor": since,
+            "more": False,
+            "source": None,
+        }
+
     def register_subagent_hook(self, name: str, spec: dict) -> None:
         """Default no-op. DeepAgents overrides to register a sub-agent."""
         return None
