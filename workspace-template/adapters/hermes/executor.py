@@ -1,89 +1,102 @@
-"""Hermes adapter executor — implements create_executor() for PR 2.
+"""Hermes adapter executor — Phase 1 multi-provider.
 
-Hermes models (Nous Research) are accessed via an OpenAI-compatible API,
-either through the Nous Portal directly or via OpenRouter as a fallback.
+Hermes models are accessed via an OpenAI-compatible API. Phase 1 supports 15
+providers via the shared ``providers.py`` registry: Nous Portal, OpenRouter,
+OpenAI, Anthropic, xAI, Gemini, Qwen, GLM, Kimi, MiniMax, DeepSeek, Groq,
+Together, Fireworks, Mistral. Every provider is reached through an OpenAI-compat
+``/v1/chat/completions`` endpoint, so one code path handles all of them.
 
-Key resolution order
---------------------
-1. ``hermes_api_key`` parameter (explicit call-site override)
-2. ``HERMES_API_KEY`` environment variable (Nous Portal key)
-3. ``OPENROUTER_API_KEY`` environment variable (OpenRouter fallback)
+Key resolution order (unchanged from PR 2, extended)
+-----------------------------------------------------
+1. ``hermes_api_key`` parameter (explicit call-site override — routes to Nous Portal)
+2. ``provider`` parameter (explicit provider name — looks up its env var(s))
+3. Auto-detect: walk ``providers.RESOLUTION_ORDER`` and pick the first provider
+   whose env var is set (``HERMES_API_KEY`` / ``OPENROUTER_API_KEY`` still come
+   first so PR 2 back-compat holds).
 
-Raises ``ValueError`` if none of the three sources yields a non-empty key.
+Raises ``ValueError`` if nothing resolves. The error message lists every env var
+that was checked so the operator knows their options without reading source.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from typing import Optional
+
+from .providers import PROVIDERS, resolve_provider
 
 logger = logging.getLogger(__name__)
 
-# Default base URLs
-_NOUS_BASE_URL = "https://inference-prod.nousresearch.com/v1"
-_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-# Default model when routing through OpenRouter
-_DEFAULT_MODEL = "nousresearch/hermes-3-llama-3.1-405b"
-
-
-def create_executor(hermes_api_key: str | None = None):
+def create_executor(
+    hermes_api_key: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+):
     """Create and return a LangGraph-compatible executor for the Hermes adapter.
-
-    Key resolution order:
-    1. hermes_api_key parameter (if provided)
-    2. HERMES_API_KEY environment variable
-    3. OPENROUTER_API_KEY environment variable (fallback)
-    Raises ValueError if none of the above are found.
 
     Parameters
     ----------
     hermes_api_key:
-        Explicit API key. When provided, the Nous Portal base URL is used.
-        When absent and OPENROUTER_API_KEY is the fallback, OpenRouter's
-        base URL is used instead.
+        Explicit API key. When provided, the call routes to Nous Portal (the
+        PR 2 back-compat path) regardless of ``provider``.
+    provider:
+        Canonical provider short name from ``providers.PROVIDERS`` (e.g.
+        ``"openai"``, ``"anthropic"``, ``"qwen"``, ``"xai"``). When set, the
+        registry entry's env vars are used to find the API key and its
+        base URL + default model override the auto-detect path. When unset,
+        auto-detect walks ``providers.RESOLUTION_ORDER`` until it finds a
+        provider whose env var is set.
+    model:
+        Override the provider's default model. Passed straight through to
+        ``chat.completions.create``.
 
     Returns
     -------
     HermesA2AExecutor
-        A ready-to-use executor instance wired with the resolved key
-        and matching base URL.
+        A ready-to-use executor wired with the resolved api_key + base_url
+        + model.
+
+    Raises
+    ------
+    ValueError
+        If ``provider`` is an unknown name, if ``provider`` is known but its
+        env vars are all empty, or if auto-detect finds nothing.
     """
-    api_key: str | None = None
-    base_url: str = _NOUS_BASE_URL
-
+    # Path 1: PR 2 back-compat — explicit hermes_api_key routes to Nous Portal.
     if hermes_api_key:
-        api_key = hermes_api_key
-        base_url = _NOUS_BASE_URL
-        logger.debug("Hermes: using explicit hermes_api_key param")
-    else:
-        env_hermes = os.environ.get("HERMES_API_KEY", "").strip()
-        if env_hermes:
-            api_key = env_hermes
-            base_url = _NOUS_BASE_URL
-            logger.debug("Hermes: using HERMES_API_KEY env var")
-        else:
-            env_openrouter = os.environ.get("OPENROUTER_API_KEY", "").strip()
-            if env_openrouter:
-                api_key = env_openrouter
-                base_url = _OPENROUTER_BASE_URL
-                logger.debug("Hermes: using OPENROUTER_API_KEY env var (fallback)")
-
-    if not api_key:
-        raise ValueError(
-            "No API key found: provide hermes_api_key param, "
-            "or set HERMES_API_KEY or OPENROUTER_API_KEY env var"
+        cfg = PROVIDERS["nous_portal"]
+        logger.debug("Hermes: using explicit hermes_api_key param (Nous Portal)")
+        return HermesA2AExecutor(
+            api_key=hermes_api_key,
+            base_url=cfg.base_url,
+            model=model or cfg.default_model,
         )
 
-    return HermesA2AExecutor(api_key=api_key, base_url=base_url)
+    # Path 2/3: registry resolution (either explicit provider name or auto-detect).
+    cfg, api_key = resolve_provider(provider)
+    logger.info(
+        "Hermes: provider=%s base_url=%s model=%s",
+        cfg.name,
+        cfg.base_url,
+        model or cfg.default_model,
+    )
+    return HermesA2AExecutor(
+        api_key=api_key,
+        base_url=cfg.base_url,
+        model=model or cfg.default_model,
+    )
 
 
 class HermesA2AExecutor:
-    """LangGraph-compatible AgentExecutor for Hermes models.
+    """LangGraph-compatible AgentExecutor for Hermes-style multi-provider LLMs.
 
-    Uses the OpenAI-compatible ``openai`` client pointed at either the
-    Nous Portal or OpenRouter, matching the pattern of sibling adapters
-    (AutoGen, LangGraph) which all use OpenAI-compatible clients.
+    Uses the OpenAI-compatible ``openai`` client pointed at whichever provider
+    was resolved by ``create_executor`` (Nous Portal, OpenRouter, OpenAI,
+    Anthropic, xAI, Gemini, Qwen, GLM, Kimi, MiniMax, DeepSeek, Groq, Together,
+    Fireworks, Mistral). Matches the pattern of sibling adapters (AutoGen,
+    LangGraph) which also use OpenAI-compat clients.
 
     The ``execute()`` and ``cancel()`` async methods satisfy the
     ``a2a.server.agent_execution.AgentExecutor`` interface so this
@@ -93,8 +106,8 @@ class HermesA2AExecutor:
     def __init__(
         self,
         api_key: str,
-        base_url: str = _NOUS_BASE_URL,
-        model: str = _DEFAULT_MODEL,
+        base_url: str,
+        model: str,
         heartbeat=None,
     ):
         self.api_key = api_key
