@@ -124,3 +124,75 @@ func TestList_IncludesSourceColumn(t *testing.T) {
 		t.Fatalf("unmet expectations: %v", err)
 	}
 }
+
+// Issue #113 — IDOR guard: Update and Delete must bind scheduleId to the
+// parent workspace. A member of workspace A with a cached scheduleId from
+// workspace B previously could mutate or delete that foreign row.
+
+func TestScheduleUpdate_RejectsCrossWorkspaceIDOR(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewScheduleHandler()
+
+	// Bob's workspace id, Alice's scheduleId — the UPDATE must filter on
+	// both so RowsAffected=0 and the handler returns 404 (no leak).
+	bobWS := "11111111-1111-1111-1111-111111111111"
+	aliceSched := "22222222-2222-2222-2222-222222222222"
+
+	mock.ExpectExec(`UPDATE workspace_schedules SET`).
+		WithArgs(aliceSched, bobWS, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	body := []byte(`{"name":"renamed-by-bob"}`)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{
+		{Key: "id", Value: bobWS},
+		{Key: "scheduleId", Value: aliceSched},
+	}
+	c.Request = httptest.NewRequest("PATCH",
+		"/workspaces/"+bobWS+"/schedules/"+aliceSched,
+		bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Update(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("cross-workspace Update: got %d, want 404 (body=%s)", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock: %v", err)
+	}
+}
+
+func TestScheduleDelete_RejectsCrossWorkspaceIDOR(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewScheduleHandler()
+
+	bobWS := "11111111-1111-1111-1111-111111111111"
+	aliceSched := "22222222-2222-2222-2222-222222222222"
+
+	mock.ExpectExec(`DELETE FROM workspace_schedules WHERE id = \$1 AND workspace_id = \$2`).
+		WithArgs(aliceSched, bobWS).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{
+		{Key: "id", Value: bobWS},
+		{Key: "scheduleId", Value: aliceSched},
+	}
+	c.Request = httptest.NewRequest("DELETE",
+		"/workspaces/"+bobWS+"/schedules/"+aliceSched, nil)
+
+	handler.Delete(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("cross-workspace Delete: got %d, want 404 (body=%s)", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock: %v", err)
+	}
+}

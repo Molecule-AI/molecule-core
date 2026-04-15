@@ -150,6 +150,11 @@ type updateScheduleRequest struct {
 // Update modifies a schedule. Uses a fixed UPDATE with COALESCE so only
 // provided fields are changed — no dynamic SQL construction.
 func (h *ScheduleHandler) Update(c *gin.Context) {
+	// Issue #113: bind scheduleId to the parent workspace. The wsAuth group
+	// already verifies the caller's token against :id, so :id is the sole
+	// ownership boundary — scheduleId must live inside it or the request
+	// resolves a foreign row (IDOR). Every SQL below uses BOTH keys.
+	workspaceID := c.Param("id")
 	scheduleID := c.Param("scheduleId")
 	ctx := c.Request.Context()
 
@@ -164,7 +169,8 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 	if body.CronExpr != nil || body.Timezone != nil {
 		var currentCron, currentTZ string
 		err := db.DB.QueryRowContext(ctx,
-			`SELECT cron_expr, timezone FROM workspace_schedules WHERE id = $1`, scheduleID,
+			`SELECT cron_expr, timezone FROM workspace_schedules WHERE id = $1 AND workspace_id = $2`,
+			scheduleID, workspaceID,
 		).Scan(&currentCron, &currentTZ)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "schedule not found"})
@@ -192,15 +198,15 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 
 	result, err := db.DB.ExecContext(ctx, `
 		UPDATE workspace_schedules SET
-			name      = COALESCE($2, name),
-			cron_expr = COALESCE($3, cron_expr),
-			timezone  = COALESCE($4, timezone),
-			prompt    = COALESCE($5, prompt),
-			enabled   = COALESCE($6, enabled),
-			next_run_at = COALESCE($7, next_run_at),
+			name      = COALESCE($3, name),
+			cron_expr = COALESCE($4, cron_expr),
+			timezone  = COALESCE($5, timezone),
+			prompt    = COALESCE($6, prompt),
+			enabled   = COALESCE($7, enabled),
+			next_run_at = COALESCE($8, next_run_at),
 			updated_at = now()
-		WHERE id = $1
-	`, scheduleID, body.Name, body.CronExpr, body.Timezone, body.Prompt, body.Enabled, nextRunAt)
+		WHERE id = $1 AND workspace_id = $2
+	`, scheduleID, workspaceID, body.Name, body.CronExpr, body.Timezone, body.Prompt, body.Enabled, nextRunAt)
 	if err != nil {
 		log.Printf("Schedules.Update: error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update schedule"})
@@ -215,13 +221,17 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "updated"})
 }
 
-// Delete removes a schedule.
+// Delete removes a schedule. Issue #113 — bind scheduleId to the parent
+// workspace so a member of workspace A cannot delete a schedule owned by
+// workspace B.
 func (h *ScheduleHandler) Delete(c *gin.Context) {
+	workspaceID := c.Param("id")
 	scheduleID := c.Param("scheduleId")
 	ctx := c.Request.Context()
 
 	result, err := db.DB.ExecContext(ctx,
-		`DELETE FROM workspace_schedules WHERE id = $1`, scheduleID)
+		`DELETE FROM workspace_schedules WHERE id = $1 AND workspace_id = $2`,
+		scheduleID, workspaceID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete schedule"})
 		return
