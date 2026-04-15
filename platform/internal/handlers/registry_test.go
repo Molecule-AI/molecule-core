@@ -433,3 +433,110 @@ func TestHeartbeat_SkipsRemovedRows(t *testing.T) {
 		t.Errorf("#73 guard not present in heartbeat UPDATE SQL: %v", err)
 	}
 }
+
+// TestValidateRegistrationURL covers the SSRF-blocking logic in
+// validateRegistrationURL (C6 fix + PR #169 IPv6 gap fix).
+func TestValidateRegistrationURL(t *testing.T) {
+	cases := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		// ── Allowed ──────────────────────────────────────────────────────────
+		{
+			name:    "public http URL",
+			url:     "http://example.com:8080",
+			wantErr: false,
+		},
+		{
+			name:    "public https URL",
+			url:     "https://my-agent.example.com",
+			wantErr: false,
+		},
+		{
+			// Intentionally allowed: the provisioner sets workspace URLs to
+			// http://127.0.0.1:<port> for Docker-hosted agents.
+			name:    "127.0.0.1 allowed — Docker workspace URLs use this host",
+			url:     "http://127.0.0.1:9000",
+			wantErr: false,
+		},
+		// ── Rejected: bad scheme ─────────────────────────────────────────────
+		{
+			name:    "ftp scheme rejected",
+			url:     "ftp://example.com/resource",
+			wantErr: true,
+		},
+		{
+			name:    "file scheme rejected",
+			url:     "file:///etc/passwd",
+			wantErr: true,
+		},
+		// ── Rejected: IPv4 private ranges ────────────────────────────────────
+		{
+			name:    "RFC-1918 10/8",
+			url:     "http://10.0.0.1:8080",
+			wantErr: true,
+		},
+		{
+			name:    "RFC-1918 172.16/12",
+			url:     "http://172.16.0.1:8080",
+			wantErr: true,
+		},
+		{
+			name:    "RFC-1918 172.31/12 upper boundary",
+			url:     "http://172.31.255.255:8080",
+			wantErr: true,
+		},
+		{
+			name:    "RFC-1918 192.168/16",
+			url:     "http://192.168.1.100:8080",
+			wantErr: true,
+		},
+		// ── Rejected: link-local (IsLinkLocalUnicast) ────────────────────────
+		{
+			name:    "IPv4 link-local 169.254.x.x (AWS/GCP IMDS)",
+			url:     "http://169.254.169.254/latest/meta-data/",
+			wantErr: true,
+		},
+		{
+			name:    "IPv6 link-local fe80::/10",
+			url:     "http://[fe80::1]:8080",
+			wantErr: true,
+		},
+		// ── Rejected: IPv6 loopback (PR #169 gap) ────────────────────────────
+		{
+			name:    "IPv6 loopback ::1 blocked",
+			url:     "http://[::1]:8080",
+			wantErr: true,
+		},
+		// ── Rejected: IPv6 ULA (PR #169 gap) ─────────────────────────────────
+		{
+			name:    "IPv6 ULA fc00::/8 lower half of fc00::/7",
+			url:     "http://[fc00::1]:8080",
+			wantErr: true,
+		},
+		{
+			name:    "IPv6 ULA fd00::/8 upper half of fc00::/7",
+			url:     "http://[fd00::1]:8080",
+			wantErr: true,
+		},
+		{
+			name:    "IPv6 ULA fd12:3456:789a::1 typical ULA prefix",
+			url:     "http://[fd12:3456:789a::1]:9090",
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateRegistrationURL(tc.url)
+			if tc.wantErr && err == nil {
+				t.Errorf("validateRegistrationURL(%q) = nil, want error", tc.url)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("validateRegistrationURL(%q) = %v, want nil", tc.url, err)
+			}
+		})
+	}
+}
+

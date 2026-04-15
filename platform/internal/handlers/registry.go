@@ -49,15 +49,23 @@ func validateRegistrationURL(rawURL string) error {
 		// DNS hostname — not an IP; allow (DNS-based SSRF is out of scope here).
 		return nil
 	}
-	// Block link-local (169.254.0.0/16) — AWS/GCP instance metadata service.
+	// Block link-local unicast: 169.254.0.0/16 (IPv4 AWS/GCP IMDS) and
+	// fe80::/10 (IPv6 link-local) are both caught by IsLinkLocalUnicast().
 	if ip.IsLinkLocalUnicast() {
-		return fmt.Errorf("URL %q targets a link-local address (169.254.x.x) which is not allowed", rawURL)
+		return fmt.Errorf("URL %q targets a link-local address which is not allowed", rawURL)
 	}
-	// Block RFC-1918 private ranges: 10/8, 172.16/12, 192.168/16.
+	// Block RFC-1918 IPv4 private ranges, IPv6 loopback, and IPv6 ULA.
+	// fe80::/10 is already handled above; 127.0.0.0/8 is intentionally ALLOWED
+	// because the provisioner sets workspace URLs to http://127.0.0.1:<port>.
+	// ::1/128 has no legitimate use here and must be blocked (it is the IPv6
+	// equivalent of 127.0.0.1 but no Docker workspace URL uses it).
+	// fc00::/7 covers both fc00::/8 and fd00::/8 (IPv6 ULA) — PR #169 gap.
 	privateRanges := []string{
 		"10.0.0.0/8",
 		"172.16.0.0/12",
 		"192.168.0.0/16",
+		"::1/128",   // IPv6 loopback
+		"fc00::/7",  // IPv6 ULA (covers fc00::/8 and fd00::/8)
 	}
 	for _, cidr := range privateRanges {
 		_, network, _ := net.ParseCIDR(cidr)
@@ -65,8 +73,6 @@ func validateRegistrationURL(rawURL string) error {
 			return fmt.Errorf("URL %q targets a private IP range which is not allowed", rawURL)
 		}
 	}
-	// 127.0.0.0/8 (loopback) is intentionally ALLOWED — the provisioner sets
-	// workspace URLs to http://127.0.0.1:<port> for Docker-hosted agents.
 	return nil
 }
 
