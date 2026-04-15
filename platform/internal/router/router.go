@@ -25,6 +25,14 @@ import (
 func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provisioner, platformURL, configsDir string, wh *handlers.WorkspaceHandler, channelMgr *channels.Manager) *gin.Engine {
 	r := gin.Default()
 
+	// Issue #179 — trust no reverse-proxy headers. Without this call Gin's
+	// default is to trust ALL X-Forwarded-For values, which lets any caller
+	// spoof their IP and bypass per-IP rate limiting. With nil, c.ClientIP()
+	// always returns the real TCP RemoteAddr.
+	if err := r.SetTrustedProxies(nil); err != nil {
+		panic("router: SetTrustedProxies: " + err.Error())
+	}
+
 	// CORS origins — configurable via CORS_ORIGINS env var (comma-separated)
 	corsOrigins := []string{"http://localhost:3000", "http://localhost:3001"}
 	if v := os.Getenv("CORS_ORIGINS"); v != "" {
