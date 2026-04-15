@@ -100,7 +100,7 @@ async def test_dispatch_openai_scheme_calls_openai_compat():
 
     # Phase 2c: _do_inference passes (user_message, history) to the path;
     # when no history supplied, second arg is None.
-    executor._do_openai_compat.assert_awaited_once_with("hello", None)
+    executor._do_openai_compat.assert_awaited_once_with("hello", None, None)
     executor._do_anthropic_native.assert_not_awaited()
     executor._do_gemini_native.assert_not_awaited()
     assert result == "openai-result"
@@ -116,7 +116,7 @@ async def test_dispatch_anthropic_scheme_calls_anthropic_native():
 
     result = await executor._do_inference("hello")
 
-    executor._do_anthropic_native.assert_awaited_once_with("hello", None)
+    executor._do_anthropic_native.assert_awaited_once_with("hello", None, None)
     executor._do_openai_compat.assert_not_awaited()
     executor._do_gemini_native.assert_not_awaited()
     assert result == "anthropic-result"
@@ -132,7 +132,7 @@ async def test_dispatch_gemini_scheme_calls_gemini_native():
 
     result = await executor._do_inference("hello")
 
-    executor._do_gemini_native.assert_awaited_once_with("hello", None)
+    executor._do_gemini_native.assert_awaited_once_with("hello", None, None)
     executor._do_openai_compat.assert_not_awaited()
     executor._do_anthropic_native.assert_not_awaited()
     assert result == "gemini-result"
@@ -223,8 +223,105 @@ async def test_dispatch_passes_history_through():
     history = [("human", "prior q"), ("ai", "prior a")]
     result = await executor._do_inference("current", history)
 
-    executor._do_anthropic_native.assert_awaited_once_with("current", history)
+    executor._do_anthropic_native.assert_awaited_once_with("current", history, None)
     assert result == "reply-with-history"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2d-i — system_prompt dispatch tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_passes_system_prompt_to_anthropic():
+    """system_prompt flows through _do_inference → _do_anthropic_native as third arg."""
+    executor = _make_executor("anthropic")
+    executor._do_anthropic_native = AsyncMock(return_value="reply")
+    executor._do_openai_compat = AsyncMock()
+    executor._do_gemini_native = AsyncMock()
+
+    await executor._do_inference("user msg", None, "you are a helpful assistant")
+    executor._do_anthropic_native.assert_awaited_once_with(
+        "user msg", None, "you are a helpful assistant"
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_passes_system_prompt_to_gemini():
+    """system_prompt flows through _do_inference → _do_gemini_native as third arg."""
+    executor = _make_executor("gemini")
+    executor._do_gemini_native = AsyncMock(return_value="reply")
+    executor._do_openai_compat = AsyncMock()
+    executor._do_anthropic_native = AsyncMock()
+
+    await executor._do_inference("user msg", None, "system instruction")
+    executor._do_gemini_native.assert_awaited_once_with(
+        "user msg", None, "system instruction"
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_passes_system_prompt_to_openai():
+    """system_prompt flows through _do_inference → _do_openai_compat as third arg."""
+    executor = _make_executor("openai")
+    executor._do_openai_compat = AsyncMock(return_value="reply")
+    executor._do_anthropic_native = AsyncMock()
+    executor._do_gemini_native = AsyncMock()
+
+    await executor._do_inference("user msg", None, "system prompt")
+    executor._do_openai_compat.assert_awaited_once_with(
+        "user msg", None, "system prompt"
+    )
+
+
+def test_executor_accepts_config_path_kwarg():
+    """HermesA2AExecutor.__init__ accepts config_path and stores it on _config_path."""
+    import importlib.util
+    src = (_HERMES_DIR / "executor.py").read_text().replace(
+        "from .providers import", "from providers import"
+    )
+    ns: dict = {}
+    exec(compile(src, str(_HERMES_DIR / "executor.py"), "exec"), ns)
+    HermesA2AExecutor = ns["HermesA2AExecutor"]
+    cfg = providers.PROVIDERS["openai"]
+
+    # Without config_path — default None
+    e1 = HermesA2AExecutor(provider_cfg=cfg, api_key="k", model="m")
+    assert e1._config_path is None
+
+    # With config_path
+    e2 = HermesA2AExecutor(
+        provider_cfg=cfg, api_key="k", model="m", config_path="/configs"
+    )
+    assert e2._config_path == "/configs"
+
+
+def test_create_executor_forwards_config_path():
+    """create_executor(config_path=...) → executor._config_path gets set.
+
+    Exercises both the hermes_api_key back-compat path AND the registry
+    resolution path to make sure config_path threads through both.
+    """
+    import importlib.util
+    src = (_HERMES_DIR / "executor.py").read_text().replace(
+        "from .providers import", "from providers import"
+    )
+    ns: dict = {}
+    exec(compile(src, str(_HERMES_DIR / "executor.py"), "exec"), ns)
+    create_executor = ns["create_executor"]
+
+    # Path 1: hermes_api_key
+    e1 = create_executor(hermes_api_key="k", config_path="/path/a")
+    assert e1._config_path == "/path/a"
+
+    # Path 2: registry resolution
+    import os
+    os.environ["OPENAI_API_KEY"] = "openai-test"
+    try:
+        e2 = create_executor(provider="openai", config_path="/path/b")
+        assert e2._config_path == "/path/b"
+    finally:
+        os.environ.pop("OPENAI_API_KEY", None)
 
 
 @pytest.mark.asyncio
