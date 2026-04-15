@@ -236,15 +236,16 @@ check "Heartbeat clear current_task" '"status":"ok"' "$R"
 R=$(curl -s "$BASE/workspaces/$ECHO_ID")
 check "current_task cleared" '"current_task":""' "$R"
 
-# Test: current_task in workspace list
-R=$(curl -s "$BASE/workspaces")
+# Test: current_task in workspace list — now admin-auth gated (C1 fix), so a
+# workspace bearer token is required once tokens exist anywhere on the platform.
+R=$(curl -s "$BASE/workspaces" -H "Authorization: Bearer $ECHO_TOKEN")
 check "current_task in list response" '"current_task"' "$R"
 
 # Test 21: Delete
 R=$(curl -s -X DELETE "$BASE/workspaces/$ECHO_ID" -H "Authorization: Bearer $ECHO_TOKEN")
 check "DELETE /workspaces/:id" '"status":"removed"' "$R"
 
-R=$(curl -s "$BASE/workspaces")
+R=$(curl -s "$BASE/workspaces" -H "Authorization: Bearer $SUM_TOKEN")
 COUNT=$(echo "$R" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
 check "List after delete (count=1)" "1" "$COUNT"
 
@@ -264,6 +265,8 @@ ORIG_TIER=$(echo "$BUNDLE" | python3 -c "import sys,json; print(json.load(sys.st
 R=$(curl -s -X DELETE "$BASE/workspaces/$SUM_ID" -H "Authorization: Bearer $SUM_TOKEN")
 check "Delete before re-import" '"status":"removed"' "$R"
 
+# Both workspaces deleted — their tokens are revoked, so admin-auth falls
+# back to the no-tokens bootstrap path and no header is required here.
 R=$(curl -s "$BASE/workspaces")
 COUNT=$(echo "$R" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
 check "All workspaces deleted (count=0)" "0" "$COUNT"
