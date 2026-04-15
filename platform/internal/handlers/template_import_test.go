@@ -94,6 +94,44 @@ func TestGenerateDefaultConfig_Empty(t *testing.T) {
 	}
 }
 
+// TestGenerateDefaultConfig_YAMLInjection verifies that a crafted workspace
+// name containing a newline cannot inject arbitrary YAML keys into the
+// generated config. This is the regression test for issue #221.
+func TestGenerateDefaultConfig_YAMLInjection(t *testing.T) {
+	adversarialCases := []struct {
+		desc        string
+		name        string
+		bannedLines []string // lines that must NOT appear in the output
+	}{
+		{
+			desc:        "newline followed by new key",
+			name:        "legit-agent\nmodel: malicious:model",
+			bannedLines: []string{"model: malicious:model"},
+		},
+		{
+			desc:        "CRLF injection",
+			name:        "legit-agent\r\nmalicious_key: value",
+			bannedLines: []string{"malicious_key: value"},
+		},
+		{
+			desc:        "multiple newlines with multiple keys",
+			name:        "x\nfoo: bar\nbaz: qux",
+			bannedLines: []string{"foo: bar", "baz: qux"},
+		},
+	}
+
+	for _, tc := range adversarialCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			cfg := generateDefaultConfig(tc.name, map[string]string{})
+			for _, banned := range tc.bannedLines {
+				if strings.Contains(cfg, banned) {
+					t.Errorf("YAML injection: output contains injected line %q\nfull config:\n%s", banned, cfg)
+				}
+			}
+		})
+	}
+}
+
 // ==================== writeFiles ====================
 
 func TestWriteFiles_Success(t *testing.T) {
