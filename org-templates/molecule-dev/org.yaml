@@ -122,6 +122,58 @@ workspaces:
       4. Run: git -C $REPO log --oneline -5 to see recent changes
       5. Use commit_memory to save a brief summary of recent changes
       6. You are now ready. Wait for the CEO to give you tasks.
+    schedules:
+      - name: Orchestrator pulse
+        cron_expr: "1,6,11,16,21,26,31,36,41,46,51,56 * * * *"
+        prompt: |
+          You're on a 5-minute orchestration pulse. Your job is to keep the
+          team busy with real work, not to wait for the CEO to ask. This is
+          the inner loop of the 24/7 autonomous team.
+
+          1. SCAN TEAM STATE (who is idle):
+             curl -s http://host.docker.internal:8080/workspaces | \
+               python3 -c "import json,sys
+             for w in json.load(sys.stdin):
+               if w.get('status')=='online':
+                 busy='Y' if w.get('active_tasks',0)>0 else 'N'
+                 print(f\"{w['name']:28} busy={busy} | {(w.get('current_task') or '')[:70]}\")"
+             Note idle leaders (Dev Lead, Research Lead) and idle workers.
+
+          2. SCAN EXTERNAL BACKLOG (GitHub):
+             - gh pr list --repo ${GITHUB_REPO} --state open --json number,title,author,statusCheckRollup
+             - gh issue list --repo ${GITHUB_REPO} --state open --label needs-work --json number,title,labels
+             Priority: CI-green PRs awaiting review > issues labeled needs-work > issues
+             labeled good-first-issue.
+
+          3. SCAN INTERNAL BACKLOG:
+             search_memory "backlog:" — pull any stashed improvement ideas from prior pulses.
+
+          4. DISPATCH (max 3 A2A per pulse):
+             - For each engineering issue without an assigned PR branch → delegate_task to Dev Lead
+               ("Assign issue #<N> to an idle engineer; branch fix/issue-<N>-<slug>; open PR.")
+             - For each research/market question → delegate_task to Research Lead
+               ("Research <topic>; report in <N> words.")
+             - For each PR that's CI-green and mergeable → leave a GH review comment approving,
+               or if you own merge rights, merge it directly.
+             - For each docs gap → delegate_task to Documentation Specialist.
+             Do NOT dispatch to workspaces with active_tasks>0.
+
+          5. REVIEW COMPLETED WORK (last 5 minutes):
+             For workspaces that completed a task recently, look at their last memory write
+             (search_memory "<workspace-name>") and decide: (a) ship as-is, (b) request rework
+             via delegate_task, or (c) file a new issue if it surfaced a follow-up.
+
+          6. REPORT:
+             commit_memory with one line: "pulse HH:MM — dispatched <N>, reviewed <M>, idle <K>".
+
+          HARD RULES:
+          - Max 3 A2A sends per pulse. If more work exists, next pulse (5 min) picks it up.
+          - NEVER dispatch to a busy workspace — the scheduler rejects it anyway.
+          - Under 90 seconds wall-clock per pulse. If you're still thinking at 60s, pick the
+            single highest-priority item, dispatch, and stop.
+          - If every agent is idle AND the backlog is empty → write "orchestrator-clean HH:MM"
+            to memory and stop. Do NOT fabricate busy work.
+        enabled: true
     children:
       - name: Research Lead
         role: Market analysis and technical research
@@ -139,8 +191,51 @@ workspaces:
           5. Use commit_memory to save key product facts for later recall
           6. Wait for tasks from PM.
         schedules:
+          - name: Orchestrator pulse
+            cron_expr: "4,9,14,19,24,29,34,39,44,49,54,59 * * * *"
+            prompt: |
+              You're on a 5-minute research orchestration pulse. Coordinate your
+              research team (Market Analyst, Technical Researcher, Competitive Intelligence).
+              Keep them busy with real research, not idle between eco-watch fires.
+
+              1. SCAN TEAM STATE:
+                 curl -s http://host.docker.internal:8080/workspaces | \
+                   python3 -c "import json,sys
+                 names = {'Market Analyst','Technical Researcher','Competitive Intelligence'}
+                 for w in json.load(sys.stdin):
+                   if w.get('name') in names and w.get('status')=='online':
+                     print(f\"{w['name']:25} busy={'Y' if w.get('active_tasks',0)>0 else 'N'}\")"
+
+              2. CHECK RESEARCH BACKLOG:
+                 - gh issue list --repo ${GITHUB_REPO} --state open --label research --json number,title
+                 - search_memory "research-question" — questions from PM waiting for an answer
+                 - Questions you yourself stashed from eco-watch reflection
+
+              3. DISPATCH (max 2 A2A per pulse — research is slow):
+                 - Market sizing / user research / pricing → Market Analyst
+                 - Framework / SDK / MCP evaluation / protocol research → Technical Researcher
+                 - Competitor feature tracking / roadmap diffs → Competitive Intelligence
+                 delegate_task format: "Research <topic>. Report in <N> words. When done, send
+                   audit_summary to PM with category=research, severity=info, top_recommendation=<one-liner>."
+
+              4. REVIEW completed research from last 5 min:
+                 If a subordinate finished, summarize their output and route the summary to PM
+                 via delegate_task with audit_summary metadata.
+
+              5. REPORT:
+                 commit_memory "research-pulse HH:MM — dispatched <N>, reviewed <M>, idle <K>".
+
+              HARD RULES:
+              - Max 2 A2A sends per pulse.
+              - If the eco-watch cron is currently in flight (fires at :08 and :38), SKIP this
+                pulse entirely — don't collide with your own deep-work task.
+              - Don't dispatch to a busy researcher.
+              - Under 60 seconds wall-clock per pulse.
+              - If all 3 researchers are idle AND backlog is empty → write "research-clean HH:MM"
+                to memory and stop. No busy work.
+            enabled: true
           - name: Hourly ecosystem watch
-            cron_expr: "8 * * * *"
+            cron_expr: "8,38 * * * *"
             prompt: |
               Daily survey for new agent-infra / AI-agent projects worth tracking.
 
@@ -227,8 +322,58 @@ workspaces:
           5. Use commit_memory to save the architecture summary and recent changes
           6. Wait for tasks from PM.
         schedules:
+          - name: Orchestrator pulse
+            cron_expr: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
+            prompt: |
+              You're on a 5-minute engineering orchestration pulse. Dispatch dev work
+              and review completed work. Keep Backend Engineer, Frontend Engineer, and
+              DevOps Engineer busy with real issues.
+
+              1. SCAN ENGINEERING TEAM STATE:
+                 curl -s http://host.docker.internal:8080/workspaces | \
+                   python3 -c "import json,sys
+                 names = {'Backend Engineer','Frontend Engineer','DevOps Engineer','QA Engineer'}
+                 for w in json.load(sys.stdin):
+                   if w.get('name') in names and w.get('status')=='online':
+                     print(f\"{w['name']:25} busy={'Y' if w.get('active_tasks',0)>0 else 'N'}\")"
+
+              2. REVIEW OPEN PRs from your direct reports:
+                 gh pr list --repo ${GITHUB_REPO} --state open --json number,title,headRefName,author,statusCheckRollup
+                 For each PR:
+                 - If CI green + author is an engineer on your team → run molecule-skill-code-review
+                   against the diff (gh pr diff <N>). If clean, leave approving review comment.
+                   If issues, delegate_task back to the author with the list of fixes.
+                 - If CI red → delegate_task to the author with the failure summary from
+                   gh run view <run-id> --log-failed.
+
+              3. SCAN ENGINEERING BACKLOG:
+                 gh issue list --repo ${GITHUB_REPO} --state open --label bug,feature,security \
+                   --json number,title,labels
+                 Priority order: security > bug > feature > refactor.
+
+              4. DISPATCH (max 3 A2A per pulse):
+                 Match idle engineer → highest-priority unassigned issue:
+                 - Backend Engineer → security / platform / Go / database issues
+                 - Frontend Engineer → canvas / a11y / UX / TypeScript issues
+                 - DevOps Engineer → docker / CI / deployment / infra issues
+                 delegate_task format: "Work on issue #<N>: <title>. Create branch
+                   fix/issue-<N>-<slug>. Run tests. Open PR. Link issue in PR body."
+
+              5. REPORT:
+                 commit_memory "dev-pulse HH:MM — dispatched <N>, reviewed <M>, idle <K>".
+
+              HARD RULES:
+              - Max 3 A2A sends per pulse.
+              - If your own template-fitness audit is in flight (fires at :15 and :45), SKIP
+                this pulse — don't double up your own workload.
+              - Never dispatch to a busy engineer (active_tasks>0).
+              - Under 90 seconds wall-clock per pulse. If >60s, pick one highest-priority
+                dispatch and ship.
+              - If all engineers idle AND backlog clean → write "dev-clean HH:MM" to memory
+                and stop. No fabricating busy work.
+            enabled: true
           - name: Hourly template fitness audit
-            cron_expr: "15 * * * *"
+            cron_expr: "15,45 * * * *"
             prompt: |
               Daily audit of `org-templates/molecule-dev/`. Catches drift, stale prompts,
               missing schedules, and gaps that block the team-runs-24/7 goal. Symptom
@@ -410,7 +555,7 @@ workspaces:
               6. Wait for tasks from Dev Lead.
             schedules:
               - name: Hourly security audit
-                cron_expr: "17 * * * *"
+                cron_expr: "1,11,21,31,41,51 * * * *"
                 prompt: |
                   Recurring hourly security audit. Be thorough on recently changed code.
 
@@ -579,7 +724,7 @@ workspaces:
               6. Wait for tasks from Dev Lead.
             schedules:
               - name: Hourly UI/UX audit with live screenshots
-                cron_expr: "11 * * * *"
+                cron_expr: "5,20,35,50 * * * *"
                 prompt: |
                   Hourly UX audit of the live Molecule AI canvas. Take real screenshots
                   and analyse actual user flows. The runtime discovered a working Chromium
