@@ -503,6 +503,11 @@ workspaces:
             tier: 3
             model: opus
             files_dir: backend-engineer
+            # #266: HITL gate — Backend Engineer's scope includes destructive
+            # DB migrations + runtime config changes; the @requires_approval
+            # decorator stops an unattended agent from shipping a prod
+            # schema mutation without a human click. UNION with defaults.
+            plugins: [molecule-hitl]
             initial_prompt: |
               You just started as Backend Engineer. Set up silently — do NOT contact other agents.
               1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
@@ -528,6 +533,11 @@ workspaces:
             tier: 3
             model: opus
             files_dir: devops-engineer
+            # #266: HITL gate — DevOps Engineer's scope covers fly deploys,
+            # registry pushes, CI pipeline mutations. Any of these going
+            # wrong affects every tenant; @requires_approval before
+            # destructive infra ops is the point.
+            plugins: [molecule-hitl]
             initial_prompt: |
               You just started as DevOps Engineer. Set up silently — do NOT contact other agents.
               1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
@@ -587,12 +597,21 @@ workspaces:
             tier: 3
             model: opus
             files_dir: security-auditor
-            # Security Auditor adds three security-critical skills on top of defaults:
+            # Security Auditor adds security-critical skills on top of defaults:
             # - molecule-skill-code-review:          multi-criteria review for security-relevant PRs
             # - molecule-skill-cross-vendor-review:  adversarial second opinion via non-Claude model
             #                                        (use ONLY for noteworthy PRs — auth, billing, data)
             # - molecule-skill-llm-judge:            cheap gate that catches "wrong thing shipped"
-            plugins: [molecule-skill-code-review, molecule-skill-cross-vendor-review, molecule-skill-llm-judge]
+            # - molecule-security-scan (#275):       supply-chain CVE gate via Snyk/pip-audit; wraps
+            #                                        builtin_tools/security_scan.py — gosec/bandit/etc
+            # - molecule-hitl (#266):                @requires_approval before filing critical issues
+            #                                        so false-positives don't spam the tracker
+            plugins:
+              - molecule-skill-code-review
+              - molecule-skill-cross-vendor-review
+              - molecule-skill-llm-judge
+              - molecule-security-scan
+              - molecule-hitl
             initial_prompt: |
               You just started as Security Auditor. Set up silently — do NOT contact other agents.
               1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
