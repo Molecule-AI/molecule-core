@@ -140,7 +140,7 @@ workspaces:
           6. Wait for tasks from PM.
         schedules:
           - name: Hourly ecosystem watch
-            cron_expr: "8 * * * *"
+            cron_expr: "2,12,22,32,42,52 * * * *"
             prompt: |
               Daily survey for new agent-infra / AI-agent projects worth tracking.
 
@@ -175,7 +175,7 @@ workspaces:
             plugins: [browser-automation]
             schedules:
               - name: Hourly plugin curation
-                cron_expr: "22 * * * *"
+                cron_expr: "4,14,24,34,44,54 * * * *"
                 prompt: |
                   Weekly survey of `plugins/` and `workspace-template/builtin_tools/` for
                   evolution opportunities. The team should keep gaining capabilities.
@@ -228,7 +228,7 @@ workspaces:
           6. Wait for tasks from PM.
         schedules:
           - name: Hourly template fitness audit
-            cron_expr: "15 * * * *"
+            cron_expr: "8,18,28,38,48,58 * * * *"
             prompt: |
               Daily audit of `org-templates/molecule-dev/`. Catches drift, stale prompts,
               missing schedules, and gaps that block the team-runs-24/7 goal. Symptom
@@ -345,7 +345,7 @@ workspaces:
               6. Wait for tasks from Dev Lead.
             schedules:
               - name: Hourly channel expansion survey
-                cron_expr: "47 * * * *"
+                cron_expr: "7,17,27,37,47,57 * * * *"
                 prompt: |
                   Weekly survey of channel integrations (Telegram, Slack, Discord, email,
                   webhooks). The team should grow its external comms surface where useful,
@@ -410,7 +410,7 @@ workspaces:
               6. Wait for tasks from Dev Lead.
             schedules:
               - name: Hourly security audit
-                cron_expr: "17 * * * *"
+                cron_expr: "1,11,21,31,41,51 * * * *"
                 prompt: |
                   Recurring hourly security audit. Be thorough on recently changed code.
 
@@ -579,7 +579,7 @@ workspaces:
               6. Wait for tasks from Dev Lead.
             schedules:
               - name: Hourly UI/UX audit with live screenshots
-                cron_expr: "11 * * * *"
+                cron_expr: "5,15,25,35,45,55 * * * *"
                 prompt: |
                   Hourly UX audit of the live Molecule AI canvas. Take real screenshots
                   and analyse actual user flows. The runtime discovered a working Chromium
