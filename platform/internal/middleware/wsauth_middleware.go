@@ -119,12 +119,17 @@ func CanvasOrBearer(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Path 1: valid bearer.
+		// Path 1: bearer present → bearer MUST validate. Do not fall through
+		// to Origin on an invalid bearer — an attacker with a revoked /
+		// expired token + a matching Origin would otherwise bypass auth.
+		// Empty bearer → skip to Origin path (canvas never sends one).
 		if tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization")); tok != "" {
-			if err := wsauth.ValidateAnyToken(ctx, database, tok); err == nil {
-				c.Next()
+			if err := wsauth.ValidateAnyToken(ctx, database, tok); err != nil {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
 				return
 			}
+			c.Next()
+			return
 		}
 
 		// Path 2: canvas origin match. Read CORS_ORIGINS at request time so

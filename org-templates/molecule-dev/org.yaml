@@ -67,6 +67,15 @@ defaults:
   # workspace_dir: not set by default — each agent gets an isolated Docker volume
   # Set per-workspace to bind-mount a host directory as /workspace
 
+  # Idle-loop reflection pattern (#205). When idle_prompt is non-empty, the
+  # workspace self-sends this prompt every idle_interval_seconds while its
+  # heartbeat.active_tasks == 0. Pattern from Hermes/Letta. Cost collapses to
+  # event-driven (no LLM call unless there's actually nothing to do). Off by
+  # default to avoid surprising token burn — set per-workspace to enable.
+  # Keep idle prompts local (no A2A sends): same rule as initial_prompt.
+  idle_prompt: ""
+  idle_interval_seconds: 600   # 10 min — ignored when idle_prompt is empty
+
   # initial_prompt runs once on first boot (not on restart).
   # ${GITHUB_REPO} is a container env var from .env secrets.
   # IMPORTANT: Do NOT send A2A messages in initial_prompt — other agents may not
