@@ -585,6 +585,17 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 		pq.Array(allIDs)); err != nil {
 		log.Printf("Delete canvas_layouts error for %s: %v", id, err)
 	}
+	// Revoke all auth tokens for the deleted workspaces. Once the workspace is
+	// gone its tokens are meaningless; leaving them alive would keep
+	// HasAnyLiveTokenGlobal = true even after the platform is otherwise empty,
+	// which prevents AdminAuth from returning to fail-open and breaks the E2E
+	// test's count-zero assertion (and local re-run cleanup).
+	if _, err := db.DB.ExecContext(ctx,
+		`UPDATE workspace_auth_tokens SET revoked_at = now()
+		 WHERE workspace_id = ANY($1::uuid[]) AND revoked_at IS NULL`,
+		pq.Array(allIDs)); err != nil {
+		log.Printf("Delete token revocation error for %s: %v", id, err)
+	}
 
 	// Now stop containers + remove volumes for all descendants (any depth).
 	// Any concurrent heartbeat / registration / liveness-triggered restart
