@@ -230,23 +230,23 @@ jobs:
   python-lint:
     name: Python Lint & Test
     runs-on: [self-hosted, macos, arm64]
-    env:
-      # setup-python@v5 defaults to /Users/runner/hostedtoolcache which does
-      # not exist on the self-hosted runner (user is hongming-claw). Point it
-      # to the runner user's writable directory so Python 3.11 can be cached.
-      AGENT_TOOLSDIRECTORY: /Users/hongming-claw/hostedtoolcache
     defaults:
       run:
         working-directory: workspace-template
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-          cache-dependency-path: workspace-template/requirements.txt
-      - run: pip install -r requirements.txt pytest pytest-asyncio pytest-cov
-      - run: python -m pytest --tb=short -q --cov=. --cov-report=term-missing
+      # setup-python@v5 cannot write to /Users/runner (GitHub-hosted path) on
+      # the self-hosted macOS arm64 runner (user: hongming-claw) and also hits
+      # EACCES on /usr/local/bin due to macOS SIP. Skip it — Homebrew installs
+      # Python 3.11 at /opt/homebrew/opt/python@3.11 which is already on PATH.
+      - name: Verify Python 3.11 (Homebrew)
+        run: |
+          export PATH="/opt/homebrew/opt/python@3.11/bin:/opt/homebrew/bin:$PATH"
+          python3.11 --version
+          echo "/opt/homebrew/opt/python@3.11/bin" >> "$GITHUB_PATH"
+          echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+      - run: pip3.11 install -r requirements.txt pytest pytest-asyncio pytest-cov
+      - run: python3.11 -m pytest --tb=short -q --cov=. --cov-report=term-missing
 
       # Lint first-party plugins. The validator checks each plugin
       # against the format it declares — currently agentskills.io for all
@@ -254,10 +254,10 @@ jobs:
       # under a sibling adapter (MCP, DeepAgents sub-agent, etc.).
       - name: Install molecule-plugin SDK
         working-directory: sdk/python
-        run: pip install -e .
+        run: pip3.11 install -e .
       - name: Lint first-party plugins
         working-directory: ${{ github.workspace }}
-        run: python -m molecule_plugin validate plugins/molecule-dev plugins/superpowers plugins/ecc
+        run: python3.11 -m molecule_plugin validate plugins/molecule-dev plugins/superpowers plugins/ecc
       - name: Run SDK tests
         working-directory: sdk/python
-        run: python -m pytest --tb=short -q
+        run: python3.11 -m pytest --tb=short -q
