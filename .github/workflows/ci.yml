@@ -9,7 +9,7 @@ on:
 jobs:
   platform-build:
     name: Platform (Go)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macos, arm64]
     defaults:
       run:
         working-directory: platform
@@ -43,7 +43,7 @@ jobs:
 
   canvas-build:
     name: Canvas (Next.js)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macos, arm64]
     defaults:
       run:
         working-directory: canvas
@@ -59,7 +59,7 @@ jobs:
 
   mcp-server-build:
     name: MCP Server (Node.js)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macos, arm64]
     defaults:
       run:
         working-directory: mcp-server
@@ -75,37 +75,17 @@ jobs:
 
   e2e-api:
     name: E2E API Smoke Test
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    services:
-      postgres:
-        # Credentials match .env.example (dev:dev) so local reproduction is
-        # identical to CI. POSTGRES_DB matches the default there too.
-        image: postgres:16
-        env:
-          POSTGRES_USER: dev
-          POSTGRES_PASSWORD: dev
-          POSTGRES_DB: molecule
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U dev"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    runs-on: [self-hosted, macos, arm64]
+    timeout-minutes: 15
+    # `services:` is Linux-only on self-hosted runners — we start postgres
+    # and redis via `docker run` instead. Ports 15432/16379 avoid collision
+    # with anything the host may already have on the standard ports.
     env:
-      DATABASE_URL: postgres://dev:dev@localhost:5432/molecule?sslmode=disable
-      REDIS_URL: redis://localhost:6379
+      DATABASE_URL: postgres://dev:dev@localhost:15432/molecule?sslmode=disable
+      REDIS_URL: redis://localhost:16379
       PORT: "8080"
+      PG_CONTAINER: molecule-ci-postgres
+      REDIS_CONTAINER: molecule-ci-redis
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -113,6 +93,38 @@ jobs:
           go-version: 'stable'
           cache: true
           cache-dependency-path: platform/go.sum
+      - name: Start Postgres (docker)
+        run: |
+          docker rm -f "$PG_CONTAINER" 2>/dev/null || true
+          docker run -d --name "$PG_CONTAINER" \
+            -e POSTGRES_USER=dev \
+            -e POSTGRES_PASSWORD=dev \
+            -e POSTGRES_DB=molecule \
+            -p 15432:5432 \
+            postgres:16
+          for i in $(seq 1 30); do
+            if docker exec "$PG_CONTAINER" pg_isready -U dev >/dev/null 2>&1; then
+              echo "Postgres ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Postgres did not become ready in 30s"
+          docker logs "$PG_CONTAINER" || true
+          exit 1
+      - name: Start Redis (docker)
+        run: |
+          docker rm -f "$REDIS_CONTAINER" 2>/dev/null || true
+          docker run -d --name "$REDIS_CONTAINER" -p 16379:6379 redis:7
+          for i in $(seq 1 15); do
+            if docker exec "$REDIS_CONTAINER" redis-cli ping 2>/dev/null | grep -q PONG; then
+              echo "Redis ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Redis did not become ready in 15s"
+          exit 1
       - name: Build platform
         working-directory: platform
         run: go build -o platform-server ./cmd/server
@@ -135,17 +147,9 @@ jobs:
           exit 1
       - name: Assert migrations applied
         # Migrations auto-run at platform boot. Fail fast if they silently
-        # didn't — catches future migration-author mistakes (e.g. a new
-        # privileged op Postgres "dev" can't execute) before the E2E run.
-        # Uses docker exec into the service container's own psql — avoids
-        # a 10-20s apt-install step in the runner.
+        # didn't — catches future migration-author mistakes before the E2E run.
         run: |
-          pg_container=$(docker ps --filter "ancestor=postgres:16" --format "{{.ID}}" | head -1)
-          if [ -z "$pg_container" ]; then
-            echo "::error::Could not find postgres service container"
-            exit 1
-          fi
-          tables=$(docker exec "$pg_container" psql -U dev -d molecule -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='workspaces'")
+          tables=$(docker exec "$PG_CONTAINER" psql -U dev -d molecule -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='workspaces'")
           if [ "$tables" != "1" ]; then
             echo "::error::Migrations did not apply — 'workspaces' table missing"
             cat platform/platform.log || true
@@ -163,22 +167,31 @@ jobs:
           if [ -f platform/platform.pid ]; then
             kill "$(cat platform/platform.pid)" 2>/dev/null || true
           fi
+      - name: Stop service containers
+        if: always()
+        run: |
+          docker rm -f "$PG_CONTAINER" 2>/dev/null || true
+          docker rm -f "$REDIS_CONTAINER" 2>/dev/null || true
 
   shellcheck:
     name: Shellcheck (E2E scripts)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macos, arm64]
     steps:
       - uses: actions/checkout@v4
       - name: Run shellcheck on tests/e2e/*.sh
-        uses: ludeeus/action-shellcheck@master
-        env:
-          SHELLCHECK_OPTS: --severity=warning
-        with:
-          scandir: tests/e2e
+        # `ludeeus/action-shellcheck` is a Docker action (Linux-only). We rely
+        # on shellcheck being pre-installed on the self-hosted runner instead.
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            echo "::error::shellcheck is not installed on the runner"
+            exit 1
+          fi
+          find tests/e2e -type f -name '*.sh' -print0 \
+            | xargs -0 shellcheck --severity=warning
 
   canvas-deploy-reminder:
     name: Canvas Deploy Reminder
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macos, arm64]
     needs: canvas-build
     # Only fires on direct pushes to main (i.e. after a PR merges).
     # PRs get canvas-build CI but no reminder — no deployment happens on PRs.
@@ -216,19 +229,24 @@ jobs:
 
   python-lint:
     name: Python Lint & Test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macos, arm64]
     defaults:
       run:
         working-directory: workspace-template
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-          cache-dependency-path: workspace-template/requirements.txt
-      - run: pip install -r requirements.txt pytest pytest-asyncio pytest-cov
-      - run: python -m pytest --tb=short -q --cov=. --cov-report=term-missing
+      # setup-python@v5 cannot write to /Users/runner (GitHub-hosted path) on
+      # the self-hosted macOS arm64 runner (user: hongming-claw) and also hits
+      # EACCES on /usr/local/bin due to macOS SIP. Skip it — Homebrew installs
+      # Python 3.11 at /opt/homebrew/opt/python@3.11 which is already on PATH.
+      - name: Verify Python 3.11 (Homebrew)
+        run: |
+          export PATH="/opt/homebrew/opt/python@3.11/bin:/opt/homebrew/bin:$PATH"
+          python3.11 --version
+          echo "/opt/homebrew/opt/python@3.11/bin" >> "$GITHUB_PATH"
+          echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+      - run: pip3.11 install -r requirements.txt pytest pytest-asyncio pytest-cov
+      - run: python3.11 -m pytest --tb=short -q --cov=. --cov-report=term-missing
 
       # Lint first-party plugins. The validator checks each plugin
       # against the format it declares — currently agentskills.io for all
@@ -236,10 +254,10 @@ jobs:
       # under a sibling adapter (MCP, DeepAgents sub-agent, etc.).
       - name: Install molecule-plugin SDK
         working-directory: sdk/python
-        run: pip install -e .
+        run: pip3.11 install -e .
       - name: Lint first-party plugins
         working-directory: ${{ github.workspace }}
-        run: python -m molecule_plugin validate plugins/molecule-dev plugins/superpowers plugins/ecc
+        run: python3.11 -m molecule_plugin validate plugins/molecule-dev plugins/superpowers plugins/ecc
       - name: Run SDK tests
         working-directory: sdk/python
-        run: python -m pytest --tb=short -q
+        run: python3.11 -m pytest --tb=short -q
