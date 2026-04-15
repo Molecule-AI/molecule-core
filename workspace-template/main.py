@@ -12,7 +12,7 @@ import httpx
 import uvicorn
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryTaskStore
+from a2a.server.tasks import InMemoryTaskStore, InMemoryPushNotificationConfigStore, PushNotificationSender
 from a2a.types import AgentCard, AgentCapabilities, AgentSkill
 
 from adapters import get_adapter, AdapterConfig
@@ -136,6 +136,7 @@ async def main():  # pragma: no cover
         capabilities=AgentCapabilities(
             streaming=config.a2a.streaming,
             pushNotifications=config.a2a.push_notifications,
+            stateTransitionHistory=True,
         ),
         skills=[
             AgentSkill(
@@ -155,6 +156,8 @@ async def main():  # pragma: no cover
     handler = DefaultRequestHandler(
         agent_executor=executor,
         task_store=InMemoryTaskStore(),
+        push_config_store=InMemoryPushNotificationConfigStore(),
+        push_sender=PushNotificationSender(),
     )
 
     app = A2AStarletteApplication(
