@@ -294,16 +294,17 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	th := handlers.NewTerminalHandler(dockerCli)
 	wsAuth.GET("/terminal", th.HandleConnect)
 
-	// Canvas Viewport — #166: PUT gated behind AdminAuth so an anon caller
-	// can't reset the shared viewport state for all users. GET remains open
-	// because the canvas bootstraps without a bearer and needs the initial
-	// viewport for first paint.
+	// Canvas Viewport — #166 + #168: GET stays fully open for bootstrap.
+	// PUT uses CanvasOrBearer (accepts Origin-match OR bearer token) so the
+	// browser canvas can persist drag/zoom state without a bearer, while
+	// bearer-carrying clients (molecli, integration tests) still work.
+	// Viewport corruption is cosmetic-only — worst case a user refreshes
+	// the page — so the softer check is acceptable here. This middleware
+	// MUST NOT be used on routes that leak prompts, create workspaces,
+	// or write files (#164/#165/#190 class).
 	vh := handlers.NewViewportHandler()
 	r.GET("/canvas/viewport", vh.Get)
-	{
-		viewportAdmin := r.Group("", middleware.AdminAuth(db.DB))
-		viewportAdmin.PUT("/canvas/viewport", vh.Save)
-	}
+	r.PUT("/canvas/viewport", middleware.CanvasOrBearer(db.DB), vh.Save)
 
 	// Templates
 	tmplh := handlers.NewTemplatesHandler(configsDir, dockerCli)

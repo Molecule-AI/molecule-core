@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
 	"github.com/gin-gonic/gin"
@@ -83,4 +85,83 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// CanvasOrBearer is a softer admin-auth variant used ONLY for cosmetic
+// canvas routes where forging the request has zero security impact (PUT
+// /canvas/viewport: worst case an attacker resets the shared viewport
+// position, user refreshes the page, problem solved).
+//
+// Accepts either:
+//
+//  1. A valid bearer token (same contract as AdminAuth) — covers molecli,
+//     agent-to-platform calls, and anyone using the API directly.
+//  2. A browser Origin header that matches CORS_ORIGINS (canvas itself).
+//     This is NOT a strict auth boundary — curl can forge Origin — but for
+//     cosmetic-only routes the trade-off is acceptable. Non-cosmetic routes
+//     MUST NOT use this middleware (see #194 review on why it would re-open
+//     #164 CRITICAL if applied to /bundles/import).
+//
+// Lazy-bootstrap fail-open preserved: zero-token installs pass everything
+// through so fresh self-hosted / dev sessions aren't bricked.
+func CanvasOrBearer(database *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx := c.Request.Context()
+
+		hasLive, err := wsauth.HasAnyLiveTokenGlobal(ctx, database)
+		if err != nil {
+			log.Printf("wsauth: CanvasOrBearer HasAnyLiveTokenGlobal failed: %v — allowing request", err)
+			c.Next()
+			return
+		}
+		if !hasLive {
+			c.Next()
+			return
+		}
+
+		// Path 1: valid bearer.
+		if tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization")); tok != "" {
+			if err := wsauth.ValidateAnyToken(ctx, database, tok); err == nil {
+				c.Next()
+				return
+			}
+		}
+
+		// Path 2: canvas origin match. Read CORS_ORIGINS at request time so
+		// tests can override via t.Setenv. canvasOriginAllowed returns true
+		// iff Origin is non-empty AND exactly matches one of the configured
+		// origins. Empty Origin (same-origin / server-to-server) does NOT
+		// pass this check — those callers must use the bearer path.
+		if canvasOriginAllowed(c.GetHeader("Origin")) {
+			c.Next()
+			return
+		}
+
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "admin auth required"})
+	}
+}
+
+// canvasOriginAllowed returns true if origin matches any entry in the
+// CORS_ORIGINS env var (comma-separated) or the localhost defaults.
+// Exact-match only; no prefix or wildcard logic — that's handled by the
+// real CORS middleware upstream. The intent here is "did this request come
+// from the canvas page the user is already logged into?" — a binary check.
+func canvasOriginAllowed(origin string) bool {
+	if origin == "" {
+		return false
+	}
+	allowed := []string{"http://localhost:3000", "http://localhost:3001"}
+	if v := os.Getenv("CORS_ORIGINS"); v != "" {
+		for _, o := range strings.Split(v, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				allowed = append(allowed, o)
+			}
+		}
+	}
+	for _, a := range allowed {
+		if a == origin {
+			return true
+		}
+	}
+	return false
 }
