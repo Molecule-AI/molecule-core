@@ -444,20 +444,42 @@ func TestValidateAgentURL(t *testing.T) {
 		url     string
 		wantErr bool
 	}{
-		// Valid Docker-internal URLs (must be allowed).
-		{"valid docker http", "http://172.18.0.5:8000", false},
-		{"valid localhost http", "http://127.0.0.1:8000", false},
-		{"valid https", "https://agent.example.com:443", false},
-		{"valid RFC1918 10.x", "http://10.0.0.5:8080", false},
-		{"valid RFC1918 192.168.x", "http://192.168.1.100:8080", false},
-		// SSRF vectors that must be rejected.
-		{"empty url", "", true},
-		{"link-local IMDS AWS", "http://169.254.169.254/latest/meta-data/", true},
-		{"link-local IMDS GCP", "http://169.254.169.254/computeMetadata/v1/", true},
-		{"link-local other", "http://169.254.0.1/anything", true},
-		{"non-http scheme file", "file:///etc/passwd", true},
-		{"non-http scheme ftp", "ftp://internal-server/secrets", true},
-		{"malformed url", "://not-a-url", true},
+		// ── Valid URLs (public hostnames / DNS names) ──────────────────────────
+		{"valid public https", "https://agent.example.com:443", false},
+		{"valid public http", "http://agent.example.com:8000", false},
+		// localhost by name is allowed — agents in local-dev use this form.
+		{"valid localhost name", "http://localhost:8000", false},
+
+		// ── Must be rejected: bad scheme ─────────────────────────────────────
+		{"blocked scheme file", "file:///etc/passwd", true},
+		{"blocked scheme ftp", "ftp://internal-server/secrets", true},
+		{"blocked malformed url", "://not-a-url", true},
+		{"blocked empty url", "", true},
+
+		// ── Must be rejected: 169.254.0.0/16 — link-local / cloud metadata ───
+		{"blocked link-local IMDS 169.254.169.254", "http://169.254.169.254/latest/meta-data/", true},
+		{"blocked link-local GCP metadata", "http://169.254.169.254/computeMetadata/v1/", true},
+		{"blocked link-local 169.254.0.1", "http://169.254.0.1/anything", true},
+
+		// ── Must be rejected: 127.0.0.0/8 — loopback ─────────────────────────
+		{"blocked loopback 127.0.0.1", "http://127.0.0.1:8080", true},
+		{"blocked loopback 127.0.0.2", "http://127.0.0.2:8080", true},
+		{"blocked loopback 127.255.255.255", "http://127.255.255.255:9000", true},
+
+		// ── Must be rejected: 10.0.0.0/8 — RFC-1918 ──────────────────────────
+		{"blocked RFC1918 10.0.0.1", "http://10.0.0.1:8080", true},
+		{"blocked RFC1918 10.0.0.5", "http://10.0.0.5:8080", true},
+		{"blocked RFC1918 10.255.255.254", "http://10.255.255.254:8080", true},
+
+		// ── Must be rejected: 172.16.0.0/12 — RFC-1918 (includes Docker nets) ─
+		{"blocked RFC1918 172.16.0.1 (range start)", "http://172.16.0.1:8080", true},
+		{"blocked RFC1918 172.18.0.5 (docker bridge)", "http://172.18.0.5:8000", true},
+		{"blocked RFC1918 172.31.255.255 (range end)", "http://172.31.255.255:8080", true},
+
+		// ── Must be rejected: 192.168.0.0/16 — RFC-1918 ──────────────────────
+		{"blocked RFC1918 192.168.0.1", "http://192.168.0.1:8080", true},
+		{"blocked RFC1918 192.168.1.100", "http://192.168.1.100:8080", true},
+		{"blocked RFC1918 192.168.255.254", "http://192.168.255.254:8080", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
