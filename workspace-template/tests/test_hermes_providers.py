@@ -46,11 +46,30 @@ _ALL_PROVIDER_ENV_VARS = (
 
 
 @pytest.fixture(autouse=True)
-def _clean_env(monkeypatch):
-    """Clear every provider env var before each test so runs are deterministic."""
-    for key in _ALL_PROVIDER_ENV_VARS:
-        monkeypatch.delenv(key, raising=False)
-    yield
+def _clean_env():
+    """Clear every provider env var before each test and restore to the
+    exact pre-test state on teardown.
+
+    Implementation note: earlier version used pytest's monkeypatch fixture,
+    which tracks deltas from the state at fixture entry. That was buggy
+    because several tests in this file mutate os.environ directly
+    (os.environ["HERMES_API_KEY"] = ...), bypassing monkeypatch's
+    tracking. The direct mutations leaked into the NEXT test file
+    (test_hermes_smoke.py::test_create_executor_raises_without_keys),
+    causing a file-order-dependent failure. Pure snapshot/restore
+    avoids all the delta-tracking edge cases.
+    """
+    saved = {k: os.environ.get(k) for k in _ALL_PROVIDER_ENV_VARS}
+    for k in _ALL_PROVIDER_ENV_VARS:
+        os.environ.pop(k, None)
+    try:
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 def test_registry_is_populated():
