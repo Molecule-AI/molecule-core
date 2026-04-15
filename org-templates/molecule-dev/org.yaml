@@ -554,10 +554,10 @@ workspaces:
               5. Use commit_memory to save security patterns and concerns
               6. Wait for tasks from Dev Lead.
             schedules:
-              - name: Hourly security audit
-                cron_expr: "1,11,21,31,41,51 * * * *"
+              - name: Security audit (every 12h)
+                cron_expr: "7 6,18 * * *"
                 prompt: |
-                  Recurring hourly security audit. Be thorough on recently changed code.
+                  Recurring security audit. Be thorough and incremental.
 
                   1. SETUP:
                      cd /workspace/repo && git pull 2>/dev/null || true
