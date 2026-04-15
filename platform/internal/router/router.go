@@ -62,20 +62,22 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// Scrape with: curl http://localhost:8080/metrics
 	r.GET("/metrics", metrics.Handler())
 
-	// Workspaces read + position-patch — left open for the canvas browser frontend
-	// which has no bearer token. C19 (GET /workspaces exposes topology) requires a
-	// canvas service-token refactor and is tracked as a follow-up issue.
-	r.GET("/workspaces", wh.List)
+	// Workspace read-only endpoints accessible without an explicit workspace ID.
+	// /workspaces/:id and PATCH (position-persist) remain open for the canvas
+	// browser frontend which does not carry a bearer token in those calls.
 	r.GET("/workspaces/:id", wh.Get)
 	r.PATCH("/workspaces/:id", wh.Update)
 
-	// C20 + C18-adjacent: mutating workspace operations require any valid workspace
-	// bearer token (AdminAuth — same fail-open bootstrap contract as global secrets).
-	// Blocks: mass deletion (C20), unauthenticated workspace creation.
-	// Canvas Create Workspace dialog passes through because no global tokens exist
-	// on a fresh install; once any workspace is online the dialog requires auth.
+	// C1 + C20 + C18-adjacent: workspace list and mutating operations all gated
+	// behind AdminAuth — any valid workspace bearer token grants access.
+	// Fail-open when no tokens exist anywhere (fresh install / pre-Phase-30).
+	// This blocks:
+	//   C1  — unauthenticated GET /workspaces (workspace topology exposure)
+	//   C20 — unauthenticated DELETE /workspaces/:id (mass-deletion attack)
+	//         unauthenticated POST /workspaces (workspace creation)
 	{
 		wsAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		wsAdmin.GET("/workspaces", wh.List)
 		wsAdmin.POST("/workspaces", wh.Create)
 		wsAdmin.DELETE("/workspaces/:id", wh.Delete)
 	}
