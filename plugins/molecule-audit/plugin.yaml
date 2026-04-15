@@ -1,0 +1,16 @@
+name: molecule-audit
+version: 1.0.0
+description: >
+  Immutable append-only audit log for EU AI Act compliance (Articles 12/13/17).
+  Wraps builtin_tools/audit.py — JSON Lines format, SIEM-friendly, write-only.
+  Opt-in per workspace; usually paired with molecule-compliance.
+author: Molecule AI
+tags: [audit, compliance, eu-ai-act, logging, siem]
+
+runtimes:
+  - langgraph
+  - claude_code
+  - deepagents
+
+skills:
+  - ai-act-audit-log
