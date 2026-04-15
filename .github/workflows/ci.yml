@@ -220,6 +220,14 @@ jobs:
     defaults:
       run:
         working-directory: workspace-template
+    env:
+      # Self-hosted runner workaround: actions/setup-python hardcodes
+      # /Users/runner/hostedtoolcache, which doesn't exist on the Mac mini
+      # runner (user is hongming-claw). Redirect the tool cache into the
+      # runner's own _work/_tool dir. AGENT_TOOLSDIRECTORY is the canonical
+      # override honoured by setup-python v5.
+      AGENT_TOOLSDIRECTORY: /Users/hongming-claw/actions-runner/_work/_tool
+      RUNNER_TOOL_CACHE: /Users/hongming-claw/actions-runner/_work/_tool
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
