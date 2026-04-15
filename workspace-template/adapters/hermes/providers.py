@@ -113,10 +113,14 @@ PROVIDERS: dict[str, ProviderConfig] = {
     "anthropic": ProviderConfig(
         name="anthropic",
         env_vars=("ANTHROPIC_API_KEY",),
-        base_url="https://api.anthropic.com/v1",
+        base_url="https://api.anthropic.com",
         default_model="claude-sonnet-4-5",
-        docs="Anthropic — Phase 1 uses the OpenAI-compat shim at /v1. Phase 2 "
-             "will add the native Messages API path for better tool calling.",
+        auth_scheme="anthropic",
+        docs="Anthropic — Phase 2 uses the native Messages API via the official "
+             "`anthropic` Python SDK for correct tool calling, vision, and "
+             "extended thinking semantics. If the SDK isn't installed in the "
+             "workspace image, the executor raises a clear error pointing at "
+             "`pip install anthropic>=0.39.0`.",
     ),
     "xai": ProviderConfig(
         name="xai",
