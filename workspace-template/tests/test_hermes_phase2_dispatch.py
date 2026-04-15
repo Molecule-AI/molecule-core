@@ -63,15 +63,25 @@ def _make_executor(provider_name: str):
 
 
 def test_anthropic_entry_has_anthropic_scheme():
-    """The registry flip: Phase 2 sets anthropic's auth_scheme to 'anthropic'."""
+    """Phase 2a: anthropic's auth_scheme is 'anthropic'."""
     cfg = providers.PROVIDERS["anthropic"]
     assert cfg.auth_scheme == "anthropic"
 
 
+def test_gemini_entry_has_gemini_scheme():
+    """Phase 2b: gemini's auth_scheme is 'gemini'."""
+    cfg = providers.PROVIDERS["gemini"]
+    assert cfg.auth_scheme == "gemini"
+    # Base URL no longer has the /v1beta/openai suffix — native SDK uses bare host.
+    assert "/openai" not in cfg.base_url
+    assert cfg.base_url.startswith("https://generativelanguage.googleapis.com")
+
+
 def test_all_other_providers_still_openai_scheme():
-    """Phase 2 only changes anthropic. Every other provider keeps auth_scheme='openai'."""
+    """Phase 2 changes only anthropic + gemini. Every other provider keeps auth_scheme='openai'."""
+    native_providers = {"anthropic", "gemini"}
     for name, cfg in providers.PROVIDERS.items():
-        if name == "anthropic":
+        if name in native_providers:
             continue
         assert cfg.auth_scheme == "openai", (
             f"{name} unexpectedly has auth_scheme={cfg.auth_scheme!r}"
@@ -80,30 +90,50 @@ def test_all_other_providers_still_openai_scheme():
 
 @pytest.mark.asyncio
 async def test_dispatch_openai_scheme_calls_openai_compat():
-    """auth_scheme='openai' → _do_openai_compat runs, _do_anthropic_native does not."""
+    """auth_scheme='openai' → _do_openai_compat runs, native paths do not."""
     executor = _make_executor("openai")
     executor._do_openai_compat = AsyncMock(return_value="openai-result")
     executor._do_anthropic_native = AsyncMock(return_value="should-not-run")
+    executor._do_gemini_native = AsyncMock(return_value="should-not-run")
 
     result = await executor._do_inference("hello")
 
     executor._do_openai_compat.assert_awaited_once_with("hello")
     executor._do_anthropic_native.assert_not_awaited()
+    executor._do_gemini_native.assert_not_awaited()
     assert result == "openai-result"
 
 
 @pytest.mark.asyncio
 async def test_dispatch_anthropic_scheme_calls_anthropic_native():
-    """auth_scheme='anthropic' → _do_anthropic_native runs, _do_openai_compat does not."""
+    """auth_scheme='anthropic' → _do_anthropic_native runs, others do not."""
     executor = _make_executor("anthropic")
     executor._do_openai_compat = AsyncMock(return_value="should-not-run")
     executor._do_anthropic_native = AsyncMock(return_value="anthropic-result")
+    executor._do_gemini_native = AsyncMock(return_value="should-not-run")
 
     result = await executor._do_inference("hello")
 
     executor._do_anthropic_native.assert_awaited_once_with("hello")
     executor._do_openai_compat.assert_not_awaited()
+    executor._do_gemini_native.assert_not_awaited()
     assert result == "anthropic-result"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_gemini_scheme_calls_gemini_native():
+    """auth_scheme='gemini' → _do_gemini_native runs, others do not. Phase 2b."""
+    executor = _make_executor("gemini")
+    executor._do_openai_compat = AsyncMock(return_value="should-not-run")
+    executor._do_anthropic_native = AsyncMock(return_value="should-not-run")
+    executor._do_gemini_native = AsyncMock(return_value="gemini-result")
+
+    result = await executor._do_inference("hello")
+
+    executor._do_gemini_native.assert_awaited_once_with("hello")
+    executor._do_openai_compat.assert_not_awaited()
+    executor._do_anthropic_native.assert_not_awaited()
+    assert result == "gemini-result"
 
 
 @pytest.mark.asyncio
@@ -120,11 +150,13 @@ async def test_dispatch_unknown_scheme_falls_back_to_openai_compat():
     )
     executor._do_openai_compat = AsyncMock(return_value="fallback-result")
     executor._do_anthropic_native = AsyncMock()
+    executor._do_gemini_native = AsyncMock()
 
     result = await executor._do_inference("hello")
 
     executor._do_openai_compat.assert_awaited_once()
     executor._do_anthropic_native.assert_not_awaited()
+    executor._do_gemini_native.assert_not_awaited()
     assert result == "fallback-result"
 
 
@@ -144,6 +176,21 @@ async def test_anthropic_native_raises_clear_error_when_sdk_missing(monkeypatch)
 
     with pytest.raises(RuntimeError, match="anthropic"):
         await executor._do_anthropic_native("hello")
+
+
+@pytest.mark.asyncio
+async def test_gemini_native_raises_clear_error_when_sdk_missing(monkeypatch):
+    """If the google-genai package is not installed, _do_gemini_native raises
+    a clear RuntimeError with install instructions — same fail-loud semantics
+    as the anthropic native path."""
+    executor = _make_executor("gemini")
+
+    # Simulate ImportError on `from google import genai`. Clobbering
+    # sys.modules["google"] forces the submodule import to fail.
+    monkeypatch.setitem(sys.modules, "google", None)
+
+    with pytest.raises(RuntimeError, match="google-genai"):
+        await executor._do_gemini_native("hello")
 
 
 def test_create_executor_passes_provider_cfg():
@@ -173,3 +220,13 @@ def test_create_executor_passes_provider_cfg():
         assert exec2.model == "claude-sonnet-4-5"
     finally:
         os.environ.pop("ANTHROPIC_API_KEY", None)
+
+    # Path 3: Phase 2b — gemini explicit resolution
+    os.environ["GEMINI_API_KEY"] = "gem-test"
+    try:
+        exec3 = create_executor(provider="gemini")
+        assert exec3.provider_cfg.name == "gemini"
+        assert exec3.provider_cfg.auth_scheme == "gemini"
+        assert exec3.model == "gemini-2.5-flash"
+    finally:
+        os.environ.pop("GEMINI_API_KEY", None)
