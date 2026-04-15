@@ -275,8 +275,12 @@ func (h *ScheduleHandler) History(c *gin.Context) {
 	workspaceID := c.Param("id")
 	ctx := c.Request.Context()
 
+	// #152: include error_detail in history so UI can show why a run failed.
+	// activity_logs.error_detail is populated by scheduler.fireSchedule when
+	// the A2A proxy returns non-2xx or the update SQL reports an error.
 	rows, err := db.DB.QueryContext(ctx, `
 		SELECT created_at, duration_ms, status,
+		       COALESCE(error_detail, '') as error_detail,
 		       COALESCE(request_body::text, '{}') as request_body
 		FROM activity_logs
 		WHERE workspace_id = $1
@@ -292,17 +296,18 @@ func (h *ScheduleHandler) History(c *gin.Context) {
 	defer rows.Close()
 
 	type historyEntry struct {
-		Timestamp  time.Time       `json:"timestamp"`
-		DurationMs *int            `json:"duration_ms"`
-		Status     *string         `json:"status"`
-		Request    json.RawMessage `json:"request"`
+		Timestamp   time.Time       `json:"timestamp"`
+		DurationMs  *int            `json:"duration_ms"`
+		Status      *string         `json:"status"`
+		ErrorDetail string          `json:"error_detail"`
+		Request     json.RawMessage `json:"request"`
 	}
 
 	entries := make([]historyEntry, 0)
 	for rows.Next() {
 		var e historyEntry
 		var reqStr string
-		if err := rows.Scan(&e.Timestamp, &e.DurationMs, &e.Status, &reqStr); err != nil {
+		if err := rows.Scan(&e.Timestamp, &e.DurationMs, &e.Status, &e.ErrorDetail, &reqStr); err != nil {
 			continue
 		}
 		e.Request = json.RawMessage(reqStr)

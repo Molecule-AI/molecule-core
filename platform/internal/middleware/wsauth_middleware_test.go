@@ -678,3 +678,126 @@ func TestAdminAuth_Issue120_PatchWorkspace_NoBearer_Returns401(t *testing.T) {
 		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
 }
+
+// ── CanvasOrBearer (#168) ────────────────────────────────────────────────────
+// Narrow softer variant of AdminAuth used ONLY on PUT /canvas/viewport.
+// Accepts bearer or a matching Origin header. MUST NOT be used anywhere a
+// forged request would leak data or create resources.
+
+func TestCanvasOrBearer_NoTokens_FailOpen(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer mockDB.Close()
+
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	r := gin.New()
+	r.PUT("/canvas/viewport", CanvasOrBearer(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/canvas/viewport", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("bootstrap fail-open: got %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestCanvasOrBearer_TokensExist_NoCreds_Returns401(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer mockDB.Close()
+
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	r := gin.New()
+	r.PUT("/canvas/viewport", CanvasOrBearer(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/canvas/viewport", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("no creds: got %d, want 401", w.Code)
+	}
+}
+
+func TestCanvasOrBearer_TokensExist_CanvasOrigin_Passes(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer mockDB.Close()
+
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	t.Setenv("CORS_ORIGINS", "https://acme.moleculesai.app,https://bob.moleculesai.app")
+
+	r := gin.New()
+	r.PUT("/canvas/viewport", CanvasOrBearer(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/canvas/viewport", nil)
+	req.Header.Set("Origin", "https://acme.moleculesai.app")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("canvas origin: got %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestCanvasOrBearer_TokensExist_WrongOrigin_Returns401(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer mockDB.Close()
+
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	t.Setenv("CORS_ORIGINS", "https://acme.moleculesai.app")
+
+	r := gin.New()
+	r.PUT("/canvas/viewport", CanvasOrBearer(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/canvas/viewport", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("wrong origin: got %d, want 401", w.Code)
+	}
+}
+
+func TestCanvasOriginAllowed_EmptyOriginRejected(t *testing.T) {
+	if canvasOriginAllowed("") {
+		t.Error("empty Origin must not pass")
+	}
+}
+
+func TestCanvasOriginAllowed_LocalhostDefault(t *testing.T) {
+	t.Setenv("CORS_ORIGINS", "")
+	if !canvasOriginAllowed("http://localhost:3000") {
+		t.Error("localhost:3000 should be allowed by default")
+	}
+	if canvasOriginAllowed("http://evil.example.com") {
+		t.Error("random origin should not be allowed")
+	}
+}
