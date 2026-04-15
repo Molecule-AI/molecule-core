@@ -458,6 +458,16 @@ func TestValidateAgentURL(t *testing.T) {
 		{"non-http scheme file", "file:///etc/passwd", true},
 		{"non-http scheme ftp", "ftp://internal-server/secrets", true},
 		{"malformed url", "://not-a-url", true},
+		// IPv6 SSRF vectors — must be rejected (C6 gap: Go's IPv4 CIDRs do not
+		// match pure IPv6 addresses via Contains(), so each range needs an
+		// explicit IPv6 entry).
+		{"blocked IPv6 loopback [::1]", "http://[::1]:8080", true},
+		{"blocked IPv6 link-local [fe80::1]", "http://[fe80::1]:8080", true},
+		{"blocked IPv6 ULA [fd00::1]", "http://[fd00::1]:8080", true},
+		// IPv4-mapped IPv6 for a blocked range must also be rejected.
+		// Go normalises ::ffff:169.254.x.x to IPv4 via To4(), so the existing
+		// 169.254.0.0/16 entry catches it without a dedicated rule.
+		{"blocked IPv4-mapped IPv6 link-local", "http://[::ffff:169.254.169.254]:80", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -29,10 +29,19 @@ func NewRegistryHandler(b *events.Broadcaster) *RegistryHandler {
 // cloud metadata services or other internal infrastructure.
 //
 // Allowed: http:// or https:// only (no file://, ftp://, etc.).
-// Blocked: 169.254.0.0/16 (link-local — AWS/GCP/Azure metadata endpoints).
-// Allowed: RFC-1918 private ranges (Docker networking uses 172.16–31.x.x).
+// Blocked:
+//   - 169.254.0.0/16  IPv4 link-local (AWS IMDSv1/v2, GCP, Azure metadata)
+//   - fe80::/10        IPv6 link-local — same threat class as 169.254.x.x
+//   - ::1/128          IPv6 loopback
+//   - fc00::/7         IPv6 ULA (RFC-4193 private ranges)
 //
-// Returns a non-nil error string suitable for including in a 400 response.
+// Allowed: RFC-1918 private ranges — Docker networking uses 172.16–31.x.x.
+// Allowed: 127.0.0.0/8 — Docker loopback addresses.
+// IPv4-mapped IPv6 (e.g. ::ffff:169.254.169.254) is handled automatically:
+// Go's net.ParseIP.To4() normalises those to IPv4 before Contains() runs,
+// so they are caught by the IPv4 rules above without a separate range entry.
+//
+// Returns a non-nil error suitable for inclusion in a 400 response.
 func validateAgentURL(rawURL string) error {
 	if rawURL == "" {
 		return errors.New("url is required")
@@ -46,10 +55,20 @@ func validateAgentURL(rawURL string) error {
 	}
 	hostname := parsed.Hostname()
 	if ip := net.ParseIP(hostname); ip != nil {
-		// Block 169.254.0.0/16 — cloud metadata (AWS IMDSv1/v2, GCP, Azure).
-		_, linkLocal, _ := net.ParseCIDR("169.254.0.0/16")
-		if linkLocal.Contains(ip) {
-			return errors.New("url targets a link-local address (cloud metadata endpoint)")
+		blockedRanges := []struct {
+			cidr  string
+			label string
+		}{
+			{"169.254.0.0/16", "link-local address (cloud metadata endpoint)"},
+			{"fe80::/10", "IPv6 link-local address (cloud metadata analogue)"},
+			{"::1/128", "IPv6 loopback address"},
+			{"fc00::/7", "IPv6 ULA address (RFC-4193 private)"},
+		}
+		for _, r := range blockedRanges {
+			_, network, _ := net.ParseCIDR(r.cidr)
+			if network.Contains(ip) {
+				return fmt.Errorf("url targets a blocked address: %s", r.label)
+			}
 		}
 	}
 	return nil
