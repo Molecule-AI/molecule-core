@@ -12,7 +12,7 @@ import httpx
 import uvicorn
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryTaskStore, InMemoryPushNotificationConfigStore, PushNotificationSender
+from a2a.server.tasks import InMemoryTaskStore, InMemoryPushNotificationConfigStore, BasePushNotificationSender
 from a2a.types import AgentCard, AgentCapabilities, AgentSkill
 
 from adapters import get_adapter, AdapterConfig
@@ -153,11 +153,12 @@ async def main():  # pragma: no cover
     )
 
     # 7. Wrap in A2A
+    push_config_store = InMemoryPushNotificationConfigStore()
     handler = DefaultRequestHandler(
         agent_executor=executor,
         task_store=InMemoryTaskStore(),
-        push_config_store=InMemoryPushNotificationConfigStore(),
-        push_sender=PushNotificationSender(),
+        push_config_store=push_config_store,
+        push_sender=BasePushNotificationSender(httpx.AsyncClient(), push_config_store),
     )
 
     app = A2AStarletteApplication(
