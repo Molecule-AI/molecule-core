@@ -233,12 +233,8 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 		`SELECT COALESCE(active_tasks, 0) FROM workspaces WHERE id = $1`,
 		sched.WorkspaceID,
 	).Scan(&activeTasks); err == nil && activeTasks > 0 {
-		wsID := sched.WorkspaceID
-		if len(wsID) > 12 {
-			wsID = wsID[:12]
-		}
 		log.Printf("Scheduler: skipping '%s' on busy workspace %s (active_tasks=%d)",
-			sched.Name, wsID, activeTasks)
+			sched.Name, short(sched.WorkspaceID, 12), activeTasks)
 		s.recordSkipped(ctx, sched, activeTasks)
 		return
 	}
@@ -246,11 +242,7 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 	fireCtx, cancel := context.WithTimeout(ctx, fireTimeout)
 	defer cancel()
 
-	idPrefix := sched.ID
-	if len(idPrefix) > 8 {
-		idPrefix = idPrefix[:8]
-	}
-	msgID := fmt.Sprintf("cron-%s-%s", idPrefix, uuid.New().String()[:8])
+	msgID := fmt.Sprintf("cron-%s-%s", short(sched.ID, 8), uuid.New().String()[:8])
 
 	a2aBody, _ := json.Marshal(map[string]interface{}{
 		"method": "message/send",
@@ -263,7 +255,7 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 		},
 	})
 
-	log.Printf("Scheduler: firing '%s' → workspace %s", sched.Name, sched.WorkspaceID[:12])
+	log.Printf("Scheduler: firing '%s' → workspace %s", sched.Name, short(sched.WorkspaceID, 12))
 
 	// Empty callerID = canvas-style request (bypasses access control, source_id=NULL in activity log).
 	// "system:scheduler" was invalid — source_id column is UUID and rejects non-UUID strings.
@@ -384,6 +376,16 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// short returns up to n leading characters of s without panicking when s is
+// shorter than n. Used to safely display UUID prefixes in log lines where
+// the full ID would be noisy but the full-length bounds check is repetitive.
+func short(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
 // ComputeNextRun parses a cron expression and returns the next fire time
