@@ -736,6 +736,165 @@ builders; Molecule AI users are developers building agent companies.
 
 ---
 
+### Scion — `GoogleCloudPlatform/scion`
+
+**Pitch:** "An experimental agent hypervisor — each agent runs in its own isolated container with dedicated credentials, config, and git worktree; orchestrates Claude Code, Gemini CLI, Codex, and OpenCode concurrently."
+
+**Shape:** Go + YAML (Apache-2.0). Container-per-agent isolation via Docker, Podman, Apple Containers, or Kubernetes. Named runtime profiles. Introduces an `agents.md` capability-declaration convention. Not a framework — a harness supervisor.
+
+**Overlap with us:** Container-per-agent mirrors our Docker workspace model. Multi-harness concurrency maps to multi-workspace A2A topology. Explicitly manages Claude Code — direct contact with our user base.
+
+**Differentiation:** No persistent agent memory, no visual canvas, no A2A between agents, no channels. It is the container orchestration layer beneath agents; we are the agent identity and collaboration layer above.
+
+**Worth borrowing:** `agents.md` capability spec — a standard file per workspace declaring what the agent can do. Adopt in `workspace-template/` for Scion interoperability.
+
+**Terminology collisions:** "profile" — Scion: named runtime config; ours: undefined. "harness" — both mean "the process managing agent execution."
+
+**Signals to react to:** If Scion adds A2A or a memory layer → direct overlap. If `agents.md` gains wide adoption → align `workspace-template/` to the spec.
+
+**Last reviewed:** 2026-04-15 · **Stars / activity:** GCP repo, 230 HN pts at launch, April 8, 2026
+
+---
+
+### claude-mem — `thedotmack/claude-mem`
+
+**Pitch:** "Automatically captures everything Claude does during coding sessions — persistent cross-session memory with search, timeline, and observation retrieval as MCP tools."
+
+**Shape:** TypeScript (AGPL-3.0), ~56k ⭐, +2,997 stars in one day. Five lifecycle hooks (`SessionStart`, `UserPromptSubmit`, `PostToolUse`, `Stop`, `SessionEnd`) intercept agent actions, compress observations via Claude SDK, store in SQLite FTS5 + Chroma hybrid. Three MCP tools exposed: `search`, `timeline`, `get_observations`. Web viewer at localhost:37777. ⚠️ `ragtime/` retrieval subdirectory is PolyForm Noncommercial — reimplementation required for commercial SaaS use.
+
+**Overlap with us:** Directly addresses our known cross-session memory gap. Lifecycle hooks are structurally compatible with our harness entry points.
+
+**Differentiation:** A memory add-on for a single Claude Code session; no A2A, no org hierarchy, no scheduling, no channels.
+
+**Worth borrowing:** `PostToolUse` + `SessionEnd` → compressed observation pipeline, compatible with our harness lifecycle. Progressive-disclosure retrieval (summaries first, full content on demand) caps token overhead at `SessionStart`.
+
+**Terminology collisions:** "observations" — their captured agent actions; not a first-class term in our platform.
+
+**Signals to react to:** If PolyForm NC removed from `ragtime/` → evaluate direct integration. If hook schema is formalized → adopt as standard workspace lifecycle spec.
+
+**Last reviewed:** 2026-04-15 · **Stars / activity:** ~56k ⭐, +2,997 today
+
+---
+
+### Multica — `multica-ai/multica`
+
+**Pitch:** "Turn coding agents into real teammates — assign tasks, track progress, compound skills."
+
+**Shape:** TypeScript + Go (Next.js 16 / Chi router / PostgreSQL 17 + pgvector), ~12.8k ⭐, +1,503 today. Local agent daemons execute Claude Code / Codex / OpenCode in isolation; state syncs to a central backend. Solved tasks are semantically indexed via pgvector and surfaced to future agents team-wide — the "skill-compounding" model. 36 releases, 1.6k forks, actively shipped.
+
+**Overlap with us:** Skill-compounding maps to our plugin/skills registry but adds automatic semantic indexing. Local-daemon + central-backend mirrors Docker workspaces + Canvas backend. Cross-agent task assignment and scheduling are first-class features.
+
+**Differentiation:** No visual org-chart canvas, no A2A protocol, no persistent agent identity across restarts, no channel integrations. Central backend is a coordination hub, not peer-to-peer. Closer to a task manager for agents than an agent company platform.
+
+**Worth borrowing:** pgvector semantic indexing of solved tasks — each completed workspace run contributes to a searchable skill pool, evolving our plugin registry from file-based discovery to semantic retrieval.
+
+**Terminology collisions:** "skills" — their skills are solved-task embeddings; ours are installed behaviour bundles.
+
+**Signals to react to:** If Multica adds A2A or persistent agent identity → direct competitor. Star velocity (+1,503/day) warrants weekly tracking.
+
+**Last reviewed:** 2026-04-15 · **Stars / activity:** ~12.8k ⭐, +1,503 today, 36 releases
+
+---
+
+### Skills CLI — `vercel-labs/skills`
+
+**Pitch:** "The CLI for the open agent skills ecosystem — discover, install, and share reusable skills across 45+ coding agents."
+
+**Shape:** TypeScript (MIT), ~14.2k ⭐, +153 today. `npx skills` package manager backed by Vercel. Skills are `SKILL.md` directories following the [agentskills.io](https://agentskills.io) open spec. Targets Claude Code, Codex, Gemini CLI, Cursor, Cline, OpenCode, Hermes, Holaboss, and 37+ others from a single repository.
+
+**Overlap with us:** Three existing entries (Hermes, gstack, Holaboss) flag "if agentskills.io picks up mass adoption → align our plugin manifest." This is that moment: Vercel ships the canonical install CLI with 14k stars and 45-agent coverage.
+
+**Differentiation:** Skills CLI is a package manager, not an agent runtime. No canvas, A2A, or scheduling. It installs behavior bundles into whatever agent the developer uses; Molecule AI is the runtime those bundles run inside.
+
+**Worth borrowing:** Align our `plugins/` manifest to the agentskills.io `SKILL.md` spec so any `npx skills`-installable skill also installs cleanly into a Molecule AI workspace. Dual compatibility = free distribution channel.
+
+**Terminology collisions:** "skills" — same word, same filesystem convention; full spec alignment is the goal, not a collision to manage.
+
+**Signals to react to:** If `npx skills` becomes the de facto install path industry-wide → our `plugins/install` should natively consume the same manifest format. If agentskills.io publishes a versioned schema → adopt it immediately in `plugins/`.
+
+**Last reviewed:** 2026-04-15 · **Stars / activity:** ~14.2k ⭐, +153 today, Vercel-backed
+
+---
+
+### Archon — `coleam00/Archon`
+
+**Pitch:** "The first open-source harness builder for AI coding — make AI coding deterministic and repeatable."
+
+**Shape:** TypeScript (MIT), ~18.1k ⭐, +396 today. Defines AI coding workflows as YAML DAGs: planning → implementation → validation → review → PR. Each run is git-worktree-isolated. Nodes are either AI-powered (Claude Code generation) or deterministic (bash, test runners). Human approval gates at any phase. Delivery to Slack, Telegram, Discord, GitHub, or web UI. "What Dockerfiles did for infra, Archon does for AI coding."
+
+**Overlap with us:** Wraps Claude Code in a structured pipeline — the same pattern as our Dev Lead delegating to a Claude Code workspace. Approval gates map to our `approvals` table. Git-worktree isolation mirrors our `workspace-template/` worktree pattern.
+
+**Differentiation:** No persistent agent identity, no org hierarchy, no A2A, no canvas, no multi-session scheduling. Archon defines a single delivery run; Molecule AI is the persistent company those runs operate inside.
+
+**Worth borrowing:** YAML-DAG workflow definition (planning → implementation → validation → PR) with mixed AI/deterministic nodes — natural extension of `workspace-template/` for repeatable, auditable delivery pipelines.
+
+**Terminology collisions:** "workflow" — their YAML DAG vs our informal usage. "harness" — Archon, Scion, and our Claude Code runner all claim the word; Molecule AI docs should clarify its own use.
+
+**Signals to react to:** If Archon adds multi-workspace coordination → direct competitor to our orchestration layer. If their YAML workflow schema gains wide adoption → add an Archon import adapter to `workspace-template/`.
+
+**Last reviewed:** 2026-04-15 · **Stars / activity:** ~18.1k ⭐, +396 today, v0.3.6
+
+---
+
+### Claude Code Routines — `anthropic.com` *(commercial, no public repo)*
+
+**Pitch:** "Schedule Claude Code agents to run automatically on timers and GitHub events — agentic workflows in the cloud without manual intervention."
+
+**Shape:** Anthropic-hosted cloud feature. Users define routines that fire a Claude Code session on cron timers or GitHub events (push, PR, issue). Runs serverlessly inside Anthropic infrastructure. No self-hosting, no public API. HN item 47768133: 611 pts, 355 comments at launch today — significant community concern about vendor lock-in.
+
+**Overlap with us:** Direct overlap with `workspace_schedules` + cron-triggered workspace execution. Anthropic now competes in the scheduled agentic execution space with a first-party hosted offering.
+
+**Differentiation:** No persistent agent memory, no org hierarchy, no A2A between agents, no visual canvas, no multi-model support, Anthropic-only lock-in. HN consensus: "trivially reproducible with cron + API." Our differentiators: multi-agent coordination, persistent identity, model-agnosticism, self-hostability.
+
+**Worth borrowing:** GitHub event triggers (push/PR/issue → fire agent) as first-class schedule trigger types. Our `workspace_schedules` is cron-only; this gap is now competitively visible.
+
+**Terminology collisions:** "routine" — Anthropic: a scheduled agent session; near-synonym with our `workspace_schedule` rows.
+
+**Signals to react to:** If Routines adds A2A between routines → direct platform competition from Anthropic with massive distribution advantage. If lock-in backlash grows → double down on "self-hostable, model-agnostic" narrative as the open alternative.
+
+**Last reviewed:** 2026-04-15 · **Stars / activity:** Anthropic cloud feature, 611 HN pts today (item 47768133)
+
+---
+
+### Microsoft Agent Framework — `microsoft/agent-framework`
+
+**Pitch:** "A framework for building, orchestrating and deploying AI agents and multi-agent workflows with support for Python and .NET."
+
+**Shape:** Python + C#/.NET (MIT), ~9.5k ⭐, April 2026 active releases. Graph-based workflow engine with streaming, checkpointing, and human-in-the-loop approval gates. Supports Azure OpenAI, Microsoft Foundry, and OpenAI. Ships a DevUI for interactive debugging, OpenTelemetry observability, and "AF Labs" (experimental RL-based features). Ships a migration guide from AutoGen — this is the official Microsoft successor to `microsoft/autogen`.
+
+**Overlap with us:** Our workspace-template adapters target AutoGen/AG2; this is the official Microsoft path forward, making our adapter coverage incomplete. HITL approval gates and graph-based multi-agent routing mirror our `approvals` table + delegation chain.
+
+**Differentiation:** Orchestration SDK only — no persistent agent memory, no org-chart canvas, no A2A between independently deployed agents, no scheduling, no channel integrations.
+
+**Worth borrowing:** DevUI interactive debugging panel (inspect agent state mid-run without a full canvas). AF Labs RL routing — agents improve delegation decisions from past run outcomes; worth evaluating for our PM workspace's `delegate_task` routing.
+
+**Terminology collisions:** "middleware" — their processing pipeline hook; undefined in our platform. "graph" — their workflow DAG vs our live org chart (same word, different semantics).
+
+**Signals to react to:** If AF 1.0 achieves enterprise adoption → update our autogen adapter to target `microsoft/agent-framework`. If AF Labs RL ships stable → evaluate for dynamic PM routing based on workspace performance history.
+
+**Last reviewed:** 2026-04-15 · **Stars / activity:** ~9.5k ⭐, April 2026 .NET release, official AutoGen successor
+
+---
+
+### Open Agents — `vercel-labs/open-agents`
+
+**Pitch:** "An open-source reference app for building and running background coding agents on Vercel — fork it, adapt it, ship your own cloud coding agent."
+
+**Shape:** TypeScript (MIT), ~2.2k ⭐, +1,020 today. Three-layer architecture: web UI → agent workflow (Vercel Workflow SDK for durable execution) → isolated sandbox VM. Key design principle: **agent runs *outside* the sandbox VM** and interacts with it through tools — not co-located. Snapshot-based VM resumption, auto-commit/push/PR, session sharing via read-only links, voice input. From Vercel Labs — same team as the Skills CLI entry above.
+
+**Overlap with us:** Vercel Workflow SDK gives checkpoint-and-resume durability — the same gap our workspace restart-context solves ad hoc. Agent-outside-sandbox mirrors our Docker workspace + adapter separation. Auto-PR creation is a first-class feature we implement manually.
+
+**Differentiation:** Single coding agent, no org hierarchy, no A2A, no scheduling, no persistent memory across sessions, no channels. A reference template, not an operational platform.
+
+**Worth borrowing:** Snapshot-based sandbox resumption — preserves VM state across agent restarts without re-cloning the repo. More efficient than our current Docker restart + `git clone` approach for long-running workspace tasks.
+
+**Terminology collisions:** "workflow" — Vercel's durable execution primitive; our informal delegation chain term.
+
+**Signals to react to:** If Vercel Workflow SDK becomes a standard durable-execution backend → evaluate as a drop-in for `workspace_schedules` on Vercel-hosted deployments. If open-agents adds multi-agent coordination → direct competitor reference app with Vercel distribution.
+
+**Last reviewed:** 2026-04-15 · **Stars / activity:** ~2.2k ⭐, +1,020 today, Vercel Labs
+
+---
 ## Candidates to add (backlog)
 
 Short-list of projects to write up next time someone has an hour:

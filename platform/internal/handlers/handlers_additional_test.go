@@ -115,6 +115,11 @@ func TestWorkspaceUpdate_ParentID(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
+	// #125 guard: handler now verifies the workspace exists before applying
+	// the UPDATE. Each PATCH test must mock the EXISTS probe first.
+	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
+		WithArgs("ws-child").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectExec("UPDATE workspaces SET parent_id").
 		WithArgs("ws-child", "ws-parent").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -144,6 +149,9 @@ func TestWorkspaceUpdate_NameOnly(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
+	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
+		WithArgs("ws-rename").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectExec("UPDATE workspaces SET name").
 		WithArgs("ws-rename", "New Name").
 		WillReturnResult(sqlmock.NewResult(0, 1))
