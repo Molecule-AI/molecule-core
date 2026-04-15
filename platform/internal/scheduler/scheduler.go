@@ -12,6 +12,7 @@ import (
 	cronlib "github.com/robfig/cron/v3"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/supervised"
 )
 
 const (
@@ -60,6 +61,10 @@ func (s *Scheduler) Start(ctx context.Context) {
 
 	log.Printf("Scheduler: started (poll interval=%s)", pollInterval)
 
+	// Heartbeat before the first tick so /admin/liveness doesn't flag stale
+	// during the initial 30s interval after startup.
+	supervised.Heartbeat("scheduler")
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -67,6 +72,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.tick(ctx)
+			supervised.Heartbeat("scheduler")
 		}
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/metrics"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/middleware"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/supervised"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/ws"
 	"github.com/docker/docker/client"
 	"github.com/gin-contrib/cors"
@@ -61,6 +62,23 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// Health
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
+	})
+
+	// /admin/liveness — per-subsystem last-tick timestamps. Operators read this
+	// to catch stuck-but-not-crashed goroutines (the failure mode that caused
+	// the 12h scheduler outage of 2026-04-14, issue #85). Any subsystem whose
+	// last tick is older than 2× its expected interval is stale.
+	r.GET("/admin/liveness", func(c *gin.Context) {
+		snap := supervised.Snapshot()
+		out := make(map[string]interface{}, len(snap))
+		now := time.Now()
+		for name, last := range snap {
+			out[name] = gin.H{
+				"last_tick_at":    last,
+				"seconds_ago":     int(now.Sub(last).Seconds()),
+			}
+		}
+		c.JSON(200, gin.H{"subsystems": out})
 	})
 
 	// Prometheus metrics — exempt from rate limiter via separate registration
