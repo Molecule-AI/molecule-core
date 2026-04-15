@@ -198,6 +198,17 @@ class WorkspaceConfig:
     initial_prompt: str = ""
     """Auto-sent as the first A2A message after startup. Default empty = no auto-message.
     Can be an inline string or a file reference (initial_prompt_file in yaml)."""
+    idle_prompt: str = ""
+    """Auto-sent every `idle_interval_seconds` while the workspace has no active
+    task (heartbeat.active_tasks == 0). Default empty = no idle loop. This is
+    the reflection-on-completion / backlog-pull pattern from the Hermes/Letta
+    playbook: the workspace self-wakes when idle, runs a lightweight reflection
+    prompt, and either picks up queued work or stops. Cost scales with useful
+    activity (the prompt returns quickly if there's nothing to do). Can be
+    inline or a file reference via `idle_prompt_file`."""
+    idle_interval_seconds: int = 600
+    """How often the idle loop checks in (seconds). Default 600 (10 min).
+    Ignored when idle_prompt is empty."""
     skills: list[str] = field(default_factory=list)
     plugins: list[str] = field(default_factory=list)  # installed plugin names
     tools: list[str] = field(default_factory=list)
@@ -251,6 +262,15 @@ def load_config(config_path: Optional[str] = None) -> WorkspaceConfig:
         if prompt_path.exists():
             initial_prompt = prompt_path.read_text().strip()
 
+    # Resolve idle_prompt: same pattern as initial_prompt
+    idle_prompt = raw.get("idle_prompt", "")
+    idle_prompt_file = raw.get("idle_prompt_file", "")
+    if not idle_prompt and idle_prompt_file:
+        idle_path = Path(config_path) / idle_prompt_file
+        if idle_path.exists():
+            idle_prompt = idle_path.read_text().strip()
+    idle_interval_seconds = int(raw.get("idle_interval_seconds", 600))
+
     return WorkspaceConfig(
         name=raw.get("name", "Workspace"),
         description=raw.get("description", ""),
@@ -259,6 +279,8 @@ def load_config(config_path: Optional[str] = None) -> WorkspaceConfig:
         model=model,
         runtime=runtime,
         initial_prompt=initial_prompt,
+        idle_prompt=idle_prompt,
+        idle_interval_seconds=idle_interval_seconds,
         runtime_config=RuntimeConfig(
             command=runtime_raw.get("command", ""),
             args=runtime_raw.get("args", []),
