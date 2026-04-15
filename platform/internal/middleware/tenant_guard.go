@@ -7,6 +7,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// flyReplaySrcHeader is the header Fly injects on requests it replays via
+// the `fly-replay: ...;state=...` mechanism. Format is a semicolon-
+// separated list of k=v pairs, e.g.
+//   instance=91854...;region=ord;t=1700000000000;state=org-id=<uuid>
+// We care only about the `state=` segment; the control plane encodes
+// the org id as `state=org-id=<uuid>` so we can treat it equivalently
+// to the X-Molecule-Org-Id header.
+const flyReplaySrcHeader = "Fly-Replay-Src"
+const flyReplayStatePrefix = "org-id="
+
 // Tenant-mode guard — public repo's only SaaS hook.
 //
 // The SaaS control plane (private `molecule-controlplane` repo) provisions one
@@ -58,12 +68,45 @@ func TenantGuardWithOrgID(configuredOrgID string) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if c.GetHeader(tenantOrgIDHeader) != configuredOrgID {
-			// 404 not 403 — existence of this tenant must not be inferable by
-			// probing other orgs' machines.
-			c.AbortWithStatus(404)
+		// Primary: explicit X-Molecule-Org-Id header (direct access path,
+		// e.g. from molecli or internal tooling that sets it directly).
+		if c.GetHeader(tenantOrgIDHeader) == configuredOrgID {
+			c.Next()
 			return
 		}
-		c.Next()
+		// Secondary: org id encoded in Fly-Replay-Src state by the control
+		// plane. This is the path every production request takes, because
+		// response headers set by the cp don't travel to the replayed
+		// tenant — only the state= param does.
+		if orgIDFromReplaySrc(c.GetHeader(flyReplaySrcHeader)) == configuredOrgID {
+			c.Next()
+			return
+		}
+		// 404 not 403 — existence of this tenant must not be inferable by
+		// probing other orgs' machines.
+		c.AbortWithStatus(404)
 	}
+}
+
+// orgIDFromReplaySrc extracts the org id the control plane encoded via
+// `state=org-id=<uuid>` in the fly-replay response header. Returns "" if
+// the header is missing, malformed, or the state segment isn't ours.
+// Separated from TenantGuardWithOrgID so tests can round-trip header →
+// id without spinning a full Gin context.
+func orgIDFromReplaySrc(header string) string {
+	if header == "" {
+		return ""
+	}
+	for _, seg := range strings.Split(header, ";") {
+		seg = strings.TrimSpace(seg)
+		const statePrefix = "state="
+		if !strings.HasPrefix(seg, statePrefix) {
+			continue
+		}
+		value := seg[len(statePrefix):]
+		if strings.HasPrefix(value, flyReplayStatePrefix) {
+			return value[len(flyReplayStatePrefix):]
+		}
+	}
+	return ""
 }
