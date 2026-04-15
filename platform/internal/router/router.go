@@ -308,7 +308,12 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// Templates
 	tmplh := handlers.NewTemplatesHandler(configsDir, dockerCli)
 	r.GET("/templates", tmplh.List)
-	r.POST("/templates/import", tmplh.Import)
+	// #190: POST /templates/import writes arbitrary files into configsDir.
+	// Must be admin-gated — same class as /bundles/import (#164) and /org/import.
+	{
+		tmplAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		tmplAdmin.POST("/templates/import", tmplh.Import)
+	}
 	wsAuth.GET("/shared-context", tmplh.SharedContext)
 	wsAuth.PUT("/files", tmplh.ReplaceFiles)
 	wsAuth.GET("/files", tmplh.ListFiles)
