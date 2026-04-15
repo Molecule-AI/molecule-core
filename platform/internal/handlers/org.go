@@ -367,7 +367,10 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 			}
 		}
 		if templatePath == "" {
-			runtimeDefault := filepath.Join(h.configsDir, runtime+"-default")
+			// #241: sanitizeRuntime() allowlists the runtime string so a
+			// crafted org.yaml cannot use it as a path-traversal oracle.
+			safeRuntime := sanitizeRuntime(runtime)
+			runtimeDefault := filepath.Join(h.configsDir, safeRuntime+"-default")
 			if _, err := os.Stat(runtimeDefault); err == nil {
 				templatePath = runtimeDefault
 			}
