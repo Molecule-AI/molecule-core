@@ -76,7 +76,10 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// to catch stuck-but-not-crashed goroutines (the failure mode that caused
 	// the 12h scheduler outage of 2026-04-14, issue #85). Any subsystem whose
 	// last tick is older than 2× its expected interval is stale.
-	r.GET("/admin/liveness", func(c *gin.Context) {
+	//
+	// #166: gated behind AdminAuth. Internal health state is an ops-intel leak
+	// in production (scheduler tick cadence reveals fleet size + work pattern).
+	r.GET("/admin/liveness", middleware.AdminAuth(db.DB), func(c *gin.Context) {
 		snap := supervised.Snapshot()
 		out := make(map[string]interface{}, len(snap))
 		now := time.Now()
@@ -196,10 +199,16 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	r.GET("/registry/:id/peers", dh.Peers)
 	r.POST("/registry/check-access", dh.CheckAccess)
 
-	// Events (not workspace-scoped — exempt from per-workspace auth)
+	// Events — #165: gated behind AdminAuth. The raw event log contains org
+	// topology, workspace names, and agent-card fragments; an unauth read
+	// leaks the entire fleet structure. GET /events/:workspaceId is still
+	// a cross-workspace read so it uses AdminAuth, not WorkspaceAuth.
 	eh := handlers.NewEventsHandler()
-	r.GET("/events", eh.List)
-	r.GET("/events/:workspaceId", eh.ListByWorkspace)
+	{
+		eventsAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		eventsAdmin.GET("/events", eh.List)
+		eventsAdmin.GET("/events/:workspaceId", eh.ListByWorkspace)
+	}
 
 	// Remaining auth-gated workspace sub-routes — appended to wsAuth group declared above.
 	{
@@ -274,10 +283,16 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	th := handlers.NewTerminalHandler(dockerCli)
 	wsAuth.GET("/terminal", th.HandleConnect)
 
-	// Canvas Viewport
+	// Canvas Viewport — #166: PUT gated behind AdminAuth so an anon caller
+	// can't reset the shared viewport state for all users. GET remains open
+	// because the canvas bootstraps without a bearer and needs the initial
+	// viewport for first paint.
 	vh := handlers.NewViewportHandler()
 	r.GET("/canvas/viewport", vh.Get)
-	r.PUT("/canvas/viewport", vh.Save)
+	{
+		viewportAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		viewportAdmin.PUT("/canvas/viewport", vh.Save)
+	}
 
 	// Templates
 	tmplh := handlers.NewTemplatesHandler(configsDir, dockerCli)
@@ -317,10 +332,18 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// unpack locally instead of going through Docker exec.
 	wsAuth.GET("/plugins/:name/download", plgh.Download)
 
-	// Bundles
+	// Bundles — #164 + #165: both gated behind AdminAuth.
+	//   POST /bundles/import — CRITICAL: anon creation of arbitrary workspaces
+	//                          with user-supplied config (system prompts,
+	//                          plugins, secrets envelope). #164.
+	//   GET /bundles/export/:id — HIGH: full system prompts + memory for any
+	//                             workspace by UUID probe. #165.
 	bh := handlers.NewBundleHandler(broadcaster, prov, platformURL, configsDir, dockerCli)
-	r.GET("/bundles/export/:id", bh.Export)
-	r.POST("/bundles/import", bh.Import)
+	{
+		bundleAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		bundleAdmin.GET("/bundles/export/:id", bh.Export)
+		bundleAdmin.POST("/bundles/import", bh.Import)
+	}
 
 	// Org Templates
 	orgDir := findOrgDir(configsDir)
