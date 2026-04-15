@@ -59,6 +59,14 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// rejected requests still land on the 4xx counter.
 	r.Use(middleware.TenantGuard())
 
+	// Security headers (#151) — sets X-Content-Type-Options, X-Frame-Options,
+	// Referrer-Policy, Content-Security-Policy, Permissions-Policy, HSTS on
+	// every response. Tests in securityheaders_test.go assert each header is
+	// present and that handler-set headers are not overridden. Registered
+	// last so a handler can still opt out by setting its own header before
+	// c.Next() returns.
+	r.Use(middleware.SecurityHeaders())
+
 	// Health
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
