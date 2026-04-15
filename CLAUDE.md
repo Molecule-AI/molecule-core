@@ -232,9 +232,9 @@ OPENAI_API_KEY=... bash scripts/test-team-e2e.sh           # E2E: Multi-template
 
 ### Unit Tests
 ```bash
-cd platform && go test -race ./...               # 746 Go tests (handlers, registry, provisioner, CLI, delegation, org, channels, wsauth, middleware — sqlmock + miniredis; +6 on 2026-04-14 tick-8 for TestTenantGuard_* covering MOLECULE_ORG_ID passthrough/match/mismatch/missing/allowlist/exact-match (#78, Phase 32 PR #1); prior: +9 tick-7 for category_routing + schedules.source; +5 tick-6 for plugins UNION; +6 tick-4 for auto-restart + restart-context branches)
-cd canvas && npm test                            # 357 Vitest tests (store, components, hydration, buildTree, secrets API, org template import, ConfirmDialog singleButton + 7 native-dialog replacements)
-cd workspace-template && python -m pytest -v     # 1140 pytest tests (adds platform_auth token store for Phase 30.1, memory_write activity logging)
+cd platform && go test -race ./...               # 816 Go tests (handlers, registry, provisioner, CLI, delegation, org, channels, wsauth, middleware, scheduler, crypto, db — sqlmock + miniredis; +70 on 2026-04-15 overnight sweep across the security fix cluster: CanvasOrBearer middleware tests, scheduler recordSkipped + short() helper, source_id spoof rejection + log injection regression guards, YAML-parse structural injection tests, migration runner .down.sql filter, plugins_install_pipeline_test.go 37-case suite, resolveInsideRoot coverage; +6 on 2026-04-14 tick-8 for TestTenantGuard_*; prior: +9 tick-7 for category_routing + schedules.source)
+cd canvas && npm test                            # 453 Vitest tests (store, components, hydration, buildTree, secrets API, org template import, ConfirmDialog singleButton + 7 native-dialog replacements, WCAG critical batch — ARIA live toasts + dialog focus trap + keyboard nav)
+cd workspace-template && python -m pytest -v     # 1180 pytest tests (adds platform_auth token store for Phase 30.1, memory_write activity logging, Hermes multi-provider registry 26 tests, a2a_executor cancel emits canceled event, idle loop + initial_prompt auth_headers())
 cd sdk/python && python -m pytest -v              # 132 SDK tests (agentskills.io spec validator, CLI, AgentskillsAdaptor round-trip, workspace/org/channel validators, RemoteAgentClient Phase 30 flows)
 cd mcp-server && npm test                        # 97 Jest tests (per-domain tool modules + smoke test on tool count)
 ```
@@ -350,6 +350,19 @@ Agents can auto-execute a prompt on startup before any user interaction. Configu
 
 **Important:** Initial prompts must NOT send A2A messages (delegate_task, send_message_to_user) — other agents may not be ready. Keep them local: clone repo, read docs, save to memory, wait for tasks.
 
+### Idle Loop (#205 — reflection-on-completion)
+Opt-in pattern: when `idle_prompt` is non-empty in `config.yaml`, the workspace self-sends it every `idle_interval_seconds` (default 600) **while `heartbeat.active_tasks == 0`**. Hermes/Letta shape from the 2026-04-15 agent-framework survey. Cost collapses to event-driven — the idle check is local (no LLM call) and the prompt only fires when there's genuinely nothing to do. Set per-workspace or per org.yaml default. Fire timeout clamps to `max(60, min(300, idle_interval_seconds))`. Both the idle loop and `initial_prompt` self-posts include `auth_headers()` so they work in multi-tenant mode (#220 / PR #235). Pilot enabled on Technical Researcher (#216).
+
+### Admin auth middleware variants
+Three Gin middleware classes gate server-side routes — pick the right one. Full contract in `docs/runbooks/admin-auth.md`.
+
+- **`middleware.AdminAuth(db.DB)`** — strict bearer-only. Used for any route where a forged request could leak prompts/memory, create/mutate workspaces, or leak ops intel. Lazy-bootstrap fail-open when `HasAnyLiveTokenGlobal` returns 0.
+- **`middleware.CanvasOrBearer(db.DB)`** — accepts bearer OR Origin matching `CORS_ORIGINS`. Used ONLY for cosmetic routes where a forged request has zero data/security impact. Currently only on `PUT /canvas/viewport`. **Do not extend** without rereading the runbook — PR #194 was rejected because adding this to `/bundles/import` would have re-opened #164 CRITICAL.
+- **`middleware.WorkspaceAuth(db.DB)`** — binds a bearer to `:id`. Workspace A's token cannot hit workspace B's sub-routes. Used for the entire `/workspaces/:id/*` group except the A2A proxy (which has its own `CanCommunicate` layer).
+
+### Migration runner (`platform/internal/db/postgres.go`)
+`RunMigrations` globs `*.sql` in `migrationsDir`, filters out `.down.sql` files, sorts alphabetically, then `DB.Exec()`s each on boot. The filter is load-bearing: before PR #212 every boot ran `.down.sql` **before** `.up.sql` (alphabetical sort puts "d" before "u"), wiping `workspace_auth_tokens` + other pair-migration tables and silently regressing AdminAuth to fail-open. All `.up.sql` files must be **idempotent** (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... IF NOT EXISTS`) because the runner re-applies every migration on every boot. A proper `schema_migrations` tracking table is tracked as a Phase-H cleanup.
+
 ### Workspace Lifecycle
 `provisioning` → `online` (on register) → `degraded` (error_rate > 0.5) → `online` (recovered) → `offline` (Redis TTL expired OR health sweep detects dead container) → auto-restart → `provisioning` → ... → `removed` (deleted). Any state → `paused` (user pauses) → `provisioning` (user resumes). Paused workspaces skip health sweep, liveness monitor, and auto-restart.
 
@@ -361,7 +374,7 @@ Agents can auto-execute a prompt on startup before any user interaction. Configu
 |--------|------|---------|
 | GET | /health | inline |
 | GET | /metrics | metrics.Handler() — Prometheus text format (v0.0.4); no auth, scrape-safe |
-| POST/GET/PATCH/DELETE | /workspaces[/:id] | workspace.go |
+| POST/GET/PATCH/DELETE | /workspaces[/:id] | workspace.go — GET /workspaces + POST /workspaces + DELETE /workspaces/:id are behind `AdminAuth` (#99/#167 C1+C20). PATCH /workspaces/:id is on the open router but `WorkspaceHandler.Update` enforces **field-level authz** (#138/PR #162): cosmetic fields (name, role, x, y, canvas) pass through; sensitive fields (tier, parent_id, runtime, workspace_dir) require a valid bearer token whenever any live token exists. POST /workspaces uses `resolveInsideRoot` on payload.Template (#226 / PR #233). Create handler generates the name as a double-quoted YAML scalar to block #221 injection |
 | GET/PATCH | /workspaces/:id/config | workspace.go |
 | GET/POST | /workspaces/:id/memory | workspace.go |
 | DELETE | /workspaces/:id/memory/:key | workspace.go |
@@ -405,9 +418,10 @@ Agents can auto-execute a prompt on startup before any user interaction. Configu
 | POST | /webhooks/:type | channels.go (incoming social webhook) |
 | GET | /workspaces/:id/shared-context | templates.go |
 | GET/PUT/DELETE | /workspaces/:id/files[/*path] | templates.go |
-| GET/PUT | /canvas/viewport | viewport.go |
+| GET | /canvas/viewport | viewport.go — open (cosmetic, bootstrap-friendly) |
+| PUT | /canvas/viewport | viewport.go — `CanvasOrBearer` middleware (#203): accepts bearer OR Origin matching `CORS_ORIGINS`. Cosmetic-only — worst case viewport corruption, recovered by page refresh. DO NOT use this middleware for any route that leaks data or creates resources (see `docs/runbooks/admin-auth.md`) |
 | GET | /templates | templates.go |
-| POST | /templates/import | templates.go |
+| POST | /templates/import | templates.go — `AdminAuth` (#190 / PR #200) |
 | POST | /registry/register | registry.go |
 | POST | /registry/heartbeat | registry.go |
 | POST | /registry/update-card | registry.go |
@@ -419,17 +433,20 @@ Agents can auto-execute a prompt on startup before any user interaction. Configu
 | GET/POST/DELETE | /workspaces/:id/plugins[/:name] | plugins.go — list, install (`{"source":"scheme://spec"}`), uninstall per-workspace |
 | GET | /workspaces/:id/plugins/available | plugins.go (filtered by workspace runtime) |
 | GET | /workspaces/:id/plugins/compatibility?runtime=X | plugins.go (preflight runtime-change check) |
-| GET | /bundles/export/:id | bundle.go |
-| POST | /bundles/import | bundle.go |
+| GET | /bundles/export/:id | bundle.go — `AdminAuth` (#165 / PR #167) |
+| POST | /bundles/import | bundle.go — `AdminAuth` (#164 CRITICAL / PR #167) |
 | GET | /org/templates | org.go (list available org templates) |
-| POST | /org/import | org.go (import entire org hierarchy from YAML) || GET | /events[/:workspaceId] | events.go |
+| POST | /org/import | org.go — `AdminAuth` + `resolveInsideRoot` path sanitiser (#103 / PR #106) |
+| GET | /events | events.go — `AdminAuth` (#165 / PR #167) |
+| GET | /events/:workspaceId | events.go — `AdminAuth` (#165 / PR #167) |
+| GET | /admin/liveness | inline — `AdminAuth` (#166 / PR #167). Per-subsystem `supervised.Snapshot()` ages; operators check this before debugging stuck scheduler / heartbeat goroutines |
 | GET | /ws | socket.go |
 
 ## Database
 
-23 migration files in `platform/migrations/` (up to `022_workspace_schedules_source` — 2026-04-14 tick-7, PR #76). Key tables: `workspaces` (core entity with status, runtime, agent_card JSONB, heartbeat columns, current_task, awareness_namespace, workspace_dir), `canvas_layouts` (x/y position), `structure_events` (append-only event log), `activity_logs` (A2A communications, task updates, agent logs, errors), `workspace_schedules` (cron tasks with expression, timezone, prompt, run history, and `source` — `'template'` for org/import-seeded, `'runtime'` for Canvas/API-created; org/import is additive and only refreshes template-source rows on re-import), `workspace_channels` (social channel integrations — Telegram, Slack, etc., with JSONB config and allowlist), `agents`, `workspace_secrets`, `global_secrets`, `agent_memories` (HMA scoped memory), `approvals`.
+Migration files in `platform/migrations/` (latest: `022_workspace_schedules_source` — 2026-04-14 tick-7, PR #76). Each later migration is a `.up.sql`/`.down.sql` pair. Key tables: `workspaces` (core entity with status, runtime, agent_card JSONB, heartbeat columns, current_task, awareness_namespace, workspace_dir), `canvas_layouts` (x/y position), `structure_events` (append-only event log), `activity_logs` (A2A communications, task updates, agent logs, errors — `error_detail` is now populated by `scheduler.fireSchedule` so `GET /workspaces/:id/schedules/:id/history` can surface why a cron run failed, #152 / PR #206), `workspace_schedules` (cron tasks with expression, timezone, prompt, run history, `source` — `'template'` for org/import-seeded, `'runtime'` for Canvas/API-created, and `last_status` now includes `'skipped'` when `scheduler.fireSchedule` concurrency-aware-skips a busy workspace, #115 / PR #207), `workspace_channels` (social channel integrations — Telegram, Slack, etc., with JSONB config and allowlist), `agents`, `workspace_secrets`, `global_secrets`, `workspace_auth_tokens` (Phase 30.1 bearer tokens; now auto-revoked on workspace delete, #110), `agent_memories` (HMA scoped memory), `approvals`.
 
-The platform auto-discovers and runs migrations on startup from several candidate paths.
+The platform auto-discovers and runs migrations on startup from several candidate paths. The runner filters out `*.down.sql` files — see the "Migration runner" section above for the history of PR #212 and why this filter is load-bearing.
 
 <!-- AWARENESS_RULES_START -->
 # Project Memory (Awareness MCP)

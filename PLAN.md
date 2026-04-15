@@ -247,6 +247,66 @@ point for "what else is out there."
 - **GitHub issue #15** — Provisioner: auto-refresh `CLAUDE_CODE_OAUTH_TOKEN` from `global_secrets` on workspace restart → **DONE** via PR #64 (`SetGlobal` / `DeleteGlobal` now fan out `RestartByID` to every affected workspace).
 - **GitHub issue #19 Layer 1** — Platform-generated restart context → **DONE** via PR #65 (synthetic A2A `message/send` with `metadata.kind=restart_context`, `system:restart-context` caller prefix, 30s re-register wait). Layer 2 deferred to issue #66 (see Backlog item 15 above).
 
+### Recently launched (2026-04-15 overnight sweep — ticks 17–30+, ~27 PRs)
+
+**Security hardening cluster.** Roughly half the sweep was closing auth gaps surfaced by the Security Auditor's hourly audit cron:
+- `#94` RFC-1918 + link-local in registry URL validator
+- `#99` AdminAuth gate on `GET /workspaces` (topology leak / #104)
+- `#106` path-sanitize + admin-gate `POST /org/import` (#103 HIGH)
+- `#110` revoke `workspace_auth_tokens` on workspace delete
+- `#119` IPv6 SSRF blocklist (fe80::/10, ::1/128, fc00::/7) + scheduler unit tests
+- `#162` field-level authz on `PATCH /workspaces/:id` (#138 — cosmetic vs sensitive split)
+- `#155` wire existing `SecurityHeaders` middleware into router
+- `#167` gate 6 previously-unauth routes behind `AdminAuth` (#164 CRITICAL anon bundles/import; #165 HIGH events+bundles/export topology leak; #166 MED viewport+liveness)
+- `#185` `AdminAuth` on `GET /approvals/pending` (#180)
+- `#200` `AdminAuth` on `POST /templates/import` (#190 HIGH)
+- `#203` `CanvasOrBearer` middleware — route-split for #168 canvas regression, only `PUT /canvas/viewport`; rejected PR #194's broader Origin-fallback approach because it would have re-opened #164
+- `#209` source_id spoof defense in `activity.Report` (cherry-picked from the rejected #169 batch)
+- `#233` `resolveInsideRoot` on `POST /workspaces template/runtime` (#226 MED)
+
+**Data integrity.** Three bugs that would have silently corrupted state:
+- `#212` **CRITICAL** migration-runner bug — `RunMigrations` globbed `*.sql` and alphabetically ran `.down.sql` BEFORE `.up.sql` on every boot, wiping `workspace_auth_tokens` (and 018/019 pairs). Filter fix + unit test in `postgres_migrate_test.go`.
+- `#224` YAML injection in `generateDefaultConfig` — body.Name now emitted as a double-quoted YAML scalar with all control chars escaped. Structural test (parse + verify key count).
+- `#236` log-injection in the #209 security-event log line — attacker-controlled source_id echoed via `%s` allowed fake log entries; switched to `%q`.
+
+**CI / infra.**
+- `#186` + controlplane `#28` — every CI job migrated from `ubuntu-latest` to `[self-hosted, macos, arm64]` (Mac mini `hongming-m1-mini`). Non-trivial: `services:` replaced with inline `docker run` containers (ports 15432/16379), `actions/setup-python` bypassed via Homebrew python3.11 on `$GITHUB_PATH`, `docker/setup-qemu-action` added for cross-arch builds. Workaround for GH Actions billing cap on private repos.
+- `#149` independent heartbeat pulse goroutine so long cron fires don't look stale on `/admin/liveness` (#140)
+- `#211` migration runner regression (see #212 above — PR #212 is the fix)
+- **Fly registry `FLY_API_TOKEN`** rotated to a deploy token scoped to `molecule-tenant` (previously personal token, invalidated by `flyctl auth login` during the malware cleanup)
+
+**Platform / Scheduler reliability.**
+- `#95` panic-recover in scheduler `tick()` + per-fire goroutines (closes #85)
+- `#207` concurrency-aware skip — `scheduler.fireSchedule` reads `workspaces.active_tasks` and advances `next_run_at` + records a `cron_run` row with `status='skipped'` instead of colliding with a busy agent (#115)
+- `#206` surface `error_detail` in schedule history API (#152 problem B)
+
+**Workspace runtime features.**
+- `#205` idle-loop reflection pattern — opt-in `idle_prompt` + `idle_interval_seconds` in `config.yaml`; self-sends when `heartbeat.active_tasks == 0`. Hermes/Letta shape.
+- `#208` Hermes Phase 1 multi-provider registry — 15 providers via `adapters/hermes/providers.py` (Nous, OpenRouter, OpenAI, Anthropic, xAI, Gemini, Qwen, GLM, Kimi, MiniMax, DeepSeek, Groq, Together, Fireworks, Mistral). 26 tests.
+- `#198` A2A protocol compliance batch (#173/#174/#175): `cancel()` emits `TaskStatusUpdateEvent(canceled, final=True)`, `stateTransitionHistory=True` in AgentCapabilities. **Regression:** `push_sender=PushNotificationSender()` crashed on startup because PushNotificationSender is abstract — reverted in #210.
+- `#216` idle-loop pilot enabled on Technical Researcher workspace.
+- `#225` + `#235` `auth_headers()` on `/registry/register` + initial_prompt + idle loop self-posts (#215/#220)
+- `#231` Claude SDK stderr probe for proper rate-limit error attribution (#160 diagnostics)
+
+**Controlplane (molecule-controlplane).**
+- `#19`+`#20` Grafana Cloud remote-write counter registry (`cp_requests_total`), push loop to `prometheus-prod-32-prod-ca-east-0.grafana.net`, Basic auth with user 3116422
+- `#21` AWS KMS envelope encryption — per-secret DEK via `GenerateDataKey`, dual-mode (v2 blobs via KMS, legacy via static key, auto-routes by leading byte)
+- `#24` `/cp/status` deep probe for Betterstack
+- `#26`+`#27` public `/legal/{terms,privacy,dpa,acceptable}` pages from embedded markdown + smoke coverage
+- Isolation red-team test suite + observability runbooks (Grafana dashboard, Betterstack, Stripe Atlas)
+
+**Self code-review follow-ups (`#228` + `#232`).** Ran `/code-review` on the batch merges, surfaced 8 🟡 issues, split into Go (#228) and Python/docs (#232):
+- `CanvasOrBearer` invalid-bearer fall-through fix
+- `short()` helper replacing unsafe `[:N]` slices in `scheduler.go`
+- 6 new tests (`TestShort_helper`, `TestRecordSkipped_*`, `TestActivityHandler_Report_*`, `TestHistory_IncludesErrorDetail`)
+- idle-loop hardening (`asyncio.get_running_loop()`, `IDLE_FIRE_TIMEOUT_SECONDS` clamp, typed exception handling, `add_done_callback` for fire-and-forget error logging)
+- `idle_prompt` / `idle_interval_seconds` documented in `org.yaml` defaults
+- New `docs/runbooks/admin-auth.md` — the three middleware variants + three-question test for adding to `CanvasOrBearer`
+
+**Test counts post-sweep:** +70 Go (816 total), +40 Python (1180 total), +0 Canvas vitest (453 unchanged — UI/a11y patches only).
+
+**Outstanding (user action):** `#126` Slack adapter (Phase-H product decision), `#160` Claude Max OAuth quota (wait for 2026-04-17 23:00Z reset OR upgrade OR switch to ANTHROPIC_API_KEY), `#191` runner persistent-state docs (P3), `#199` Fly registry token (**resolved** this session but publish-platform-image re-run pending runner), Stripe Atlas application (launch blocker, 2-week lead).
+
 ### Recently launched (2026-04-15 tick-9)
 - **Phase 32 Phase B.2 (image pipeline)** — PR #80 (merged `c3cc8e87`) adds `.github/workflows/publish-platform-image.yml`: on every main-merge touching `platform/**`, builds `platform/Dockerfile` and pushes `ghcr.io/molecule-ai/platform:latest` + `:sha-<commit>` to GHCR. Paired with the private `molecule-controlplane` Fly + Neon provisioner (PR #3 there, merged `2e85d5ad`) that reads `TENANT_IMAGE` env and boots tenant Fly Machines from this image. Tick-8 docs-sync PR #79 (merged `d53a1287`) also landed.
 
@@ -368,20 +428,29 @@ self-hosted per-customer). Ordered by dependency + ROI.
 - Stripe billing scaffold deployed in orgs-only mode (no Stripe creds configured yet; webhook handler + signature verification code ready)
 - Domain: `moleculesai.app` (DNS not yet wired — subdomain routing works via `X-Molecule-Org-Slug` header pending Cloudflare)
 
-**Phase status:**
+**Phase status (post 2026-04-15 overnight sweep):**
 - **A — Foundation** (accounts, tokens, domain): ✅ done
-- **B — Fly provisioner + Neon branching**: ✅ done (control plane + tenant machine config + services + healthchecks)
-- **C — WorkOS AuthKit scaffold**: ✅ done (live redirect to hosted signup); Phase C.2 (RequireSession on /cp/orgs + org-ownership check) pending
-- **D — Stripe billing scaffold**: ✅ code done; Phase D.2 (auth-scoped checkout + customer create) and D.3 (plan quotas) pending — not blocked on user
-- **E — Cloudflare + DNS `*.moleculesai.app`**: not started
-- **F — Sign-up UX + onboarding**: not started
-- **G — Observability + quotas + admin**: not started
-- **H — Hardening (KMS, isolation test suite, load test, legal)**: not started
-- **I — Launch**: not started
+- **B — Fly provisioner + Neon branching**: ✅ done
+- **C — WorkOS AuthKit scaffold + RequireSession + org-ownership check**: ✅ done
+- **D — Stripe billing scaffold + auth-scoped checkout + plan quotas**: ✅ code done; live keys pending Stripe Atlas
+- **E — Cloudflare + DNS `*.moleculesai.app` + per-tenant Vercel canvas**: ✅ done
+- **F — Sign-up UX + onboarding**: ✅ basic flow done (signup / org create / canvas redirect); polish + email pending
+- **G — Observability + quotas + admin**: ✅ Sentry + Grafana remote-write + `/cp/status` Betterstack probe + per-org rate limiter; admin panel `/cp/admin/*` pending
+- **H — Hardening**: ⏳ partial — AWS KMS envelope encryption ✅ (controlplane PR #21), tenant-isolation red-team CI gate ✅ (`isolation_test.go`), legal pages ✅ (`/legal/*` from controlplane PR #26); load test + Stripe Atlas application + status page custom domain pending
+- **I — Launch**: pending Stripe Atlas (~2 week lead)
+
+**Live infrastructure deltas (post-sweep):**
+- Migration runner safety fix landed (#212) — `*.down.sql` filter; was wiping `workspace_auth_tokens` on every restart
+- Workspace auth tokens now revoked on workspace delete (#110)
+- All known unauth admin routes gated; #138 canvas regression resolved via field-level authz + `CanvasOrBearer` middleware
+- Self-hosted Mac mini CI runner replaced GH-hosted Linux to bypass private-repo Actions billing cap; `FLY_API_TOKEN` rotated to a deploy token scoped to `molecule-tenant` after the personal token was invalidated by `flyctl auth login` during the 2025-12-06 cryptominer cleanup
+- `/legal/{terms,privacy,dpa,acceptable}` live at `https://app.moleculesai.app/legal/*`
 
 **Known open issues on the live system:**
-- fly-replay state format iteration: Fly's proxy returned 502 on `state=org-id=<uuid>` (second `=`); fix dropped the prefix, PRs `molecule-controlplane#8` + `molecule-monorepo#88` in flight to make bare UUID work end-to-end
 - Tenant `/workspaces` returns Neon pooler warnings (`unnamed prepared statement does not exist`) — lib/pq + Neon pooler incompatibility, tracked for lib/pq → pgx migration in a later phase
+- `#160` Claude Max OAuth quota exhausted on the agent-fleet token until 2026-04-17 23:00 UTC; mitigations: wait, upgrade plan, OR switch workspace containers to `ANTHROPIC_API_KEY` env var
+- `#191` self-hosted runner persistent-state docs (P3, low urgency)
+- `#199` Fly registry token — **resolved** in the 2026-04-15 sweep but `publish-platform-image` re-run pending runner availability
 
 **Companion repo:** `Molecule-AI/molecule-controlplane` (private). n8n-style open-core split: this public repo stays OSS (tenant binary + plugins + channels, contributable surface); control plane (orgs / signup / billing / provisioner / routing) is private. See `molecule-controlplane/PLAN.md` for its roadmap.
 
