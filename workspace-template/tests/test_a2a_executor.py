@@ -998,3 +998,46 @@ def test_default_recursion_limit_value():
     """Regression guard: DeepAgents fan-outs need 100+; 500 is today's ceiling."""
     from a2a_executor import DEFAULT_RECURSION_LIMIT
     assert DEFAULT_RECURSION_LIMIT == 500
+
+
+# ---------------------------------------------------------------------------
+# Issue #173 — cancel() emits TaskStatusUpdateEvent(state=canceled, final=True)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cancel_emits_canceled_event(monkeypatch):
+    """cancel() must enqueue a TaskStatusUpdateEvent with state=canceled and final=True.
+
+    The a2a.types module is pre-mocked by conftest; inject the three extra
+    type stubs needed by cancel() so the local import inside the method resolves.
+    """
+    import sys
+    types_mod = sys.modules["a2a.types"]
+
+    class _TaskState:
+        canceled = "canceled"
+
+    class _TaskStatus:
+        def __init__(self, state=None):
+            self.state = state
+
+    class _TaskStatusUpdateEvent:
+        def __init__(self, status=None, final=False):
+            self.status = status
+            self.final = final
+
+    monkeypatch.setattr(types_mod, "TaskState", _TaskState, raising=False)
+    monkeypatch.setattr(types_mod, "TaskStatus", _TaskStatus, raising=False)
+    monkeypatch.setattr(types_mod, "TaskStatusUpdateEvent", _TaskStatusUpdateEvent, raising=False)
+
+    executor = LangGraphA2AExecutor(agent=MagicMock(), heartbeat=None)
+    context = _make_context([])
+    eq = _make_event_queue()
+
+    await executor.cancel(context, eq)
+
+    eq.enqueue_event.assert_called_once()
+    event = eq.enqueue_event.call_args[0][0]
+    assert isinstance(event, _TaskStatusUpdateEvent), "expected a TaskStatusUpdateEvent"
+    assert event.final is True, "cancel event must be marked final=True"
+    assert event.status.state == _TaskState.canceled, "cancel event must have state=canceled"
