@@ -32,10 +32,18 @@ env:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macos, arm64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        # Required on the Apple-silicon self-hosted runner — Fly tenant machines
+        # pull linux/amd64, and buildx needs binfmt handlers in Docker Desktop's
+        # VM to emulate amd64 during the build.
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64
 
       - name: Set up Docker Buildx
         # Buildx enables cache-from/cache-to via GHA cache and multi-arch
@@ -75,10 +83,13 @@ jobs:
         # GHCR (or vice versa) — each registry's failure mode is isolated.
         # GHA cache is shared because both steps re-use the same Dockerfile
         # context + build args.
+        # Explicit linux/amd64 target: the runner is Apple-silicon (arm64),
+        # but Fly tenant machines are amd64. QEMU handles the emulation.
         uses: docker/build-push-action@v5
         with:
           context: ./platform
           file: ./platform/Dockerfile
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ env.IMAGE_NAME }}:latest
@@ -99,6 +110,7 @@ jobs:
         with:
           context: ./platform
           file: ./platform/Dockerfile
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ env.FLY_IMAGE_NAME }}:latest
