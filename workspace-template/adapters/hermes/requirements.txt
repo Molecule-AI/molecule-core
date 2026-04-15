@@ -1,15 +1,24 @@
 # Hermes adapter dependencies.
 #
-# openai: primary client for the 14 OpenAI-compat providers in providers.py
-# (Nous Portal, OpenRouter, OpenAI, xAI, Gemini, Qwen, GLM, Kimi, MiniMax,
-# DeepSeek, Groq, Together, Fireworks, Mistral — all reachable via one openai
-# SDK pointed at different base URLs).
+# openai: primary client for the 13 OpenAI-compat providers in providers.py
+# (Nous Portal, OpenRouter, OpenAI, xAI, Qwen, GLM, Kimi, MiniMax, DeepSeek,
+# Groq, Together, Fireworks, Mistral — all reachable via one openai SDK
+# pointed at different base URLs). Anthropic + Gemini now go native.
 openai>=1.0.0
 
 # anthropic: native Messages API client for the anthropic provider (auth_scheme
-# = "anthropic" in providers.py). Phase 2 addition — gives correct tool calling,
+# = "anthropic" in providers.py). Phase 2a addition — gives correct tool calling,
 # vision, and extended-thinking semantics that don't translate cleanly through
 # the OpenAI-compat shim. If this package is missing at runtime, executor.py's
 # _do_anthropic_native() raises a clear RuntimeError pointing back at this
 # install line, so a workspace image built without it fails loud, not silent.
 anthropic>=0.39.0
+
+# google-genai: native generateContent API client for the gemini provider
+# (auth_scheme = "gemini" in providers.py). Phase 2b addition — gives
+# first-class vision content blocks, tool/function calling, system
+# instructions, and thinking config that don't translate cleanly through
+# the OpenAI-compat /v1beta/openai shim. Same fail-loud semantics as the
+# anthropic path: missing at runtime → clear RuntimeError from
+# _do_gemini_native(), not a silent fallback.
+google-genai>=1.0.0

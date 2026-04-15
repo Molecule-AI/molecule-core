@@ -132,10 +132,15 @@ PROVIDERS: dict[str, ProviderConfig] = {
     "gemini": ProviderConfig(
         name="gemini",
         env_vars=("GEMINI_API_KEY", "GOOGLE_API_KEY"),
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+        base_url="https://generativelanguage.googleapis.com",
         default_model="gemini-2.5-flash",
-        docs="Google Gemini — uses the documented OpenAI-compat endpoint at "
-             "/v1beta/openai. Phase 2 will add native generateContent for vision.",
+        auth_scheme="gemini",
+        docs="Google Gemini — Phase 2b uses the native generateContent API via "
+             "the official `google-genai` Python SDK for correct vision content "
+             "blocks, tool/function calling, and system instructions. Phase 1 "
+             "used the /v1beta/openai compat shim. If the google-genai package "
+             "isn't installed in the workspace image, the executor raises a "
+             "clear error pointing at `pip install google-genai>=1.0.0`.",
     ),
 
     # --- Chinese providers ----------------------------------------------

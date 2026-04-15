@@ -4,16 +4,22 @@ Hermes supports 15 providers via the shared ``providers.py`` registry. Each
 provider's ``auth_scheme`` field controls which client + request shape the
 executor uses:
 
-- ``auth_scheme="openai"`` (14 providers) — OpenAI-compat ``/v1/chat/completions``
+- ``auth_scheme="openai"`` (13 providers) — OpenAI-compat ``/v1/chat/completions``
   via the ``openai`` Python SDK. Covers: Nous Portal, OpenRouter, OpenAI, xAI,
-  Gemini, Qwen, GLM, Kimi, MiniMax, DeepSeek, Groq, Together, Fireworks, Mistral.
+  Qwen, GLM, Kimi, MiniMax, DeepSeek, Groq, Together, Fireworks, Mistral.
 
 - ``auth_scheme="anthropic"`` (1 provider — anthropic) — native Messages API via
-  the ``anthropic`` Python SDK. Phase 2 addition: better tool calling, vision
-  support, extended thinking semantics. If the ``anthropic`` package isn't
-  installed in the workspace image, ``_do_anthropic_native`` raises a clear
-  error with install instructions rather than silently falling back to the
-  OpenAI-compat shim (which would lose fidelity invisibly).
+  the ``anthropic`` Python SDK. Phase 2a: better tool calling, vision support,
+  extended thinking semantics. If the ``anthropic`` package isn't installed in
+  the workspace image, ``_do_anthropic_native`` raises a clear error with
+  install instructions rather than silently falling back to the OpenAI-compat
+  shim (which would lose fidelity invisibly).
+
+- ``auth_scheme="gemini"`` (1 provider — gemini) — native ``generateContent`` API
+  via the official ``google-genai`` Python SDK. Phase 2b: first-class vision
+  content blocks, tool/function calling, system instructions, and thinking
+  config — all of which the OpenAI-compat shim at ``/v1beta/openai`` either
+  strips or mis-translates. Same fail-loud semantics as the anthropic path.
 
 Key resolution order (unchanged from Phase 1)
 ----------------------------------------------
@@ -24,9 +30,6 @@ Key resolution order (unchanged from Phase 1)
 
 Raises ``ValueError`` if nothing resolves. The error message lists every env var
 that was checked so the operator knows their options without reading source.
-
-Gemini native path (``auth_scheme="gemini"``) is intentionally NOT in this PR
-— Phase 2b will land it after measuring Phase 2a's Anthropic rollout.
 """
 
 from __future__ import annotations
@@ -188,11 +191,52 @@ class HermesA2AExecutor:
             return response.content[0].text
         return ""
 
+    async def _do_gemini_native(self, task_text: str) -> str:
+        """Native Google Gemini ``generateContent`` inference.
+
+        Uses the official ``google-genai`` Python SDK for correct vision
+        content blocks, tool/function calling, system instructions, and
+        thinking config. These all get stripped or mis-translated through
+        the OpenAI-compat ``/v1beta/openai`` shim.
+
+        If the ``google-genai`` package is not installed in the workspace
+        image, raise a clear error with install instructions rather than
+        silently falling back to the OpenAI-compat shim (same fail-loud
+        semantics as the anthropic path).
+
+        Phase 2b minimum viable: single-turn text in, text out, no tools,
+        no vision, no thinking config. Phase 2c/2d layers those on the same
+        method.
+        """
+        try:
+            from google import genai  # type: ignore[import-not-found]
+        except ImportError as exc:  # pragma: no cover — exercised by test_missing_sdk
+            raise RuntimeError(
+                "Hermes gemini native path requires the `google-genai` package. "
+                "Install in the workspace image with `pip install google-genai>=1.0.0` "
+                "or set HERMES provider=openrouter to route Gemini models through "
+                "OpenRouter's OpenAI-compat shim instead."
+            ) from exc
+
+        # google-genai client reads api_key from env by default; pass it
+        # explicitly so we respect whatever ProviderConfig resolved (e.g. a
+        # test-only key that isn't in process env yet).
+        client = genai.Client(api_key=self.api_key)
+        response = await client.aio.models.generate_content(
+            model=self.model,
+            contents=task_text,
+        )
+        # response.text is the flattened text across all parts of the first
+        # candidate. For single-turn text-only that's the whole reply.
+        return response.text or ""
+
     async def _do_inference(self, task_text: str) -> str:
         """Dispatch to the right inference path based on provider auth_scheme."""
         scheme = self.provider_cfg.auth_scheme
         if scheme == "anthropic":
             return await self._do_anthropic_native(task_text)
+        if scheme == "gemini":
+            return await self._do_gemini_native(task_text)
         if scheme == "openai":
             return await self._do_openai_compat(task_text)
         # Unknown scheme — treat as openai-compat for forward-compat with any
