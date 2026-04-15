@@ -38,15 +38,23 @@
 
 ---
 
-## Phase 12: Code Sandbox — PARTIAL
+## Phase 12: Code Sandbox — DONE
 
-> MVP done (subprocess + Docker backends). Production backends not started.
+> Three-backend sandbox for the `run_code` tool, selectable per-workspace
+> via `SANDBOX_BACKEND` env (set from `config.yaml → sandbox.backend`).
 
-- [x] `run_code` tool — `tools/sandbox.py`
-- [x] Docker-in-Docker backend (MVP) — throwaway container with resource limits
-- [ ] Firecracker backend (production) — MicroVM isolation, faster cold starts
-- [ ] E2B backend (cloud) — cloud-hosted via E2B API
-- [x] Sandbox config — `SandboxConfig` dataclass in config.py
+- [x] `run_code` tool — `workspace-template/builtin_tools/sandbox.py`
+- [x] `subprocess` backend (default) — asyncio subprocess with hard timeout
+- [x] `docker` backend — throwaway container with resource limits (MVP)
+- [x] `e2b` backend (cloud) — E2B microVMs via `e2b-code-interpreter`, reads `E2B_API_KEY`
+- [x] Sandbox config — `SandboxConfig` dataclass in `workspace-template/config.py`
+
+Firecracker-as-a-backend is intentionally skipped: each tenant platform now
+runs on a Fly Machine (which IS a Firecracker microVM — see Phase 32
+Phase B), so the entire workspace process is already Firecracker-isolated
+from other tenants. Running Firecracker inside Firecracker would double-
+nest for no additional security. For stronger per-call isolation within
+one tenant, use the `e2b` backend.
 
 ---
 
@@ -344,6 +352,36 @@ Deferred, not blocking:
 
 Goal: ship Molecule AI as a multi-tenant cloud SaaS (not just
 self-hosted per-customer). Ordered by dependency + ROI.
+
+### Current state (2026-04-15)
+
+**Live infrastructure:**
+- Control plane deployed: https://molecule-cp.fly.dev (Fly app `molecule-cp`, 2 machines, Neon project `molecule-cp` / `cool-sea-89357706`)
+- Tenant app: Fly app `molecule-tenant` (Neon parent project `molecule-tenants` / `dawn-bar-08311714`, tenants get a branch per org)
+- Shared Redis: Upstash `grateful-prawn-89393.upstash.io` (key-prefix isolation, Phase H moves to per-tenant)
+- Container registry: `registry.fly.io/molecule-tenant:latest` (mirrored from `ghcr.io/molecule-ai/platform:latest` via GH Actions on every main push)
+- First real tenant provisioned: org `acme` → Fly machine + Neon branch + encrypted URLs in `org_instances`
+- WorkOS AuthKit live at `/cp/auth/{signup,login,callback,signout,me}` — hosted signup redirects correctly; see https://molecule-cp.fly.dev/cp/auth/signup
+- Stripe billing scaffold deployed in orgs-only mode (no Stripe creds configured yet; webhook handler + signature verification code ready)
+- Domain: `moleculesai.app` (DNS not yet wired — subdomain routing works via `X-Molecule-Org-Slug` header pending Cloudflare)
+
+**Phase status:**
+- **A — Foundation** (accounts, tokens, domain): ✅ done
+- **B — Fly provisioner + Neon branching**: ✅ done (control plane + tenant machine config + services + healthchecks)
+- **C — WorkOS AuthKit scaffold**: ✅ done (live redirect to hosted signup); Phase C.2 (RequireSession on /cp/orgs + org-ownership check) pending
+- **D — Stripe billing scaffold**: ✅ code done; Phase D.2 (auth-scoped checkout + customer create) and D.3 (plan quotas) pending — not blocked on user
+- **E — Cloudflare + DNS `*.moleculesai.app`**: not started
+- **F — Sign-up UX + onboarding**: not started
+- **G — Observability + quotas + admin**: not started
+- **H — Hardening (KMS, isolation test suite, load test, legal)**: not started
+- **I — Launch**: not started
+
+**Known open issues on the live system:**
+- fly-replay state format iteration: Fly's proxy returned 502 on `state=org-id=<uuid>` (second `=`); fix dropped the prefix, PRs `molecule-controlplane#8` + `molecule-monorepo#88` in flight to make bare UUID work end-to-end
+- Tenant `/workspaces` returns Neon pooler warnings (`unnamed prepared statement does not exist`) — lib/pq + Neon pooler incompatibility, tracked for lib/pq → pgx migration in a later phase
+
+**Companion repo:** `Molecule-AI/molecule-controlplane` (private). n8n-style open-core split: this public repo stays OSS (tenant binary + plugins + channels, contributable surface); control plane (orgs / signup / billing / provisioner / routing) is private. See `molecule-controlplane/PLAN.md` for its roadmap.
+
 
 ### Tier 1 — blocks multi-tenant launch
 
