@@ -97,9 +97,12 @@ export function ChatTab({ workspaceId, data }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Sub-tab bar */}
-      <div className="flex border-b border-zinc-800/40 bg-zinc-900/30 px-2 shrink-0">
+      {/* Sub-tab bar — role="tablist" so screen readers expose tab context */}
+      <div role="tablist" className="flex border-b border-zinc-800/40 bg-zinc-900/30 px-2 shrink-0">
         <button
+          role="tab"
+          aria-selected={subTab === "my-chat"}
+          aria-controls="chat-panel-my-chat"
           onClick={() => setSubTab("my-chat")}
           className={`px-3 py-1.5 text-[10px] font-medium transition-colors ${
             subTab === "my-chat"
@@ -110,6 +113,9 @@ export function ChatTab({ workspaceId, data }: Props) {
           My Chat
         </button>
         <button
+          role="tab"
+          aria-selected={subTab === "agent-comms"}
+          aria-controls="chat-panel-agent-comms"
           onClick={() => setSubTab("agent-comms")}
           className={`px-3 py-1.5 text-[10px] font-medium transition-colors ${
             subTab === "agent-comms"
@@ -123,9 +129,13 @@ export function ChatTab({ workspaceId, data }: Props) {
       {/* Content */}
       <div className="flex-1 overflow-hidden flex flex-col">
         {subTab === "my-chat" ? (
-          <MyChatPanel workspaceId={workspaceId} data={data} />
+          <div id="chat-panel-my-chat" role="tabpanel" className="flex-1 overflow-hidden flex flex-col">
+            <MyChatPanel workspaceId={workspaceId} data={data} />
+          </div>
         ) : (
-          <AgentCommsPanel workspaceId={workspaceId} />
+          <div id="chat-panel-agent-comms" role="tabpanel" className="flex-1 overflow-hidden flex flex-col">
+            <AgentCommsPanel workspaceId={workspaceId} />
+          </div>
         )}
       </div>
     </div>
@@ -408,6 +418,7 @@ function MyChatPanel({ workspaceId, data }: Props) {
       <div className="p-3 border-t border-zinc-800">
         <div className="flex gap-2">
           <textarea
+            aria-label="Message to agent"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {

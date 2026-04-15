@@ -145,19 +145,19 @@ export function CommunicationOverlay() {
                   <span className="text-zinc-300 font-medium truncate">
                     {c.sourceName}
                   </span>
-                  <span className="text-zinc-600">→</span>
+                  <span className="text-zinc-400">→</span>
                   <span className="text-zinc-300 truncate">{c.targetName}</span>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <span className={statusColor}>{statusIcon}</span>
-                  <span className="text-zinc-600">{age}</span>
+                  <span className="text-zinc-400">{age}</span>
                 </div>
               </div>
               {c.summary && (
                 <div className="text-zinc-500 truncate mt-0.5 pl-4">{c.summary}</div>
               )}
               {c.durationMs && (
-                <div className="text-zinc-600 pl-4">{c.durationMs}ms</div>
+                <div className="text-zinc-400 pl-4">{c.durationMs}ms</div>
               )}
             </div>
           );

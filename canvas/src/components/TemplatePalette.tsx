@@ -319,7 +319,7 @@ export function TemplatePalette() {
             : "bg-zinc-900/90 border border-zinc-700/50 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600"
         }`}
         title="Template Palette"
-        aria-label="Template Palette"
+        aria-label={open ? "Close template palette" : "Open template palette"}
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
