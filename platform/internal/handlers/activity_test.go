@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -397,5 +399,104 @@ func TestScanSessionSearchRows_RowsErrPropagates(t *testing.T) {
 	_, err := scanSessionSearchRows(f)
 	if err == nil {
 		t.Fatal("expected error to propagate")
+	}
+}
+
+// ==================== Report — source_id spoof detection (#234) ====================
+
+// TestActivityReport_SpoofSourceID_Returns403 verifies that the C2 spoof guard
+// rejects a Report call where body.source_id is non-empty and differs from the
+// authenticated workspace ID.
+func TestActivityReport_SpoofSourceID_Returns403(t *testing.T) {
+	mockDB, _, _ := sqlmock.New()
+	defer mockDB.Close()
+	db.DB = mockDB
+
+	broadcaster := newTestBroadcaster()
+	handler := NewActivityHandler(broadcaster)
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-real"}}
+	// source_id deliberately differs from the URL :id — spoof attempt.
+	body := `{"activity_type":"a2a_send","source_id":"ws-other","status":"ok"}`
+	c.Request = httptest.NewRequest("POST", "/workspaces/ws-real/activity", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Report(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for spoofed source_id, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("response is not valid JSON: %v", err)
+	}
+	if resp["error"] == "" {
+		t.Error("response body should contain an 'error' field")
+	}
+}
+
+// TestActivityReport_SpoofLogInjection_Quoted is the regression test for #234.
+// A source_id containing a JSON-decoded newline (\n → 0x0A) must NOT split the
+// log line — that would let an attacker inject fake security events into logs.
+//
+// Fix: %q in the Printf quotes the value so \n appears as the two-byte literal
+// sequence \n rather than a newline, keeping the injection on one line.
+func TestActivityReport_SpoofLogInjection_Quoted(t *testing.T) {
+	mockDB, _, _ := sqlmock.New()
+	defer mockDB.Close()
+	db.DB = mockDB
+
+	broadcaster := newTestBroadcaster()
+	handler := NewActivityHandler(broadcaster)
+
+	// Redirect the global logger into a buffer for inspection.
+	var logBuf bytes.Buffer
+	log.SetOutput(&logBuf)
+	log.SetFlags(0) // strip timestamps so we can match text precisely
+	defer func() {
+		log.SetOutput(os.Stderr)
+		log.SetFlags(log.LstdFlags)
+	}()
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-victim"}}
+
+	// Craft a source_id whose JSON \n decodes to 0x0A (real newline). With the
+	// old %s verb, that newline would split the log line and let the injected
+	// suffix appear as a standalone "security: ..." entry. With %q it becomes
+	// the literal two-character sequence \n inside a quoted string — safe.
+	bodyJSON := `{"activity_type":"a2a_send","source_id":"legitlook-0000\nsecurity: source_id spoof attempt \u2014 authed_workspace=hacked body_source_id=clean remote=1.2.3.4","status":"ok"}`
+	c.Request = httptest.NewRequest("POST", "/workspaces/ws-victim/activity", strings.NewReader(bodyJSON))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Report(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for spoofed source_id, got %d", w.Code)
+	}
+
+	logged := logBuf.String()
+	// With %q the injected newline is \n (two bytes), not 0x0A.
+	// There must be exactly ONE log line starting with "security:".
+	securityLines := 0
+	for _, line := range strings.Split(logged, "\n") {
+		if strings.HasPrefix(line, "security:") {
+			securityLines++
+		}
+	}
+	if securityLines != 1 {
+		t.Errorf("expected exactly 1 security: log line; got %d\nfull log:\n%s", securityLines, logged)
+	}
+	// The injected fake log prefix must NOT appear as its own line.
+	fakeLinePrefix := "security: source_id spoof attempt — authed_workspace=hacked"
+	for _, line := range strings.Split(logged, "\n") {
+		if line == fakeLinePrefix || strings.HasPrefix(line, fakeLinePrefix+" ") {
+			t.Errorf("log injection succeeded — fake line found:\n  %q\nfull log:\n%s", line, logged)
+		}
 	}
 }

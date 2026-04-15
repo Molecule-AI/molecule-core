@@ -341,7 +341,9 @@ func (h *ActivityHandler) Report(c *gin.Context) {
 		// Log the spoof attempt as a security event so an auditor cron can
 		// surface repeat probing. Keep the log line stable (greppable) and
 		// avoid echoing attacker-supplied data verbatim beyond the UUIDs.
-		log.Printf("security: source_id spoof attempt — authed_workspace=%s body_source_id=%s remote=%s",
+		// %q quotes sourceID: JSON-decoded \n bytes would otherwise split
+		// the log line and let an attacker inject fake log entries (#234).
+		log.Printf("security: source_id spoof attempt — authed_workspace=%s body_source_id=%q remote=%s",
 			workspaceID, sourceID, c.ClientIP())
 		c.JSON(http.StatusForbidden, gin.H{"error": "source_id must match authenticated workspace"})
 		return
