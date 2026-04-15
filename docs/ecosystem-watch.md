@@ -855,6 +855,46 @@ builders; Molecule AI users are developers building agent companies.
 **Last reviewed:** 2026-04-15 · **Stars / activity:** Anthropic cloud feature, 611 HN pts today (item 47768133)
 
 ---
+
+### Microsoft Agent Framework — `microsoft/agent-framework`
+
+**Pitch:** "A framework for building, orchestrating and deploying AI agents and multi-agent workflows with support for Python and .NET."
+
+**Shape:** Python + C#/.NET (MIT), ~9.5k ⭐, April 2026 active releases. Graph-based workflow engine with streaming, checkpointing, and human-in-the-loop approval gates. Supports Azure OpenAI, Microsoft Foundry, and OpenAI. Ships a DevUI for interactive debugging, OpenTelemetry observability, and "AF Labs" (experimental RL-based features). Ships a migration guide from AutoGen — this is the official Microsoft successor to `microsoft/autogen`.
+
+**Overlap with us:** Our workspace-template adapters target AutoGen/AG2; this is the official Microsoft path forward, making our adapter coverage incomplete. HITL approval gates and graph-based multi-agent routing mirror our `approvals` table + delegation chain.
+
+**Differentiation:** Orchestration SDK only — no persistent agent memory, no org-chart canvas, no A2A between independently deployed agents, no scheduling, no channel integrations.
+
+**Worth borrowing:** DevUI interactive debugging panel (inspect agent state mid-run without a full canvas). AF Labs RL routing — agents improve delegation decisions from past run outcomes; worth evaluating for our PM workspace's `delegate_task` routing.
+
+**Terminology collisions:** "middleware" — their processing pipeline hook; undefined in our platform. "graph" — their workflow DAG vs our live org chart (same word, different semantics).
+
+**Signals to react to:** If AF 1.0 achieves enterprise adoption → update our autogen adapter to target `microsoft/agent-framework`. If AF Labs RL ships stable → evaluate for dynamic PM routing based on workspace performance history.
+
+**Last reviewed:** 2026-04-15 · **Stars / activity:** ~9.5k ⭐, April 2026 .NET release, official AutoGen successor
+
+---
+
+### Open Agents — `vercel-labs/open-agents`
+
+**Pitch:** "An open-source reference app for building and running background coding agents on Vercel — fork it, adapt it, ship your own cloud coding agent."
+
+**Shape:** TypeScript (MIT), ~2.2k ⭐, +1,020 today. Three-layer architecture: web UI → agent workflow (Vercel Workflow SDK for durable execution) → isolated sandbox VM. Key design principle: **agent runs *outside* the sandbox VM** and interacts with it through tools — not co-located. Snapshot-based VM resumption, auto-commit/push/PR, session sharing via read-only links, voice input. From Vercel Labs — same team as the Skills CLI entry above.
+
+**Overlap with us:** Vercel Workflow SDK gives checkpoint-and-resume durability — the same gap our workspace restart-context solves ad hoc. Agent-outside-sandbox mirrors our Docker workspace + adapter separation. Auto-PR creation is a first-class feature we implement manually.
+
+**Differentiation:** Single coding agent, no org hierarchy, no A2A, no scheduling, no persistent memory across sessions, no channels. A reference template, not an operational platform.
+
+**Worth borrowing:** Snapshot-based sandbox resumption — preserves VM state across agent restarts without re-cloning the repo. More efficient than our current Docker restart + `git clone` approach for long-running workspace tasks.
+
+**Terminology collisions:** "workflow" — Vercel's durable execution primitive; our informal delegation chain term.
+
+**Signals to react to:** If Vercel Workflow SDK becomes a standard durable-execution backend → evaluate as a drop-in for `workspace_schedules` on Vercel-hosted deployments. If open-agents adds multi-agent coordination → direct competitor reference app with Vercel distribution.
+
+**Last reviewed:** 2026-04-15 · **Stars / activity:** ~2.2k ⭐, +1,020 today, Vercel Labs
+
+---
 ## Candidates to add (backlog)
 
 Short-list of projects to write up next time someone has an hour:
