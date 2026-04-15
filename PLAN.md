@@ -295,9 +295,9 @@ E2E: 67/67 comprehensive checks passing, 62/62 API tests (also gated in CI `e2e-
 
 ---
 
-## Future Work — Plugin Adaptor System
+## Plugin Adaptor System — shipped; deferred follow-ups only
 
-Landed (see `feat/plugin-adaptor-registry` and `feat/agentskills-compliance`):
+**The system is done.** Landed (see `feat/plugin-adaptor-registry` and `feat/agentskills-compliance`):
 per-runtime plugin adaptors, hybrid resolver (registry > plugin-shipped >
 raw-drop), `AgentskillsAdaptor` covering rule+skill plugins for all
 runtimes, `/plugins?runtime=` filter, `/workspaces/:id/plugins/available`
