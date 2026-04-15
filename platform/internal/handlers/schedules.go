@@ -151,6 +151,7 @@ type updateScheduleRequest struct {
 // provided fields are changed — no dynamic SQL construction.
 func (h *ScheduleHandler) Update(c *gin.Context) {
 	scheduleID := c.Param("scheduleId")
+	workspaceID := c.Param("id") // #113: bind to owning workspace to prevent IDOR
 	ctx := c.Request.Context()
 
 	var body updateScheduleRequest
@@ -164,7 +165,8 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 	if body.CronExpr != nil || body.Timezone != nil {
 		var currentCron, currentTZ string
 		err := db.DB.QueryRowContext(ctx,
-			`SELECT cron_expr, timezone FROM workspace_schedules WHERE id = $1`, scheduleID,
+			`SELECT cron_expr, timezone FROM workspace_schedules WHERE id = $1 AND workspace_id = $2`,
+			scheduleID, workspaceID,
 		).Scan(&currentCron, &currentTZ)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "schedule not found"})
@@ -199,8 +201,8 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 			enabled   = COALESCE($6, enabled),
 			next_run_at = COALESCE($7, next_run_at),
 			updated_at = now()
-		WHERE id = $1
-	`, scheduleID, body.Name, body.CronExpr, body.Timezone, body.Prompt, body.Enabled, nextRunAt)
+		WHERE id = $1 AND workspace_id = $8
+	`, scheduleID, body.Name, body.CronExpr, body.Timezone, body.Prompt, body.Enabled, nextRunAt, workspaceID)
 	if err != nil {
 		log.Printf("Schedules.Update: error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update schedule"})
@@ -218,10 +220,12 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 // Delete removes a schedule.
 func (h *ScheduleHandler) Delete(c *gin.Context) {
 	scheduleID := c.Param("scheduleId")
+	workspaceID := c.Param("id") // #113: bind to owning workspace to prevent IDOR
 	ctx := c.Request.Context()
 
 	result, err := db.DB.ExecContext(ctx,
-		`DELETE FROM workspace_schedules WHERE id = $1`, scheduleID)
+		`DELETE FROM workspace_schedules WHERE id = $1 AND workspace_id = $2`,
+		scheduleID, workspaceID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete schedule"})
 		return
