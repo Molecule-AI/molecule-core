@@ -381,7 +381,13 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	wsAuth.DELETE("/channels/:channelId", chh.Delete)
 	wsAuth.POST("/channels/:channelId/send", chh.Send)
 	wsAuth.POST("/channels/:channelId/test", chh.Test)
-	r.POST("/channels/discover", chh.Discover)
+	// #250: /channels/discover is an admin-setup helper (takes a bot
+	// token, asks the vendor "what chats is this token a member of?").
+	// Leaving it unauthenticated turned it into a bot-token oracle plus
+	// a drive-by deleteWebhook side effect against any valid token an
+	// attacker could probe. AdminAuth matches the intent — it's a
+	// platform-operator helper, not a per-workspace route.
+	r.POST("/channels/discover", middleware.AdminAuth(db.DB), chh.Discover)
 	r.POST("/webhooks/:type", chh.Webhook)
 
 	// WebSocket
