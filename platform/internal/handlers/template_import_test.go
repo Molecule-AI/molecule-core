@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"gopkg.in/yaml.v3"
 	"github.com/gin-gonic/gin"
 )
 
@@ -56,8 +57,9 @@ func TestGenerateDefaultConfig_WithFiles(t *testing.T) {
 
 	cfg := generateDefaultConfig("Test Agent", files)
 
-	if !strings.Contains(cfg, "name: Test Agent") {
-		t.Error("config should contain agent name")
+	// Name is emitted as a double-quoted scalar (#221 sanitizer).
+	if !strings.Contains(cfg, `name: "Test Agent"`) {
+		t.Errorf("config should contain quoted agent name, got:\n%s", cfg)
 	}
 	if !strings.Contains(cfg, "tier: 1") {
 		t.Error("config should default to tier 1")
@@ -85,8 +87,8 @@ func TestGenerateDefaultConfig_Empty(t *testing.T) {
 
 	cfg := generateDefaultConfig("Empty Agent", files)
 
-	if !strings.Contains(cfg, "name: Empty Agent") {
-		t.Error("config should contain agent name")
+	if !strings.Contains(cfg, `name: "Empty Agent"`) {
+		t.Errorf("config should contain quoted agent name, got:\n%s", cfg)
 	}
 	// Should fallback to default prompt file
 	if !strings.Contains(cfg, "system-prompt.md") {
@@ -95,37 +97,62 @@ func TestGenerateDefaultConfig_Empty(t *testing.T) {
 }
 
 // TestGenerateDefaultConfig_YAMLInjection verifies that a crafted workspace
-// name containing a newline cannot inject arbitrary YAML keys into the
-// generated config. This is the regression test for issue #221.
+// name cannot inject arbitrary YAML keys into the generated config. Regression
+// test for issue #221.
+//
+// Structural assertion: parse the output as YAML and verify the `name` scalar
+// contains the full literal attacker input AND no banned top-level keys slipped
+// in. Substring-based checks fail because escaped \n still contains the
+// attacker's key text as a byte fragment.
 func TestGenerateDefaultConfig_YAMLInjection(t *testing.T) {
 	adversarialCases := []struct {
-		desc        string
-		name        string
-		bannedLines []string // lines that must NOT appear in the output
+		desc       string
+		name       string
+		bannedKeys []string // top-level YAML keys that must NOT appear
 	}{
 		{
-			desc:        "newline followed by new key",
-			name:        "legit-agent\nmodel: malicious:model",
-			bannedLines: []string{"model: malicious:model"},
+			desc:       "newline followed by new key",
+			name:       "legit-agent\nmodel: malicious:model",
+			bannedKeys: []string{}, // `model` is a legitimate default key too, test via name-scalar integrity
 		},
 		{
-			desc:        "CRLF injection",
-			name:        "legit-agent\r\nmalicious_key: value",
-			bannedLines: []string{"malicious_key: value"},
+			desc:       "CRLF injection",
+			name:       "legit-agent\r\nmalicious_key: value",
+			bannedKeys: []string{"malicious_key"},
 		},
 		{
-			desc:        "multiple newlines with multiple keys",
-			name:        "x\nfoo: bar\nbaz: qux",
-			bannedLines: []string{"foo: bar", "baz: qux"},
+			desc:       "multiple newlines with multiple keys",
+			name:       "x\nfoo: bar\nbaz: qux",
+			bannedKeys: []string{"foo", "baz"},
+		},
+		{
+			desc:       "double-quote escape attempt",
+			name:       `"; evil_key: pwned; #`,
+			bannedKeys: []string{"evil_key"},
 		},
 	}
 
 	for _, tc := range adversarialCases {
 		t.Run(tc.desc, func(t *testing.T) {
 			cfg := generateDefaultConfig(tc.name, map[string]string{})
-			for _, banned := range tc.bannedLines {
-				if strings.Contains(cfg, banned) {
-					t.Errorf("YAML injection: output contains injected line %q\nfull config:\n%s", banned, cfg)
+			var parsed map[string]interface{}
+			if err := yaml.Unmarshal([]byte(cfg), &parsed); err != nil {
+				t.Fatalf("sanitized config does not parse as YAML: %v\n--- config ---\n%s", err, cfg)
+			}
+			// 1. name key must equal the original attacker input (escaping preserved payload)
+			if got, _ := parsed["name"].(string); got != tc.name {
+				t.Errorf("name scalar mismatch:\n  got:  %q\n  want: %q", got, tc.name)
+			}
+			// 2. No banned top-level keys injected
+			for _, k := range tc.bannedKeys {
+				if _, exists := parsed[k]; exists {
+					t.Errorf("YAML injection: banned key %q leaked to parsed config", k)
+				}
+			}
+			// 3. Legitimate default keys still present — escaping didn't corrupt the rest
+			for _, expected := range []string{"name", "description", "version", "tier", "model"} {
+				if _, exists := parsed[expected]; !exists {
+					t.Errorf("missing legitimate key %q in parsed config", expected)
 				}
 			}
 		})
