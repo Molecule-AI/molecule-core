@@ -23,6 +23,12 @@ permissions:
 env:
   # GHCR accepts mixed-case, but most tooling lowercases — keep us consistent.
   IMAGE_NAME: ghcr.io/molecule-ai/platform
+  # Fly registry mirror — tenant machines provisioned by the private
+  # `molecule-controlplane` pull from here (private GHCR image can't be
+  # pulled by Fly machines without auth plumbing we don't want to add).
+  # Fly auto-authenticates same-org machines against registry.fly.io, so
+  # mirroring keeps GHCR private while tenants still boot.
+  FLY_IMAGE_NAME: registry.fly.io/molecule-tenant
 
 jobs:
   build-and-push:
@@ -43,6 +49,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Log in to Fly registry
+        # Fly's registry is entirely token-auth: username is ignored, password
+        # must be a valid FLY_API_TOKEN. We pass "molecule-ai" as a human-
+        # readable placeholder so this step is obvious to future readers.
+        # Rotation: see docs/runbooks/saas-secrets.md — FLY_API_TOKEN lives in
+        # two places (GitHub Actions secret here + `fly secrets` on molecule-cp)
+        # and MUST be updated in both on rotation.
+        uses: docker/login-action@v3
+        with:
+          registry: registry.fly.io
+          username: molecule-ai
+          password: ${{ secrets.FLY_API_TOKEN }}
+
       - name: Compute tags
         id: tags
         # Emit two tags per build: `latest` (floating, always the main tip)
@@ -51,7 +70,11 @@ jobs:
         run: |
           echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-      - name: Build & push
+      - name: Build & push to GHCR
+        # Split from the Fly mirror so a registry.fly.io outage doesn't block
+        # GHCR (or vice versa) — each registry's failure mode is isolated.
+        # GHA cache is shared because both steps re-use the same Dockerfile
+        # context + build args.
         uses: docker/build-push-action@v5
         with:
           context: ./platform
@@ -62,6 +85,25 @@ jobs:
             ${{ env.IMAGE_NAME }}:sha-${{ steps.tags.outputs.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.description=Molecule AI tenant platform (one instance per org)
+
+      - name: Build & push to Fly registry
+        # Continues even if GHCR push failed — `if: always()` ensures the
+        # private control plane's tenant-image mirror lands regardless of
+        # any GHCR-side flakiness.
+        if: always()
+        uses: docker/build-push-action@v5
+        with:
+          context: ./platform
+          file: ./platform/Dockerfile
+          push: true
+          tags: |
+            ${{ env.FLY_IMAGE_NAME }}:latest
+            ${{ env.FLY_IMAGE_NAME }}:sha-${{ steps.tags.outputs.sha }}
+          cache-from: type=gha
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
