@@ -14,6 +14,15 @@ overlap / differentiation / terminology-collision notes. Cross-referenced
 from `PLAN.md` and `README.md`; it's the canonical starting point for
 "what else is out there."
 
+## SaaS ops
+
+When rotating SaaS credentials (Fly / Neon / Upstash / envelope key), read
+**`docs/runbooks/saas-secrets.md`** first. It documents which secrets live
+in multiple places (e.g. `FLY_API_TOKEN` in both GitHub Actions and `fly
+secrets` on `molecule-cp`), the correct rotation order, and danger cases —
+notably `SECRETS_ENCRYPTION_KEY`, which cannot be rotated without a data
+migration until Phase H lands KMS envelope encryption.
+
 ## Agent operating rules (auto-loaded — read first)
 
 The following are project-level rules that override default behavior. They
