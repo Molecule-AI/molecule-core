@@ -123,11 +123,11 @@ check "PATCH /workspaces/:id (name)" '"status":"updated"' "$R"
 R=$(curl -s "$BASE/workspaces/$ECHO_ID")
 check "Name updated" '"name":"Echo Agent v2"' "$R"
 
-# Test 17: Events
-R=$(curl -s "$BASE/events")
+# Test 17: Events (#165 / PR #167 — now admin-gated, bearer required)
+R=$(curl -s "$BASE/events" -H "Authorization: Bearer $ECHO_TOKEN")
 check "GET /events (has events)" 'WORKSPACE_ONLINE' "$R"
 
-R=$(curl -s "$BASE/events/$ECHO_ID")
+R=$(curl -s "$BASE/events/$ECHO_ID" -H "Authorization: Bearer $ECHO_TOKEN")
 check "GET /events/:id (has events for echo)" 'WORKSPACE_ONLINE' "$R"
 
 # Test 18: Update card
@@ -253,8 +253,8 @@ check "List after delete (count=1)" "1" "$COUNT"
 echo ""
 echo "--- Bundle Round-Trip Test ---"
 
-# Export the summarizer workspace
-BUNDLE=$(curl -s "$BASE/bundles/export/$SUM_ID")
+# Export the summarizer workspace (#165 / PR #167 — admin-gated)
+BUNDLE=$(curl -s "$BASE/bundles/export/$SUM_ID" -H "Authorization: Bearer $SUM_TOKEN")
 check "GET /bundles/export/:id" '"name":"Summarizer Agent"' "$BUNDLE"
 
 # Capture original config for comparison
@@ -321,8 +321,8 @@ check "Register re-imported workspace" '"status":"registered"' "$R"
 # revoked when SUM_ID was deleted above — use this one for cleanup instead.
 NEW_TOKEN=$(echo "$R" | e2e_extract_token)
 
-# Re-export and verify agent_card survives the round-trip
-REBUNDLE=$(curl -s "$BASE/bundles/export/$NEW_ID")
+# Re-export and verify agent_card survives the round-trip (#165 / PR #167 — admin-gated)
+REBUNDLE=$(curl -s "$BASE/bundles/export/$NEW_ID" -H "Authorization: Bearer $NEW_TOKEN")
 check "Re-exported bundle has agent_card" '"agent_card"' "$REBUNDLE"
 
 # Clean up — use the token just issued to the re-imported workspace
