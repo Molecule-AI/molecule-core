@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AuthGate } from "@/components/AuthGate";
+import { CookieConsent } from "@/components/CookieConsent";
 
 export const metadata: Metadata = {
   title: "Molecule AI",
@@ -20,6 +21,7 @@ export default function RootLayout({
             when running on a tenant subdomain. Non-SaaS hosts (localhost,
             vercel preview URL, apex) pass through unchanged. */}
         <AuthGate>{children}</AuthGate>
+        <CookieConsent />
       </body>
     </html>
   );
