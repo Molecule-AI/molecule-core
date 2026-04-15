@@ -20,6 +20,7 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/router"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/scheduler"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/supervised"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/ws"
 )
 
@@ -67,7 +68,12 @@ func main() {
 	// Start Redis pub/sub subscriber
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go broadcaster.Subscribe(ctx)
+	// Every long-running subsystem below is wrapped by supervised.RunWithRecover:
+	// a panic (e.g. from a single bad tenant row) is logged + the subsystem is
+	// restarted with exponential backoff instead of silently dying forever.
+	// Motivation: issue #85 (scheduler silent outage for 12+ hours) and #92
+	// (systemic — affects every background goroutine).
+	go supervised.RunWithRecover(ctx, "broadcaster", broadcaster.Subscribe)
 
 	// Activity log retention — configurable via env vars
 	retentionDays := envOr("ACTIVITY_RETENTION_DAYS", "7")
@@ -122,21 +128,25 @@ func main() {
 	}
 
 	// Start Liveness Monitor — Redis TTL expiry-based offline detection + auto-restart
-	go registry.StartLivenessMonitor(ctx, onWorkspaceOffline)
+	go supervised.RunWithRecover(ctx, "liveness-monitor", func(c context.Context) {
+		registry.StartLivenessMonitor(c, onWorkspaceOffline)
+	})
 
 	// Proactive container health sweep — detects dead containers faster than Redis TTL.
 	// Checks all "online" workspaces against Docker every 15 seconds.
 	if prov != nil {
-		go registry.StartHealthSweep(ctx, prov, 15*time.Second, onWorkspaceOffline)
+		go supervised.RunWithRecover(ctx, "health-sweep", func(c context.Context) {
+			registry.StartHealthSweep(c, prov, 15*time.Second, onWorkspaceOffline)
+		})
 	}
 
 	// Cron Scheduler — fires A2A messages to workspaces on user-defined schedules
 	cronSched := scheduler.New(wh, broadcaster)
-	go cronSched.Start(ctx)
+	go supervised.RunWithRecover(ctx, "scheduler", cronSched.Start)
 
 	// Channel Manager — social channel integrations (Telegram, Slack, etc.)
 	channelMgr := channels.NewManager(wh, broadcaster)
-	go channelMgr.Start(ctx)
+	go supervised.RunWithRecover(ctx, "channel-manager", channelMgr.Start)
 
 	// Router
 	r := router.Setup(hub, broadcaster, prov, platformURL, configsDir, wh, channelMgr)
