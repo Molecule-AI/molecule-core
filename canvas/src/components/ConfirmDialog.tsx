@@ -42,11 +42,48 @@ export function ConfirmDialog({
     setMounted(true);
   }, []);
 
+  // Move focus into the dialog when it opens (WCAG 2.1 SC 2.4.3 / 3.2.2)
+  useEffect(() => {
+    if (!open || !mounted) return;
+    const raf = requestAnimationFrame(() => {
+      dialogRef.current?.querySelector<HTMLElement>("button")?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [open, mounted]);
+
+  // Keyboard: Escape cancels, Enter confirms, Tab is trapped within the dialog
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancelRef.current();
-      if (e.key === "Enter") onConfirmRef.current();
+      if (e.key === "Escape") {
+        onCancelRef.current();
+        return;
+      }
+      if (e.key === "Enter") {
+        onConfirmRef.current();
+        return;
+      }
+      if (e.key === "Tab" && dialogRef.current) {
+        const focusable = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+          )
+        ).filter((el) => !el.hasAttribute("disabled"));
+        if (focusable.length === 0) { e.preventDefault(); return; }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -68,13 +105,16 @@ export function ConfirmDialog({
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
 
-      {/* Dialog */}
+      {/* Dialog — role="dialog" + aria-modal prevent interaction with background */}
       <div
         ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
         className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl shadow-black/50 max-w-[380px] w-full mx-4 overflow-hidden"
       >
         <div className="px-5 py-4">
-          <h3 className="text-sm font-semibold text-zinc-100 mb-2">{title}</h3>
+          <h3 id="confirm-dialog-title" className="text-sm font-semibold text-zinc-100 mb-2">{title}</h3>
           <p className="text-[13px] text-zinc-400 leading-relaxed">{message}</p>
         </div>
 

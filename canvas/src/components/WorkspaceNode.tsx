@@ -77,6 +77,10 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-label={`${data.name} workspace — ${data.status}`}
+      aria-pressed={isSelected}
       onClick={(e) => {
         e.stopPropagation();
         selectNode(isSelected ? null : id);
@@ -91,6 +95,21 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
         e.preventDefault();
         e.stopPropagation();
         openContextMenu({ x: e.clientX, y: e.clientY, nodeId: id, nodeData: data });
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          selectNode(isSelected ? null : id);
+        } else if (e.key === "ContextMenu") {
+          e.preventDefault();
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          openContextMenu({
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+            nodeId: id,
+            nodeData: data,
+          });
+        }
       }}
       className={`
         group relative rounded-xl
