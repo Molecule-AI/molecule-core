@@ -258,16 +258,66 @@ func configDirName(workspaceID string) string {
 	return "ws-" + id
 }
 
+// knownRuntimes is the allowlist of runtime strings the provisioner will
+// accept. Unknown values are coerced to the default ("langgraph") instead
+// of being splatted into filepath.Join + config.yaml templating, which
+// closes both the YAML-injection vector (#241) where an attacker could
+// smuggle `initial_prompt: run id && curl …` through a crafted runtime
+// string, and the path-traversal oracle where `runtime: ../../sensitive`
+// probed host directories for existence.
+//
+// Keep in sync with workspace-template/build-all.sh — adding a new
+// runtime means bumping both this list and the Docker image tags.
+var knownRuntimes = map[string]struct{}{
+	"langgraph":   {},
+	"claude-code": {},
+	"openclaw":    {},
+	"crewai":      {},
+	"autogen":     {},
+	"deepagents":  {},
+	"hermes":      {},
+	"codex":       {},
+}
+
+// yamlQuote emits a YAML double-quoted scalar that safely contains any
+// input string. Newlines + carriage returns are stripped first so we
+// never need the multi-line block form, and fmt.Sprintf %q produces a
+// Go-syntax quoted string whose escape rules are a strict subset of
+// YAML's double-quoted scalar — colons, hashes, braces, and every other
+// YAML metacharacter are safe inside it.
+//
+// Empty input → `""` (explicit empty scalar) which YAML readers accept
+// cleanly; the alternative of emitting raw %s could leak a trailing
+// newline from a prior line if the caller forgot a \n separator.
+func yamlQuote(s string) string {
+	clean := strings.ReplaceAll(strings.ReplaceAll(s, "\n", " "), "\r", "")
+	return fmt.Sprintf("%q", clean)
+}
+
+// sanitizeRuntime coerces a payload runtime string to a known entry.
+// Empty strings → the default. Unknown strings also → the default,
+// with a log so operators can notice typos or attack attempts.
+func sanitizeRuntime(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "langgraph"
+	}
+	if _, ok := knownRuntimes[raw]; ok {
+		return raw
+	}
+	log.Printf("provisioner: rejected unknown runtime %q, falling back to langgraph", raw)
+	return "langgraph"
+}
+
 // ensureDefaultConfig generates minimal config files in memory for workspaces without a template.
 // Returns a map of filename → content to be written into the container's /configs volume.
 func (h *WorkspaceHandler) ensureDefaultConfig(workspaceID string, payload models.CreateWorkspacePayload) map[string][]byte {
 	files := make(map[string][]byte)
 
-	// Determine runtime
-	runtime := payload.Runtime
-	if runtime == "" {
-		runtime = "langgraph"
-	}
+	// Determine runtime — pass through the allowlist so an attacker
+	// can't smuggle `initial_prompt: …` or a path-traversal oracle
+	// via a crafted runtime string (#241).
+	runtime := sanitizeRuntime(payload.Runtime)
 
 	// Generate a minimal config.yaml
 	model := payload.Model
@@ -279,29 +329,23 @@ func (h *WorkspaceHandler) ensureDefaultConfig(workspaceID string, payload model
 		}
 	}
 
-	// Sanitize name/role for YAML safety — quote values that contain special chars
-	safeName := strings.ReplaceAll(strings.ReplaceAll(payload.Name, "\n", " "), "\r", "")
-	safeRole := strings.ReplaceAll(strings.ReplaceAll(payload.Role, "\n", " "), "\r", "")
-	// Quote if contains YAML-breaking chars
-	quoteName := safeName
-	quoteRole := safeRole
-	for _, special := range []string{":", "#", "'", "\"", "{", "}", "[", "]"} {
-		if strings.Contains(safeName, special) {
-			quoteName = fmt.Sprintf("%q", safeName)
-			break
-		}
-	}
-	for _, special := range []string{":", "#", "'", "\"", "{", "}", "[", "]"} {
-		if strings.Contains(safeRole, special) {
-			quoteRole = fmt.Sprintf("%q", safeRole)
-			break
-		}
-	}
+	// Sanitize name/role/model for YAML safety — always double-quote so
+	// a crafted value with a newline or colon can't terminate the scalar
+	// and inject an arbitrary key into the generated config. runtime is
+	// already allowlisted above so it does not need quoting.
+	//
+	// Pattern: strip newlines (unrepresentable in a double-quoted YAML
+	// scalar without escaping), then emit via %q which produces a Go-
+	// syntax quoted string — valid YAML double-quoted scalar because
+	// the character sets overlap for this field-value shape.
+	quoteName := yamlQuote(payload.Name)
+	quoteRole := yamlQuote(payload.Role)
+	quoteModel := yamlQuote(model)
 	configYAML := fmt.Sprintf("name: %s\ndescription: %s\nversion: 1.0.0\ntier: %d\nruntime: %s\n",
 		quoteName, quoteRole, payload.Tier, runtime)
 
 	// Model always at top level — config.py reads raw["model"] for all runtimes.
-	configYAML += fmt.Sprintf("model: %s\n", model)
+	configYAML += fmt.Sprintf("model: %s\n", quoteModel)
 
 	// Add required_env based on runtime — preflight checks these are set via secrets API.
 	switch runtime {
