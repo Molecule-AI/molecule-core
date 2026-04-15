@@ -127,19 +127,73 @@ workspaces:
           4. Read /workspace/repo/docs/product/overview.md to understand the product
           5. Use commit_memory to save key product facts for later recall
           6. Wait for tasks from PM.
+        schedules:
+          - name: Daily ecosystem watch
+            cron_expr: "0 8 * * *"
+            prompt: |
+              Daily survey for new agent-infra / AI-agent projects worth tracking.
+
+              1. Pull docs/ecosystem-watch.md to know what's already tracked.
+              2. Browse the web for last 24h:
+                 - github.com/trending?since=daily&language=python (and typescript, go)
+                 - HN front page, anything about agent frameworks
+                 - Twitter/X mentions of new agent SDKs, MCP servers, frameworks
+              3. Cross-reference: skip anything already in ecosystem-watch.md.
+              4. For each genuinely new + relevant project (1-3 max per day):
+                 - Add an entry under "## Entries" using the existing template
+                   (Pitch / Shape / Overlap / Differentiation / Worth borrowing /
+                    Terminology collisions / Signals to react to / Last reviewed + stars)
+                 - Keep each entry ≤200 words.
+              5. If a finding suggests a concrete improvement to plugins/, workspace-template/,
+                 or org-templates/, file a GH issue (`gh issue create`) with the proposal.
+              6. Commit additions to a branch named chore/eco-watch-YYYY-MM-DD. PUSH it
+                 (per the repo "always raise PR" policy) and open a PR.
+              7. Routing: delegate_task to PM with summary
+                 (audit_summary metadata: category=research, severity=info,
+                  issues=[<gh issue numbers>], top_recommendation=<one-liner>).
+              8. If nothing notable today, skip the commit and PM-message a one-line "clean".
+            enabled: true
         children:
           - name: Market Analyst
             role: Market sizing, trends, user research
             files_dir: market-analyst
-            plugins: [browser-automation]  # UNION with defaults (#71)
+            plugins: [browser-automation]
           - name: Technical Researcher
             role: AI frameworks and protocol evaluation
             files_dir: technical-researcher
-            plugins: [browser-automation]  # UNION with defaults (#71)
+            plugins: [browser-automation]
+            schedules:
+              - name: Weekly plugin curation
+                cron_expr: "0 9 * * 1"
+                prompt: |
+                  Weekly survey of `plugins/` and `workspace-template/builtin_tools/` for
+                  evolution opportunities. The team should keep gaining capabilities.
+
+                  1. Inventory:
+                     - ls plugins/ — every plugin and its plugin.yaml description
+                     - ls workspace-template/builtin_tools/*.py — every builtin tool
+                     - cat org-templates/molecule-dev/org.yaml — see how plugins are wired
+                  2. Gap analysis:
+                     - Any builtin_tool not exposed via a plugin?
+                     - Any role with no plugins beyond defaults that *should* have extras?
+                     - Any plugin that's installed everywhere via defaults but is rarely used?
+                  3. External survey (use browser-automation):
+                     - github.com/topics/ai-agents (last week)
+                     - github.com/topics/mcp-server (last week)
+                     - claude.ai/cookbook, openai/swarm releases
+                     - anthropic blog, openai blog, langchain blog (last week)
+                  4. For 1-3 highest-value findings, file a GH issue with concrete proposal:
+                     - "Plugin proposal: <name> — wraps <upstream tool> for <role(s)>"
+                     - body: what it does, which roles benefit, integration sketch (~30 lines),
+                       upstream link, license check.
+                  5. Routing: delegate_task to PM with audit_summary metadata
+                     (category=plugins, issues=[…], top_recommendation=…).
+                  6. If nothing notable this week, PM-message a one-line "clean".
+                enabled: true
           - name: Competitive Intelligence
             role: Competitor tracking and feature comparison
             files_dir: competitive-intelligence
-            plugins: [browser-automation]  # UNION with defaults (#71)
+            plugins: [browser-automation]
 
       - name: Dev Lead
         role: Engineering planning and team coordination
@@ -155,6 +209,51 @@ workspaces:
           4. Run: cd /workspace/repo && git log --oneline -5
           5. Use commit_memory to save the architecture summary and recent changes
           6. Wait for tasks from PM.
+        schedules:
+          - name: Daily template fitness audit
+            cron_expr: "30 8 * * *"
+            prompt: |
+              Daily audit of `org-templates/molecule-dev/`. Catches drift, stale prompts,
+              missing schedules, and gaps that block the team-runs-24/7 goal. Symptom
+              of prior incident (issue #85): cron scheduler died silently for 10+ hours
+              and nobody noticed because no one was watching template fitness.
+
+              1. CHECK SCHEDULES ARE FIRING:
+                 For every workspace_schedule in the platform DB:
+                 curl -s http://host.docker.internal:8080/workspaces/<id>/schedules
+                 Compare last_run_at to now() vs cron interval. Anything more than 2x
+                 the interval behind = STALE. File issue against platform.
+
+              2. CHECK SYSTEM PROMPTS ARE FRESH:
+                 cd /workspace/repo
+                 for f in org-templates/molecule-dev/*/system-prompt.md; do
+                   echo "$(git log -1 --format='%ar' -- "$f") $f"
+                 done
+                 Anything not touched in 30+ days might be stale relative to recent
+                 platform changes. Spot-check vs CLAUDE.md and recent merges.
+
+              3. CHECK ROLES HAVE PLUGINS THEY NEED:
+                 yq '.workspaces[] | (.name, .plugins)' org-templates/molecule-dev/org.yaml
+                 (or python+yaml). Roles inherit defaults; flag any role that should
+                 plausibly have role-specific extras (compare role description vs
+                 plugins list).
+
+              4. CHECK CRONS COVER THE EVOLUTION LEVERS:
+                 The team must keep evolving plugins, template, channels, watchlist.
+                 Verify schedules exist for: ecosystem-watch (Research Lead),
+                 plugin-curation (Technical Researcher), template-fitness (you,
+                 this cron), channel-expansion (DevOps).
+                 Any missing? File issue.
+
+              5. CHECK CHANNELS:
+                 Today only PM has telegram. Should any other role have a channel?
+                 (Security Auditor → email on critical findings; DevOps → Slack on
+                  build breaks; etc.) File issue if a channel gap is meaningful.
+
+              6. ROUTING: delegate_task to PM with audit_summary metadata
+                 (category=template, severity=…, issues=[…], top_recommendation=…).
+              7. If everything is fit and current, PM-message one-line "clean".
+            enabled: true
         children:
           - name: Frontend Engineer
             role: >-
@@ -227,6 +326,37 @@ workspaces:
               4. Read /workspace/repo/.github/workflows/ci.yml
               5. Use commit_memory to save CI pipeline structure
               6. Wait for tasks from Dev Lead.
+            schedules:
+              - name: Weekly channel expansion survey
+                cron_expr: "0 10 * * 1"
+                prompt: |
+                  Weekly survey of channel integrations (Telegram, Slack, Discord, email,
+                  webhooks). The team should grow its external comms surface where useful,
+                  not stay locked at "PM-only Telegram".
+
+                  1. INVENTORY:
+                     yq '.workspaces[] | {name: .name, channels: .channels}' \
+                       org-templates/molecule-dev/org.yaml 2>/dev/null
+                     (or python+yaml). List which roles have which channels.
+                  2. PLATFORM CAPABILITY CHECK:
+                     grep -rE "channel|telegram|slack|discord|webhook" \
+                       platform/internal/handlers/ --include="*.go" -l
+                     What channel types does the platform actually support today?
+                  3. GAP ANALYSIS:
+                     - PM has Telegram → can the user reach OTHER roles directly?
+                     - Security Auditor: would email-on-critical-finding help?
+                     - DevOps Engineer: would Slack-on-CI-break help?
+                     - Any role that produces high-value asynchronous output but the
+                       user has to poll memory to see it?
+                  4. EXTERNAL: are there channel platforms we should consider adding?
+                     (Discord for community, GitHub Discussions for product, etc.)
+                  5. For the top 1-2 gaps, file a GH issue:
+                     - "Channel proposal: <type> for <role>" with rationale, integration
+                       sketch, secret requirements (e.g. SLACK_BOT_TOKEN as global secret).
+                  6. ROUTING: delegate_task to PM with audit_summary metadata
+                     (category=channels, issues=[…], top_recommendation=…).
+                  7. If no gap this week, PM-message a one-line "clean".
+                enabled: true
           - name: Security Auditor
             role: >-
               Owns security posture across the full stack: Go/Gin handlers
