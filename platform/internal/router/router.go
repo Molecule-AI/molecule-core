@@ -59,6 +59,14 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// rejected requests still land on the 4xx counter.
 	r.Use(middleware.TenantGuard())
 
+	// Security headers (#151) — sets X-Content-Type-Options, X-Frame-Options,
+	// Referrer-Policy, Content-Security-Policy, Permissions-Policy, HSTS on
+	// every response. Tests in securityheaders_test.go assert each header is
+	// present and that handler-set headers are not overridden. Registered
+	// last so a handler can still opt out by setting its own header before
+	// c.Next() returns.
+	r.Use(middleware.SecurityHeaders())
+
 	// Health
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
@@ -87,23 +95,26 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// Scrape with: curl http://localhost:8080/metrics
 	r.GET("/metrics", metrics.Handler())
 
-	// Workspace read-only endpoints accessible without an explicit workspace ID.
-	// /workspaces/:id and PATCH (position-persist) remain open for the canvas
-	// browser frontend which does not carry a bearer token in those calls.
+	// Single-workspace read — open so canvas nodes can fetch their own state
+	// without a token (used by WorkspaceNode polling and health checks).
 	r.GET("/workspaces/:id", wh.Get)
-	r.PATCH("/workspaces/:id", wh.Update)
 
-	// C1 + C20 + C18-adjacent: workspace list and mutating operations all gated
-	// behind AdminAuth — any valid workspace bearer token grants access.
+	// C1 + C20 + C18-adjacent + #120: workspace list and ALL mutating operations
+	// gated behind AdminAuth — any valid workspace bearer token grants access.
 	// Fail-open when no tokens exist anywhere (fresh install / pre-Phase-30).
 	// This blocks:
-	//   C1  — unauthenticated GET /workspaces (workspace topology exposure)
-	//   C20 — unauthenticated DELETE /workspaces/:id (mass-deletion attack)
-	//         unauthenticated POST /workspaces (workspace creation)
+	//   C1   — unauthenticated GET /workspaces (workspace topology exposure)
+	//   C20  — unauthenticated DELETE /workspaces/:id (mass-deletion attack)
+	//          unauthenticated POST /workspaces (workspace creation)
+	//   #120 — unauthenticated PATCH /workspaces/:id (tier escalation, parent_id
+	//          hierarchy manipulation, runtime swap, workspace_dir path hijack)
+	// NOTE: canvas position-persist (PATCH with {x,y}) uses the same AdminAuth
+	// token already required for GET /workspaces list on initial load.
 	{
 		wsAdmin := r.Group("", middleware.AdminAuth(db.DB))
 		wsAdmin.GET("/workspaces", wh.List)
 		wsAdmin.POST("/workspaces", wh.Create)
+		wsAdmin.PATCH("/workspaces/:id", wh.Update)
 		wsAdmin.DELETE("/workspaces/:id", wh.Delete)
 	}
 

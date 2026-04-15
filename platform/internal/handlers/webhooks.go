@@ -155,6 +155,29 @@ type githubPRReviewCommentEvent struct {
 	Comment     githubComment     `json:"comment"`
 }
 
+// githubWorkflowRun captures the subset of GitHub's `workflow_run` event we
+// route to workspaces (#101). Full schema is ~50 fields; we only need the
+// handful that tell DevOps "which CI job failed, where, and how to get there."
+type githubWorkflowRun struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`         // workflow name, e.g. "CI"
+	Event      string `json:"event"`        // push / pull_request / etc.
+	Status     string `json:"status"`       // queued / in_progress / completed
+	Conclusion string `json:"conclusion"`   // success / failure / cancelled / timed_out
+	HeadBranch string `json:"head_branch"`
+	HeadSHA    string `json:"head_sha"`
+	HTMLURL    string `json:"html_url"`
+	RunNumber  int    `json:"run_number"`
+}
+
+type githubWorkflowRunEvent struct {
+	WorkspaceID string            `json:"workspace_id"`
+	Action      string            `json:"action"` // requested / in_progress / completed
+	Repository  githubRepository  `json:"repository"`
+	Sender      githubSender      `json:"sender"`
+	WorkflowRun githubWorkflowRun `json:"workflow_run"`
+}
+
 func buildGitHubA2APayload(eventType, deliveryID string, rawBody []byte) (string, map[string]interface{}, error) {
 	switch eventType {
 	case "issue_comment":
@@ -208,6 +231,50 @@ func buildGitHubA2APayload(eventType, deliveryID string, rawBody []byte) (string
 			"sender":           payload.Sender.Login,
 			"pull_request_num": payload.PullRequest.Number,
 			"comment_url":      payload.Comment.HTMLURL,
+		}), nil
+	case "workflow_run":
+		// #101 — CI-break notifications for DevOps Engineer. Only surface
+		// *completed* runs with a non-success conclusion; queued / in_progress
+		// are noise. A success completion is dropped too (explicit filter
+		// rather than `errIgnoredGitHubAction` so the behaviour is visible
+		// in the switch).
+		var payload githubWorkflowRunEvent
+		if err := json.Unmarshal(rawBody, &payload); err != nil {
+			return "", nil, fmt.Errorf("invalid workflow_run payload: %w", err)
+		}
+		if payload.Action != "completed" {
+			return payload.WorkspaceID, nil, errIgnoredGitHubAction
+		}
+		if payload.WorkflowRun.Conclusion == "success" || payload.WorkflowRun.Conclusion == "skipped" || payload.WorkflowRun.Conclusion == "neutral" {
+			return payload.WorkspaceID, nil, errIgnoredGitHubAction
+		}
+		text := fmt.Sprintf(
+			"GitHub CI break — workflow '%s' run #%d %s on %s@%s\nTriggered by: %s (%s)\nRepo: %s\nRun URL: %s",
+			payload.WorkflowRun.Name,
+			payload.WorkflowRun.RunNumber,
+			payload.WorkflowRun.Conclusion,
+			payload.WorkflowRun.HeadBranch,
+			payload.WorkflowRun.HeadSHA[:min(7, len(payload.WorkflowRun.HeadSHA))],
+			payload.Sender.Login,
+			payload.WorkflowRun.Event,
+			payload.Repository.FullName,
+			payload.WorkflowRun.HTMLURL,
+		)
+		return payload.WorkspaceID, newGitHubMessagePayload(text, map[string]interface{}{
+			"source":         "github",
+			"event":          eventType,
+			"action":         payload.Action,
+			"delivery_id":    deliveryID,
+			"repository":     payload.Repository.FullName,
+			"sender":         payload.Sender.Login,
+			"workflow_name":  payload.WorkflowRun.Name,
+			"run_id":         payload.WorkflowRun.ID,
+			"run_number":     payload.WorkflowRun.RunNumber,
+			"conclusion":     payload.WorkflowRun.Conclusion,
+			"head_branch":    payload.WorkflowRun.HeadBranch,
+			"head_sha":       payload.WorkflowRun.HeadSHA,
+			"run_url":        payload.WorkflowRun.HTMLURL,
+			"trigger_event":  payload.WorkflowRun.Event,
 		}), nil
 	default:
 		return "", nil, errUnsupportedGitHubEvent

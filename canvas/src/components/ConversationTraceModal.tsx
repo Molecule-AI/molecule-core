@@ -162,7 +162,7 @@ export function ConversationTraceModal({ open, workspaceId, onClose }: Props) {
                     {/* Content */}
                     <div className="flex-1 pb-3 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[9px] text-zinc-600 font-mono">
+                        <span className="text-[9px] text-zinc-400 font-mono">
                           {time}
                         </span>
                         <span
@@ -183,7 +183,7 @@ export function ConversationTraceModal({ open, workspaceId, onClose }: Props) {
                             : entry.activity_type.toUpperCase()}
                         </span>
                         {entry.duration_ms != null && entry.duration_ms > 0 && (
-                          <span className="text-[9px] text-zinc-600">
+                          <span className="text-[9px] text-zinc-400">
                             {entry.duration_ms > 1000
                               ? `${Math.round(entry.duration_ms / 1000)}s`
                               : `${entry.duration_ms}ms`}
@@ -199,7 +199,7 @@ export function ConversationTraceModal({ open, workspaceId, onClose }: Props) {
                               <span className="text-cyan-400 font-medium">
                                 {sourceName || wsName}
                               </span>
-                              <span className="text-zinc-600"> → </span>
+                              <span className="text-zinc-400"> → </span>
                               <span className="text-blue-400 font-medium">
                                 {targetName}
                               </span>
@@ -211,7 +211,7 @@ export function ConversationTraceModal({ open, workspaceId, onClose }: Props) {
                               </span>
                               {sourceName && (
                                 <>
-                                  <span className="text-zinc-600">
+                                  <span className="text-zinc-400">
                                     {" "}← {" "}
                                   </span>
                                   <span className="text-cyan-400 font-medium">
@@ -248,7 +248,7 @@ export function ConversationTraceModal({ open, workspaceId, onClose }: Props) {
                           <div className="text-[10px] text-zinc-300 whitespace-pre-wrap break-words leading-relaxed">
                             {requestText.slice(0, 2000)}
                             {requestText.length > 2000 && (
-                              <span className="text-zinc-600"> ...({requestText.length} chars)</span>
+                              <span className="text-zinc-400"> ...({requestText.length} chars)</span>
                             )}
                           </div>
                         </div>
@@ -259,7 +259,7 @@ export function ConversationTraceModal({ open, workspaceId, onClose }: Props) {
                           <div className="text-[10px] text-zinc-300 whitespace-pre-wrap break-words leading-relaxed">
                             {responseText.slice(0, 2000)}
                             {responseText.length > 2000 && (
-                              <span className="text-zinc-600"> ...({responseText.length} chars)</span>
+                              <span className="text-zinc-400"> ...({responseText.length} chars)</span>
                             )}
                           </div>
                         </div>
