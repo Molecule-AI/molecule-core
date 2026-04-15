@@ -82,9 +82,9 @@ func TestTenantGuard_AllowlistBypassesCheck(t *testing.T) {
 	}
 }
 
-// Fly-Replay-Src state path: the production path. Control plane sends the
-// org id as `state=org-id=<uuid>` via fly-replay; Fly injects that into
-// the replayed request as a segment of the Fly-Replay-Src header.
+// Fly-Replay-Src state path: the production path. Control plane puts the
+// bare UUID in state= (no prefix — Fly 502s on `=` in the state value).
+// Fly injects the whole Fly-Replay-Src header on the replayed request.
 func TestTenantGuard_AcceptsFlyReplaySrcState(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -92,7 +92,7 @@ func TestTenantGuard_AcceptsFlyReplaySrcState(t *testing.T) {
 	r.GET("/workspaces", func(c *gin.Context) { c.String(200, "ok") })
 
 	req := httptest.NewRequest("GET", "/workspaces", nil)
-	req.Header.Set("Fly-Replay-Src", "instance=src-123;region=ord;t=1700000000000;state=org-id=org-abc")
+	req.Header.Set("Fly-Replay-Src", "instance=src-123;region=ord;t=1700000000000;state=org-abc")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -108,7 +108,7 @@ func TestTenantGuard_RejectsFlyReplaySrcMismatch(t *testing.T) {
 	r.GET("/workspaces", func(c *gin.Context) { c.String(200, "ok") })
 
 	req := httptest.NewRequest("GET", "/workspaces", nil)
-	req.Header.Set("Fly-Replay-Src", "state=org-id=org-xyz")
+	req.Header.Set("Fly-Replay-Src", "state=org-xyz")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -119,13 +119,12 @@ func TestTenantGuard_RejectsFlyReplaySrcMismatch(t *testing.T) {
 
 func TestOrgIDFromReplaySrc(t *testing.T) {
 	cases := map[string]string{
-		"instance=x;region=ord;state=org-id=abc-123":             "abc-123",
-		"state=org-id=abc-123;instance=x":                        "abc-123",
-		"   state=org-id=abc-123  ":                              "abc-123",
-		"state=other=foo;instance=x":                             "",  // wrong state key
-		"instance=x;region=ord":                                  "",  // no state
-		"":                                                       "",  // empty header
-		"garbage":                                                "",  // unparseable
+		"instance=x;region=ord;state=abc-123": "abc-123",
+		"state=abc-123;instance=x":            "abc-123",
+		"   state=abc-123  ":                  "abc-123",
+		"instance=x;region=ord":               "", // no state
+		"":                                    "", // empty header
+		"garbage":                             "", // unparseable
 	}
 	for in, want := range cases {
 		if got := orgIDFromReplaySrc(in); got != want {
