@@ -281,7 +281,32 @@ async def main():  # pragma: no cover
     print(f"Workspace {workspace_id} starting on port {port}")
     # Wrap the ASGI app with W3C TraceContext extraction middleware so incoming
     # A2A HTTP requests propagate their trace context into _incoming_trace_context.
-    built_app = make_trace_middleware(app.build())
+    starlette_app = app.build()
+
+    # Add /transcript route — exposes the most-recent agent session log
+    # (claude-code reads ~/.claude/projects/<cwd>/<session>.jsonl). Other
+    # runtimes return supported:false.
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route
+
+    async def _transcript_handler(request):
+        # No bearer check here — same model as POST / (A2A): the workspace's
+        # HTTP server only listens on the internal Docker network, and the
+        # platform's TranscriptHandler is the only intended caller. Phase 30
+        # remote workspaces will need a proper auth story (TODO #N) — likely
+        # the existing wsauth bearer, but with a callback to the platform to
+        # validate (since the workspace doesn't see all live tokens).
+        try:
+            since = int(request.query_params.get("since", "0"))
+            limit = int(request.query_params.get("limit", "100"))
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "since and limit must be integers"}, status_code=400)
+        result = await adapter.transcript_lines(since=since, limit=limit)
+        return JSONResponse(result)
+
+    starlette_app.add_route("/transcript", _transcript_handler, methods=["GET"])
+
+    built_app = make_trace_middleware(starlette_app)
 
     server_config = uvicorn.Config(
         built_app,
