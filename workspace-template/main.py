@@ -388,14 +388,21 @@ async def main():  # pragma: no cover
     # per-workspace to enable.
     idle_loop_task = None
     if config.idle_prompt:
+        # Idle-fire HTTP timeout. Kept tight relative to the fire cadence so a
+        # hung platform doesn't accumulate dangling requests — a fire that
+        # takes longer than the idle interval itself is almost certainly stuck.
+        IDLE_FIRE_TIMEOUT_SECONDS = max(60, min(300, config.idle_interval_seconds))
+        # Initial settle delay — never longer than 60s so cold-start races
+        # don't stall the first fire, and never shorter than the configured
+        # interval (short intervals shouldn't fire instantly on boot either).
+        IDLE_INITIAL_SETTLE_SECONDS = min(config.idle_interval_seconds, 60)
+
         async def _run_idle_loop():
             """Self-sends config.idle_prompt periodically when the workspace is idle."""
-            # Wait for server + initial prompt to settle before the first idle check.
-            # Short wait (min of 60s or interval) so cold-start races don't fire instantly.
-            await asyncio.sleep(min(config.idle_interval_seconds, 60))
+            await asyncio.sleep(IDLE_INITIAL_SETTLE_SECONDS)
 
             import json as _json
-            import urllib.request
+            from urllib import request as _urlreq, error as _urlerr
 
             while True:
                 try:
@@ -424,20 +431,46 @@ async def main():  # pragma: no cover
                 }).encode()
 
                 def _post_sync():
+                    # Returns (status_code, error_type) so the caller logs the
+                    # actual outcome instead of a bare "post failed" line.
                     try:
-                        req = urllib.request.Request(
+                        req = _urlreq.Request(
                             f"{platform_url}/workspaces/{workspace_id}/a2a",
                             data=payload,
                             headers={"Content-Type": "application/json"},
                         )
-                        with urllib.request.urlopen(req, timeout=600) as resp:
+                        with _urlreq.urlopen(req, timeout=IDLE_FIRE_TIMEOUT_SECONDS) as resp:
                             resp.read()
-                    except Exception as e:
-                        print(f"Idle loop: post failed — {e}", flush=True)
+                            return resp.status, None
+                    except _urlerr.HTTPError as e:
+                        return e.code, type(e).__name__
+                    except _urlerr.URLError as e:
+                        return None, f"URLError: {e.reason}"
+                    except Exception as e:  # pragma: no cover — catch-all safety net
+                        return None, type(e).__name__
 
-                print(f"Idle loop: firing (active_tasks=0, interval={config.idle_interval_seconds}s)", flush=True)
-                loop_ref = asyncio.get_event_loop()
-                loop_ref.run_in_executor(None, _post_sync)
+                print(
+                    f"Idle loop: firing (active_tasks=0, interval={config.idle_interval_seconds}s, "
+                    f"timeout={IDLE_FIRE_TIMEOUT_SECONDS}s)",
+                    flush=True,
+                )
+                loop_ref = asyncio.get_running_loop()
+
+                def _log_result(future):
+                    try:
+                        status, err = future.result()
+                        if err:
+                            print(
+                                f"Idle loop: post failed — status={status} err={err}",
+                                flush=True,
+                            )
+                        else:
+                            print(f"Idle loop: post ok status={status}", flush=True)
+                    except Exception as e:  # pragma: no cover
+                        print(f"Idle loop: executor callback crashed — {e}", flush=True)
+
+                fut = loop_ref.run_in_executor(None, _post_sync)
+                fut.add_done_callback(_log_result)
 
         idle_loop_task = asyncio.create_task(_run_idle_loop())
 

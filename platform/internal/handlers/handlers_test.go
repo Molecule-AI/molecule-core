@@ -1081,3 +1081,53 @@ func TestSharedContext_NoSharedFiles(t *testing.T) {
 		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
 }
+
+// TestActivityHandler_Report_SourceIDSpoofRejected verifies the #209 spoof
+// guard: a workspace authenticated for :id cannot inject activity rows with
+// source_id pointing at a different workspace. Bearer-auth middleware would
+// already cover the obvious case; this is the belt-and-suspenders body check.
+func TestActivityHandler_Report_SourceIDSpoofRejected(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewActivityHandler(broadcaster)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-alice"}}
+	// alice's workspace authenticated — but body claims source_id=ws-bob.
+	body := `{"activity_type":"agent_log","summary":"fake log","source_id":"ws-bob"}`
+	c.Request = httptest.NewRequest("POST", "/workspaces/ws-alice/activity", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Report(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("spoof: got %d, want 403 (%s)", w.Code, w.Body.String())
+	}
+}
+
+// TestActivityHandler_Report_MatchingSourceIDAccepted — the non-spoof path:
+// body.source_id explicitly matches workspaceID, still accepted.
+func TestActivityHandler_Report_MatchingSourceIDAccepted(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewActivityHandler(broadcaster)
+
+	mock.ExpectExec("INSERT INTO activity_logs").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-alice"}}
+	body := `{"activity_type":"agent_log","summary":"self log","source_id":"ws-alice"}`
+	c.Request = httptest.NewRequest("POST", "/workspaces/ws-alice/activity", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Report(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("matching source_id: got %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+}
