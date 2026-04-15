@@ -50,16 +50,16 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Fly registry
-        # Fly's registry is entirely token-auth: username is ignored, password
-        # must be a valid FLY_API_TOKEN. We pass "molecule-ai" as a human-
-        # readable placeholder so this step is obvious to future readers.
+        # username MUST be literal "x". Fly's registry returns 401 for any
+        # other value (verified locally 2026-04-15 — "molecule-ai" fails,
+        # "x" succeeds with the same token). The password is the FLY_API_TOKEN.
         # Rotation: see docs/runbooks/saas-secrets.md — FLY_API_TOKEN lives in
         # two places (GitHub Actions secret here + `fly secrets` on molecule-cp)
         # and MUST be updated in both on rotation.
         uses: docker/login-action@v3
         with:
           registry: registry.fly.io
-          username: molecule-ai
+          username: x
           password: ${{ secrets.FLY_API_TOKEN }}
 
       - name: Compute tags
