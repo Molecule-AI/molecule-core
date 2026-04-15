@@ -837,6 +837,87 @@ def test_format_process_error_no_stderr_but_has_exit_code():
     assert "stderr" not in out
 
 
+# ---------------------------------------------------------------------------
+# _format_process_error — #160: probe CLI when SDK swallowed the real stderr
+# ---------------------------------------------------------------------------
+
+
+def test_format_process_error_probes_cli_when_stderr_swallowed(monkeypatch):
+    """Generic Exception with "Check stderr output for details" → probe the
+    claude CLI directly so the real error (rate limit, auth, etc.) surfaces
+    in the log instead of the useless placeholder text. Fixes #160."""
+    from claude_sdk_executor import _format_process_error
+
+    def fake_probe():
+        return "You've hit your limit · resets Apr 17, 11pm (UTC)"
+
+    # Patch the probe helper so we don't actually spawn a subprocess in tests
+    monkeypatch.setattr(
+        "claude_sdk_executor._probe_claude_cli_error",
+        fake_probe,
+    )
+
+    swallowed = Exception(
+        "Command failed with exit code 1 (exit code: 1)\n"
+        "Error output: Check stderr output for details"
+    )
+    out = _format_process_error(swallowed)
+    assert "probed_cli_error" in out
+    assert "hit your limit" in out
+
+
+def test_format_process_error_does_not_probe_when_stderr_already_present():
+    """If the exception already carries .stderr, we DO NOT run the probe —
+    that'd be wasted subprocess work and could mask the real stderr with
+    probe-time state."""
+    from claude_sdk_executor import _format_process_error
+
+    # Track whether the probe was called
+    called = {"value": False}
+
+    def fake_probe():
+        called["value"] = True
+        return "probe ran"
+
+    import claude_sdk_executor
+    original = claude_sdk_executor._probe_claude_cli_error
+    claude_sdk_executor._probe_claude_cli_error = fake_probe
+    try:
+        class FakeProcessError(Exception):
+            def __init__(self):
+                super().__init__("real error")
+                self.stderr = "real stderr content"
+                self.exit_code = 1
+
+        out = _format_process_error(FakeProcessError())
+        assert "real stderr content" in out
+        assert called["value"] is False, "probe should not have been called"
+    finally:
+        claude_sdk_executor._probe_claude_cli_error = original
+
+
+def test_format_process_error_does_not_probe_without_swallowed_marker(monkeypatch):
+    """Only probe when the exception message matches the specific swallowed-
+    stderr marker. Unrelated plain exceptions (e.g. 'generic failure') should
+    not trigger a CLI probe — that'd make every error path 30s slower."""
+    from claude_sdk_executor import _format_process_error
+
+    called = {"value": False}
+
+    def fake_probe():
+        called["value"] = True
+        return "probe ran"
+
+    monkeypatch.setattr(
+        "claude_sdk_executor._probe_claude_cli_error",
+        fake_probe,
+    )
+
+    out = _format_process_error(RuntimeError("generic failure"))
+    assert called["value"] is False
+    assert "probed_cli_error" not in out
+
+
 def test_process_error_reaches_logs_via_execute(caplog):
     """End-to-end: a ProcessError in query() → executor logs both the
     formatted summary and the full traceback. Fixes #66 — previously no
