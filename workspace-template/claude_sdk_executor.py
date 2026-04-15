@@ -82,6 +82,50 @@ _RETRYABLE_PATTERNS = (
 )
 
 
+_SWALLOWED_STDERR_MARKER = "Check stderr output for details"
+
+
+def _probe_claude_cli_error() -> str | None:
+    """Run ``claude --print`` directly and capture its stderr + stdout.
+
+    Used as a fallback when the claude-agent-sdk raises a bare ``Exception``
+    with the swallowed "Check stderr output for details" placeholder — that
+    happens when the SDK wraps a stream error from the CLI subprocess and
+    loses both the ``.stderr`` attribute and the exit code. At that point
+    the only way to see the real failure reason (rate limit, auth error,
+    network outage, missing token) is to run the CLI ourselves.
+
+    Bounded by a 30s timeout so a hung CLI can't stall the error path.
+    Returns None if the probe itself failed (wrong invariant — don't
+    corrupt the main error message with probe noise).
+    """
+    try:
+        import subprocess
+        # --print reads stdin, prints response, exits. Empty stdin gives the
+        # CLI something to work with without triggering an actual model call
+        # when it's going to fail anyway.
+        proc = subprocess.run(
+            ["claude", "--print"],
+            input="probe",
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if proc.returncode == 0:
+            # CLI succeeded — the original error was a transient state that
+            # resolved between the SDK failure and our probe. Signal that.
+            return "<cli probe succeeded — error was transient>"
+        raw = (proc.stderr or "") + (proc.stdout or "")
+        raw = raw.strip()
+        if not raw:
+            return f"<cli exited {proc.returncode} with empty output>"
+        if len(raw) > _PROCESS_ERROR_STDERR_MAX_CHARS:
+            raw = raw[:_PROCESS_ERROR_STDERR_MAX_CHARS] + "... [truncated]"
+        return raw
+    except Exception as probe_exc:  # pragma: no cover — best-effort diagnostic
+        return f"<probe failed: {type(probe_exc).__name__}: {probe_exc}>"
+
+
 def _format_process_error(exc: BaseException) -> str:
     """Render a Claude-SDK ProcessError (or any ClaudeSDKError) with its full
     captured context — exit code, stderr, exception type. Plain strings for
@@ -92,6 +136,15 @@ def _format_process_error(exc: BaseException) -> str:
     ProcessError carries `.stderr`/`.exit_code` attributes that the previous
     code silently discarded, leaving every CLI crash with an identical
     "Check stderr output for details" message in the workspace log).
+
+    Fixes #160: when the SDK raises a bare ``Exception`` containing the
+    "Check stderr output for details" placeholder (which happens when the
+    CLI subprocess emits a stream error the SDK can't categorize — rate
+    limit, auth, network), there's no ``.stderr``/``.exit_code`` to read.
+    In that case we fall back to running the CLI ourselves via
+    ``_probe_claude_cli_error`` so the operator sees the real failure
+    reason (e.g. ``You've hit your limit · resets Apr 17``) instead of
+    chasing ghosts in the workspace logs.
     """
     parts = [f"{type(exc).__name__}: {exc}"]
     exit_code = getattr(exc, "exit_code", None)
@@ -103,6 +156,13 @@ def _format_process_error(exc: BaseException) -> str:
         if len(stderr) > _PROCESS_ERROR_STDERR_MAX_CHARS:
             trimmed += f"... [{len(stderr) - _PROCESS_ERROR_STDERR_MAX_CHARS} more chars truncated]"
         parts.append(f"stderr={trimmed!r}")
+    elif exit_code is None and _SWALLOWED_STDERR_MARKER in str(exc):
+        # #160: generic exception with the swallowed-stderr placeholder.
+        # Probe the CLI directly — this is the only way to surface the real
+        # error when the SDK lost it in translation.
+        probed = _probe_claude_cli_error()
+        if probed:
+            parts.append(f"probed_cli_error={probed!r}")
     return " | ".join(parts)
 
 
