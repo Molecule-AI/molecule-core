@@ -54,8 +54,24 @@ func generateDefaultConfig(name string, files map[string]string) string {
 		}
 	}
 
+	// Sanitize: emit the name as a YAML double-quoted scalar so any
+	// characters that would break out of the scalar (newline, backslash,
+	// double quote) are escaped instead of injecting new mapping keys.
+	// #221 attack surface: an attacker-controlled name like
+	// "x\nmodel: malicious" would otherwise be interpreted by yaml.Unmarshal
+	// as two separate keys. Double-quoting neutralises every known vector:
+	// \n / \r / \t / \" / \\ are all valid YAML escape sequences inside
+	// a double-quoted scalar.
+	escaped := strings.NewReplacer(
+		`\`, `\\`,
+		`"`, `\"`,
+		"\n", `\n`,
+		"\r", `\r`,
+		"\t", `\t`,
+	).Replace(name)
+
 	var cfg strings.Builder
-	cfg.WriteString("name: " + name + "\n")
+	cfg.WriteString(`name: "` + escaped + `"` + "\n")
 	cfg.WriteString("description: Imported agent\n")
 	cfg.WriteString("version: 1.0.0\ntier: 1\n")
 	cfg.WriteString("model: anthropic:claude-haiku-4-5-20251001\n")
