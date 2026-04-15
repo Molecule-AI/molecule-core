@@ -23,6 +23,13 @@ secrets` on `molecule-cp`), the correct rotation order, and danger cases —
 notably `SECRETS_ENCRYPTION_KEY`, which cannot be rotated without a data
 migration until Phase H lands KMS envelope encryption.
 
+When handling a GDPR erasure request (user asks "delete my org and all
+my data"), read **`docs/runbooks/gdpr-erasure.md`** first. It explains the
+4-step cascade in `molecule-controlplane` (Stripe → Redis → Infra → DB
+rows), how to read the `org_purges` audit table, how to resume a failed
+purge, and what the cascade deliberately does NOT cover (WorkOS users,
+LLM provider history, Langfuse traces).
+
 ## Agent operating rules (auto-loaded — read first)
 
 The following are project-level rules that override default behavior. They
