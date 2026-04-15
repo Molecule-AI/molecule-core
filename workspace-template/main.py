@@ -12,7 +12,7 @@ import httpx
 import uvicorn
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryTaskStore
+from a2a.server.tasks import InMemoryTaskStore, InMemoryPushNotificationConfigStore, BasePushNotificationSender
 from a2a.types import AgentCard, AgentCapabilities, AgentSkill
 
 from adapters import get_adapter, AdapterConfig
@@ -158,20 +158,13 @@ async def main():  # pragma: no cover
         defaultOutputModes=["text/plain", "application/json"],
     )
 
-    # 7. Wrap in A2A.
-    #
-    # Regression fix (#204): PR #198 tried to wire push_config_store +
-    # push_sender to satisfy #175 (push notification capability), but
-    # PushNotificationSender is an abstract base class in the a2a-sdk and
-    # can't be instantiated directly. Passing it crashed main.py on startup
-    # with `TypeError: Can't instantiate abstract class`. Dropped back to
-    # DefaultRequestHandler's own defaults — pushNotifications capability
-    # in the AgentCard below is still advertised via AgentCapabilities so
-    # clients know we COULD do pushes; actually implementing them requires
-    # a concrete sender subclass, tracked as a Phase-H follow-up to #175.
+    # 7. Wrap in A2A
+    push_config_store = InMemoryPushNotificationConfigStore()
     handler = DefaultRequestHandler(
         agent_executor=executor,
         task_store=InMemoryTaskStore(),
+        push_config_store=push_config_store,
+        push_sender=BasePushNotificationSender(httpx.AsyncClient(), push_config_store),
     )
 
     app = A2AStarletteApplication(
