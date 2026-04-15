@@ -290,10 +290,14 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 		"cron_expr":     sched.CronExpr,
 		"prompt":        truncate(sched.Prompt, 200),
 	})
+	// #152: persist lastError into error_detail on the activity_logs row
+	// so GET /workspaces/:id/schedules/:id/history can surface why a run
+	// failed (previously dropped — history returned status without any
+	// error context, making root-cause debugging impossible).
 	_, _ = db.DB.ExecContext(ctx, `
-		INSERT INTO activity_logs (workspace_id, activity_type, source_id, method, summary, request_body, status, created_at)
-		VALUES ($1, 'cron_run', NULL, 'cron', $2, $3::jsonb, $4, now())
-	`, sched.WorkspaceID, "Cron: "+sched.Name, string(cronMeta), lastStatus)
+		INSERT INTO activity_logs (workspace_id, activity_type, source_id, method, summary, request_body, status, error_detail, created_at)
+		VALUES ($1, 'cron_run', NULL, 'cron', $2, $3::jsonb, $4, $5, now())
+	`, sched.WorkspaceID, "Cron: "+sched.Name, string(cronMeta), lastStatus, lastError)
 
 	if s.broadcaster != nil {
 		s.broadcaster.RecordAndBroadcast(ctx, "CRON_EXECUTED", sched.WorkspaceID, map[string]interface{}{
