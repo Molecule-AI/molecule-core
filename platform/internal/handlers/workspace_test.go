@@ -656,3 +656,88 @@ func TestWorkspaceState_ValidTokenReturnsStatus(t *testing.T) {
 		t.Errorf("status should be 'degraded', got %v", body["status"])
 	}
 }
+
+// ── #138 field-level auth tests ─────────────────────────────────────────────
+// Cosmetic PATCH (name/x/y/role) stays open so canvas drag-reposition works
+// without a bearer token. Sensitive fields (tier/parent_id/runtime/
+// workspace_dir) require a valid admin bearer once any live token exists.
+
+func TestWorkspaceUpdate_CosmeticField_NoBearer_FailOpen_NoTokens(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	// Body contains only cosmetic field → no wsauth probe ever fires.
+	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
+		WithArgs("ws-cosmetic").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec("UPDATE workspaces SET name").
+		WithArgs("ws-cosmetic", "Cosmetic").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-cosmetic"}}
+	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-cosmetic",
+		bytes.NewBufferString(`{"name":"Cosmetic"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	handler.Update(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("cosmetic PATCH (no bearer) should pass; got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWorkspaceUpdate_SensitiveField_NoBearer_TokensExist_Rejected(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	// HasAnyLiveTokenGlobal returns 1 — tokens exist on the platform.
+	mock.ExpectQuery("SELECT COUNT.*FROM workspace_auth_tokens").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-sensitive"}}
+	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-sensitive",
+		bytes.NewBufferString(`{"tier":4}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	// No Authorization header — must fail closed.
+	handler.Update(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("sensitive PATCH without bearer: got %d, want 401 (%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestWorkspaceUpdate_SensitiveField_NoTokensYet_FailOpen(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	// HasAnyLiveTokenGlobal returns 0 — fresh install, fail-open.
+	mock.ExpectQuery("SELECT COUNT.*FROM workspace_auth_tokens").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
+		WithArgs("ws-bootstrap").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec("UPDATE workspaces SET tier").
+		WithArgs("ws-bootstrap", float64(4)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-bootstrap"}}
+	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-bootstrap",
+		bytes.NewBufferString(`{"tier":4}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	handler.Update(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("bootstrap fail-open: got %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+}

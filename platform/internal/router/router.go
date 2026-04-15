@@ -99,22 +99,26 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// without a token (used by WorkspaceNode polling and health checks).
 	r.GET("/workspaces/:id", wh.Get)
 
-	// C1 + C20 + C18-adjacent + #120: workspace list and ALL mutating operations
-	// gated behind AdminAuth — any valid workspace bearer token grants access.
+	// PATCH /workspaces/:id — back on the open router per #138. Canvas
+	// drag-reposition uses session cookies not bearer tokens; gating the
+	// whole route behind AdminAuth broke drag-to-reposition and inline
+	// rename. Field-level authz lives inside WorkspaceHandler.Update:
+	//   - {x, y, canvas} only → passthrough (canvas position persist)
+	//   - name / role       → passthrough (inline rename)
+	//   - tier / parent_id / runtime / workspace_dir → require bearer token
+	// The #120 escalation vectors stay locked; only cosmetic fields are open.
+	r.PATCH("/workspaces/:id", wh.Update)
+
+	// C1 + C20: workspace list and life-cycle mutations gated behind AdminAuth.
 	// Fail-open when no tokens exist anywhere (fresh install / pre-Phase-30).
-	// This blocks:
+	// Blocks:
 	//   C1   — unauthenticated GET /workspaces (workspace topology exposure)
 	//   C20  — unauthenticated DELETE /workspaces/:id (mass-deletion attack)
 	//          unauthenticated POST /workspaces (workspace creation)
-	//   #120 — unauthenticated PATCH /workspaces/:id (tier escalation, parent_id
-	//          hierarchy manipulation, runtime swap, workspace_dir path hijack)
-	// NOTE: canvas position-persist (PATCH with {x,y}) uses the same AdminAuth
-	// token already required for GET /workspaces list on initial load.
 	{
 		wsAdmin := r.Group("", middleware.AdminAuth(db.DB))
 		wsAdmin.GET("/workspaces", wh.List)
 		wsAdmin.POST("/workspaces", wh.Create)
-		wsAdmin.PATCH("/workspaces/:id", wh.Update)
 		wsAdmin.DELETE("/workspaces/:id", wh.Delete)
 	}
 
