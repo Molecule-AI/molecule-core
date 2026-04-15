@@ -1,0 +1,141 @@
+/**
+ * Canvas-side billing helper. Talks to the control plane's /cp/billing/*
+ * routes — these exist on the `molecule-cp` app in prod and are mirrored
+ * via fly-replay from tenant subdomains. Dev requires a locally-running
+ * control plane on the same port as PLATFORM_URL or these calls 404.
+ */
+import { PLATFORM_URL } from "./api";
+
+export type PlanId = "free" | "starter" | "pro";
+
+/**
+ * Plan is the static metadata a pricing card needs to render. Kept in
+ * the frontend (not fetched from the API) because changing prices or
+ * feature lists requires a deploy anyway — and most of the strings are
+ * marketing copy that belongs with the rest of the UI.
+ */
+export interface Plan {
+  id: PlanId;
+  name: string;
+  tagline: string;
+  /** Human-readable price, e.g. "$0" or "$29/month". Stored as a string
+   *  so we don't accidentally leak per-tier pricing math to the client. */
+  price: string;
+  features: string[];
+  /** CTA button label — varies per plan because free-tier is "Get started"
+   *  and paid tiers are "Upgrade to Pro" etc. */
+  ctaLabel: string;
+  /** Visual flag for the "most popular" highlight on the middle card. */
+  highlighted?: boolean;
+}
+
+// plans is the canonical order shown on the pricing page: free → starter
+// → pro. Change the order here + the rendered columns follow. Keeping
+// this as a module-level const so tests can assert against a known list.
+export const plans: Plan[] = [
+  {
+    id: "free",
+    name: "Free",
+    tagline: "For tinkering + personal projects",
+    price: "$0",
+    features: [
+      "3 workspaces",
+      "Claude Code, LangGraph, OpenClaw runtimes",
+      "Shared Redis + bounded storage",
+      "Community support",
+    ],
+    ctaLabel: "Get started",
+  },
+  {
+    id: "starter",
+    name: "Starter",
+    tagline: "For small teams shipping real agents",
+    price: "$29/month",
+    features: [
+      "10 workspaces",
+      "All runtimes + plugins",
+      "Private Upstash Redis namespace",
+      "Email support (48h)",
+      "5M LLM tokens / month included",
+    ],
+    ctaLabel: "Upgrade to Starter",
+    highlighted: true,
+  },
+  {
+    id: "pro",
+    name: "Pro",
+    tagline: "For production multi-agent orgs",
+    price: "$99/month",
+    features: [
+      "Unlimited workspaces",
+      "Dedicated Fly Machine per tenant",
+      "Cross-workspace A2A audit log",
+      "Priority support (24h)",
+      "25M LLM tokens / month included",
+      "Usage-based overage billing",
+    ],
+    ctaLabel: "Upgrade to Pro",
+  },
+];
+
+export interface CheckoutResponse {
+  url: string;
+  id?: string;
+}
+
+/**
+ * startCheckout asks the control plane to open a Stripe Checkout session
+ * for the given org + plan, then returns the Stripe URL the caller
+ * should window.location.href to. success_url and cancel_url default
+ * to the current page with ?checkout=success / ?checkout=cancel query
+ * params so the pricing page can display a confirmation banner.
+ *
+ * Throws on non-2xx (caller surfaces the error — the page renders a
+ * toast). Does NOT automatically redirect the browser; the caller
+ * decides when to navigate.
+ */
+export async function startCheckout(
+  plan: Exclude<PlanId, "free">,
+  orgSlug: string,
+): Promise<CheckoutResponse> {
+  const returnBase =
+    typeof window !== "undefined" ? window.location.origin + window.location.pathname : "";
+  const res = await fetch(`${PLATFORM_URL}/cp/billing/checkout`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      org_slug: orgSlug,
+      plan,
+      success_url: `${returnBase}?checkout=success`,
+      cancel_url: `${returnBase}?checkout=cancel`,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`checkout: ${res.status} ${text}`);
+  }
+  return res.json();
+}
+
+/**
+ * openBillingPortal bounces the user to Stripe's hosted customer portal
+ * so they can update their card, cancel, or download invoices. Same
+ * error-handling contract as startCheckout.
+ */
+export async function openBillingPortal(orgSlug: string): Promise<string> {
+  const returnUrl =
+    typeof window !== "undefined" ? window.location.href : "";
+  const res = await fetch(`${PLATFORM_URL}/cp/billing/portal`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ org_slug: orgSlug, return_url: returnUrl }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`portal: ${res.status} ${text}`);
+  }
+  const data = (await res.json()) as { url: string };
+  return data.url;
+}
