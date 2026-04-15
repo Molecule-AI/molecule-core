@@ -338,6 +338,11 @@ func (h *ActivityHandler) Report(c *gin.Context) {
 	// Empty source_id falls through to the default-to-self branch below.
 	sourceID := body.SourceID
 	if sourceID != "" && sourceID != workspaceID {
+		// Log the spoof attempt as a security event so an auditor cron can
+		// surface repeat probing. Keep the log line stable (greppable) and
+		// avoid echoing attacker-supplied data verbatim beyond the UUIDs.
+		log.Printf("security: source_id spoof attempt — authed_workspace=%s body_source_id=%s remote=%s",
+			workspaceID, sourceID, c.ClientIP())
 		c.JSON(http.StatusForbidden, gin.H{"error": "source_id must match authenticated workspace"})
 		return
 	}
