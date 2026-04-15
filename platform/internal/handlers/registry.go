@@ -37,6 +37,13 @@ func NewRegistryHandler(b *events.Broadcaster) *RegistryHandler {
 //   - 10.0.0.0/8      RFC-1918   — lateral movement within private networks
 //   - 172.16.0.0/12   RFC-1918   — includes Docker bridge/overlay ranges
 //   - 192.168.0.0/16  RFC-1918   — home/office LAN ranges
+//   - fe80::/10        IPv6 link-local — same threat class as 169.254.x.x
+//   - ::1/128          IPv6 loopback
+//   - fc00::/7         IPv6 ULA (RFC-4193 private ranges)
+//
+// IPv4-mapped IPv6 (e.g. ::ffff:169.254.169.254) is normalised to IPv4 by
+// Go's net.ParseIP.To4() before Contains() runs, so the IPv4 rules above
+// catch those without a separate entry.
 //
 // Returns a non-nil error suitable for including in a 400 Bad Request response.
 func validateAgentURL(rawURL string) error {
@@ -59,16 +66,19 @@ func validateAgentURL(rawURL string) error {
 			cidr  string
 			label string
 		}{
-			{"169.254.0.0/16", "link-local (cloud metadata endpoint)"},
-			{"127.0.0.0/8", "loopback"},
-			{"10.0.0.0/8", "RFC-1918 private"},
-			{"172.16.0.0/12", "RFC-1918 private"},
-			{"192.168.0.0/16", "RFC-1918 private"},
+			{"169.254.0.0/16", "link-local address (cloud metadata endpoint)"},
+			{"127.0.0.0/8", "loopback address"},
+			{"10.0.0.0/8", "RFC-1918 private address"},
+			{"172.16.0.0/12", "RFC-1918 private address"},
+			{"192.168.0.0/16", "RFC-1918 private address"},
+			{"fe80::/10", "IPv6 link-local address (cloud metadata analogue)"},
+			{"::1/128", "IPv6 loopback address"},
+			{"fc00::/7", "IPv6 ULA address (RFC-4193 private)"},
 		}
 		for _, r := range blockedRanges {
 			_, network, _ := net.ParseCIDR(r.cidr)
 			if network.Contains(ip) {
-				return errors.New("private/reserved IP ranges are not permitted")
+				return fmt.Errorf("url targets a blocked address: %s", r.label)
 			}
 		}
 	}
