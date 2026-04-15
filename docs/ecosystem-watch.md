@@ -736,6 +736,65 @@ builders; Molecule AI users are developers building agent companies.
 
 ---
 
+### Scion — `GoogleCloudPlatform/scion`
+
+**Pitch:** "An experimental agent hypervisor — each agent runs in its own isolated container with dedicated credentials, config, and git worktree; orchestrates Claude Code, Gemini CLI, Codex, and OpenCode concurrently."
+
+**Shape:** Go + YAML (Apache-2.0). Container-per-agent isolation via Docker, Podman, Apple Containers, or Kubernetes. Named runtime profiles. Introduces an `agents.md` capability-declaration convention. Not a framework — a harness supervisor.
+
+**Overlap with us:** Container-per-agent mirrors our Docker workspace model. Multi-harness concurrency maps to multi-workspace A2A topology. Explicitly manages Claude Code — direct contact with our user base.
+
+**Differentiation:** No persistent agent memory, no visual canvas, no A2A between agents, no channels. It is the container orchestration layer beneath agents; we are the agent identity and collaboration layer above.
+
+**Worth borrowing:** `agents.md` capability spec — a standard file per workspace declaring what the agent can do. Adopt in `workspace-template/` for Scion interoperability.
+
+**Terminology collisions:** "profile" — Scion: named runtime config; ours: undefined. "harness" — both mean "the process managing agent execution."
+
+**Signals to react to:** If Scion adds A2A or a memory layer → direct overlap. If `agents.md` gains wide adoption → align `workspace-template/` to the spec.
+
+**Last reviewed:** 2026-04-15 · **Stars / activity:** GCP repo, 230 HN pts at launch, April 8, 2026
+
+---
+
+### claude-mem — `thedotmack/claude-mem`
+
+**Pitch:** "Automatically captures everything Claude does during coding sessions — persistent cross-session memory with search, timeline, and observation retrieval as MCP tools."
+
+**Shape:** TypeScript (AGPL-3.0), ~56k ⭐, +2,997 stars in one day. Five lifecycle hooks (`SessionStart`, `UserPromptSubmit`, `PostToolUse`, `Stop`, `SessionEnd`) intercept agent actions, compress observations via Claude SDK, store in SQLite FTS5 + Chroma hybrid. Three MCP tools exposed: `search`, `timeline`, `get_observations`. Web viewer at localhost:37777. ⚠️ `ragtime/` retrieval subdirectory is PolyForm Noncommercial — reimplementation required for commercial SaaS use.
+
+**Overlap with us:** Directly addresses our known cross-session memory gap. Lifecycle hooks are structurally compatible with our harness entry points.
+
+**Differentiation:** A memory add-on for a single Claude Code session; no A2A, no org hierarchy, no scheduling, no channels.
+
+**Worth borrowing:** `PostToolUse` + `SessionEnd` → compressed observation pipeline, compatible with our harness lifecycle. Progressive-disclosure retrieval (summaries first, full content on demand) caps token overhead at `SessionStart`.
+
+**Terminology collisions:** "observations" — their captured agent actions; not a first-class term in our platform.
+
+**Signals to react to:** If PolyForm NC removed from `ragtime/` → evaluate direct integration. If hook schema is formalized → adopt as standard workspace lifecycle spec.
+
+**Last reviewed:** 2026-04-15 · **Stars / activity:** ~56k ⭐, +2,997 today
+
+---
+
+### Multica — `multica-ai/multica`
+
+**Pitch:** "Turn coding agents into real teammates — assign tasks, track progress, compound skills."
+
+**Shape:** TypeScript + Go (Next.js 16 / Chi router / PostgreSQL 17 + pgvector), ~12.8k ⭐, +1,503 today. Local agent daemons execute Claude Code / Codex / OpenCode in isolation; state syncs to a central backend. Solved tasks are semantically indexed via pgvector and surfaced to future agents team-wide — the "skill-compounding" model. 36 releases, 1.6k forks, actively shipped.
+
+**Overlap with us:** Skill-compounding maps to our plugin/skills registry but adds automatic semantic indexing. Local-daemon + central-backend mirrors Docker workspaces + Canvas backend. Cross-agent task assignment and scheduling are first-class features.
+
+**Differentiation:** No visual org-chart canvas, no A2A protocol, no persistent agent identity across restarts, no channel integrations. Central backend is a coordination hub, not peer-to-peer. Closer to a task manager for agents than an agent company platform.
+
+**Worth borrowing:** pgvector semantic indexing of solved tasks — each completed workspace run contributes to a searchable skill pool, evolving our plugin registry from file-based discovery to semantic retrieval.
+
+**Terminology collisions:** "skills" — their skills are solved-task embeddings; ours are installed behaviour bundles.
+
+**Signals to react to:** If Multica adds A2A or persistent agent identity → direct competitor. Star velocity (+1,503/day) warrants weekly tracking.
+
+**Last reviewed:** 2026-04-15 · **Stars / activity:** ~12.8k ⭐, +1,503 today, 36 releases
+
+---
 ## Candidates to add (backlog)
 
 Short-list of projects to write up next time someone has an hour:
