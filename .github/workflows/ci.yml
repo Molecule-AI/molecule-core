@@ -254,11 +254,11 @@ jobs:
       # under a sibling adapter (MCP, DeepAgents sub-agent, etc.).
       - name: Install molecule-plugin SDK
         working-directory: sdk/python
-        run: pip install -e .
+        run: pip3.11 install -e .
       - name: Lint first-party plugins
         working-directory: ${{ github.workspace }}
-        run: python -m molecule_plugin validate plugins/molecule-dev plugins/superpowers plugins/ecc
+        run: python3.11 -m molecule_plugin validate plugins/molecule-dev plugins/superpowers plugins/ecc
       - name: Run SDK tests
         working-directory: sdk/python
-        run: python -m pytest --tb=short -q
+        run: python3.11 -m pytest --tb=short -q
 
