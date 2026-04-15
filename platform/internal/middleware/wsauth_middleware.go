@@ -60,6 +60,14 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 //
 // Any valid workspace bearer token is accepted — the route is not scoped to
 // a specific workspace so we only verify the token is live and unrevoked.
+//
+// Issue #168 — canvas session-cookie extension:
+// In addition to the Authorization: Bearer header, AdminAuth also accepts
+// the token via a "mcp_session" cookie. Canvas sends `credentials:"include"`
+// (no Authorization header), so routes gated by AdminAuth (viewport, events,
+// bundles) were unreachable from the canvas UI. The cookie value is validated
+// identically to the Bearer value — same wsauth.ValidateAnyToken DB check.
+// Bearer takes precedence; cookie is the fallback.
 func AdminAuth(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
@@ -71,7 +79,19 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 		if hasLive {
+			// Primary path: Authorization: Bearer <token> header (API clients,
+			// molecli, agent-to-platform calls).
 			tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
+
+			// Fallback path: mcp_session cookie (#168 — canvas auth regression).
+			// Canvas uses credentials:"include" and does not set Authorization
+			// headers, so we accept the same token value via cookie transport.
+			if tok == "" {
+				if cookie, cookieErr := c.Cookie("mcp_session"); cookieErr == nil {
+					tok = cookie
+				}
+			}
+
 			if tok == "" {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "admin auth required"})
 				return

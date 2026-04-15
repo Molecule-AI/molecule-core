@@ -272,6 +272,129 @@ func TestWorkspaceAuth_WrongWorkspace_Returns401(t *testing.T) {
 // global bearer-token contract for /admin/secrets, /settings/secrets).
 // ────────────────────────────────────────────────────────────────────────────
 
+// ── Issue #168 regression — canvas session-cookie extension ──────────────────
+//
+// PR #167 gated PUT /canvas/viewport, GET /events/:workspaceId,
+// GET /bundles/export/:id, and POST /bundles/import behind AdminAuth (Bearer
+// only). Canvas uses credentials:"include" without an Authorization header, so
+// every one of those routes 401'd. The fix: AdminAuth also accepts the token
+// via a "mcp_session" cookie. Bearer takes precedence; cookie is the fallback.
+//
+// Three tests:
+//   1. Bearer path still works (regression guard)
+//   2. Session cookie path works (new canvas path)
+//   3. No credentials at all → 401
+
+// TestAdminAuth_Issue168_BearerValid verifies the existing Authorization:Bearer
+// path is not disturbed by the cookie extension.
+func TestAdminAuth_Issue168_BearerValid(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	tok := "canvas-bearer-regression-token"
+	h := sha256.Sum256([]byte(tok))
+
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(validateAnyTokenSelectQuery).
+		WithArgs(h[:]).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-canvas-1"))
+	mock.ExpectExec(validateTokenUpdateQuery).
+		WithArgs("tok-canvas-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	r := gin.New()
+	r.PUT("/canvas/viewport", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/canvas/viewport", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("#168 bearer regression: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestAdminAuth_Issue168_SessionCookieValid verifies that a valid token carried
+// in the mcp_session cookie is accepted, allowing the canvas to call
+// AdminAuth-gated routes with credentials:"include".
+func TestAdminAuth_Issue168_SessionCookieValid(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	tok := "canvas-session-cookie-token"
+	h := sha256.Sum256([]byte(tok))
+
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(validateAnyTokenSelectQuery).
+		WithArgs(h[:]).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-canvas-2"))
+	mock.ExpectExec(validateTokenUpdateQuery).
+		WithArgs("tok-canvas-2").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	r := gin.New()
+	r.GET("/bundles/export/:id", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/bundles/export/ws-123", nil)
+	// No Authorization header — canvas sends the token via cookie.
+	req.AddCookie(&http.Cookie{Name: "mcp_session", Value: tok})
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("#168 session cookie: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestAdminAuth_Issue168_NoCreds_Returns401 verifies that a request with neither
+// Authorization header nor mcp_session cookie is rejected with 401.
+func TestAdminAuth_Issue168_NoCreds_Returns401(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	r := gin.New()
+	r.PUT("/canvas/viewport", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/canvas/viewport", nil)
+	// Deliberately: no Authorization header, no mcp_session cookie.
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("#168 no-creds: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 // TestAdminAuth_FailOpen_NoTokensGlobally — C10/C11: on a fresh install (no
 // live tokens anywhere) the middleware must let the request through so existing
 // deployments keep working during the Phase-30 rollout.
