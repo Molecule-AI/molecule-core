@@ -98,7 +98,9 @@ async def test_dispatch_openai_scheme_calls_openai_compat():
 
     result = await executor._do_inference("hello")
 
-    executor._do_openai_compat.assert_awaited_once_with("hello")
+    # Phase 2c: _do_inference passes (user_message, history) to the path;
+    # when no history supplied, second arg is None.
+    executor._do_openai_compat.assert_awaited_once_with("hello", None)
     executor._do_anthropic_native.assert_not_awaited()
     executor._do_gemini_native.assert_not_awaited()
     assert result == "openai-result"
@@ -114,7 +116,7 @@ async def test_dispatch_anthropic_scheme_calls_anthropic_native():
 
     result = await executor._do_inference("hello")
 
-    executor._do_anthropic_native.assert_awaited_once_with("hello")
+    executor._do_anthropic_native.assert_awaited_once_with("hello", None)
     executor._do_openai_compat.assert_not_awaited()
     executor._do_gemini_native.assert_not_awaited()
     assert result == "anthropic-result"
@@ -130,10 +132,99 @@ async def test_dispatch_gemini_scheme_calls_gemini_native():
 
     result = await executor._do_inference("hello")
 
-    executor._do_gemini_native.assert_awaited_once_with("hello")
+    executor._do_gemini_native.assert_awaited_once_with("hello", None)
     executor._do_openai_compat.assert_not_awaited()
     executor._do_anthropic_native.assert_not_awaited()
     assert result == "gemini-result"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2c — history-to-message conversion tests
+# ---------------------------------------------------------------------------
+
+
+def test_history_to_openai_messages_empty_history():
+    """No history → single user message (back-compat with pre-2c single-turn shape)."""
+    import importlib.util
+    src = (_HERMES_DIR / "executor.py").read_text().replace(
+        "from .providers import", "from providers import"
+    )
+    ns: dict = {}
+    exec(compile(src, str(_HERMES_DIR / "executor.py"), "exec"), ns)
+    HermesA2AExecutor = ns["HermesA2AExecutor"]
+
+    msgs = HermesA2AExecutor._history_to_openai_messages("current turn", [])
+    assert msgs == [{"role": "user", "content": "current turn"}]
+
+
+def test_history_to_openai_messages_multi_turn():
+    """A2A history roles map: human→user, ai→assistant. Current turn appended as user."""
+    import importlib.util
+    src = (_HERMES_DIR / "executor.py").read_text().replace(
+        "from .providers import", "from providers import"
+    )
+    ns: dict = {}
+    exec(compile(src, str(_HERMES_DIR / "executor.py"), "exec"), ns)
+    HermesA2AExecutor = ns["HermesA2AExecutor"]
+
+    history = [("human", "first question"), ("ai", "first answer"), ("human", "follow-up")]
+    msgs = HermesA2AExecutor._history_to_openai_messages("current turn", history)
+    assert msgs == [
+        {"role": "user", "content": "first question"},
+        {"role": "assistant", "content": "first answer"},
+        {"role": "user", "content": "follow-up"},
+        {"role": "user", "content": "current turn"},
+    ]
+
+
+def test_history_to_anthropic_messages_same_as_openai():
+    """Anthropic Messages API uses the same wire shape as OpenAI for text-only turns."""
+    import importlib.util
+    src = (_HERMES_DIR / "executor.py").read_text().replace(
+        "from .providers import", "from providers import"
+    )
+    ns: dict = {}
+    exec(compile(src, str(_HERMES_DIR / "executor.py"), "exec"), ns)
+    HermesA2AExecutor = ns["HermesA2AExecutor"]
+
+    history = [("human", "hello"), ("ai", "hi")]
+    openai_msgs = HermesA2AExecutor._history_to_openai_messages("how are you?", history)
+    anth_msgs = HermesA2AExecutor._history_to_anthropic_messages("how are you?", history)
+    assert openai_msgs == anth_msgs
+
+
+def test_history_to_gemini_contents_uses_model_role_and_parts_wrapper():
+    """Gemini uses role='user'|'model' (NOT 'assistant') and wraps text in parts=[{text}]."""
+    import importlib.util
+    src = (_HERMES_DIR / "executor.py").read_text().replace(
+        "from .providers import", "from providers import"
+    )
+    ns: dict = {}
+    exec(compile(src, str(_HERMES_DIR / "executor.py"), "exec"), ns)
+    HermesA2AExecutor = ns["HermesA2AExecutor"]
+
+    history = [("human", "hi"), ("ai", "hello back")]
+    contents = HermesA2AExecutor._history_to_gemini_contents("follow-up?", history)
+    assert contents == [
+        {"role": "user", "parts": [{"text": "hi"}]},
+        {"role": "model", "parts": [{"text": "hello back"}]},
+        {"role": "user", "parts": [{"text": "follow-up?"}]},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_passes_history_through():
+    """When _do_inference is called with history, it flows through to the provider path."""
+    executor = _make_executor("anthropic")
+    executor._do_anthropic_native = AsyncMock(return_value="reply-with-history")
+    executor._do_openai_compat = AsyncMock()
+    executor._do_gemini_native = AsyncMock()
+
+    history = [("human", "prior q"), ("ai", "prior a")]
+    result = await executor._do_inference("current", history)
+
+    executor._do_anthropic_native.assert_awaited_once_with("current", history)
+    assert result == "reply-with-history"
 
 
 @pytest.mark.asyncio

@@ -131,15 +131,89 @@ class HermesA2AExecutor:
         self._heartbeat = heartbeat
 
     # ------------------------------------------------------------------
+    # History → provider-specific message list converters
+    # ------------------------------------------------------------------
+    #
+    # The A2A shared runtime gives us history as ``list[tuple[str, str]]``
+    # with roles ``"human"`` / ``"ai"``. Each provider wants a different
+    # shape:
+    #
+    #   OpenAI-compat: [{"role":"user"|"assistant", "content": str}, ...]
+    #   Anthropic:     [{"role":"user"|"assistant", "content": str}, ...]  (same)
+    #   Gemini:        [{"role":"user"|"model", "parts": [{"text": str}]}, ...]
+    #
+    # Before Phase 2c these were flattened into a single user turn via
+    # ``shared_runtime.build_task_text``, which worked for basic text
+    # handoff but lost the model's native multi-turn awareness (system
+    # prompts, tool-use history, role attribution for instruction
+    # following). Phase 2c keeps the turns as turns.
+
+    @staticmethod
+    def _history_to_openai_messages(
+        user_message: str,
+        history: "list[tuple[str, str]]",
+    ) -> "list[dict]":
+        """Convert A2A history + current turn to OpenAI Chat Completions shape."""
+        messages: list[dict] = []
+        for role, text in history or []:
+            messages.append({
+                "role": "user" if role == "human" else "assistant",
+                "content": text,
+            })
+        messages.append({"role": "user", "content": user_message})
+        return messages
+
+    @staticmethod
+    def _history_to_anthropic_messages(
+        user_message: str,
+        history: "list[tuple[str, str]]",
+    ) -> "list[dict]":
+        """Convert A2A history + current turn to Anthropic Messages API shape.
+
+        Identical wire format to OpenAI (``role`` + ``content``) for text-only
+        turns, so we just delegate. The difference matters for tool_use /
+        content blocks, which are Phase 2d territory.
+        """
+        return HermesA2AExecutor._history_to_openai_messages(user_message, history)
+
+    @staticmethod
+    def _history_to_gemini_contents(
+        user_message: str,
+        history: "list[tuple[str, str]]",
+    ) -> "list[dict]":
+        """Convert A2A history + current turn to Gemini generateContent shape.
+
+        Gemini uses ``role: "user" | "model"`` (NOT "assistant") and wraps
+        text in a ``parts: [{"text": ...}]`` list.
+        """
+        contents: list[dict] = []
+        for role, text in history or []:
+            contents.append({
+                "role": "user" if role == "human" else "model",
+                "parts": [{"text": text}],
+            })
+        contents.append({"role": "user", "parts": [{"text": user_message}]})
+        return contents
+
+    # ------------------------------------------------------------------
     # Per-provider inference paths
     # ------------------------------------------------------------------
 
-    async def _do_openai_compat(self, task_text: str) -> str:
+    async def _do_openai_compat(
+        self,
+        user_message: str,
+        history: "list[tuple[str, str]] | None" = None,
+    ) -> str:
         """OpenAI-compat inference — used by every provider with auth_scheme='openai'.
 
-        14 of the 15 registered providers route here. Uses ``openai.AsyncOpenAI``
+        13 of the 15 registered providers route here. Uses ``openai.AsyncOpenAI``
         pointed at the provider's base_url; every provider's API is wire-
         compatible with the OpenAI Chat Completions shape.
+
+        Phase 2c: accepts multi-turn history. The old single-``task_text`` call
+        shape (pre-2c) is preserved — pass the flattened text as ``user_message``
+        with no history and the call degrades gracefully to the original
+        behavior. See ``_history_to_openai_messages`` for the conversion.
         """
         import openai
 
@@ -147,13 +221,18 @@ class HermesA2AExecutor:
             api_key=self.api_key,
             base_url=self.base_url,
         )
+        messages = self._history_to_openai_messages(user_message, history or [])
         response = await client.chat.completions.create(
             model=self.model,
-            messages=[{"role": "user", "content": task_text}],
+            messages=messages,
         )
         return response.choices[0].message.content or ""
 
-    async def _do_anthropic_native(self, task_text: str) -> str:
+    async def _do_anthropic_native(
+        self,
+        user_message: str,
+        history: "list[tuple[str, str]] | None" = None,
+    ) -> str:
         """Native Anthropic Messages API inference.
 
         Uses the official ``anthropic`` Python SDK for correct tool-calling,
@@ -165,9 +244,8 @@ class HermesA2AExecutor:
         OpenAI-compat path — silent fallback would mask the fidelity loss
         (tool_use blocks become plain text, vision gets stripped, etc.).
 
-        Phase 2a minimum viable: single-turn text in, text out, no tools, no
-        vision. Phase 2b will add tool-calling, vision, and streaming via
-        the same path (still within this method).
+        Phase 2a: single-turn text in, text out. Phase 2c: multi-turn history.
+        Tools + vision remain Phase 2d.
         """
         try:
             import anthropic
@@ -180,18 +258,23 @@ class HermesA2AExecutor:
             ) from exc
 
         client = anthropic.AsyncAnthropic(api_key=self.api_key)
+        messages = self._history_to_anthropic_messages(user_message, history or [])
         response = await client.messages.create(
             model=self.model,
             max_tokens=4096,
-            messages=[{"role": "user", "content": task_text}],
+            messages=messages,
         )
-        # response.content is a list of ContentBlock; for single-turn text-only
-        # the first block is a TextBlock with a .text attribute.
+        # response.content is a list of ContentBlock; for text-only the first
+        # block is a TextBlock with a .text attribute.
         if response.content and hasattr(response.content[0], "text"):
             return response.content[0].text
         return ""
 
-    async def _do_gemini_native(self, task_text: str) -> str:
+    async def _do_gemini_native(
+        self,
+        user_message: str,
+        history: "list[tuple[str, str]] | None" = None,
+    ) -> str:
         """Native Google Gemini ``generateContent`` inference.
 
         Uses the official ``google-genai`` Python SDK for correct vision
@@ -204,9 +287,9 @@ class HermesA2AExecutor:
         silently falling back to the OpenAI-compat shim (same fail-loud
         semantics as the anthropic path).
 
-        Phase 2b minimum viable: single-turn text in, text out, no tools,
-        no vision, no thinking config. Phase 2c/2d layers those on the same
-        method.
+        Phase 2b: single-turn text in, text out. Phase 2c: multi-turn history
+        via Gemini's ``contents=[{role,parts}]`` shape (note: role is
+        ``"user"`` / ``"model"``, NOT ``"assistant"``).
         """
         try:
             from google import genai  # type: ignore[import-not-found]
@@ -218,45 +301,59 @@ class HermesA2AExecutor:
                 "OpenRouter's OpenAI-compat shim instead."
             ) from exc
 
-        # google-genai client reads api_key from env by default; pass it
-        # explicitly so we respect whatever ProviderConfig resolved (e.g. a
-        # test-only key that isn't in process env yet).
         client = genai.Client(api_key=self.api_key)
+        contents = self._history_to_gemini_contents(user_message, history or [])
         response = await client.aio.models.generate_content(
             model=self.model,
-            contents=task_text,
+            contents=contents,
         )
         # response.text is the flattened text across all parts of the first
-        # candidate. For single-turn text-only that's the whole reply.
+        # candidate. For text-only that's the whole reply.
         return response.text or ""
 
-    async def _do_inference(self, task_text: str) -> str:
-        """Dispatch to the right inference path based on provider auth_scheme."""
+    async def _do_inference(
+        self,
+        user_message: str,
+        history: "list[tuple[str, str]] | None" = None,
+    ) -> str:
+        """Dispatch to the right inference path based on provider auth_scheme.
+
+        Phase 2c: takes ``user_message`` + optional ``history`` list-of-tuples,
+        passes through to the chosen path. Each path has its own history →
+        provider-message conversion via the static helpers above.
+        """
         scheme = self.provider_cfg.auth_scheme
         if scheme == "anthropic":
-            return await self._do_anthropic_native(task_text)
+            return await self._do_anthropic_native(user_message, history)
         if scheme == "gemini":
-            return await self._do_gemini_native(task_text)
+            return await self._do_gemini_native(user_message, history)
         if scheme == "openai":
-            return await self._do_openai_compat(task_text)
+            return await self._do_openai_compat(user_message, history)
         # Unknown scheme — treat as openai-compat for forward-compat with any
         # future provider the registry adds without yet having a native path.
         logger.warning(
             "Hermes: unknown auth_scheme=%r for provider=%s — falling back to openai-compat",
             scheme, self.provider_cfg.name,
         )
-        return await self._do_openai_compat(task_text)
+        return await self._do_openai_compat(user_message, history)
 
     # ------------------------------------------------------------------
     # AgentExecutor interface
     # ------------------------------------------------------------------
 
     async def execute(self, context, event_queue):  # pragma: no cover
-        """Execute a Hermes inference request and push the reply to event_queue."""
+        """Execute a Hermes inference request and push the reply to event_queue.
+
+        Phase 2c: passes the conversation history to the dispatch layer as a
+        structured list of (role, text) turns instead of flattening via
+        ``build_task_text``. Each provider path converts the list into its
+        native multi-turn message shape (OpenAI messages, Anthropic messages,
+        or Gemini contents). This gives the model its native multi-turn
+        awareness for instruction following.
+        """
         from a2a.utils import new_agent_text_message
         from adapters.shared_runtime import (
             brief_task,
-            build_task_text,
             extract_history,
             extract_message_text,
             set_current_task,
@@ -270,8 +367,8 @@ class HermesA2AExecutor:
         await set_current_task(self._heartbeat, brief_task(user_message))
 
         try:
-            task_text = build_task_text(user_message, extract_history(context))
-            reply = await self._do_inference(task_text)
+            history = extract_history(context)
+            reply = await self._do_inference(user_message, history)
         except Exception as exc:
             logger.exception("Hermes executor error: %s", exc)
             reply = f"Hermes error: {exc}"
