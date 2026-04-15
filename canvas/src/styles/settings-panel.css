@@ -324,7 +324,7 @@
   font-size: 14px;
   font-family: inherit;
   background: #18181b;
-  color: #f4f4f5;
+  color: #d4d4d8;
 }
 
 .add-key-form__select:focus,
@@ -399,7 +399,7 @@
   font-size: 14px;
   font-family: monospace;
   background: #18181b;
-  color: #f4f4f5;
+  color: #d4d4d8;
 }
 
 .key-value-field input:focus {
@@ -683,7 +683,7 @@
 }
 
 .settings-button:hover { background: #27272a; color: #f4f4f5; }
-.settings-button--active { color: #3b82f6; background: #1e3a5f; }
+.settings-button--active { color: #3b82f6; background: #1e3a8a; }
 .settings-button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-ring-offset); }
 
 .settings-button__tooltip {
