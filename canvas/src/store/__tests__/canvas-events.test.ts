@@ -192,7 +192,7 @@ describe("handleCanvasEvent – WORKSPACE_PROVISIONING", () => {
     const n = newNodes[0];
     expect(n.id).toBe("ws-new");
     expect(n.type).toBe("workspaceNode");
-    expect(n.position).toEqual({ x: 0, y: 0 });
+    expect(n.position).toEqual({ x: 100, y: 100 });
     expect(n.data.name).toBe("Brand New");
     expect(n.data.tier).toBe(3);
     expect(n.data.status).toBe("provisioning");
