@@ -153,6 +153,9 @@ async def main():  # pragma: no cover
     )
 
     # 7. Wrap in A2A
+    # Issue #204 — use BasePushNotificationSender (concrete) not PushNotificationSender
+    # (abstract ABC with abstract send_notification). Sharing the same push_config_store
+    # instance with DefaultRequestHandler ensures registration and delivery use the same store.
     push_config_store = InMemoryPushNotificationConfigStore()
     handler = DefaultRequestHandler(
         agent_executor=executor,
