@@ -53,6 +53,16 @@ defaults:
     performance: [Backend Engineer]
     docs: [Documentation Specialist]
     mixed: [Dev Lead]
+    # Evolution-cron categories (#93): these four are fired by hourly
+    # self-review schedules (Research Lead, Technical Researcher, Dev Lead,
+    # DevOps Engineer). Routing them to the same role that generated them
+    # is a safe default — it converts the summary into a delegation back
+    # to the author so they act on their own findings. Override per-org
+    # if you want a different fan-out.
+    research: [Research Lead]
+    plugins: [Technical Researcher]
+    template: [Dev Lead]
+    channels: [DevOps Engineer]
 
   # workspace_dir: not set by default — each agent gets an isolated Docker volume
   # Set per-workspace to bind-mount a host directory as /workspace
