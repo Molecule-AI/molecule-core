@@ -442,6 +442,9 @@ func TestWorkspaceDelete_CascadeWithChildren(t *testing.T) {
 	// Batch canvas_layouts DELETE for the same id set.
 	mock.ExpectExec("DELETE FROM canvas_layouts WHERE workspace_id = ANY").
 		WillReturnResult(sqlmock.NewResult(2, 2))
+	// Token revocation: once a workspace is gone its auth tokens are meaningless.
+	mock.ExpectExec("UPDATE workspace_auth_tokens SET revoked_at").
+		WillReturnResult(sqlmock.NewResult(0, 2))
 	// Broadcast for child WORKSPACE_REMOVED (fires during the descendant loop).
 	mock.ExpectExec("INSERT INTO structure_events").
 		WillReturnResult(sqlmock.NewResult(0, 1))

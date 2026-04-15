@@ -265,11 +265,13 @@ ORIG_TIER=$(echo "$BUNDLE" | python3 -c "import sys,json; print(json.load(sys.st
 R=$(curl -s -X DELETE "$BASE/workspaces/$SUM_ID" -H "Authorization: Bearer $SUM_TOKEN")
 check "Delete before re-import" '"status":"removed"' "$R"
 
-# Skipping the "count=0 after delete" assertion: soft-delete leaves the
-# workspace_auth_tokens row live, so HasAnyLiveTokenGlobal stays >0 and
-# an unauthenticated GET /workspaces returns 401 — exactly #99's C1 contract.
-# The bundle round-trip below re-creates a workspace and exercises the
-# full import path, so deletion correctness is still covered end-to-end.
+# Deletion revokes the workspace's auth tokens (PR #99 C1 fix: workspace.go
+# now runs UPDATE workspace_auth_tokens SET revoked_at on delete).  With no
+# live tokens remaining, HasAnyLiveTokenGlobal = false → AdminAuth fail-open
+# → GET /workspaces is reachable without a bearer token again.
+R=$(curl -s "$BASE/workspaces")
+COUNT=$(echo "$R" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+check "All workspaces deleted (count=0)" "0" "$COUNT"
 
 # Re-import from the exported bundle
 R=$(curl -s -X POST "$BASE/bundles/import" -H "Content-Type: application/json" -d "$BUNDLE")
@@ -315,13 +317,16 @@ fi
 R=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
   -d "{\"id\":\"$NEW_ID\",\"url\":\"http://localhost:8002\",\"agent_card\":{\"name\":\"Summarizer\",\"skills\":[{\"id\":\"summarize\",\"name\":\"Summarize\"}]}}")
 check "Register re-imported workspace" '"status":"registered"' "$R"
+# Capture the fresh token issued to the re-imported workspace.  SUM_TOKEN was
+# revoked when SUM_ID was deleted above — use this one for cleanup instead.
+NEW_TOKEN=$(echo "$R" | e2e_extract_token)
 
 # Re-export and verify agent_card survives the round-trip
 REBUNDLE=$(curl -s "$BASE/bundles/export/$NEW_ID")
 check "Re-exported bundle has agent_card" '"agent_card"' "$REBUNDLE"
 
-# Clean up
-curl -s -X DELETE "$BASE/workspaces/$NEW_ID" -H "Authorization: Bearer $SUM_TOKEN" > /dev/null
+# Clean up — use the token just issued to the re-imported workspace
+curl -s -X DELETE "$BASE/workspaces/$NEW_ID" -H "Authorization: Bearer $NEW_TOKEN" > /dev/null
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
