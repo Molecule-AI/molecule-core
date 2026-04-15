@@ -45,20 +45,48 @@ type scheduleRow struct {
 // when a schedule's next_run_at has passed. Follows the same goroutine
 // pattern as registry.StartHealthSweep.
 type Scheduler struct {
-	proxy       A2AProxy
-	broadcaster Broadcaster
+	proxy        A2AProxy
+	broadcaster  Broadcaster
+	mu           sync.RWMutex
+	lastTickAt   time.Time
+	tickInterval time.Duration // defaults to pollInterval; overridable in tests
 }
 
 func New(proxy A2AProxy, broadcaster Broadcaster) *Scheduler {
-	return &Scheduler{proxy: proxy, broadcaster: broadcaster}
+	return &Scheduler{
+		proxy:        proxy,
+		broadcaster:  broadcaster,
+		tickInterval: pollInterval,
+	}
+}
+
+// LastTickAt returns the wall-clock time of the most recently completed tick.
+// Returns a zero time.Time if the scheduler has never completed a tick.
+func (s *Scheduler) LastTickAt() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastTickAt
+}
+
+// Healthy returns true if the scheduler has completed a tick within the last
+// 2×pollInterval window. Returns false before the first tick or if the
+// scheduler is stalled.
+func (s *Scheduler) Healthy() bool {
+	s.mu.RLock()
+	t := s.lastTickAt
+	s.mu.RUnlock()
+	if t.IsZero() {
+		return false
+	}
+	return time.Since(t) < 2*pollInterval
 }
 
 // Start runs the scheduler poll loop. Blocks until ctx is cancelled.
 func (s *Scheduler) Start(ctx context.Context) {
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(s.tickInterval)
 	defer ticker.Stop()
 
-	log.Printf("Scheduler: started (poll interval=%s)", pollInterval)
+	log.Printf("Scheduler: started (poll interval=%s)", s.tickInterval)
 
 	for {
 		select {
@@ -108,10 +136,24 @@ func (s *Scheduler) tick(ctx context.Context) {
 		log.Printf("Scheduler: rows error: %v", err)
 	}
 	wg.Wait()
+
+	// Record tick completion time for health monitoring.
+	s.mu.Lock()
+	s.lastTickAt = time.Now()
+	s.mu.Unlock()
 }
 
 // fireSchedule sends the A2A message and updates the schedule row.
+// A deferred recover guards against panics in the A2A proxy so that a single
+// misbehaving workspace cannot crash the scheduler goroutine pool.
 func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Scheduler: panic recovered in fireSchedule for '%s' (%s): %v",
+				sched.Name, sched.ID, r)
+		}
+	}()
+
 	fireCtx, cancel := context.WithTimeout(ctx, fireTimeout)
 	defer cancel()
 
@@ -206,7 +248,7 @@ func truncate(s string, maxLen int) string {
 func ComputeNextRun(cronExpr, tz string, after time.Time) (time.Time, error) {
 	loc, err := time.LoadLocation(tz)
 	if err != nil {
-		loc = time.UTC
+		return time.Time{}, fmt.Errorf("invalid timezone %q: %w", tz, err)
 	}
 
 	parser := cronlib.NewParser(cronlib.Minute | cronlib.Hour | cronlib.Dom | cronlib.Month | cronlib.Dow)
