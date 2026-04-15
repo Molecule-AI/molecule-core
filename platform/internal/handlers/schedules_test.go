@@ -124,3 +124,50 @@ func TestList_IncludesSourceColumn(t *testing.T) {
 		t.Fatalf("unmet expectations: %v", err)
 	}
 }
+
+// TestHistory_IncludesErrorDetail — #152 problem B coverage. The history
+// endpoint must surface error_detail from activity_logs so clients know
+// why a cron run failed (not just that it failed). Writes a fake cron_run
+// row via sqlmock with a non-empty error_detail and asserts it reaches
+// the JSON response.
+func TestHistory_IncludesErrorDetail(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewScheduleHandler()
+
+	workspaceID := "550e8400-e29b-41d4-a716-446655440000"
+	scheduleID := "11111111-1111-1111-1111-111111111111"
+	now := time.Now()
+
+	cols := []string{"created_at", "duration_ms", "status", "error_detail", "request_body"}
+	mock.ExpectQuery("SELECT created_at, duration_ms, status").
+		WithArgs(workspaceID, scheduleID).
+		WillReturnRows(sqlmock.NewRows(cols).
+			AddRow(now, 4200, "error", "HTTP 500 — workspace agent OOM", `{"schedule_id":"`+scheduleID+`"}`).
+			AddRow(now, 1500, "ok", "", `{"schedule_id":"`+scheduleID+`"}`))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{
+		{Key: "id", Value: workspaceID},
+		{Key: "scheduleId", Value: scheduleID},
+	}
+	c.Request = httptest.NewRequest("GET",
+		"/workspaces/"+workspaceID+"/schedules/"+scheduleID+"/history", nil)
+
+	handler.History(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"error_detail":"HTTP 500 — workspace agent OOM"`) {
+		t.Errorf("history response missing populated error_detail: %s", body)
+	}
+	if !strings.Contains(body, `"error_detail":""`) {
+		t.Errorf("history response missing empty error_detail on ok row: %s", body)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock: %v", err)
+	}
+}
