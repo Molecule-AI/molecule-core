@@ -166,8 +166,11 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		wsAuth.POST("/approvals", apph.Create)
 		wsAuth.GET("/approvals", apph.List)
 		wsAuth.POST("/approvals/:approvalId/decide", apph.Decide)
-		// /approvals/pending is a cross-workspace admin path; keep on root router outside wsAuth.
-		r.GET("/approvals/pending", apph.ListAll)
+		// /approvals/pending is a cross-workspace admin path; WorkspaceAuth cannot
+		// be used here (no workspace scope), but it still needs auth so an
+		// unauthenticated caller cannot enumerate all pending approvals across the
+		// entire platform. Gated behind AdminAuth (issue #180).
+		r.GET("/approvals/pending", middleware.AdminAuth(db.DB), apph.ListAll)
 
 		// Team Expansion
 		teamh := handlers.NewTeamHandler(broadcaster, prov, platformURL, configsDir)
