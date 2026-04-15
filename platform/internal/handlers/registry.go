@@ -30,7 +30,14 @@ func NewRegistryHandler(b *events.Broadcaster) *RegistryHandler {
 //
 // Allowed: http:// or https:// only (no file://, ftp://, etc.).
 // Blocked: 169.254.0.0/16 (link-local — AWS/GCP/Azure metadata endpoints).
-// Allowed: RFC-1918 private ranges (Docker networking uses 172.16–31.x.x).
+// Blocked: 127.0.0.0/8  (loopback — self-SSRF: a registered loopback URL
+//
+//	redirects A2A traffic back to the platform itself).
+//
+// Allowed: RFC-1918 private ranges 10.x, 172.16.x, 192.168.x — Docker
+//
+//	container networking uses these; blocking them would break any
+//	private-network or Docker-based deployment.
 //
 // Returns a non-nil error string suitable for including in a 400 response.
 func validateAgentURL(rawURL string) error {
@@ -50,6 +57,15 @@ func validateAgentURL(rawURL string) error {
 		_, linkLocal, _ := net.ParseCIDR("169.254.0.0/16")
 		if linkLocal.Contains(ip) {
 			return errors.New("url targets a link-local address (cloud metadata endpoint)")
+		}
+		// Block 127.0.0.0/8 — loopback. A workspace registering with a loopback
+		// URL could cause the A2A proxy to send requests back to the platform
+		// itself on the first INSERT (before the provisioner URL is established).
+		// Legitimate local-dev agents use "localhost" by name; IP-literal loopback
+		// in a registration payload has no valid use case.
+		_, loopback, _ := net.ParseCIDR("127.0.0.0/8")
+		if loopback.Contains(ip) {
+			return errors.New("url targets a loopback address")
 		}
 	}
 	return nil
