@@ -129,8 +129,8 @@ workspaces:
           5. Use commit_memory to save key product facts for later recall
           6. Wait for tasks from PM.
         schedules:
-          - name: Daily ecosystem watch
-            cron_expr: "0 8 * * *"
+          - name: Hourly ecosystem watch
+            cron_expr: "8 * * * *"
             prompt: |
               Daily survey for new agent-infra / AI-agent projects worth tracking.
 
@@ -164,8 +164,8 @@ workspaces:
             files_dir: technical-researcher
             plugins: [browser-automation]
             schedules:
-              - name: Weekly plugin curation
-                cron_expr: "0 9 * * 1"
+              - name: Hourly plugin curation
+                cron_expr: "22 * * * *"
                 prompt: |
                   Weekly survey of `plugins/` and `workspace-template/builtin_tools/` for
                   evolution opportunities. The team should keep gaining capabilities.
@@ -211,8 +211,8 @@ workspaces:
           5. Use commit_memory to save the architecture summary and recent changes
           6. Wait for tasks from PM.
         schedules:
-          - name: Daily template fitness audit
-            cron_expr: "30 8 * * *"
+          - name: Hourly template fitness audit
+            cron_expr: "15 * * * *"
             prompt: |
               Daily audit of `org-templates/molecule-dev/`. Catches drift, stale prompts,
               missing schedules, and gaps that block the team-runs-24/7 goal. Symptom
@@ -328,8 +328,8 @@ workspaces:
               5. Use commit_memory to save CI pipeline structure
               6. Wait for tasks from Dev Lead.
             schedules:
-              - name: Weekly channel expansion survey
-                cron_expr: "0 10 * * 1"
+              - name: Hourly channel expansion survey
+                cron_expr: "47 * * * *"
                 prompt: |
                   Weekly survey of channel integrations (Telegram, Slack, Discord, email,
                   webhooks). The team should grow its external comms surface where useful,
