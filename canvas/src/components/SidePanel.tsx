@@ -19,6 +19,10 @@ import { ScheduleTab } from "./tabs/ScheduleTab";
 import { ChannelsTab } from "./tabs/ChannelsTab";
 import { summarizeWorkspaceCapabilities } from "@/store/canvas";
 
+const SIDEPANEL_WIDTH_KEY = "molecule:sidepanel-width";
+const SIDEPANEL_DEFAULT_WIDTH = 480;
+const SIDEPANEL_MIN_WIDTH = 320;
+
 const TABS: { id: PanelTab; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "◈" },
   { id: "activity", label: "Activity", icon: "⊙" },
@@ -43,11 +47,19 @@ export function SidePanel() {
     s.nodes.find((n) => n.id === s.selectedNodeId)
   );
 
-  // Resizable panel width
-  const [width, setWidth] = useState(480);
+  // Resizable panel width — persisted across node selections via localStorage
+  const [width, setWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return SIDEPANEL_DEFAULT_WIDTH;
+    const saved = localStorage.getItem(SIDEPANEL_WIDTH_KEY);
+    const parsed = saved ? parseInt(saved, 10) : NaN;
+    return Number.isFinite(parsed) && parsed >= SIDEPANEL_MIN_WIDTH
+      ? parsed
+      : SIDEPANEL_DEFAULT_WIDTH;
+  });
+  const widthRef = useRef(width); // tracks live drag value for the mouseup handler
   const dragging = useRef(false);
   const startX = useRef(0);
-  const startWidth = useRef(480);
+  const startWidth = useRef(SIDEPANEL_DEFAULT_WIDTH);
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -62,13 +74,20 @@ export function SidePanel() {
     const onMouseMove = (e: MouseEvent) => {
       if (!dragging.current) return;
       const delta = startX.current - e.clientX;
-      const newWidth = Math.min(Math.max(startWidth.current + delta, 320), window.innerWidth * 0.8);
+      const newWidth = Math.min(
+        Math.max(startWidth.current + delta, SIDEPANEL_MIN_WIDTH),
+        window.innerWidth * 0.8,
+      );
       setWidth(newWidth);
+      widthRef.current = newWidth; // keep ref in sync so mouseUp can persist it
     };
     const onMouseUp = () => {
+      if (!dragging.current) return;
       dragging.current = false;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      // Persist the final dragged width so it survives node re-selection
+      localStorage.setItem(SIDEPANEL_WIDTH_KEY, String(widthRef.current));
     };
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
