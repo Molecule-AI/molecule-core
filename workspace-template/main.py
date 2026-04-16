@@ -45,6 +45,11 @@ def get_machine_ip() -> str:  # pragma: no cover
         return "127.0.0.1"
 
 
+# Re-exported from transcript_auth for the inline /transcript handler.
+# Separate module keeps the security-critical gate import-light + unit-testable.
+from transcript_auth import transcript_authorized as _transcript_authorized
+
+
 async def main():  # pragma: no cover
     workspace_id = os.environ.get("WORKSPACE_ID", "workspace-default")
     config_path = os.environ.get("WORKSPACE_CONFIG_PATH", "/configs")
@@ -293,12 +298,19 @@ async def main():  # pragma: no cover
         # Require workspace bearer token — the same token issued at registration
         # and stored in /configs/.auth_token. Any container on molecule-monorepo-net
         # could otherwise read the full session log. Closes #287.
+        #
+        # #328: fail CLOSED when the token file is unavailable. get_token()
+        # returns None during the bootstrap window (first register hasn't
+        # completed), if /configs/.auth_token was deleted, or on OSError.
+        # The old `if expected:` guard treated all three cases as "skip
+        # auth" — an unauthenticated container on the same Docker network
+        # could read the entire session log during that window. Deny
+        # instead. The platform's TranscriptHandler acquires the token
+        # during registration, so once the bootstrap completes it always
+        # has a valid credential to present.
         from platform_auth import get_token
-        expected = get_token()
-        if expected:
-            auth_header = request.headers.get("Authorization", "")
-            if auth_header != f"Bearer {expected}":
-                return JSONResponse({"error": "unauthorized"}, status_code=401)
+        if not _transcript_authorized(get_token(), request.headers.get("Authorization", "")):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
         try:
             since = int(request.query_params.get("since", "0"))
             limit = int(request.query_params.get("limit", "100"))
