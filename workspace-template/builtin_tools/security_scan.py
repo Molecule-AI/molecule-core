@@ -283,13 +283,8 @@ def scan_skill_dependencies(
         # is visible rather than silently skipped.
         if not fail_open_if_no_scanner and mode == "block":
             raise SkillSecurityError(
-                skill_name=skill_name,
-                scanner="none",
-                findings=[],
-                scan_error=(
-                    "No scanner (snyk or pip-audit) found in PATH and "
-                    "fail_open_if_no_scanner=false — skill loading blocked"
-                ),
+                f"Skill '{skill_name}' blocked: no scanner (snyk or pip-audit) "
+                f"found in PATH and fail_open_if_no_scanner=false"
             )
         return ScanResult(
             skill_name=skill_name,
