@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # clone-manifest.sh — clone all repos listed in manifest.json into their
-# target directories. Replaces 33 hardcoded git-clone lines in Dockerfiles.
+# target directories. Replaces hardcoded git-clone lines in Dockerfiles.
 #
 # Usage:
 #   ./scripts/clone-manifest.sh <manifest.json> <ws-templates-dir> <org-templates-dir> <plugins-dir>
 #
-# Example (Docker build stage):
-#   /scripts/clone-manifest.sh /manifest.json /workspace-configs-templates /org-templates /plugins
+# Requires: git, jq (lighter than python3 — ~2MB vs ~50MB in Alpine)
 
 set -euo pipefail
 
@@ -15,26 +14,34 @@ WS_DIR="${2:?Missing workspace-templates dir}"
 ORG_DIR="${3:?Missing org-templates dir}"
 PLUGINS_DIR="${4:?Missing plugins dir}"
 
+EXPECTED=0
+CLONED=0
+
 clone_category() {
     local category="$1"
     local target_dir="$2"
 
     mkdir -p "$target_dir"
 
-    # Use python3 to parse JSON (jq may not be available in Docker)
-    python3 -c "
-import json, sys
-with open('$MANIFEST') as f:
-    m = json.load(f)
-for entry in m.get('$category', []):
-    print(entry['name'], entry['repo'], entry.get('ref', 'main'))
-" | while read -r name repo ref; do
+    local count
+    count=$(jq -r ".${category} | length" "$MANIFEST")
+    EXPECTED=$((EXPECTED + count))
+
+    local i=0
+    while [ "$i" -lt "$count" ]; do
+        local name repo ref
+        name=$(jq -r ".${category}[$i].name" "$MANIFEST")
+        repo=$(jq -r ".${category}[$i].repo" "$MANIFEST")
+        ref=$(jq -r ".${category}[$i].ref // \"main\"" "$MANIFEST")
+
         echo "  cloning $repo -> $target_dir/$name (ref=$ref)"
         if [ "$ref" = "main" ]; then
             git clone --depth=1 -q "https://github.com/${repo}.git" "$target_dir/$name"
         else
             git clone --depth=1 -q --branch "$ref" "https://github.com/${repo}.git" "$target_dir/$name"
         fi
+        CLONED=$((CLONED + 1))
+        i=$((i + 1))
     done
 
     # Strip .git dirs to save space
@@ -50,4 +57,10 @@ clone_category "org_templates" "$ORG_DIR"
 echo "==> Cloning plugins..."
 clone_category "plugins" "$PLUGINS_DIR"
 
-echo "==> Done. $(find "$WS_DIR" "$ORG_DIR" "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ') repos cloned."
+# Verify all repos were cloned
+if [ "$CLONED" -ne "$EXPECTED" ]; then
+    echo "::error::Expected $EXPECTED repos but only cloned $CLONED — some clones failed"
+    exit 1
+fi
+
+echo "==> Done. $CLONED/$EXPECTED repos cloned successfully."
