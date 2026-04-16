@@ -56,7 +56,7 @@ func TestSecurityHeaders(t *testing.T) {
 	csp := w.Header().Get("Content-Security-Policy")
 	for _, fragment := range []string{
 		"default-src 'self'",
-		"script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+		"script-src 'self' 'unsafe-inline'",
 		"style-src 'self' 'unsafe-inline'",
 		"img-src 'self' data: blob:",
 		"connect-src 'self' ws: wss:",

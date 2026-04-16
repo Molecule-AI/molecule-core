@@ -12,7 +12,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /platform ./cmd/server
 
 # Clone templates + plugins at build time from manifest.json
 FROM alpine:3.20 AS templates
-RUN apk add --no-cache git python3
+RUN apk add --no-cache git jq
 COPY manifest.json /manifest.json
 COPY scripts/clone-manifest.sh /scripts/clone-manifest.sh
 RUN chmod +x /scripts/clone-manifest.sh && /scripts/clone-manifest.sh /manifest.json /workspace-configs-templates /org-templates /plugins
