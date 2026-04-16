@@ -76,15 +76,28 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 		if hasLive {
+			// Bearer token path — agents, CLI, and API clients.
 			tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
-			if tok == "" {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "admin auth required"})
+			if tok != "" {
+				if err := wsauth.ValidateAnyToken(ctx, database, tok); err != nil {
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
+					return
+				}
+				c.Next()
 				return
 			}
-			if err := wsauth.ValidateAnyToken(ctx, database, tok); err != nil {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
+			// Canvas origin path — cross-origin canvas (CORS_ORIGINS match).
+			if canvasOriginAllowed(c.GetHeader("Origin")) {
+				c.Next()
 				return
 			}
+			// Same-origin canvas path — tenant image where canvas + API share a host.
+			if isSameOriginCanvas(c) {
+				c.Next()
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "admin auth required"})
+			return
 		}
 		c.Next()
 	}
@@ -135,12 +148,14 @@ func CanvasOrBearer(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Path 2: canvas origin match. Read CORS_ORIGINS at request time so
-		// tests can override via t.Setenv. canvasOriginAllowed returns true
-		// iff Origin is non-empty AND exactly matches one of the configured
-		// origins. Empty Origin (same-origin / server-to-server) does NOT
-		// pass this check — those callers must use the bearer path.
+		// Path 2: canvas origin match (cross-origin canvas).
 		if canvasOriginAllowed(c.GetHeader("Origin")) {
+			c.Next()
+			return
+		}
+
+		// Path 3: same-origin canvas (tenant image).
+		if isSameOriginCanvas(c) {
 			c.Next()
 			return
 		}
@@ -172,4 +187,32 @@ func canvasOriginAllowed(origin string) bool {
 		}
 	}
 	return false
+}
+
+// isSameOriginCanvas returns true when the request appears to come from the
+// canvas UI served by the same Go process (tenant image). In this topology,
+// the browser sends same-origin requests with an empty Origin header but a
+// Referer matching the request Host. We accept these requests because the
+// canvas is the trusted frontend — same as if Origin matched CORS_ORIGINS.
+//
+// This only fires when CANVAS_PROXY_URL is set (i.e. the combined tenant
+// image is active), so self-hosted / dev setups with separate canvas and
+// platform origins are unaffected.
+func isSameOriginCanvas(c *gin.Context) bool {
+	if os.Getenv("CANVAS_PROXY_URL") == "" {
+		return false
+	}
+	referer := c.GetHeader("Referer")
+	if referer == "" {
+		return false
+	}
+	host := c.Request.Host
+	if host == "" {
+		return false
+	}
+	// Referer starts with https://<host>/ or http://<host>/
+	return strings.HasPrefix(referer, "https://"+host+"/") ||
+		strings.HasPrefix(referer, "http://"+host+"/") ||
+		strings.HasPrefix(referer, "https://"+host) ||
+		strings.HasPrefix(referer, "http://"+host)
 }
