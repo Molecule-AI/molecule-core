@@ -1,0 +1,15 @@
+name: Technical Researcher
+role: AI frameworks and protocol evaluation
+files_dir: technical-researcher
+plugins: [browser-automation]
+            # Idle-loop pilot (#205) — Technical Researcher is the first workspace
+            # to opt in to the reflection-on-completion pattern. Measure
+            # activity_logs delta over 24h, then roll to the rest of the research
+            # team if it produces useful backlog-pull dispatches.
+idle_interval_seconds: 600
+schedules:
+  - name: Hourly plugin curation
+    cron_expr: "22 * * * *"
+    enabled: true
+    prompt_file: schedules/hourly-plugin-curation.md
+idle_prompt_file: idle-prompt.md

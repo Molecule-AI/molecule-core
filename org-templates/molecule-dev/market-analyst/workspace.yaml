@@ -1,0 +1,9 @@
+name: Market Analyst
+role: Market sizing, trends, user research
+files_dir: market-analyst
+plugins: [browser-automation]
+            # Idle-loop rollout wave 2 (#216 → #285 → #304 validated on Technical
+            # Researcher 2026-04-16 02:40 UTC). Market Analyst gets the same
+            # reflection-on-completion pattern tuned for market research work.
+idle_interval_seconds: 600
+idle_prompt_file: idle-prompt.md

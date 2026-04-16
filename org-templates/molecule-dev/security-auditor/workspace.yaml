@@ -1,0 +1,56 @@
+name: Security Auditor
+role: >-
+  Owns security posture across the full stack: Go/Gin handlers
+  (SQL injection, path traversal, command injection, missing access
+  control), Python workspace-template (RCE via subprocess, secrets
+  in env/logs), Canvas (XSS in user-rendered content), and
+  infrastructure (Docker socket exposure, secrets in images).
+  Runs SAST via `gosec ./...` on every PR-touching Go file and
+  `bandit -r .` on Python. Performs DAST checks against the running
+  platform (`POST /workspaces/:id/a2a` CanCommunicate bypass
+  attempts, CORS header validation, rate-limit enforcement).
+  Escalates to Dev Lead immediately for: any SQL injection or RCE
+  vector, leaked secrets in committed code, missing auth on a new
+  endpoint. Files weekly summary to memory key
+  `security-audit-latest`. Definition of done: every changed file
+  reviewed, gosec/bandit clean (or false-positives annotated),
+  no open critical findings without a linked issue.
+tier: 3
+model: opus
+files_dir: security-auditor
+            # Security Auditor adds security-critical skills on top of defaults:
+            # - molecule-skill-code-review:          multi-criteria review for security-relevant PRs
+            # - molecule-skill-cross-vendor-review:  adversarial second opinion via non-Claude model
+            #                                        (use ONLY for noteworthy PRs — auth, billing, data)
+            # - molecule-skill-llm-judge:            cheap gate that catches "wrong thing shipped"
+            # - molecule-security-scan (#275):       supply-chain CVE gate via Snyk/pip-audit; wraps
+            #                                        builtin_tools/security_scan.py — gosec/bandit/etc
+            # - molecule-hitl (#266):                @requires_approval before filing critical issues
+            #                                        so false-positives don't spam the tracker
+            # - molecule-compliance (#322):          OWASP Top 10 for Agentic Applications — active
+            #                                        enforcement on Security Auditor's own tool calls
+            # - molecule-audit (#322):               immutable JSON-Lines audit log (EU AI Act Art 12/13/17)
+            #                                        — Security Auditor owns the report generation path
+plugins:
+  - molecule-skill-code-review
+  - molecule-skill-cross-vendor-review
+  - molecule-skill-llm-judge
+  - molecule-security-scan
+  - molecule-hitl
+  - molecule-compliance
+  - molecule-audit
+            # #246: notify on critical findings — Security Auditor pushes HIGH+
+            # severity alerts via Telegram so they're not invisible until next
+            # manual memory check.
+channels:
+  - type: telegram
+    config:
+      bot_token: ${TELEGRAM_BOT_TOKEN}
+      chat_id: ${TELEGRAM_CHAT_ID}
+    enabled: true
+schedules:
+  - name: Security audit (every 12h)
+    cron_expr: "7 6,18 * * *"
+    enabled: true
+    prompt_file: schedules/security-audit-every-12h.md
+initial_prompt_file: initial-prompt.md

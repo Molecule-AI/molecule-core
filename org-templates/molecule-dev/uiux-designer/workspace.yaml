@@ -1,0 +1,19 @@
+name: UIUX Designer
+role: User flow design, visual design review, interaction patterns, accessibility
+tier: 3
+model: opus
+files_dir: uiux-designer
+            # browser-automation for live canvas screenshots via Puppeteer
+            # (Chrome CDP path; recipe in the cron prompt below).
+plugins: [browser-automation]
+schedules:
+  - name: Hourly UI/UX audit with live screenshots
+                # #306: was "5,20,35,50 * * * *" (every 15 min — 96
+                # ticks/day × 8 screenshots × vision = runaway cost).
+                # Hourly matches the schedule name and is sufficient
+                # because the canvas UI only changes on deploys.
+    cron_expr: "5 * * * *"
+    enabled: true
+
+    prompt_file: schedules/hourly-ui-ux-audit-with-live-screenshots.md
+initial_prompt_file: initial-prompt.md
