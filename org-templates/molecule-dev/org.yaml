@@ -546,6 +546,47 @@ workspaces:
                  - /workspace/repo/canvas/src/store/canvas.ts (Zustand store patterns)
               5. Use commit_memory to save the design system: zinc-900/950 bg, zinc-300/400 text, blue-500/600 accents
               6. Wait for tasks from Dev Lead.
+            # Engineer idle-loop (CEO 2026-04-16: "devs pick up issues and
+            # declare assigned; leaders check in; don't rely on outside
+            # reviewer"). Shift engineers from reactive-only to proactive
+            # issue-claim. Dev Lead's orchestrator pulse still dispatches
+            # for priority work; this loop picks up the tail.
+            idle_interval_seconds: 600
+            idle_prompt: |
+              You have no active task. Pick up UI/canvas work proactively.
+              Under 90 seconds:
+
+              1. Check dispatched/claimed first (don't double-pick):
+                 - search_memory "task-assigned:frontend-engineer" — if you
+                   already claimed an issue, resume that in your next turn.
+                 - Check /tmp/delegation_results.jsonl for Dev Lead dispatches.
+
+              2. Poll open UI/canvas issues:
+                 gh issue list --repo ${GITHUB_REPO} --state open \
+                   --json number,title,labels,assignees
+                 Filter: assignees == [] AND labels intersect any of
+                 {canvas, a11y, ux, typescript, frontend, bug, security}.
+                 Priority: security > bug > feature. Pick the TOP match.
+
+              3. Claim it publicly:
+                 - gh issue edit <N> --add-assignee @me
+                 - gh issue comment <N> --body "Picking this up. Branch
+                   fix/issue-<N>-<slug>. Plan: <1-line approach>."
+                 - commit_memory "task-assigned:frontend-engineer:issue-<N>"
+
+              4. Start work:
+                 - Branch fix/issue-<N>-<short-slug>
+                 - Run npm test + npm run build before editing (per conventions)
+                 - Apply changes. Keep zinc dark theme. 'use client' on hook files.
+                 - Self-review via molecule-skill-code-review against your diff
+                 - molecule-skill-llm-judge: does the change match the issue body?
+                 - Open PR. Link issue. Route audit_summary to PM.
+
+              5. If no unassigned UI issues, write "fe-idle HH:MM — no work"
+                 to memory and stop. DO NOT fabricate busy work.
+
+              Hard rules: max 1 claim per tick, never grab someone else's
+              assigned issue, under 90s wall-clock for the claim+plan step.
           - name: Backend Engineer
             role: >-
               Owns the Go/Gin platform layer: REST handlers, WebSocket hub,
@@ -580,6 +621,47 @@ workspaces:
               4. Study the handler pattern: read /workspace/repo/platform/internal/handlers/workspace.go
               5. Use commit_memory to save the API route table and key patterns
               6. Wait for tasks from Dev Lead.
+            # Engineer idle-loop (CEO 2026-04-16 directive, see Frontend
+            # Engineer comment above for rationale).
+            idle_interval_seconds: 600
+            idle_prompt: |
+              You have no active task. Pick up platform/Go work proactively.
+              Under 90 seconds:
+
+              1. Check dispatched/claimed first (don't double-pick):
+                 - search_memory "task-assigned:backend-engineer" — resume
+                   prior claim in your next turn if still open.
+                 - Check /tmp/delegation_results.jsonl for Dev Lead dispatches.
+
+              2. Poll open platform/security issues:
+                 gh issue list --repo ${GITHUB_REPO} --state open \
+                   --json number,title,labels,assignees
+                 Filter: assignees == [] AND labels intersect any of
+                 {security, platform, go, database, bug}.
+                 Priority: security > bug > feature. Pick the TOP match.
+
+              3. Claim it publicly:
+                 - gh issue edit <N> --add-assignee @me
+                 - gh issue comment <N> --body "Picking this up. Branch
+                   fix/issue-<N>-<slug>. Plan: <1-line approach>."
+                 - commit_memory "task-assigned:backend-engineer:issue-<N>"
+
+              4. Start work:
+                 - Branch fix/issue-<N>-<short-slug>
+                 - Run platform/cmd tests + go vet before editing
+                 - Apply changes. Parameterized queries only. No bypassed
+                   auth middleware. Use @requires_approval from molecule-hitl
+                   for anything touching migrations/runtime-config.
+                 - Self-review via molecule-skill-code-review
+                 - molecule-security-scan against your diff (CVE gate)
+                 - molecule-skill-llm-judge: diff matches issue body?
+                 - Open PR. Link issue. Route audit_summary to PM.
+
+              5. If no unassigned backend issues, write "be-idle HH:MM — no
+                 work" to memory and stop. DO NOT fabricate busy work.
+
+              Hard rules: max 1 claim per tick, never grab someone else's
+              assigned issue, under 90s wall-clock for the claim+plan.
           - name: DevOps Engineer
             role: >-
               Owns the container build pipeline: Dockerfiles for all six
@@ -624,6 +706,48 @@ workspaces:
               4. Read /workspace/repo/.github/workflows/ci.yml
               5. Use commit_memory to save CI pipeline structure
               6. Wait for tasks from Dev Lead.
+            # Engineer idle-loop (CEO 2026-04-16 directive, see Frontend
+            # Engineer comment for rationale).
+            idle_interval_seconds: 600
+            idle_prompt: |
+              You have no active task. Pick up infra/CI work proactively.
+              Under 90 seconds:
+
+              1. Check dispatched/claimed first (don't double-pick):
+                 - search_memory "task-assigned:devops-engineer" — resume
+                   prior claim in your next turn if still open.
+                 - Check /tmp/delegation_results.jsonl for Dev Lead dispatches.
+
+              2. Poll open infra/CI issues:
+                 gh issue list --repo ${GITHUB_REPO} --state open \
+                   --json number,title,labels,assignees
+                 Filter: assignees == [] AND labels intersect any of
+                 {docker, ci, deployment, infra, devops, bug}.
+                 Priority: security > bug > feature. Pick the TOP match.
+
+              3. Claim it publicly:
+                 - gh issue edit <N> --add-assignee @me
+                 - gh issue comment <N> --body "Picking this up. Branch
+                   fix/issue-<N>-<slug>. Plan: <1-line approach>."
+                 - commit_memory "task-assigned:devops-engineer:issue-<N>"
+
+              4. Start work:
+                 - Branch fix/issue-<N>-<short-slug>
+                 - For CI changes: test locally via `act` if available, or
+                   open a draft PR and watch the self-hosted runner react.
+                 - For Dockerfile changes: run `bash workspace-template/build-all.sh`.
+                 - Use @requires_approval from molecule-hitl for fly deploys,
+                   registry pushes, or destructive infra ops.
+                 - molecule-freeze-scope: lock edits to infra/** during
+                   high-risk migrations.
+                 - Self-review via molecule-skill-code-review
+                 - Open PR. Link issue. Route audit_summary to PM.
+
+              5. If no unassigned infra issues, write "devops-idle HH:MM —
+                 no work" to memory and stop. DO NOT fabricate busy work.
+
+              Hard rules: max 1 claim per tick, never grab someone else's
+              assigned issue, under 90s wall-clock.
             schedules:
               - name: Hourly channel expansion survey
                 cron_expr: "47 * * * *"
