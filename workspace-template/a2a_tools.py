@@ -52,6 +52,7 @@ async def report_activity(
             await client.post(
                 f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/activity",
                 json=payload,
+                headers=_auth_headers_for_heartbeat(),
             )
             # Also push current_task via heartbeat for canvas card display
             if summary:
@@ -189,6 +190,7 @@ async def tool_send_message_to_user(message: str) -> str:
             resp = await client.post(
                 f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/notify",
                 json={"message": message},
+                headers=_auth_headers_for_heartbeat(),
             )
             if resp.status_code == 200:
                 return "Message sent to user"
