@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"crypto/sha256"
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -49,110 +48,38 @@ func newWorkspaceAuthRouter(db sqlmock.Sqlmock, realDB interface{ Close() error 
 // Matches the SELECT EXISTS(SELECT 1 FROM workspaces WHERE id = $1) query.
 const workspaceExistsQuery = "SELECT EXISTS.*FROM workspaces WHERE id"
 
-// TestWorkspaceAuth_FailOpen_NoTokens — C4/C8: when a workspace has no live
-// token on file (first boot / pre-Phase-30), the middleware must let the
-// request through so in-flight agents are not bricked during rolling upgrades.
-// #318: the fail-open path now ALSO requires the workspace row to exist —
-// fabricated UUIDs no longer leak through.
-func TestWorkspaceAuth_FailOpen_NoTokens(t *testing.T) {
+// TestWorkspaceAuth_351_NoBearer_Returns401 — strict contract: every request
+// under /workspaces/:id/* must carry a valid bearer, period. No fail-open,
+// no grace period, no existence check. The middleware goes straight to
+// ValidateToken and 401s when the bearer is missing — no DB calls happen.
+// #351 closed the last fail-open hole (zombie workspaces with no tokens);
+// this test pins the strict behaviour.
+func TestWorkspaceAuth_351_NoBearer_Returns401_NoDBCalls(t *testing.T) {
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
 	defer mockDB.Close()
 
-	// HasAnyLiveToken returns 0 — no tokens yet.
-	mock.ExpectQuery(hasLiveTokenQuery).
-		WithArgs("ws-bootstrap").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-	// WorkspaceExists returns true — the workspace is real, just pre-token.
-	mock.ExpectQuery(workspaceExistsQuery).
-		WithArgs("ws-bootstrap").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
-	r := gin.New()
-	r.GET("/workspaces/:id/test", WorkspaceAuth(mockDB), func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	})
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/workspaces/ws-bootstrap/test", nil)
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("fail-open (no tokens, workspace exists): expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
-	}
-}
-
-// TestWorkspaceAuth_318_NonexistentWorkspace_Returns401 — #318: a request
-// with no bearer token against a fabricated workspace UUID (no row in the
-// workspaces table) must be rejected with 401, not leaked through the
-// pre-fix fail-open grandfather. This closes the secret-key enumeration
-// vector reported by the security-auditor cycle 13 DAST run.
-func TestWorkspaceAuth_318_NonexistentWorkspace_Returns401(t *testing.T) {
-	mockDB, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
-	}
-	defer mockDB.Close()
-
-	// HasAnyLiveToken returns 0 — no tokens for this (fake) workspace.
-	mock.ExpectQuery(hasLiveTokenQuery).
-		WithArgs("00000000-0000-0000-0000-000000000000").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-	// WorkspaceExists returns false — the workspace does not exist.
-	mock.ExpectQuery(workspaceExistsQuery).
-		WithArgs("00000000-0000-0000-0000-000000000000").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	// NO expected queries — strict path short-circuits before any DB call.
 
 	r := gin.New()
 	r.GET("/workspaces/:id/secrets", WorkspaceAuth(mockDB), func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/workspaces/00000000-0000-0000-0000-000000000000/secrets", nil)
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("non-existent workspace: expected 401, got %d: %s", w.Code, w.Body.String())
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
-	}
-}
-
-// TestWorkspaceAuth_318_ExistsQueryError_Returns500 — DB error on the
-// #318 existence check must NOT fall through to c.Next(); it must return
-// 500 so operators know the auth gate failed rather than silently allowing.
-func TestWorkspaceAuth_318_ExistsQueryError_Returns500(t *testing.T) {
-	mockDB, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
-	}
-	defer mockDB.Close()
-
-	mock.ExpectQuery(hasLiveTokenQuery).
-		WithArgs("ws-existsfail").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-	mock.ExpectQuery(workspaceExistsQuery).
-		WithArgs("ws-existsfail").
-		WillReturnError(sql.ErrConnDone)
-
-	r := gin.New()
-	r.GET("/workspaces/:id/test", WorkspaceAuth(mockDB), func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	})
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/workspaces/ws-existsfail/test", nil)
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("exists-query error: expected 500, got %d: %s", w.Code, w.Body.String())
+	// Any UUID — fake, legit, zombie — all must 401 without a bearer.
+	for _, id := range []string{
+		"00000000-0000-0000-0000-000000000000", // fake UUID (#318 scenario)
+		"ffffffff-ffff-ffff-ffff-ffffffffffff", // zombie test-artifact (#351)
+		"ws-bootstrap",                         // legitimate pre-token (was grace-period)
+	} {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodGet, "/workspaces/"+id+"/secrets", nil)
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("no-bearer %q: expected 401, got %d: %s", id, w.Code, w.Body.String())
+		}
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
@@ -170,10 +97,7 @@ func TestWorkspaceAuth_C4_C8_NoBearer_Returns401(t *testing.T) {
 	}
 	defer mockDB.Close()
 
-	// HasAnyLiveToken returns 1 — workspace is token-enrolled.
-	mock.ExpectQuery(hasLiveTokenQuery).
-		WithArgs("ws-enrolled").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	// #351: no DB calls expected — strict path short-circuits at missing bearer.
 
 	r := gin.New()
 	r.POST("/workspaces/:id/delegations/:delegation_id/update",
@@ -203,9 +127,7 @@ func TestWorkspaceAuth_C8_MemoriesCommit_NoBearer_Returns401(t *testing.T) {
 	}
 	defer mockDB.Close()
 
-	mock.ExpectQuery(hasLiveTokenQuery).
-		WithArgs("ws-memory-target").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	// #351: no DB calls expected — strict path short-circuits at missing bearer.
 
 	r := gin.New()
 	r.POST("/workspaces/:id/memories",
@@ -232,11 +154,6 @@ func TestWorkspaceAuth_InvalidBearer_Returns401(t *testing.T) {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
 	defer mockDB.Close()
-
-	// HasAnyLiveToken: tokens exist.
-	mock.ExpectQuery(hasLiveTokenQuery).
-		WithArgs("ws-enrolled").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	// ValidateToken: hash doesn't match any live row.
 	wrongToken := "wrong-token-value"
@@ -274,11 +191,6 @@ func TestWorkspaceAuth_ValidBearer_Passes(t *testing.T) {
 
 	testToken := "valid-workspace-bearer-token-abc123"
 	tokenHash := sha256.Sum256([]byte(testToken))
-
-	// HasAnyLiveToken: workspace has tokens.
-	mock.ExpectQuery(hasLiveTokenQuery).
-		WithArgs("ws-enrolled").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	// ValidateToken SELECT — returns matching token_id + workspace_id.
 	mock.ExpectQuery(validateTokenSelectQuery).
@@ -321,12 +233,8 @@ func TestWorkspaceAuth_WrongWorkspace_Returns401(t *testing.T) {
 	tokenForA := "token-issued-to-workspace-a"
 	tokenHash := sha256.Sum256([]byte(tokenForA))
 
-	// URL targets workspace-b but the token was issued to workspace-a.
-	mock.ExpectQuery(hasLiveTokenQuery).
-		WithArgs("workspace-b").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
-	// ValidateToken SELECT returns workspace-a from DB.
+	// ValidateToken SELECT returns workspace-a from DB — strict middleware
+	// catches the mismatch via the workspace-binding check in wsauth.ValidateToken.
 	mock.ExpectQuery(validateTokenSelectQuery).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}).
@@ -579,10 +487,7 @@ func TestWorkspaceAuth_Issue170_SecretDelete_NoBearer_Returns401(t *testing.T) {
 	}
 	defer mockDB.Close()
 
-	// HasAnyLiveToken returns 1 — workspace is token-enrolled.
-	mock.ExpectQuery(hasLiveTokenQuery).
-		WithArgs("ws-secret-owner").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	// #351: strict path — no DB calls on missing bearer.
 
 	r := gin.New()
 	// Mirror the fix: DELETE /secrets/:key is inside the wsAuth group.
@@ -604,26 +509,18 @@ func TestWorkspaceAuth_Issue170_SecretDelete_NoBearer_Returns401(t *testing.T) {
 	}
 }
 
-// TestWorkspaceAuth_Issue170_SecretDelete_FailOpen_NoTokens verifies the
-// fail-open contract is preserved: a workspace with NO tokens (bootstrap /
-// rolling-upgrade path) lets the DELETE through so legacy workspaces aren't
-// bricked.
-func TestWorkspaceAuth_Issue170_SecretDelete_FailOpen_NoTokens(t *testing.T) {
+// TestWorkspaceAuth_Issue170_SecretDelete_NoTokensStillRejected — #351: the
+// former "fail-open for tokenless workspaces" path is gone. Even a legitimate
+// pre-Phase-30.1 workspace now must present a bearer; otherwise 401. This
+// closes the zombie-workspace secret-enumeration vector.
+func TestWorkspaceAuth_Issue170_SecretDelete_NoTokensStillRejected(t *testing.T) {
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
 	defer mockDB.Close()
 
-	// HasAnyLiveToken returns 0 — no tokens on file (pre-Phase-30 workspace).
-	mock.ExpectQuery(hasLiveTokenQuery).
-		WithArgs("ws-legacy").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-	// #318: fail-open branch also checks WorkspaceExists. Legacy row exists
-	// (real workspace, just pre-token) so this must pass.
-	mock.ExpectQuery(workspaceExistsQuery).
-		WithArgs("ws-legacy").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	// #351: no DB calls on missing bearer.
 
 	r := gin.New()
 	r.DELETE("/workspaces/:id/secrets/:key",
@@ -635,9 +532,8 @@ func TestWorkspaceAuth_Issue170_SecretDelete_FailOpen_NoTokens(t *testing.T) {
 		"/workspaces/ws-legacy/secrets/SOME_KEY", nil)
 	r.ServeHTTP(w, req)
 
-	// Fail-open: no tokens → must pass through (200).
-	if w.Code != http.StatusOK {
-		t.Errorf("#170 fail-open: expected 200, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("#351 tokenless-no-bearer: expected 401, got %d: %s", w.Code, w.Body.String())
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
