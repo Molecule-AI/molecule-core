@@ -1,2 +1,0 @@
-# OpenClaw is a Node.js CLI — installed via npm at startup, not pip
-# The adapter only needs httpx for HTTP proxying (already in base image)

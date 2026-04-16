@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "molecule-ai-workspace-runtime"
+version = "0.1.0"
+description = "Molecule AI workspace runtime — shared infrastructure for all agent adapters"
+requires-python = ">=3.11"
+license = {text = "BSL-1.1"}
+readme = "README.md"
+# Don't pin heavy deps — each adapter adds its own
+dependencies = [
+    "a2a-sdk[http-server]>=0.3.25",
+    "httpx>=0.27.0",
+    "uvicorn>=0.30.0",
+    "starlette>=0.38.0",
+    "websockets>=12.0",
+    "pyyaml>=6.0",
+    "langchain-core>=0.3.0",
+    "opentelemetry-api>=1.24.0",
+    "opentelemetry-sdk>=1.24.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.24.0",
+    "temporalio>=1.7.0",
+]
+
+[project.scripts]
+molecule-runtime = "molecule_runtime.main:main_sync"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["molecule_runtime*"]
+
+[tool.setuptools.package-data]
+"molecule_runtime" = ["py.typed"]
