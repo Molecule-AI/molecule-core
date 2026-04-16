@@ -438,6 +438,8 @@ Three Gin middleware classes gate server-side routes — pick the right one. Ful
 | GET/POST/DELETE | /workspaces/:id/plugins[/:name] | plugins.go — list, install (`{"source":"scheme://spec"}`), uninstall per-workspace |
 | GET | /workspaces/:id/plugins/available | plugins.go (filtered by workspace runtime) |
 | GET | /workspaces/:id/plugins/compatibility?runtime=X | plugins.go (preflight runtime-change check) |
+| GET/POST | /workspaces/:id/tokens | tokens.go — list active tokens (prefix + metadata), create new token (plaintext returned once). Max 50 per workspace. |
+| DELETE | /workspaces/:id/tokens/:tokenId | tokens.go — revoke specific token by ID |
 | GET | /bundles/export/:id | bundle.go — `AdminAuth` (#165 / PR #167) |
 | POST | /bundles/import | bundle.go — `AdminAuth` (#164 CRITICAL / PR #167) |
 | GET | /org/templates | org.go (list available org templates) |
