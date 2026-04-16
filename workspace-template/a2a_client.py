@@ -52,6 +52,7 @@ async def send_a2a_message(target_url: str, message: str) -> str:
         try:
             resp = await client.post(
                 target_url,
+                headers=auth_headers(),
                 json={
                     "jsonrpc": "2.0",
                     "id": str(uuid.uuid4()),
