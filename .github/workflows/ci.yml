@@ -77,6 +77,14 @@ jobs:
     name: E2E API Smoke Test
     runs-on: [self-hosted, macos, arm64]
     timeout-minutes: 15
+    # Serialize across ALL CI runs globally. With multiple self-hosted
+    # runners, two e2e-api jobs could otherwise execute concurrently and
+    # collide on the fixed docker container names ($PG_CONTAINER /
+    # $REDIS_CONTAINER) and host ports 15432/16379. `cancel-in-progress:
+    # false` means later runs queue rather than cancel the current one.
+    concurrency:
+      group: e2e-api
+      cancel-in-progress: false
     # `services:` is Linux-only on self-hosted runners — we start postgres
     # and redis via `docker run` instead. Ports 15432/16379 avoid collision
     # with anything the host may already have on the standard ports.
