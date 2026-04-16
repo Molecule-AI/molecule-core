@@ -100,20 +100,23 @@ func main() {
 		}
 	}()
 
-	// Provisioner — select backend based on CONTAINER_BACKEND env var.
-	// "flyio" → Fly Machines API (SaaS tenants). Anything else → Docker (default).
+	// Provisioner — auto-detect backend:
+	//   1. MOLECULE_ORG_ID set → SaaS tenant → control plane provisioner
+	//   2. Docker available     → self-hosted → Docker provisioner
+	//   3. Neither              → provisioner disabled (external agents only)
 	var prov *provisioner.Provisioner
-	var flyProv *provisioner.FlyProvisioner
-	switch os.Getenv("CONTAINER_BACKEND") {
-	case "flyio":
-		if fp, err := provisioner.NewFlyProvisioner(); err != nil {
-			log.Printf("Fly provisioner failed: %v", err)
+	var cpProv *provisioner.CPProvisioner
+	if os.Getenv("MOLECULE_ORG_ID") != "" {
+		// SaaS tenant — provision via control plane (holds Fly token, manages billing)
+		if cp, err := provisioner.NewCPProvisioner(); err != nil {
+			log.Printf("Control plane provisioner unavailable: %v", err)
 		} else {
-			flyProv = fp
-			defer flyProv.Close()
-			log.Printf("Provisioner: Fly Machines (app=%s)", os.Getenv("FLY_WORKSPACE_APP"))
+			cpProv = cp
+			defer cpProv.Close()
+			log.Println("Provisioner: Control Plane (auto-detected SaaS tenant)")
 		}
-	default:
+	} else {
+		// Self-hosted — use local Docker daemon
 		if p, err := provisioner.New(); err != nil {
 			log.Printf("Provisioner disabled (Docker not available): %v", err)
 		} else {
@@ -131,8 +134,8 @@ func main() {
 	// WorkspaceHandler is created before the router so RestartByID can be wired into
 	// the offline callbacks used by both the liveness monitor and the health sweep.
 	wh := handlers.NewWorkspaceHandler(broadcaster, prov, platformURL, configsDir)
-	if flyProv != nil {
-		wh.SetFlyProvisioner(flyProv)
+	if cpProv != nil {
+		wh.SetCPProvisioner(cpProv)
 	}
 
 	// Offline handler: broadcast event + auto-restart the dead workspace
