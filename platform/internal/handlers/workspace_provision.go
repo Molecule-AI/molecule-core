@@ -87,12 +87,26 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 	// Per-agent git identity (Option 3 of agent-separation rollout).
 	// Sets GIT_AUTHOR_* / GIT_COMMITTER_* so commits from each workspace
 	// carry a distinct author in `git log` / `git blame` — instead of
-	// every agent appearing as whoever the shared PAT belongs to. PR +
-	// issue authorship is still tied to GITHUB_TOKEN (shared PAT); that
-	// gets solved by the GitHub App migration (Option 1, follow-up PR).
-	// Runs after secret loads so an operator can still override via a
-	// workspace_secret named GIT_AUTHOR_NAME if they want custom identity.
+	// every agent appearing as whoever the shared PAT belongs to. Runs
+	// after secret loads so an operator can still override via a
+	// workspace_secret named GIT_AUTHOR_NAME.
 	applyAgentGitIdentity(envVars, payload.Name)
+
+	// GitHub App installation token (Option 1 of agent-separation
+	// rollout). When the platform has an App configured
+	// (GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY / GITHUB_APP_INSTALLATION_ID),
+	// mint a short-lived (~60 min) token and pass it as GITHUB_TOKEN so
+	// PRs and issues are authored by molecule-ai[bot] instead of the
+	// shared human PAT. Failure to mint (GitHub outage, bad key) falls
+	// back to whatever GITHUB_TOKEN the secret loader already placed —
+	// don't block provisioning on a transient auth-service failure.
+	if h.githubAppClient != nil {
+		if tok, err := h.githubAppClient.InstallationToken(ctx); err == nil {
+			envVars["GITHUB_TOKEN"] = tok
+		} else {
+			log.Printf("Provisioner: GitHub App token mint failed for %s: %v — falling back to static GITHUB_TOKEN from workspace_secrets", workspaceID, err)
+		}
+	}
 
 	cfg := h.buildProvisionerConfig(workspaceID, templatePath, configFiles, payload, envVars, pluginsPath, awarenessNamespace)
 	cfg.ResetClaudeSession = resetClaudeSession // #12
