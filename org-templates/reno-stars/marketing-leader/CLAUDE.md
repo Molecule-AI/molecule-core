@@ -29,5 +29,9 @@ node org-templates/reno-stars/marketing-leader/skills/social-publish/scripts/<pl
 
 Never re-derive puppeteer selectors inline — the helpers bake in hours of debugging (Lexical editor mirrors, modal-Next disambiguation, GBP iframe scoping, post-publish upsells). If a helper breaks, patch the helper and commit.
 
+## Citation / backlink building — one directory per day
+
+The daily 7:30 AM "Citation Builder" schedule fires `skills/citation-builder/scripts/run.cjs` which picks the next `pending` directory from `queue.json` and submits Reno Stars via `_generic.cjs` (falls back to a per-site adapter when one exists). See `/configs/skills/citation-builder/SKILL.md` for the full contract. Hard rule: **one directory per run** — never brute-force the queue. Auto-verification via Gmail is in-skill; captcha / phone-verify blockers report to Telegram as "needs human".
+
 ## Language
 Always respond in the same language the user uses.

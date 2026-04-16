@@ -98,6 +98,10 @@ workspaces:
             cron_expr: "30 */6 * * *"
             prompt: Read /configs/skills/social-media-engage.md and follow its instructions.
             enabled: true
+          - name: Citation Builder (daily 7:30 AM)
+            cron_expr: "30 7 * * *"
+            prompt: Read /configs/skills/citation-builder/SKILL.md and follow its instructions — one directory per run.
+            enabled: true
 
       # ─── SALES & CLIENT RELATIONS (invoices + leads) ──────────
       - name: Sales & Client Relations
