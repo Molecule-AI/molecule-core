@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -595,5 +596,61 @@ func TestRegister_C18_HijackBlockedNoBearer(t *testing.T) {
 	// The malicious URL must NOT have been persisted — no INSERT expectation was set.
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("C18 hijack: unmet expectations: %v", err)
+	}
+}
+
+// ==================== Issue #435 — DB error must not leak raw message ====================
+
+// TestRegister_DBErrorResponseIsOpaque verifies that when the DB upsert fails,
+// the HTTP response body contains only the generic "registration failed" message
+// and never the raw Go/PostgreSQL error string (issue #435).
+func TestRegister_DBErrorResponseIsOpaque(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewRegistryHandler(broadcaster)
+
+	// C18 pre-check — no live tokens (bootstrap path).
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM workspace_auth_tokens").
+		WithArgs("ws-errtest").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	// DB upsert fails with a descriptive internal error.
+	mock.ExpectExec("INSERT INTO workspaces").
+		WithArgs("ws-errtest", "ws-errtest", "http://localhost:9200", `{"name":"err-agent"}`).
+		WillReturnError(sql.ErrConnDone)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/registry/register",
+		bytes.NewBufferString(`{"id":"ws-errtest","url":"http://localhost:9200","agent_card":{"name":"err-agent"}}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Register(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("response is not valid JSON: %v — body: %s", err, w.Body.String())
+	}
+
+	errMsg, ok := resp["error"].(string)
+	if !ok {
+		t.Fatalf("expected string 'error' field, got %T: %v", resp["error"], resp["error"])
+	}
+	if errMsg != "registration failed" {
+		t.Errorf("expected opaque 'registration failed', got %q (raw error leaked)", errMsg)
+	}
+	// Confirm the raw driver error string is absent.
+	rawBody := w.Body.String()
+	if strings.Contains(rawBody, "sql:") || strings.Contains(rawBody, "pq:") || strings.Contains(rawBody, "connection") {
+		t.Errorf("raw DB error leaked into response body: %s", rawBody)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
 }
