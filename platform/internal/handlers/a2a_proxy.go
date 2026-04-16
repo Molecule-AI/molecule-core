@@ -442,7 +442,15 @@ func (h *WorkspaceHandler) maybeMarkContainerDead(ctx context.Context, workspace
 	if h.provisioner == nil || wsRuntime == "external" {
 		return false
 	}
-	if running, _ := h.provisioner.IsRunning(ctx, workspaceID); running {
+	running, inspectErr := h.provisioner.IsRunning(ctx, workspaceID)
+	if inspectErr != nil {
+		// Transient Docker-daemon error (timeout, socket EOF, etc.). Post-
+		// #386, IsRunning returns (true, err) in this case — caller stays
+		// on the alive path and does not trigger a restart cascade. Log
+		// so the defect is visible without being destructive.
+		log.Printf("ProxyA2A: IsRunning for %s returned transient error (assuming alive): %v", workspaceID, inspectErr)
+	}
+	if running {
 		return false
 	}
 	log.Printf("ProxyA2A: container for %s is dead — marking offline and triggering restart", workspaceID)

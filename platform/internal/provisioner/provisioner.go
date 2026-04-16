@@ -749,13 +749,58 @@ func (p *Provisioner) Stop(ctx context.Context, workspaceID string) error {
 }
 
 // IsRunning checks if a workspace container is currently running.
+//
+// Conservative on transient Docker errors: returns (true, err) for any
+// inspect failure OTHER than NotFound. Rationale: the only caller that
+// acts destructively on `running=false` is a2a_proxy.maybeMarkContainerDead,
+// which tears down + re-provisions the workspace. A Docker daemon hiccup
+// (timeout, EOF on the daemon socket, context deadline) is NOT evidence
+// that the container died — it's evidence the daemon is momentarily busy.
+// The old behaviour collapsed all errors into "container doesn't exist",
+// which triggered a restart cascade on 2026-04-16 when 6 containers
+// received simultaneous A2A forward failures during a batch delegation;
+// the followup reactive IsRunning calls all hit the daemon under load,
+// timed out, and flipped every container to "dead" in parallel.
+//
+// NotFound (container legitimately deleted) is the only case where
+// running=false is safe to act on — every other error path stays alive
+// so a real crash still surfaces via exec heartbeat or TTL, both of which
+// have narrower false-positive windows than daemon-inspect RPC.
 func (p *Provisioner) IsRunning(ctx context.Context, workspaceID string) (bool, error) {
 	name := ContainerName(workspaceID)
 	info, err := p.cli.ContainerInspect(ctx, name)
 	if err != nil {
-		return false, nil // Container doesn't exist
+		if isContainerNotFound(err) {
+			return false, nil
+		}
+		// Transient daemon error: caller treats !running as dead + restarts.
+		// Returning true + the underlying error preserves the error for
+		// metrics/logging without triggering the destructive path.
+		return true, err
 	}
 	return info.State.Running, nil
+}
+
+// isContainerNotFound returns true when the Docker client indicates the
+// named container genuinely does not exist, versus a transient daemon
+// error (timeout, socket EOF, context cancellation).
+//
+// docker/docker v28 uses multiple distinct NotFound shapes depending on
+// transport:
+//   - the typed errdefs.ErrNotFound
+//   - a wrapped error whose message contains "No such container"
+//
+// Rather than import errdefs (which would add a transitive dep), we
+// match on the error string. String-matching is the exact approach the
+// Docker CLI itself uses internally — see the "No such container" check
+// in docker/cli — and is stable across daemon versions.
+func isContainerNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "No such container") ||
+		strings.Contains(s, "not found")
 }
 
 // DockerClient returns the underlying Docker client for sharing with other handlers.
