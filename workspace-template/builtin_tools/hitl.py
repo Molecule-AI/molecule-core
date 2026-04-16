@@ -390,6 +390,12 @@ async def pause_task(task_id: str, reason: str = "") -> dict:
                  or any stable string that the caller can reference later).
         reason:  Human-readable description of why the task is pausing.
     """
+    # #265: namespace the registry key by workspace ID so a crafted A2A message
+    # cannot resume a task it didn't create (cross-workspace prompt injection).
+    # The scoped_id is only used internally; the caller still references task_id.
+    _ws = os.environ.get("WORKSPACE_ID", "")
+    scoped_id = f"{_ws}:{task_id}" if _ws else task_id
+
     try:
         from builtin_tools.audit import log_event
         log_event(
@@ -403,13 +409,13 @@ async def pause_task(task_id: str, reason: str = "") -> dict:
     except Exception:
         pass
 
-    event = pause_registry.register(task_id)
+    event = pause_registry.register(scoped_id)
     timeout = _load_hitl_config().default_timeout
-    logger.info("HITL: task %s paused — %s", task_id, reason or "(no reason given)")
+    logger.info("HITL: task %s paused — %s", scoped_id, reason or "(no reason given)")
 
     try:
         await asyncio.wait_for(event.wait(), timeout=timeout)
-        result = pause_registry.pop_result(task_id)
+        result = pause_registry.pop_result(scoped_id)
         logger.info("HITL: task %s resumed", task_id)
         try:
             from builtin_tools.audit import log_event
@@ -444,7 +450,7 @@ async def pause_task(task_id: str, reason: str = "") -> dict:
             "error": f"Timed out after {timeout:.0f}s waiting for resume signal",
         }
     finally:
-        pause_registry.cleanup(task_id)
+        pause_registry.cleanup(scoped_id)
 
 
 @tool
@@ -459,11 +465,16 @@ async def resume_task(task_id: str, message: str = "") -> dict:
         task_id: The identifier passed to ``pause_task``.
         message: Optional message forwarded to the resumed task.
     """
+    # #265: mirror the workspace-scoped key used by pause_task so that only
+    # the same workspace can resume a task it created.
+    _ws = os.environ.get("WORKSPACE_ID", "")
+    scoped_id = f"{_ws}:{task_id}" if _ws else task_id
+
     result_payload = {"message": message} if message else {}
-    success = pause_registry.resume(task_id, result_payload)
+    success = pause_registry.resume(scoped_id, result_payload)
 
     if success:
-        logger.info("HITL: resume signal sent for task %s", task_id)
+        logger.info("HITL: resume signal sent for task %s", scoped_id)
         try:
             from builtin_tools.audit import log_event
             log_event(
