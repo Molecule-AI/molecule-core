@@ -94,7 +94,10 @@ R=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json
   ${ECHO_WS_TOKEN:+-H "Authorization: Bearer $ECHO_WS_TOKEN"} \
   -d "{\"id\":\"$ECHO_ID\",\"url\":\"http://localhost:8001\",\"agent_card\":{\"name\":\"Echo Agent\",\"skills\":[{\"id\":\"echo\",\"name\":\"Echo\"}]}}")
 check "POST /registry/register (echo)" '"status":"registered"' "$R"
+# Extract token from register response; fall back to the test-token we
+# already minted (register may not return a new token on re-registration).
 ECHO_TOKEN=$(echo "$R" | e2e_extract_token)
+if [ -z "$ECHO_TOKEN" ]; then ECHO_TOKEN="$ECHO_WS_TOKEN"; fi
 
 # Test 8: Register summarizer — same pattern: workspace-specific token
 SUM_WS_TOKEN=$(curl -s "$BASE/admin/workspaces/$SUM_ID/test-token" | python3 -c "import sys,json; print(json.load(sys.stdin).get('auth_token',''))" 2>/dev/null || echo "")
@@ -103,6 +106,7 @@ R=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json
   -d "{\"id\":\"$SUM_ID\",\"url\":\"http://localhost:8002\",\"agent_card\":{\"name\":\"Summarizer\",\"skills\":[{\"id\":\"summarize\",\"name\":\"Summarize\"}]}}")
 check "POST /registry/register (summarizer)" '"status":"registered"' "$R"
 SUM_TOKEN=$(echo "$R" | e2e_extract_token)
+if [ -z "$SUM_TOKEN" ]; then SUM_TOKEN="$SUM_WS_TOKEN"; fi
 
 # Test 9: Both online
 R=$(acurl "$BASE/workspaces/$ECHO_ID")
