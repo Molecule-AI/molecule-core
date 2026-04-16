@@ -156,6 +156,11 @@ class SecurityScanConfig:
     mode: str = "warn"
     """One of: block | warn | off."""
 
+    fail_open_if_no_scanner: bool = True
+    """When True (default), silently skip scanning if no scanner (snyk/pip-audit)
+    is in PATH.  When False and mode='block', raise SkillSecurityError so that
+    operators who require a CVE gate know the gate is absent.  Closes #268."""
+
 
 @dataclass
 class ComplianceConfig:
@@ -332,6 +337,7 @@ def load_config(config_path: Optional[str] = None) -> WorkspaceConfig:
         ),
         security_scan=SecurityScanConfig(
             mode=security_scan_raw.get("mode", "warn"),
+            fail_open_if_no_scanner=security_scan_raw.get("fail_open_if_no_scanner", True),
         ),
         compliance=ComplianceConfig(
             mode=compliance_raw.get("mode", ""),
