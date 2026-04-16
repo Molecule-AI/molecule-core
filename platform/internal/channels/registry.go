@@ -5,6 +5,7 @@ package channels
 var adapters = map[string]ChannelAdapter{
 	"telegram": &TelegramAdapter{},
 	"slack":    &SlackAdapter{},
+	"lark":     &LarkAdapter{},
 }
 
 // GetAdapter returns the adapter for a channel type.
