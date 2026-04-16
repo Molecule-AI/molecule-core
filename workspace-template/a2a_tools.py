@@ -127,6 +127,7 @@ async def tool_delegate_task_async(workspace_id: str, task: str) -> str:
             resp = await client.post(
                 f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/delegate",
                 json={"target_id": workspace_id, "task": task},
+                headers=_auth_headers_for_heartbeat(),
             )
             if resp.status_code == 202:
                 data = resp.json()
@@ -151,7 +152,10 @@ async def tool_check_task_status(workspace_id: str, task_id: str) -> str:
     """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/delegations")
+            resp = await client.get(
+                f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/delegations",
+                headers=_auth_headers_for_heartbeat(),
+            )
             if resp.status_code != 200:
                 return f"Error: failed to check delegations ({resp.status_code})"
             delegations = resp.json()
