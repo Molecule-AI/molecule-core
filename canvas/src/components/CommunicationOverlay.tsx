@@ -99,10 +99,10 @@ export function CommunicationOverlay() {
     return (
       <button
         onClick={() => setVisible(true)}
+        aria-label="Show communications panel"
         className="fixed top-16 right-4 z-30 px-3 py-1.5 bg-zinc-900/90 border border-zinc-700/50 rounded-lg text-[10px] text-zinc-400 hover:text-zinc-200 transition-colors"
-        title="Show communications"
       >
-        ↗↙ {comms.length > 0 ? `${comms.length} comms` : "Communications"}
+        <span aria-hidden="true">↗↙ </span>{comms.length > 0 ? `${comms.length} comms` : "Communications"}
       </button>
     );
   }
@@ -111,13 +111,14 @@ export function CommunicationOverlay() {
     <div className="fixed top-16 right-4 z-30 w-[320px] max-h-[400px] bg-zinc-900/95 border border-zinc-700/50 rounded-xl shadow-xl shadow-black/30 backdrop-blur-sm overflow-hidden">
       <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800/60">
         <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
-          ↗↙ Communications ({comms.length})
+          <span aria-hidden="true">↗↙ </span>Communications ({comms.length})
         </div>
         <button
           onClick={() => setVisible(false)}
+          aria-label="Close communications panel"
           className="text-zinc-500 hover:text-zinc-300 text-xs"
         >
-          ✕
+          <span aria-hidden="true">✕</span>
         </button>
       </div>
 
@@ -141,11 +142,11 @@ export function CommunicationOverlay() {
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className={typeColor}>{typeIcon}</span>
+                  <span className={typeColor} aria-hidden="true">{typeIcon}</span>
                   <span className="text-zinc-300 font-medium truncate">
                     {c.sourceName}
                   </span>
-                  <span className="text-zinc-400">→</span>
+                  <span className="text-zinc-400" aria-hidden="true">→</span>
                   <span className="text-zinc-300 truncate">{c.targetName}</span>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">

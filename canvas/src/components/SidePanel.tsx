@@ -137,11 +137,14 @@ export function SidePanel() {
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — relative wrapper lets the fade gradient position against the scroll container */}
+      <div className="relative border-b border-zinc-800/40">
+        {/* Right-edge fade: signals more tabs are hidden off-screen when the bar overflows */}
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-zinc-950 to-transparent z-10" aria-hidden="true" />
       <div
         role="tablist"
         aria-label="Workspace panel tabs"
-        className="flex border-b border-zinc-800/40 overflow-x-auto bg-zinc-900/20 px-1"
+        className="flex overflow-x-auto bg-zinc-900/20 px-1"
         onKeyDown={(e) => {
           const idx = TABS.findIndex((t) => t.id === panelTab);
           let next: number | null = null;
@@ -174,6 +177,7 @@ export function SidePanel() {
             {tab.label}
           </button>
         ))}
+      </div>
       </div>
 
       {/* Needs Restart Banner */}
