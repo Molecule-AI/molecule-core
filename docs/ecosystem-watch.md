@@ -1055,6 +1055,154 @@ builders; Molecule AI users are developers building agent companies.
 **Last reviewed:** 2026-04-18 · **Stars / activity:** ~84 ⭐, 45 releases, Apache 2.0, actively shipped
 
 ---
+
+### Paperclip — `paperclipai/paperclip`
+
+**Pitch:** "Open-source orchestration for zero-human companies."
+
+**Shape:** Python (MIT), ~54.8k ⭐, launched March 4, 2026. Hierarchical multi-agent
+system in which a **CEO agent** receives a top-level company goal, spawns **Manager
+agents** for functional areas (engineering, marketing, operations, finance), and
+Managers spawn **Worker agents** for atomic tasks. Authority and delegation flow
+bidirectionally through the org: workers can escalate, managers can override. Humans
+serve as the board with veto authority. Per-agent budget constraints and a full audit
+trail of every delegation decision.
+
+**Overlap with us:** The CEO/manager/worker hierarchy is structurally identical to our
+PM → Dev Lead → Engineer delegation chain. Their "zero-human companies" is the same
+thesis as our "AI company" framing — and they reached 54.8k ⭐ in six weeks. Budget
+constraints and audit-trail export are features we've deferred; Paperclip ships both.
+Their bidirectional escalation (worker → manager) maps cleanly to our `approvals` table
+but is more automatic.
+
+**Differentiation:** Paperclip is a framework — agents are in-process Python objects,
+ephemeral per run. No Docker workspace isolation, no persistent agent memory, no visual
+canvas, no A2A protocol, no scheduling, no channel integrations. We're the operational
+platform; Paperclip defines the org chart in code for one-shot execution.
+
+**Worth borrowing:**
+- **Per-agent budget constraints** — token/cost ceilings per layer. Add a `budget_limit`
+  field per workspace in org.yaml; enforce at the A2A delegation layer.
+- **Audit trail schema** — Paperclip logs every CEO → manager → worker delegation with
+  decision rationale. Adopt this as the standard format for our `activity_logs`.
+- **Bidirectional authority** — worker escalation to manager without breaking the PM's
+  delegation model; maps to a `requires_approval` flag on delegation responses.
+
+**Terminology collisions:**
+- "CEO agent" — their top-level orchestrator; our PM workspace plays the same role.
+- "zero-human company" vs our "AI company" — identical positioning, watch for brand
+  collision in marketing copy.
+
+**Signals to react to:**
+- If Paperclip adds persistent agent memory → closes the primary gap; reassess
+  differentiation urgently (54.8k ⭐ head start matters).
+- If they ship a visual org chart → direct Canvas competitor.
+- Paperclip is the highest-star agent-orchestration OSS project we've tracked; watch
+  weekly.
+
+**Last reviewed:** 2026-04-16 · **Stars / activity:** ~54.8k ⭐, launched March 4 2026, very active
+
+---
+
+### Google ADK — `google/adk-python`
+
+**Pitch:** "An open-source, code-first Python toolkit for building, evaluating, and
+deploying sophisticated AI agents with flexibility and control."
+
+**Shape:** Python (Apache-2.0), ~19k ⭐, v1.29.0 released April 9, 2026. Google's
+official multi-agent SDK — the framework companion to Gemini CLI (already tracked).
+Optimised for Gemini models but model-agnostic. Ships a web DevUI (`google/adk-web`,
+~920⭐) for real-time agent debugging, a built-in evaluation framework, and pre-built
+tool integrations. Deployed via `pip install google-adk`. Actively maintained inside
+Google's own org.
+
+**Overlap with us:** Google now has a full agent stack: Gemini CLI (interactive terminal
+agent) + ADK (framework for building agents) + adk-web (DevUI). Any team evaluating
+Molecule AI will weigh ADK + Gemini CLI as a build-your-own path. The adk-web DevUI
+overlaps with our Canvas's agent-inspection surface. ADK's evaluation framework is the
+same gap our `GET /workspaces/:id/traces` + Langfuse stack addresses.
+
+**Differentiation:** ADK is a framework, not a platform. No persistent workspace
+lifecycle, no Docker container management, no visual org chart, no A2A between
+independently deployed agents, no scheduling, no channel integrations. It generates the
+agent logic; Molecule AI runs the agents as long-lived services. The two are potentially
+complementary: a Molecule AI workspace running ADK agents is a natural pairing.
+
+**Worth borrowing:**
+- **Built-in evaluation framework** — structured agent eval runs tied to traces. Map to
+  our `GET /workspaces/:id/traces` endpoint; add a companion eval-run API.
+- **adk-web DevUI patterns** — event tracking, execution-flow tracing, artifact
+  management in a browser UI. Reference design for our Canvas trace view.
+- **`google-adk` runtime adapter** — add alongside our existing langgraph / autogen /
+  openclaw adapters so Molecule AI workspaces can run ADK agent logic natively.
+
+**Terminology collisions:**
+- "agent" — their in-process Python object; our long-lived Docker workspace.
+- "tool" — same concept; ADK tools and our MCP tools are structurally identical.
+- "runner" — ADK's execution context; distinct from our workspace container runtime.
+
+**Signals to react to:**
+- If ADK ships persistent agent state and memory between runs → closes the primary gap
+  with our platform; update positioning.
+- If ADK + Gemini CLI becomes a hosted Vertex AI managed service → Google enters
+  platform territory with massive distribution; accelerate our model-agnostic story.
+- ADK is the official successor for teams currently using LangGraph with Gemini → our
+  langgraph adapter should note ADK as an alternative path.
+
+**Last reviewed:** 2026-04-16 · **Stars / activity:** ~19k ⭐, v1.29.0 April 9, 2026, Google-maintained
+
+---
+
+### Chrome DevTools MCP — `ChromeDevTools/chrome-devtools-mcp`
+
+**Pitch:** "Chrome DevTools for coding agents — MCP server enabling agents to control
+and inspect live Chrome browsers."
+
+**Shape:** TypeScript (Apache-2.0), ~35.5k ⭐. Official **ChromeDevTools** org repo —
+the same team that maintains Chrome's built-in devtools. An MCP server exposing 23
+tools across six categories: input automation (click, type, scroll), navigation (goto,
+back, reload), emulation (viewport, device mode), performance analysis (traces and
+Lighthouse insights), network analysis (HAR, request/response inspection), and
+debugging (source-mapped stack traces, console, screenshots). Compatible with 29 MCP
+clients including Claude Code, Gemini CLI, Cursor, and Copilot. Uses Puppeteer under
+the hood with CDP.
+
+**Overlap with us:** Our `browser-automation` plugin connects to Chrome CDP at
+`host.docker.internal:9223` using raw Puppeteer. Chrome DevTools MCP provides the same
+capabilities — and much more — as a standard MCP server any workspace agent can call
+without custom Puppeteer code. The 23-tool surface covers everything our current CDP
+integration does plus performance tracing, network HAR capture, and source-mapped stack
+traces we don't currently expose. Official ChromeDevTools org backing makes this the
+likely de facto standard for browser tool use in agents.
+
+**Differentiation:** A pure MCP server — no agent runtime, no memory, no scheduling, no
+org hierarchy. Molecule AI is the platform that runs agents that *call* this MCP server.
+Complementary by design.
+
+**Worth borrowing:**
+- **Replace custom CDP integration** — update `plugins/browser-automation/` to install
+  `chrome-devtools-mcp` as the standard MCP server rather than maintaining bespoke
+  Puppeteer scripts. Agents get performance tracing, HAR capture, and source-mapped
+  debugging for free.
+- **23-tool surface as reference design** — our current browser plugin exposes ~5 tools;
+  this is the full coverage target.
+- **Source-mapped stack traces** — currently absent from our browser-automation debug
+  output; immediately useful for our QA Engineer workspace.
+
+**Terminology collisions:**
+- "DevTools" — their MCP server name; our plugin is "browser-automation." No user
+  collision but align naming in skill docs.
+
+**Signals to react to:**
+- If ChromeDevTools org publishes a versioned MCP manifest → treat as the browser-tool
+  standard and pin a version in our plugin manifest.
+- If Anthropic or OpenAI reference this as the recommended browser MCP → accelerate the
+  `plugins/browser-automation` migration.
+- Official org backing + 35.5k ⭐ means this is already the de facto standard.
+
+**Last reviewed:** 2026-04-16 · **Stars / activity:** ~35.5k ⭐, ChromeDevTools org, Apache-2.0
+
+---
 ## Candidates to add (backlog)
 
 Short-list of projects to write up next time someone has an hour:
