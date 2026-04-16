@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 
 afterEach(() => {
@@ -158,5 +158,61 @@ describe("SidePanel — ARIA tablist pattern", () => {
     const tablist = screen.getByRole("tablist");
     fireEvent.keyDown(tablist, { key: "End" });
     expect(mockSetPanelTab).toHaveBeenCalledWith("events");
+  });
+});
+
+describe("SidePanel — localStorage width persistence (issue #425)", () => {
+  const STORAGE_KEY = "molecule:sidepanel-width";
+
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+  });
+
+  it("falls back to 480px when localStorage has no saved width", () => {
+    const { container } = render(<SidePanel />);
+    const panel = container.firstChild as HTMLElement;
+    // The outermost div has style={{ width }}
+    expect(panel.style.width).toBe("480px");
+  });
+
+  it("reads a valid saved width from localStorage on mount", () => {
+    localStorage.setItem(STORAGE_KEY, "600");
+    const { container } = render(<SidePanel />);
+    const panel = container.firstChild as HTMLElement;
+    expect(panel.style.width).toBe("600px");
+  });
+
+  it("falls back to 480px when localStorage value is below minimum (320px)", () => {
+    localStorage.setItem(STORAGE_KEY, "200");
+    const { container } = render(<SidePanel />);
+    const panel = container.firstChild as HTMLElement;
+    expect(panel.style.width).toBe("480px");
+  });
+
+  it("falls back to 480px when localStorage value is not a number", () => {
+    localStorage.setItem(STORAGE_KEY, "notanumber");
+    const { container } = render(<SidePanel />);
+    const panel = container.firstChild as HTMLElement;
+    expect(panel.style.width).toBe("480px");
+  });
+
+  it("persists width to localStorage on mouseup after drag", () => {
+    localStorage.setItem(STORAGE_KEY, "600");
+    render(<SidePanel />);
+    // Simulate a drag: mousedown on resize handle, mousemove, mouseup
+    fireEvent.mouseDown(document.querySelector(".cursor-col-resize")!, {
+      clientX: 100,
+    });
+    fireEvent.mouseMove(window, { clientX: 50 }); // dragged 50px left → wider
+    fireEvent.mouseUp(window);
+    // localStorage should have been updated to the new width
+    const saved = localStorage.getItem(STORAGE_KEY);
+    expect(saved).not.toBeNull();
+    expect(parseInt(saved!, 10)).toBeGreaterThanOrEqual(320);
   });
 });
