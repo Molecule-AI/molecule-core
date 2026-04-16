@@ -134,11 +134,10 @@ class TestPauseResumeTool:
         reg = mod._TaskPauseRegistry()
         monkeypatch.setattr(mod, "pause_registry", reg)
 
-        # Schedule a resume signal 50 ms after pause starts.
-        # pause_task prefixes registry key with WORKSPACE_ID ("ws-test" in tests).
+        # Schedule a resume signal 50 ms after pause starts
         async def _schedule_resume():
             await asyncio.sleep(0.05)
-            reg.resume("ws-test:task-a", {"note": "human approved"})
+            reg.resume("task-a", {"note": "human approved"})
 
         asyncio.create_task(_schedule_resume())
 
@@ -166,8 +165,7 @@ class TestPauseResumeTool:
         mod = _load_hitl(monkeypatch)
         reg = mod._TaskPauseRegistry()
         monkeypatch.setattr(mod, "pause_registry", reg)
-        # resume_task prefixes with WORKSPACE_ID ("ws-test") → look up scoped key
-        reg.register("ws-test:task-r")
+        reg.register("task-r")
 
         result = await mod.resume_task("task-r", "looks good")
 
@@ -623,11 +621,10 @@ class TestAuditImportErrors:
         reg = mod._TaskPauseRegistry()
         monkeypatch.setattr(mod, "pause_registry", reg)
 
-        # Schedule resume quickly so we don't actually wait long.
-        # pause_task prefixes registry key with WORKSPACE_ID ("ws-test").
+        # Schedule resume quickly so we don't actually wait long
         async def _schedule_resume():
             await asyncio.sleep(0.05)
-            reg.resume("ws-test:audit-err-task", {"ok": True})
+            reg.resume("audit-err-task", {"ok": True})
 
         asyncio.create_task(_schedule_resume())
 
@@ -645,7 +642,7 @@ class TestAuditImportErrors:
 
         reg = mod._TaskPauseRegistry()
         monkeypatch.setattr(mod, "pause_registry", reg)
-        reg.register("ws-test:audit-err-resume")  # resume_task prefixes with WORKSPACE_ID
+        reg.register("audit-err-resume")
 
         result = await mod.resume_task("audit-err-resume", "all good")
 
