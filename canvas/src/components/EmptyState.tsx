@@ -108,7 +108,7 @@ export function EmptyState() {
           <div className="text-xs text-zinc-400 py-4">Loading templates...</div>
         ) : templates.length > 0 ? (
           <div className="grid grid-cols-2 gap-2.5 mb-4 text-left max-h-[240px] overflow-y-auto">
-            {templates.slice(0, 6).map((t) => {
+            {templates.map((t) => {
               const tierColor = TIER_COLORS[t.tier] || TIER_COLORS[1];
               return (
                 <button
