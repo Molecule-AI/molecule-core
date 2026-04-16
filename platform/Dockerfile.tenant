@@ -1,17 +1,15 @@
 # Dockerfile.tenant — combined platform (Go) + canvas (Next.js) image.
 #
 # Serves both the API (Go on :8080) and the UI (Node.js on :3000) in a
-# single container. Fly listens on :8080 for health checks; an entrypoint
-# script starts both processes. The Go router is the external-facing port;
-# it reverse-proxies unknown routes to the canvas Node server so a single
-# port handles everything.
+# single container. Go reverse-proxies unknown routes to canvas.
 #
-# Build context: repo root (same as platform/Dockerfile).
+# Templates are cloned from standalone GitHub repos at build time so the
+# monorepo doesn't need to carry them. The repos are public; no auth.
+#
+# Build context: repo root.
 #
 #   docker buildx build --platform linux/amd64 \
 #     -f platform/Dockerfile.tenant \
-#     --build-arg NEXT_PUBLIC_PLATFORM_URL="" \
-#     --build-arg NEXT_PUBLIC_WS_URL="" \
 #     -t registry.fly.io/molecule-tenant:latest \
 #     --push .
 
@@ -29,33 +27,38 @@ WORKDIR /canvas
 COPY canvas/package.json canvas/package-lock.json* ./
 RUN npm install
 COPY canvas/ .
-# Platform URL is relative (same container) — empty string = same-origin.
-# WebSocket URL uses relative path so the browser connects to the same host.
 ARG NEXT_PUBLIC_PLATFORM_URL=""
 ARG NEXT_PUBLIC_WS_URL=""
 ENV NEXT_PUBLIC_PLATFORM_URL=$NEXT_PUBLIC_PLATFORM_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 RUN npm run build
 
-# ── Stage 3: Runtime ──────────────────────────────────────────────────
+# ── Stage 3: Clone templates + plugins from manifest.json ─────────────
+FROM alpine:3.20 AS templates
+RUN apk add --no-cache git python3
+COPY manifest.json /manifest.json
+COPY scripts/clone-manifest.sh /scripts/clone-manifest.sh
+RUN chmod +x /scripts/clone-manifest.sh && /scripts/clone-manifest.sh /manifest.json /workspace-configs-templates /org-templates /plugins
+
+# ── Stage 4: Runtime ──────────────────────────────────────────────────
 FROM node:20-alpine
 RUN apk add --no-cache ca-certificates git tzdata
 
 # Go platform binary
 COPY --from=go-builder /platform /platform
 COPY platform/migrations /migrations
-COPY workspace-configs-templates /workspace-configs-templates
-COPY org-templates /org-templates
 
-# Canvas standalone (Next.js server.js + static assets)
+# Templates + plugins (cloned from GitHub in stage 3)
+COPY --from=templates /workspace-configs-templates /workspace-configs-templates
+COPY --from=templates /org-templates /org-templates
+COPY --from=templates /plugins /plugins
+
+# Canvas standalone
 WORKDIR /canvas
 COPY --from=canvas-builder /canvas/.next/standalone ./
 COPY --from=canvas-builder /canvas/.next/static ./.next/static
 COPY --from=canvas-builder /canvas/public ./public
 
-# Entrypoint starts both processes. Go on :8080, Canvas on :3000.
-# The Go platform's router proxies unknown routes to :3000 so Fly
-# only needs to expose :8080.
 COPY platform/entrypoint-tenant.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

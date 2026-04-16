@@ -188,9 +188,9 @@ Each runtime has its own Docker image extending `workspace-template:base`, with 
 | hermes | `workspace-template:hermes` | openai (OpenAI-compatible client; Nous Portal via `HERMES_API_KEY` or OpenRouter via `OPENROUTER_API_KEY` fallback) |
 | gemini-cli | `workspace-template:gemini-cli` | @google/gemini-cli (npm); requires `GEMINI_API_KEY`; MCP wired via `~/.gemini/settings.json`; memory file: `GEMINI.md` |
 
-Templates are framework presets in `workspace-configs-templates/`: `claude-code-default`, `langgraph`, `openclaw`, `deepagents`, `gemini-cli`. Agent roles are configured after deployment via Config tab or API.
+Templates live in standalone repos under `Molecule-AI/molecule-ai-workspace-template-*` (8 workspace templates) and `Molecule-AI/molecule-ai-org-template-*` (5 org templates). They're cloned at Docker build time into the platform image. The template registry (`template_registry` table in the control plane DB) tracks all templates with their `github://` source URLs. Agent roles are configured after deployment via Config tab or API.
 
-For Claude Code runtime, write your OAuth token to `workspace-configs-templates/claude-code-default/.auth-token`.
+For Claude Code runtime, write your OAuth token to the template's `.auth-token` file.
 
 ### Pre-commit Hook
 ```bash
@@ -203,7 +203,7 @@ Shared plugins in `plugins/` are auto-loaded by every workspace:
 - **`molecule-dev`**: Codebase conventions (rules injected into CLAUDE.md) + `review-loop` skill for multi-round QA cycles
 - **`superpowers`**: `verification-before-completion`, `test-driven-development`, `systematic-debugging`, `writing-plans`
 - **`ecc`**: General Claude Code guardrails
-- **`browser-automation`**: Puppeteer/CDP-based web scraping and live canvas screenshots (opt-in per workspace — wired into Research + UIUX roles in `org-templates/molecule-dev/org.yaml`)
+- **`browser-automation`**: Puppeteer/CDP-based web scraping and live canvas screenshots (opt-in per workspace — wired into Research + UIUX roles in the molecule-dev org template)
 
 **Modular guardrails** (Claude Code only — pick what you need, or install several):
 
@@ -227,7 +227,7 @@ Shared plugins in `plugins/` are auto-loaded by every workspace:
 
 These are distilled from the harness-level guardrails the orchestrator uses on itself. A workspace can install one (e.g., just `molecule-careful-bash` for safety) or stack the full set for the same posture as the Molecule AI orchestrator.
 
-**Org-template plugin resolution (PR #71, issue #68):** per-workspace `plugins:` lists in `org-templates/*/org.yaml` role overrides **UNION** with `defaults.plugins` (deduplicated, defaults first) — they do **not** REPLACE them. To opt a specific default out for a given role/workspace, prefix the plugin name with `!` or `-` (e.g. `!browser-automation`). Implemented by `mergePlugins` in `platform/internal/handlers/org.go`.
+**Org-template plugin resolution (PR #71, issue #68):** per-workspace `plugins:` lists in org template `org.yaml` role overrides **UNION** with `defaults.plugins` (deduplicated, defaults first) — they do **not** REPLACE them. To opt a specific default out for a given role/workspace, prefix the plugin name with `!` or `-` (e.g. `!browser-automation`). Implemented by `mergePlugins` in `platform/internal/handlers/org.go`. Org templates now live in standalone repos: `Molecule-AI/molecule-ai-org-template-*`.
 
 ### Scripts
 ```bash
@@ -241,8 +241,9 @@ OPENAI_API_KEY=... bash scripts/test-team-e2e.sh           # E2E: Multi-template
 cd platform && go test -race ./...               # 818 Go tests (handlers, registry, provisioner, CLI, delegation, org, channels, wsauth, middleware, scheduler, crypto, db — sqlmock + miniredis; +2 on 2026-04-15 tick-32 for YAML-injection runtime/model allowlist + TestSanitizeRuntime_Allowlist; +70 on 2026-04-15 overnight sweep across the security fix cluster; +6 on 2026-04-14 tick-8 for TestTenantGuard_*)
 cd canvas && npm test                            # 482 Vitest tests (store, components, hydration, buildTree, secrets API, org template import, ConfirmDialog singleButton + 7 native-dialog replacements, WCAG critical batch, +12 on tick-32 for CookieConsent dialog + privacy-preserving default, +17 on tick-32 for PricingTable dispatch matrix + billing helper)
 cd workspace-template && python -m pytest -v     # 1179 pytest tests (adds platform_auth token store for Phase 30.1, memory_write activity logging, Hermes multi-provider registry, +10 on tick-32 for test_hermes_phase2_dispatch covering native Anthropic + native Gemini paths via auth_scheme dispatch; fixed env-var leak in test_hermes_providers fixture via snapshot/restore)
-cd sdk/python && python -m pytest -v              # 132 SDK tests (agentskills.io spec validator, CLI, AgentskillsAdaptor round-trip, workspace/org/channel validators, RemoteAgentClient Phase 30 flows)
-cd mcp-server && npm test                        # 97 Jest tests (per-domain tool modules + smoke test on tool count)
+# SDK + MCP server tests now in standalone repos:
+# github.com/Molecule-AI/molecule-sdk-python    (pip install molecule-ai-sdk)
+# github.com/Molecule-AI/molecule-mcp-server    (npx @molecule-ai/mcp-server)
 ```
 
 ### Integration Tests
@@ -260,22 +261,14 @@ All five E2E scripts share `tests/e2e/_lib.sh` + `tests/e2e/_extract_token.py` h
 
 `test_activity_e2e.sh` requires platform + one online agent. Tests A2A communication logging (request/response capture, duration, method), agent self-reported activity, type filtering, current task visibility via heartbeat, cross-workspace activity isolation, edge cases.
 
-### MCP Server
-```bash
-cd mcp-server
-npm install && npm run build   # Build MCP server
-node dist/index.js             # Run (stdio transport)
-```
-Exposes **87 tools** for managing Molecule AI from Claude Code, Cursor, Codex, or any MCP client. Includes workspace CRUD, async delegation, plugins (install/uninstall/list), global secrets, pause/resume, org import, A2A chat, approvals, memory, files, config, discovery, bundles, templates, traces, activity logs, remote agents (Phase 30), and social channels (add/update/remove/send/test). Configured in `.mcp.json`. Env: `MOLECULE_URL` (default http://localhost:8080).
-
-**Structure (refactored 2026-04-13, PRs #2/#4/#7):** `src/index.ts` shrank from 1697 → 89 lines and now only wires `createServer()`. Per-domain tool modules live in `src/tools/`: `workspaces.ts`, `agents.ts`, `secrets.ts`, `files.ts`, `memory.ts`, `plugins.ts`, `channels.ts`, `delegation.ts`, `schedules.ts`, `approvals.ts`, `discovery.ts`, `remote_agents.ts`. Each exports its handlers and a `registerXxxTools(srv)` function. Shared HTTP layer in `src/api.ts` (`PLATFORM_URL`, `apiCall<T>`, `ApiError`, `isApiError()`, `toMcpResult()`, `toMcpText()`). When adding a tool, pick the matching domain file or create a new one and wire it in `createServer()`.
+### MCP Server (standalone repo)
+The MCP server now lives at **github.com/Molecule-AI/molecule-mcp-server** and is published as `@molecule-ai/mcp-server` on npm. Install: `npx @molecule-ai/mcp-server`. 87 tools for managing Molecule AI from any MCP client. Configured in `.mcp.json`. Env: `MOLECULE_URL` (default http://localhost:8080).
 
 ### CI Pipeline
 GitHub Actions (`.github/workflows/ci.yml`) runs on push to main and PRs:
 - **platform-build**: Go build, vet, `go test -race` with coverage profiling (25% baseline threshold; `setup-go` uses module cache)
 - **canvas-build**: npm build, `vitest run` (no `--passWithNoTests` -- tests must exist and pass)
-- **mcp-server-build**: npm build
-- **python-lint**: `pytest --cov=. --cov-report=term-missing` (pytest-cov enabled)
+- **python-lint**: `pytest --cov=. --cov-report=term-missing` (workspace-template tests; SDK + MCP now in standalone repos)
 - **e2e-api** (added 2026-04-13): spins up Postgres + Redis service containers, runs platform migrations via `docker exec`, then executes `tests/e2e/test_api.sh` against a locally-built binary (62/62 must pass)
 - **shellcheck** (added 2026-04-13): lints every `tests/e2e/*.sh` via the shellcheck marketplace action
 - **publish-platform-image** (`.github/workflows/publish-platform-image.yml`, added 2026-04-14 tick-9): on push to main touching `platform/**`, builds `platform/Dockerfile` and pushes to `ghcr.io/molecule-ai/platform:latest` + `:sha-<short>`. Used by the private `molecule-controlplane` provisioner as tenant VM image. Manual re-trigger via `workflow_dispatch`.
