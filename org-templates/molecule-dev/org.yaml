@@ -191,6 +191,15 @@ workspaces:
         # Research roles add browser-automation for live web scraping
         # (product pages, GitHub trending, docs).
         plugins: [browser-automation]
+        # #383: notify on high-value async output (eco-watch summaries,
+        # competitive intelligence findings) via Telegram so they're not
+        # invisible until the user manually checks memory/canvas.
+        channels:
+          - type: telegram
+            config:
+              bot_token: ${TELEGRAM_BOT_TOKEN}
+              chat_id: ${TELEGRAM_CHAT_ID}
+            enabled: true
         initial_prompt: |
           You just started as Research Lead. Set up silently — do NOT contact other agents.
           1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
@@ -410,6 +419,15 @@ workspaces:
         # review prompts. Issue #133.
         plugins: [molecule-skill-code-review, molecule-skill-llm-judge]
         canvas: { x: 650, y: 250 }
+        # #383: notify on critical engineering decisions, PR blocks, and
+        # cross-team blockers via Telegram — completes the leadership tier
+        # (PM + Dev Lead + Research Lead + DevOps + Security all on Telegram).
+        channels:
+          - type: telegram
+            config:
+              bot_token: ${TELEGRAM_BOT_TOKEN}
+              chat_id: ${TELEGRAM_CHAT_ID}
+            enabled: true
         initial_prompt: |
           You just started as Dev Lead. Set up silently — do NOT contact other agents.
           1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
