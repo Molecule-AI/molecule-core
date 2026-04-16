@@ -56,8 +56,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }, [state]);
 
   if (state.kind === "loading") {
-    // Minimal placeholder; canvas has its own loading UI downstream.
-    return null;
+    // Zinc-950 backdrop matches the canvas background so the browser
+    // never paints a white flash while the session round-trip resolves.
+    return <div className="fixed inset-0 bg-zinc-950" aria-hidden="true" />;
   }
   if (state.kind === "anonymous" && !state.skipRedirect) {
     // Redirect already firing from the effect above; render nothing in
