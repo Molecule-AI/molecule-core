@@ -1,0 +1,222 @@
+name: Dev Lead
+role: Engineering planning and team coordination
+tier: 3
+model: opus
+files_dir: dev-lead
+        # Dev Lead enforces PR quality gates (see gate 2a in
+        # .claude/skills/triage/SKILL.md) and reviews engineering output
+        # before handoff to PM. The code-review skill surfaces the
+        # 16-criteria rubric — without it Dev Lead falls back to ad-hoc
+        # review prompts. Issue #133.
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge]
+canvas: {x: 650, y: 250}
+        # #383: notify on critical engineering decisions, PR blocks, and
+        # cross-team blockers via Telegram — completes the leadership tier
+        # (PM + Dev Lead + Research Lead + DevOps + Security all on Telegram).
+channels:
+  - type: telegram
+    config:
+      bot_token: ${TELEGRAM_BOT_TOKEN}
+      chat_id: ${TELEGRAM_CHAT_ID}
+    enabled: true
+schedules:
+  - name: Orchestrator pulse
+    cron_expr: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
+    enabled: true
+    prompt_file: schedules/orchestrator-pulse.md
+  - name: Hourly template fitness audit
+    cron_expr: "15,45 * * * *"
+    enabled: true
+    prompt_file: schedules/hourly-template-fitness-audit.md
+children:
+  - name: Frontend Engineer
+    role: >-
+      Owns the Next.js 15 App Router canvas layer: workspace node
+      rendering with @xyflow/react v12, inter-workspace edge wiring,
+      and the Zustand store (selectors must not create new objects —
+      use primitives or memo). Enforces the dark zinc design system
+      (zinc-900/950 bg, zinc-300/400 text, blue-500/600 accents,
+      border-zinc-700/800) and TypeScript strictness on every
+      component. Adds 'use client' to any .tsx that uses hooks; gates
+      every commit with npm run build passing clean. Escalates to
+      Backend Engineer for API shape questions — never guesses.
+      "Done" means: vitest tests pass, build warning-free, dark theme
+      enforced, and 'use client' grep check clean.
+    tier: 3
+    model: opus
+    files_dir: frontend-engineer
+            # #280: self-review rubric before raising a PR. Dev Lead uses
+            # the same rubric, so catching issues here cuts the review loop.
+            # #310: molecule-skill-llm-judge — gate own PR against issue body
+            # before requesting review ("shipped the wrong thing" early catch).
+    plugins: [molecule-skill-code-review, molecule-skill-llm-judge]
+    idle_interval_seconds: 600
+    initial_prompt_file: initial-prompt.md
+    idle_prompt_file: idle-prompt.md
+  - name: Backend Engineer
+    role: >-
+      Owns the Go/Gin platform layer: REST handlers, WebSocket hub,
+      workspace provisioner, and A2A proxy. Manages Postgres schema,
+      migrations, and parameterized query safety; Redis pub/sub,
+      heartbeat TTLs, and per-workspace key cleanup. Enforces access
+      control on every endpoint and structured error handling across
+      all platform/ code. Primary reviewer for any platform-layer PR.
+    tier: 3
+    model: opus
+    files_dir: backend-engineer
+            # #266: HITL gate — Backend Engineer's scope includes destructive
+            # DB migrations + runtime config changes; the @requires_approval
+            # decorator stops an unattended agent from shipping a prod
+            # schema mutation without a human click. UNION with defaults.
+            # #280: molecule-skill-code-review — self-review rubric before
+            # raising a PR (same rubric Dev Lead applies in review).
+            # #303: molecule-security-scan — CVE gate at dev time, not
+            # just at Security Auditor's 12h cron. Catches supply-chain
+            # deps + secret patterns before they reach PR review.
+            # #310: molecule-skill-llm-judge — self-gate before PR review.
+            # #322: molecule-compliance — OA-03 excessive-agency cap; Backend
+            # Engineer is the highest tool-call-volume role (platform PRs,
+            # migrations, API changes) so a hard cap is a concrete guard
+            # against runaway loops during large refactors.
+    plugins: [molecule-hitl, molecule-skill-code-review, molecule-security-scan, molecule-skill-llm-judge, molecule-compliance]
+    idle_interval_seconds: 600
+    initial_prompt_file: initial-prompt.md
+    idle_prompt_file: idle-prompt.md
+  - name: DevOps Engineer
+    role: >-
+      Owns the container build pipeline: Dockerfiles for all six
+      runtime images (langgraph, claude-code, openclaw, crewai,
+      autogen, deepagents), docker-compose.infra.yml for the local
+      dev stack, and build-all.sh hygiene. Manages GitHub Actions
+      CI (platform-build, canvas-build, python-lint,
+      mcp-server-build), coverage thresholds, and secrets hygiene
+      in the pipeline. Keeps infra/scripts/setup.sh and nuke.sh
+      in sync whenever migrations or services change. Escalates to
+      Backend Engineer for schema/runtime-config changes and to
+      Frontend Engineer for canvas build failures. "Done" means:
+      all CI jobs green, all images buildable from a clean checkout,
+      no *.log or .env files leaked into image layers.
+    tier: 3
+    model: opus
+    files_dir: devops-engineer
+            # #266: HITL gate — DevOps Engineer's scope covers fly deploys,
+            # registry pushes, CI pipeline mutations. Any of these going
+            # wrong affects every tenant; @requires_approval before
+            # destructive infra ops is the point.
+            # #280: molecule-skill-code-review — self-review rubric for
+            # Dockerfiles, CI workflows, infra scripts before PR.
+            # #322: molecule-freeze-scope — lock edits to infra/** during
+            # risky operations (CI migrations, fly secret rotations, image
+            # rebuilds). Plugin was an orphan for 3 weekly audits; DevOps
+            # is the natural home.
+    plugins: [molecule-hitl, molecule-skill-code-review, molecule-freeze-scope]
+            # #247: notify on build-break — DevOps routes CI failures + infra
+            # alerts via Telegram so they're not invisible until morning review.
+    channels:
+      - type: telegram
+        config:
+          bot_token: ${TELEGRAM_BOT_TOKEN}
+          chat_id: ${TELEGRAM_CHAT_ID}
+        enabled: true
+    idle_interval_seconds: 600
+    schedules:
+      - name: Hourly channel expansion survey
+        cron_expr: "47 * * * *"
+        enabled: true
+        prompt_file: schedules/hourly-channel-expansion-survey.md
+    initial_prompt_file: initial-prompt.md
+    idle_prompt_file: idle-prompt.md
+  - name: Security Auditor
+    role: >-
+      Owns security posture across the full stack: Go/Gin handlers
+      (SQL injection, path traversal, command injection, missing access
+      control), Python workspace-template (RCE via subprocess, secrets
+      in env/logs), Canvas (XSS in user-rendered content), and
+      infrastructure (Docker socket exposure, secrets in images).
+      Runs SAST via `gosec ./...` on every PR-touching Go file and
+      `bandit -r .` on Python. Performs DAST checks against the running
+      platform (`POST /workspaces/:id/a2a` CanCommunicate bypass
+      attempts, CORS header validation, rate-limit enforcement).
+      Escalates to Dev Lead immediately for: any SQL injection or RCE
+      vector, leaked secrets in committed code, missing auth on a new
+      endpoint. Files weekly summary to memory key
+      `security-audit-latest`. Definition of done: every changed file
+      reviewed, gosec/bandit clean (or false-positives annotated),
+      no open critical findings without a linked issue.
+    tier: 3
+    model: opus
+    files_dir: security-auditor
+            # Security Auditor adds security-critical skills on top of defaults:
+            # - molecule-skill-code-review:          multi-criteria review for security-relevant PRs
+            # - molecule-skill-cross-vendor-review:  adversarial second opinion via non-Claude model
+            #                                        (use ONLY for noteworthy PRs — auth, billing, data)
+            # - molecule-skill-llm-judge:            cheap gate that catches "wrong thing shipped"
+            # - molecule-security-scan (#275):       supply-chain CVE gate via Snyk/pip-audit; wraps
+            #                                        builtin_tools/security_scan.py — gosec/bandit/etc
+            # - molecule-hitl (#266):                @requires_approval before filing critical issues
+            #                                        so false-positives don't spam the tracker
+            # - molecule-compliance (#322):          OWASP Top 10 for Agentic Applications — active
+            #                                        enforcement on Security Auditor's own tool calls
+            # - molecule-audit (#322):               immutable JSON-Lines audit log (EU AI Act Art 12/13/17)
+            #                                        — Security Auditor owns the report generation path
+    plugins:
+      - molecule-skill-code-review
+      - molecule-skill-cross-vendor-review
+      - molecule-skill-llm-judge
+      - molecule-security-scan
+      - molecule-hitl
+      - molecule-compliance
+      - molecule-audit
+            # #246: notify on critical findings — Security Auditor pushes HIGH+
+            # severity alerts via Telegram so they're not invisible until next
+            # manual memory check.
+    channels:
+      - type: telegram
+        config:
+          bot_token: ${TELEGRAM_BOT_TOKEN}
+          chat_id: ${TELEGRAM_CHAT_ID}
+        enabled: true
+    schedules:
+      - name: Security audit (every 12h)
+        cron_expr: "7 6,18 * * *"
+        enabled: true
+        prompt_file: schedules/security-audit-every-12h.md
+    initial_prompt_file: initial-prompt.md
+  - name: QA Engineer
+    role: Testing, quality assurance, test automation
+    tier: 3
+    model: opus
+    files_dir: qa-engineer
+            # QA reviews test coverage + runs llm-judge on whether test
+            # deliverables actually match acceptance criteria. Issue #133.
+            # #322: molecule-compliance — OA-01 prompt-injection detection
+            # (in detect mode, not block) catches adversarial test payloads
+            # before they slip into production. OA-03 excessive-agency caps
+            # prevent runaway test loops.
+    plugins: [molecule-skill-code-review, molecule-skill-llm-judge, molecule-compliance]
+    schedules:
+      - name: Code quality audit (every 12h)
+        cron_expr: "0 6,18 * * *"
+        enabled: true
+        prompt_file: schedules/code-quality-audit-every-12h.md
+    initial_prompt_file: initial-prompt.md
+  - name: UIUX Designer
+    role: User flow design, visual design review, interaction patterns, accessibility
+    tier: 3
+    model: opus
+    files_dir: uiux-designer
+            # browser-automation for live canvas screenshots via Puppeteer
+            # (Chrome CDP path; recipe in the cron prompt below).
+    plugins: [browser-automation]
+    schedules:
+      - name: Hourly UI/UX audit with live screenshots
+                # #306: was "5,20,35,50 * * * *" (every 15 min — 96
+                # ticks/day × 8 screenshots × vision = runaway cost).
+                # Hourly matches the schedule name and is sufficient
+                # because the canvas UI only changes on deploys.
+        cron_expr: "5 * * * *"
+        enabled: true
+
+        prompt_file: schedules/hourly-ui-ux-audit-with-live-screenshots.md
+    initial_prompt_file: initial-prompt.md
+initial_prompt_file: initial-prompt.md
