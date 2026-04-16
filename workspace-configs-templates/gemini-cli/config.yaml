@@ -1,0 +1,11 @@
+name: Gemini CLI Agent
+description: General-purpose Gemini CLI workspace
+version: 1.0.0
+tier: 2
+
+runtime: gemini-cli
+runtime_config:
+  model: gemini-2.5-pro
+  required_env:
+    - GEMINI_API_KEY
+  timeout: 0

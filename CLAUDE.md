@@ -186,8 +186,9 @@ Each runtime has its own Docker image extending `workspace-template:base`, with 
 | autogen | `workspace-template:autogen` | autogen |
 | deepagents | `workspace-template:deepagents` | deepagents |
 | hermes | `workspace-template:hermes` | openai (OpenAI-compatible client; Nous Portal via `HERMES_API_KEY` or OpenRouter via `OPENROUTER_API_KEY` fallback) |
+| gemini-cli | `workspace-template:gemini-cli` | @google/gemini-cli (npm); requires `GEMINI_API_KEY`; MCP wired via `~/.gemini/settings.json`; memory file: `GEMINI.md` |
 
-Templates are framework presets in `workspace-configs-templates/`: `claude-code-default`, `langgraph`, `openclaw`, `deepagents`. Agent roles are configured after deployment via Config tab or API.
+Templates are framework presets in `workspace-configs-templates/`: `claude-code-default`, `langgraph`, `openclaw`, `deepagents`, `gemini-cli`. Agent roles are configured after deployment via Config tab or API.
 
 For Claude Code runtime, write your OAuth token to `workspace-configs-templates/claude-code-default/.auth-token`.
 

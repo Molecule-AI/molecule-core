@@ -1,0 +1,2 @@
+# gemini-cli adapter has no extra Python dependencies.
+# The CLIAgentExecutor (base) handles all subprocess management.
