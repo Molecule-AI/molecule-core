@@ -457,20 +457,10 @@ func (h *WorkspaceHandler) ensureDefaultConfig(workspaceID string, payload model
 	return files
 }
 
-// provisionWorkspaceFly provisions a workspace as a Fly Machine instead
-// of a local Docker container. Same secret-loading + env-var logic as
-// provisionWorkspaceFly is removed — use provisionWorkspaceCP instead.
-// Direct Fly provisioning from the tenant was replaced by the control
-// plane architecture (the CP holds the Fly token, manages billing/quotas).
-
-// provisionWorkspaceCP provisions a workspace via the control plane API.
-// The control plane holds the Fly token and manages billing/quotas — the
-// tenant platform never talks to Fly directly.
-func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string, configFiles map[string][]byte, payload models.CreateWorkspacePayload) {
-	ctx, cancel := context.WithTimeout(context.Background(), provisioner.ProvisionTimeout)
-	defer cancel()
-
-	// Load secrets (same as Docker/Fly paths)
+// loadWorkspaceSecrets loads global + workspace-specific secrets into a map.
+// Returns nil map + error string on decrypt failure. Shared by both Docker
+// and control plane provisioning paths to avoid duplication.
+func loadWorkspaceSecrets(ctx context.Context, workspaceID string) (map[string]string, string) {
 	envVars := map[string]string{}
 	globalRows, globalErr := db.DB.QueryContext(ctx,
 		`SELECT key, encrypted_value, encryption_version FROM global_secrets`)
@@ -483,10 +473,7 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 			if globalRows.Scan(&k, &v, &ver) == nil {
 				decrypted, decErr := crypto.DecryptVersioned(v, ver)
 				if decErr != nil {
-					log.Printf("CPProvisioner: failed to decrypt global secret %s for %s: %v", k, workspaceID, decErr)
-					db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
-						workspaceID, fmt.Sprintf("cannot decrypt global secret %s", k))
-					return
+					return nil, fmt.Sprintf("cannot decrypt global secret %s: %v", k, decErr)
 				}
 				envVars[k] = string(decrypted)
 			}
@@ -501,10 +488,28 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 			var v []byte
 			var ver int
 			if wsRows.Scan(&k, &v, &ver) == nil {
-				decrypted, _ := crypto.DecryptVersioned(v, ver)
+				decrypted, decErr := crypto.DecryptVersioned(v, ver)
+				if decErr != nil {
+					return nil, fmt.Sprintf("cannot decrypt workspace secret %s: %v", k, decErr)
+				}
 				envVars[k] = string(decrypted)
 			}
 		}
+	}
+	return envVars, ""
+}
+
+// provisionWorkspaceCP provisions a workspace via the control plane API.
+func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string, configFiles map[string][]byte, payload models.CreateWorkspacePayload) {
+	ctx, cancel := context.WithTimeout(context.Background(), provisioner.ProvisionTimeout)
+	defer cancel()
+
+	envVars, decryptErr := loadWorkspaceSecrets(ctx, workspaceID)
+	if decryptErr != "" {
+		log.Printf("CPProvisioner: %s for %s", decryptErr, workspaceID)
+		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
+			workspaceID, decryptErr)
+		return
 	}
 
 	applyAgentGitIdentity(envVars, payload.Name)
