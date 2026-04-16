@@ -31,6 +31,24 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 		}
 		ctx := c.Request.Context()
 
+		// #318: verify workspace exists before the token check so fabricated
+		// workspace IDs cannot exploit the fail-open legacy path.
+		// HasAnyLiveToken returns (false, nil) for non-existent workspaces —
+		// indistinguishable from "not yet registered".  A DB EXISTS check is
+		// unambiguous and costs one additional query on this hot path.
+		var wsExists bool
+		if err := database.QueryRowContext(ctx,
+			`SELECT EXISTS(SELECT 1 FROM workspaces WHERE id = $1)`, workspaceID,
+		).Scan(&wsExists); err != nil {
+			log.Printf("wsauth: WorkspaceAuth: existence check failed for %s: %v", workspaceID, err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "auth check failed"})
+			return
+		}
+		if !wsExists {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+			return
+		}
+
 		hasLive, err := wsauth.HasAnyLiveToken(ctx, database, workspaceID)
 		if err != nil {
 			log.Printf("wsauth: WorkspaceAuth: HasAnyLiveToken(%s) failed: %v", workspaceID, err)
