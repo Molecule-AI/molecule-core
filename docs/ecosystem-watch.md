@@ -935,6 +935,46 @@ builders; Molecule AI users are developers building agent companies.
 **Last reviewed:** 2026-04-16 · **Stars / activity:** ~5.7k ⭐, v1.1.0 April 1, 2026, MIT
 
 ---
+
+### AgentScope — `modelscope/agentscope`
+
+**Pitch:** "Build and run agents you can see, understand and trust."
+
+**Shape:** Python (Apache 2.0), ~23.8k ⭐, v1.0.18 released March 26, 2026. Alibaba/ModelScope. Multi-agent: `MsgHub` typed message routing, ReAct agents, sequential and concurrent pipelines. MCP client integration. OpenTelemetry observability built-in. Voice agent support. RL-based agent tuning (experimental).
+
+**Overlap with us:** MCP support means AgentScope agents can call tools exposed by our MCP server — potential consumer of our registry. Pipeline orchestration (sequential / concurrent) is structurally the same as our PM → Dev Lead → Engineer delegation chain. OpenTelemetry instrumentation parallels our `GET /workspaces/:id/traces` + Langfuse stack.
+
+**Differentiation:** Code-first Python SDK — no visual canvas, no Docker workspace lifecycle, no org-chart hierarchy, no scheduling, no channels, no A2A between independently deployed agents. It's a framework for building agent logic in-process; we're the platform that deploys and coordinates agents as long-lived services.
+
+**Worth borrowing:** `MsgHub` typed routing (messages carry sender/receiver type metadata, enabling selective fan-out) — more expressive than our flat A2A event queue. RL trajectory logging for agent tuning — if our `activity_logs` adopt the same schema, workspace runs become training data.
+
+**Terminology collisions:** "pipeline" — their orchestration primitive; we use "delegation chain" informally. "service agent" — their long-running agent variant; close to our workspace concept.
+
+**Signals to react to:** If AgentScope ships a deployment layer (Docker/Kubernetes-managed agent lifecycle) → direct overlap with our workspace model. If their RL tuning reaches stable → evaluate for PM routing improvement.
+
+**Last reviewed:** 2026-04-16 · **Stars / activity:** ~23.8k ⭐, v1.0.18 March 26, 2026, Alibaba/ModelScope
+
+---
+
+### Plannotator — `backnotprop/plannotator`
+
+**Pitch:** "Annotate and review coding agent plans and code diffs visually — share with your team, send feedback to agents with one click."
+
+**Shape:** TypeScript (Apache 2.0 + MIT dual), ~4.3k ⭐, v0.17.10 April 13, 2026. CLI install → opens browser UI for plan annotation. Supports Claude Code, Gemini CLI, Codex, OpenCode, Copilot CLI. Annotation primitives: delete, insert, replace, comment. Structured feedback returned to agent. Shareable plan links (URL-encoded or encrypted, 7-day expiry).
+
+**Overlap with us:** Direct overlap with `hitl.py` (shipped PR #346) and the `approvals` table. Both implement "pause agent → human reviews → structured feedback → resume." Plannotator specifically targets the *plan approval* moment — exactly what `requires_approval` in `hitl.py` gates. The annotation type model (delete/insert/replace/comment) is more expressive than our current `resume_task(message: str)` free-text feedback.
+
+**Differentiation:** A review UX tool, not an agent platform. No agent runtime, no memory, no scheduling, no A2A, no org hierarchy. Molecule AI runs the agents; Plannotator is what the review UI could look like.
+
+**Worth borrowing:** Structured annotation types as HITL feedback schema — replace `message: str` in `resume_task` with `{action: "approve"|"reject"|"modify", annotations: [{type: "delete"|"insert"|"replace"|"comment", ...}]}`. Shareable approval links with expiry — our approve/deny URLs are static; time-bounded links improve security.
+
+**Terminology collisions:** "plan" — their agent's proposed action list; we use this informally in system prompts.
+
+**Signals to react to:** If Plannotator adds MCP integration → agents could self-request plan review via tool call; evaluate as a native HITL trigger in our platform.
+
+**Last reviewed:** 2026-04-16 · **Stars / activity:** ~4.3k ⭐, v0.17.10 April 13, 2026
+
+---
 ## Candidates to add (backlog)
 
 Short-list of projects to write up next time someone has an hour:
