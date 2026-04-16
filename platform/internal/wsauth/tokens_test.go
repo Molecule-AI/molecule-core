@@ -155,6 +155,36 @@ func TestHasAnyLiveToken(t *testing.T) {
 }
 
 // ------------------------------------------------------------
+// WorkspaceExists — #318
+// ------------------------------------------------------------
+
+func TestWorkspaceExists(t *testing.T) {
+	cases := []struct {
+		name   string
+		exists bool
+	}{
+		{"present", true},
+		{"absent", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock := setupMock(t)
+			mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM workspaces WHERE id = \$1\)`).
+				WithArgs("ws-id-42").
+				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(tc.exists))
+
+			got, err := WorkspaceExists(context.Background(), db, "ws-id-42")
+			if err != nil {
+				t.Fatalf("err: %v", err)
+			}
+			if got != tc.exists {
+				t.Errorf("got %v, want %v", got, tc.exists)
+			}
+		})
+	}
+}
+
+// ------------------------------------------------------------
 // RevokeAllForWorkspace
 // ------------------------------------------------------------
 
