@@ -89,11 +89,11 @@ jobs:
 
       - name: Log in to GHCR
         shell: bash
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker --config "${DOCKER_CONFIG}" login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Log in to Fly registry
         shell: bash
-        run: echo "${{ secrets.FLY_API_TOKEN }}" | docker login registry.fly.io -u x --password-stdin
+        run: echo "${{ secrets.FLY_API_TOKEN }}" | docker --config "${DOCKER_CONFIG}" login registry.fly.io -u x --password-stdin
 
       - name: Compute tags
         id: tags
