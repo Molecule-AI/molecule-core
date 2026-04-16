@@ -184,6 +184,26 @@ class TestPauseResumeTool:
         assert "error" in result
 
     @pytest.mark.asyncio
+    async def test_resume_task_from_different_workspace_rejected(self, monkeypatch):
+        # #265 regression: a task paused in workspace A must not be resumable
+        # from workspace B even when the attacker guesses task_id. Ownership
+        # is tracked as registry metadata; resume_task passes WORKSPACE_ID as
+        # owner and the registry rejects a mismatch.
+        mod = _load_hitl(monkeypatch)
+        reg = mod._TaskPauseRegistry()
+        monkeypatch.setattr(mod, "pause_registry", reg)
+        # Workspace A owns the task.
+        reg.register("secret-task", owner="ws-A")
+
+        # Switch process env to workspace B — resume_task will pass owner=ws-B.
+        monkeypatch.setenv("WORKSPACE_ID", "ws-B")
+        result = await mod.resume_task("secret-task", "pwned")
+
+        assert result["success"] is False
+        # Task is still registered; the legitimate owner can still resume it.
+        assert "secret-task" in reg.list_paused()
+
+    @pytest.mark.asyncio
     async def test_list_paused_tasks_empty(self, monkeypatch):
         mod = _load_hitl(monkeypatch)
         reg = mod._TaskPauseRegistry()

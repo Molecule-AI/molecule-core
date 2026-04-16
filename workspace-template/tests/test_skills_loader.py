@@ -382,8 +382,8 @@ def test_load_skills_with_security_scan_available_warn_mode(tmp_path, monkeypatc
     monkeypatch.setattr(loader_module, "_SECURITY_SCAN_AVAILABLE", True)
 
     # Fake scan_skill_dependencies that just records calls
-    def fake_scan(skill_name, skill_path, mode):
-        scan_calls.append((skill_name, mode))
+    def fake_scan(skill_name, skill_path, mode, fail_open_if_no_scanner=True):
+        scan_calls.append((skill_name, mode, fail_open_if_no_scanner))
 
     # Fake SkillSecurityError
     class FakeSkillSecurityError(Exception):
@@ -405,6 +405,7 @@ def test_load_skills_with_security_scan_available_warn_mode(tmp_path, monkeypatc
     assert len(scan_calls) == 1
     assert scan_calls[0][0] == "my-skill"
     assert scan_calls[0][1] == "warn"
+    assert scan_calls[0][2] is True  # default fail_open_if_no_scanner from SecurityScanConfig
 
 
 def test_load_skills_security_scan_block_mode_skips_skill(tmp_path, monkeypatch):
@@ -422,7 +423,7 @@ def test_load_skills_security_scan_block_mode_skips_skill(tmp_path, monkeypatch)
     class FakeSkillSecurityError(Exception):
         pass
 
-    def blocking_scan(skill_name, skill_path, mode):
+    def blocking_scan(skill_name, skill_path, mode, fail_open_if_no_scanner=True):
         raise FakeSkillSecurityError("critical CVE found")
 
     monkeypatch.setattr(loader_module, "scan_skill_dependencies", blocking_scan, raising=False)
@@ -453,7 +454,7 @@ def test_load_skills_security_scan_off_mode_skips_scan(tmp_path, monkeypatch):
     import skill_loader.loader as loader_module
     monkeypatch.setattr(loader_module, "_SECURITY_SCAN_AVAILABLE", True)
 
-    def tracking_scan(skill_name, skill_path, mode):
+    def tracking_scan(skill_name, skill_path, mode, fail_open_if_no_scanner=True):
         scan_calls.append(skill_name)
 
     class FakeSkillSecurityError(Exception):
@@ -488,7 +489,7 @@ def test_load_skills_config_load_error_defaults_to_warn(tmp_path, monkeypatch):
     import skill_loader.loader as loader_module
     monkeypatch.setattr(loader_module, "_SECURITY_SCAN_AVAILABLE", True)
 
-    def tracking_scan(skill_name, skill_path, mode):
+    def tracking_scan(skill_name, skill_path, mode, fail_open_if_no_scanner=True):
         scan_modes.append(mode)
 
     class FakeSkillSecurityError(Exception):
@@ -597,3 +598,46 @@ def test_load_skills_missing_skill_md_logs_warning(tmp_path, caplog):
 
     assert loaded == []
     assert any("SKILL.md not found" in rec.message for rec in caplog.records)
+
+
+def test_load_skills_fail_open_if_no_scanner_wiring(tmp_path, monkeypatch):
+    """#268 regression: fail_open_if_no_scanner from config is forwarded to scan_skill_dependencies.
+
+    Previously load_skills read scan_mode from config but never read or passed
+    fail_open_if_no_scanner, so setting fail_open_if_no_scanner=false in
+    config.yaml had zero runtime effect.
+    """
+    skill_dir = tmp_path / "skills" / "my-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: My Skill\ndescription: Test\n---\nInstructions."
+    )
+
+    scan_kwargs: list[dict] = []
+
+    import skill_loader.loader as loader_module
+
+    monkeypatch.setattr(loader_module, "_SECURITY_SCAN_AVAILABLE", True)
+
+    def capturing_scan(skill_name, skill_path, mode, fail_open_if_no_scanner=True):
+        scan_kwargs.append({"mode": mode, "fail_open": fail_open_if_no_scanner})
+
+    class FakeSkillSecurityError(Exception):
+        pass
+
+    monkeypatch.setattr(loader_module, "scan_skill_dependencies", capturing_scan, raising=False)
+    monkeypatch.setattr(loader_module, "SkillSecurityError", FakeSkillSecurityError, raising=False)
+
+    from config import WorkspaceConfig, SecurityScanConfig
+    fake_cfg = WorkspaceConfig()
+    fake_cfg.security_scan = SecurityScanConfig(mode="block", fail_open_if_no_scanner=False)
+
+    with patch("skill_loader.loader.load_skill_tools", return_value=[]):
+        with patch("config.load_config", return_value=fake_cfg):
+            loader_module.load_skills(str(tmp_path), ["my-skill"])
+
+    assert len(scan_kwargs) == 1, "scan_skill_dependencies should have been called once"
+    assert scan_kwargs[0]["mode"] == "block"
+    assert scan_kwargs[0]["fail_open"] is False, (
+        "fail_open_if_no_scanner=False from config must be forwarded to scan_skill_dependencies"
+    )

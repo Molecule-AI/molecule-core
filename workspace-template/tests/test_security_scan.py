@@ -364,6 +364,48 @@ class TestScanSkillDependencies:
         call_kwargs = str(mock_audit.log_event.call_args)
         assert "skipped" in call_kwargs
 
+    def test_scan_no_scanner_fail_closed_block_raises(
+        self, real_security_scan, monkeypatch, tmp_path
+    ):
+        """#268 regression: fail_open_if_no_scanner=False + mode='block' must
+        raise SkillSecurityError when neither snyk nor pip-audit is in PATH,
+        instead of silently skipping. The default fail_open=True path is
+        covered by test_scan_no_scanner_in_path above."""
+        mod, _mock_audit = real_security_scan
+        skill_path = tmp_path / "myskill"
+        skill_path.mkdir()
+        req = skill_path / "requirements.txt"
+        req.write_text("requests==2.28.0\n")
+
+        monkeypatch.setattr(mod.shutil, "which", lambda name: None)
+
+        with pytest.raises(mod.SkillSecurityError) as exc_info:
+            mod.scan_skill_dependencies(
+                "myskill", skill_path, "block", fail_open_if_no_scanner=False,
+            )
+        assert "fail_open_if_no_scanner=false" in str(exc_info.value)
+        assert "myskill" in str(exc_info.value)
+
+    def test_scan_no_scanner_fail_closed_warn_does_not_raise(
+        self, real_security_scan, monkeypatch, tmp_path
+    ):
+        """#268: fail_open_if_no_scanner=False should only raise in block mode.
+        In warn mode it must still return a skipped ScanResult so operators get
+        a warning without breaking boot."""
+        mod, _mock_audit = real_security_scan
+        skill_path = tmp_path / "myskill"
+        skill_path.mkdir()
+        req = skill_path / "requirements.txt"
+        req.write_text("requests==2.28.0\n")
+
+        monkeypatch.setattr(mod.shutil, "which", lambda name: None)
+
+        result = mod.scan_skill_dependencies(
+            "myskill", skill_path, "warn", fail_open_if_no_scanner=False,
+        )
+        assert result.scanner == "none"
+        assert result.scan_error is not None
+
     def test_scan_snyk_clean(self, real_security_scan, monkeypatch, tmp_path):
         """shutil.which('snyk') → truthy, scanner returns clean output → clean result, audit logged."""
         mod, mock_audit = real_security_scan

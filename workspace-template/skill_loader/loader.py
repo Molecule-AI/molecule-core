@@ -140,13 +140,15 @@ def load_skills(config_path: str, skill_names: list[str]) -> list[LoadedSkill]:
 
     # Resolve security scan mode once before the loop
     scan_mode = "warn"
+    fail_open_if_no_scanner = True  # safe default matches security_scan.py default
     if _SECURITY_SCAN_AVAILABLE:
         try:
             from config import load_config
             _cfg = load_config(config_path)
             scan_mode = _cfg.security_scan.mode
+            fail_open_if_no_scanner = _cfg.security_scan.fail_open_if_no_scanner
         except Exception:
-            pass  # use default "warn" — never block on config error
+            pass  # use defaults — never block on config error
 
     for skill_name in skill_names:
         skill_path = skills_dir / skill_name
@@ -159,7 +161,10 @@ def load_skills(config_path: str, skill_names: list[str]) -> list[LoadedSkill]:
         # --- Security scan before loading any code from the skill ------------
         if _SECURITY_SCAN_AVAILABLE and scan_mode != "off":
             try:
-                scan_skill_dependencies(skill_name, skill_path, scan_mode)
+                scan_skill_dependencies(
+                    skill_name, skill_path, scan_mode,
+                    fail_open_if_no_scanner=fail_open_if_no_scanner,
+                )
             except SkillSecurityError as exc:
                 logger.warning("Skipping skill '%s': blocked by security scan — %s", skill_name, exc)
                 continue
