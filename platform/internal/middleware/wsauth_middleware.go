@@ -204,8 +204,13 @@ func canvasOriginAllowed(origin string) bool {
 // This only fires when CANVAS_PROXY_URL is set (i.e. the combined tenant
 // image is active), so self-hosted / dev setups with separate canvas and
 // platform origins are unaffected.
+// canvasProxyActive is true when the platform runs as a combined tenant
+// image (CANVAS_PROXY_URL set at boot). Cached once to avoid os.Getenv
+// on every request.
+var canvasProxyActive = os.Getenv("CANVAS_PROXY_URL") != ""
+
 func isSameOriginCanvas(c *gin.Context) bool {
-	if os.Getenv("CANVAS_PROXY_URL") == "" {
+	if !canvasProxyActive {
 		return false
 	}
 	referer := c.GetHeader("Referer")
@@ -216,9 +221,11 @@ func isSameOriginCanvas(c *gin.Context) bool {
 	if host == "" {
 		return false
 	}
-	// Referer starts with https://<host>/ or http://<host>/
+	// Referer must start with https://<host>/ or http://<host>/ (trailing
+	// slash required to prevent hongming-wang.moleculesai.app.evil.com from
+	// matching hongming-wang.moleculesai.app).
 	return strings.HasPrefix(referer, "https://"+host+"/") ||
 		strings.HasPrefix(referer, "http://"+host+"/") ||
-		strings.HasPrefix(referer, "https://"+host) ||
-		strings.HasPrefix(referer, "http://"+host)
+		referer == "https://"+host ||
+		referer == "http://"+host
 }
