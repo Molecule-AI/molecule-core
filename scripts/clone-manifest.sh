@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # clone-manifest.sh — clone all repos listed in manifest.json into their
 # target directories. Replaces hardcoded git-clone lines in Dockerfiles.
 #
