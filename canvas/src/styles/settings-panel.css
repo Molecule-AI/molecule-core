@@ -323,8 +323,8 @@
   border-radius: 6px;
   font-size: 14px;
   font-family: inherit;
-  background: #18181b;
-  color: #d4d4d8;
+  background: rgb(39 39 42);
+  color: rgb(212 212 216);
 }
 
 .add-key-form__select:focus,
@@ -398,8 +398,8 @@
   border-radius: 6px;
   font-size: 14px;
   font-family: monospace;
-  background: #18181b;
-  color: #d4d4d8;
+  background: rgb(39 39 42);
+  color: rgb(212 212 216);
 }
 
 .key-value-field input:focus {
