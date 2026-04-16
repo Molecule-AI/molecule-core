@@ -144,7 +144,7 @@ func (h *RegistryHandler) Register(c *gin.Context) {
 	`, payload.ID, payload.ID, payload.URL, agentCardStr)
 	if err != nil {
 		log.Printf("Registry register error: %v (id=%s)", err, payload.ID)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to register: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "registration failed"})
 		return
 	}
 
