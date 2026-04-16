@@ -99,15 +99,43 @@ class _TaskPauseRegistry:
     def __init__(self) -> None:
         self._events: dict[str, asyncio.Event] = {}
         self._results: dict[str, dict] = {}
+        # #265: owner map — workspace_id that created each task.
+        # Empty string means "no owner / legacy" (bypasses ownership check).
+        self._owners: dict[str, str] = {}
 
-    def register(self, task_id: str) -> asyncio.Event:
-        """Create and store an Event for *task_id*.  Returns the event."""
+    def register(self, task_id: str, owner: str = "") -> asyncio.Event:
+        """Create and store an Event for *task_id*.  Returns the event.
+
+        Args:
+            task_id: Unique task identifier.
+            owner:   Workspace ID that owns this task.  When set, ``resume``
+                     will reject callers from a different workspace.
+        """
         ev = asyncio.Event()
         self._events[task_id] = ev
+        self._owners[task_id] = owner
         return ev
 
-    def resume(self, task_id: str, result: dict | None = None) -> bool:
-        """Signal the Event for *task_id*.  Returns False if not registered."""
+    def resume(self, task_id: str, result: dict | None = None, owner: str = "") -> bool:
+        """Signal the Event for *task_id*.  Returns False if not registered.
+
+        Args:
+            task_id: The identifier used in ``register``.
+            result:  Optional result payload forwarded to the waiting coroutine.
+            owner:   Caller's workspace ID.  When both the stored owner and
+                     *owner* are non-empty and they differ, the call is rejected
+                     (returns False) — prevents cross-workspace prompt injection
+                     (#265).  Passing ``owner=""`` bypasses the check (used in
+                     direct registry calls from tests and platform code).
+        """
+        # #265 ownership check
+        stored_owner = self._owners.get(task_id, "")
+        if owner and stored_owner and owner != stored_owner:
+            logger.warning(
+                "HITL: resume rejected for task %s — caller workspace %r != owner %r",
+                task_id, owner, stored_owner,
+            )
+            return False
         ev = self._events.get(task_id)
         if ev is None:
             return False
@@ -120,9 +148,10 @@ class _TaskPauseRegistry:
         return self._results.pop(task_id, {})
 
     def cleanup(self, task_id: str) -> None:
-        """Remove *task_id* from both dicts."""
+        """Remove *task_id* from all dicts."""
         self._events.pop(task_id, None)
         self._results.pop(task_id, None)
+        self._owners.pop(task_id, None)
 
     def list_paused(self) -> list[str]:
         """Return IDs of tasks whose events have not yet been set."""
@@ -390,11 +419,11 @@ async def pause_task(task_id: str, reason: str = "") -> dict:
                  or any stable string that the caller can reference later).
         reason:  Human-readable description of why the task is pausing.
     """
-    # #265: namespace the registry key by workspace ID so a crafted A2A message
-    # cannot resume a task it didn't create (cross-workspace prompt injection).
-    # The scoped_id is only used internally; the caller still references task_id.
+    # #265: record workspace ownership on registration so resume_task can
+    # reject callers from a different workspace (cross-workspace prompt-injection
+    # prevention).  External task_id is unchanged — only internal ownership
+    # metadata is added, so no tests or callers need to update their task IDs.
     _ws = os.environ.get("WORKSPACE_ID", "")
-    scoped_id = f"{_ws}:{task_id}" if _ws else task_id
 
     try:
         from builtin_tools.audit import log_event
@@ -409,13 +438,13 @@ async def pause_task(task_id: str, reason: str = "") -> dict:
     except Exception:
         pass
 
-    event = pause_registry.register(scoped_id)
+    event = pause_registry.register(task_id, owner=_ws)
     timeout = _load_hitl_config().default_timeout
-    logger.info("HITL: task %s paused — %s", scoped_id, reason or "(no reason given)")
+    logger.info("HITL: task %s paused — %s", task_id, reason or "(no reason given)")
 
     try:
         await asyncio.wait_for(event.wait(), timeout=timeout)
-        result = pause_registry.pop_result(scoped_id)
+        result = pause_registry.pop_result(task_id)
         logger.info("HITL: task %s resumed", task_id)
         try:
             from builtin_tools.audit import log_event
@@ -450,7 +479,7 @@ async def pause_task(task_id: str, reason: str = "") -> dict:
             "error": f"Timed out after {timeout:.0f}s waiting for resume signal",
         }
     finally:
-        pause_registry.cleanup(scoped_id)
+        pause_registry.cleanup(task_id)
 
 
 @tool
@@ -465,16 +494,15 @@ async def resume_task(task_id: str, message: str = "") -> dict:
         task_id: The identifier passed to ``pause_task``.
         message: Optional message forwarded to the resumed task.
     """
-    # #265: mirror the workspace-scoped key used by pause_task so that only
-    # the same workspace can resume a task it created.
+    # #265: pass caller's workspace ID so the registry can reject a resume
+    # from a different workspace (ownership check in _TaskPauseRegistry.resume).
     _ws = os.environ.get("WORKSPACE_ID", "")
-    scoped_id = f"{_ws}:{task_id}" if _ws else task_id
 
     result_payload = {"message": message} if message else {}
-    success = pause_registry.resume(scoped_id, result_payload)
+    success = pause_registry.resume(task_id, result_payload, owner=_ws)
 
     if success:
-        logger.info("HITL: resume signal sent for task %s", scoped_id)
+        logger.info("HITL: resume signal sent for task %s", task_id)
         try:
             from builtin_tools.audit import log_event
             log_event(
