@@ -251,7 +251,7 @@ export function ChannelsTab({ workspaceId }: Props) {
                 className="w-full text-xs bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-zinc-300 placeholder-zinc-600"
               />
             )}
-            <p className="text-[9px] text-zinc-600 mt-0.5">
+            <p className="text-[11px] text-zinc-500 mt-0.5">
               {discoveredChats.length > 0 ? (
                 <>
                   Chats: <span className="text-zinc-400">{formChatId || "(none selected)"}</span>
@@ -278,7 +278,7 @@ export function ChannelsTab({ workspaceId }: Props) {
               placeholder="123456789, 987654321"
               className="w-full text-xs bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-zinc-300 placeholder-zinc-600"
             />
-            <p className="text-[9px] text-zinc-600 mt-0.5">
+            <p className="text-[11px] text-zinc-500 mt-0.5">
               Telegram user IDs. Leave empty to allow everyone.
             </p>
           </div>
