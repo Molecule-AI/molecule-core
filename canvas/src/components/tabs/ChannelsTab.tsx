@@ -87,7 +87,7 @@ export function ChannelsTab({ workspaceId }: Props) {
     try {
       const res = await api.post<{ chats: { chat_id: string; name: string; type: string }[]; hint: string }>(
         `/channels/discover`,
-        { channel_type: formType, bot_token: formBotToken }
+        { channel_type: formType, bot_token: formBotToken, workspace_id: workspaceId }
       );
       const chats = res.chats || [];
       setDiscoveredChats(chats);
