@@ -43,23 +43,41 @@ jobs:
         # is the macOS Keychain, which raises
         #   error storing credentials - err: exit status 1, out:
         #   `User interaction is not allowed. (-25308)`
-        # without an unlocked desktop session. Point DOCKER_CONFIG at a
-        # per-run temp dir so the login step writes a plain config.json
-        # that never touches the keychain. Plus diagnostics: print the
-        # docker path so a future EACCES on /usr/local/bin/docker
-        # surfaces in the log instead of via a cryptic docker-login
-        # failure mid-step.
+        # without an unlocked desktop session.
+        #
+        # Point DOCKER_CONFIG at a per-run temp dir. IMPORTANT: writing
+        # `{"auths": {}}` alone is NOT enough — Docker on macOS picks up
+        # `osxkeychain` as the default credential store even when
+        # config.json doesn't declare one, inheriting from Docker
+        # Desktop's bundled credsStore binding. We must explicitly set
+        # `credsStore` to an empty string AND clear `credHelpers` so the
+        # login step writes credentials into the auths map of this
+        # disposable config.json rather than reaching for the keychain.
+        # (First tried in #273 without the empty-credsStore line; #319
+        # + #322 merges showed it still regressed.)
+        #
+        # Plus diagnostics: print the docker path so a future EACCES on
+        # /usr/local/bin/docker surfaces in the log instead of via a
+        # cryptic docker-login failure mid-step.
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/docker-config"
-          echo '{"auths": {}}' > "${RUNNER_TEMP}/docker-config/config.json"
+          cat > "${RUNNER_TEMP}/docker-config/config.json" <<'JSON'
+          {
+            "auths": {},
+            "credsStore": "",
+            "credHelpers": {}
+          }
+          JSON
           echo "DOCKER_CONFIG=${RUNNER_TEMP}/docker-config" >> "${GITHUB_ENV}"
           echo "=== Runner docker diagnostics ==="
           echo "PATH=$PATH"
           command -v docker || echo "(docker not in PATH — the runner is missing the Docker CLI or it's not symlinked to a visible location)"
           docker --version 2>&1 || true
           ls -la /usr/local/bin/docker /opt/homebrew/bin/docker 2>&1 || true
+          echo "=== config.json after setup ==="
+          cat "${RUNNER_TEMP}/docker-config/config.json"
 
       - name: Set up QEMU
         # Required on the Apple-silicon self-hosted runner — Fly tenant machines
