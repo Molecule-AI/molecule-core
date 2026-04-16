@@ -324,9 +324,9 @@ func TestMemoryHandler_List_Empty(t *testing.T) {
 	setupTestRedis(t)
 	handler := NewMemoryHandler()
 
-	mock.ExpectQuery("SELECT key, value, expires_at, updated_at FROM workspace_memory").
+	mock.ExpectQuery("SELECT key, value, version, expires_at, updated_at FROM workspace_memory").
 		WithArgs("ws-1").
-		WillReturnRows(sqlmock.NewRows([]string{"key", "value", "expires_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"key", "value", "version", "expires_at", "updated_at"}))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -345,7 +345,7 @@ func TestMemoryHandler_Get_NotFound(t *testing.T) {
 	setupTestRedis(t)
 	handler := NewMemoryHandler()
 
-	mock.ExpectQuery("SELECT key, value, expires_at, updated_at FROM workspace_memory").
+	mock.ExpectQuery("SELECT key, value, version, expires_at, updated_at FROM workspace_memory").
 		WithArgs("ws-1", "missing-key").
 		WillReturnError(sql.ErrNoRows)
 
