@@ -167,45 +167,51 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// Resolve template config — needed for both Docker provisioning and
+	// config-only persistence (tenant SaaS without Docker).
+	var templatePath string
+	var configFiles map[string][]byte
+	if payload.Template != "" {
+		candidatePath, resolveErr := resolveInsideRoot(h.configsDir, payload.Template)
+		if resolveErr != nil {
+			log.Printf("Create provision: rejecting template %q: %v", payload.Template, resolveErr)
+			return
+		}
+		if _, err := os.Stat(candidatePath); err == nil {
+			templatePath = candidatePath
+		} else {
+			log.Printf("Create: template %q not found, falling back for %s", payload.Template, payload.Name)
+			safeRuntime := sanitizeRuntime(payload.Runtime)
+			runtimeDefault := filepath.Join(h.configsDir, safeRuntime+"-default")
+			if _, err := os.Stat(runtimeDefault); err == nil {
+				templatePath = runtimeDefault
+			} else {
+				configFiles = h.ensureDefaultConfig(id, payload)
+			}
+		}
+	} else {
+		configFiles = h.ensureDefaultConfig(id, payload)
+	}
+
 	// Auto-provision — start a container
 	if h.provisioner != nil {
-		var templatePath string
-		var configFiles map[string][]byte
-		if payload.Template != "" {
-			// #226: re-validate the template path at provision time. Even
-			// though the create-path validates above, provision runs in a
-			// goroutine with a fresh payload copy — duplicate the guard so
-			// a future code path that reaches provisionTenant with an
-			// unchecked payload can't regress the fix.
-			candidatePath, resolveErr := resolveInsideRoot(h.configsDir, payload.Template)
-			if resolveErr != nil {
-				log.Printf("Create provision: rejecting template %q: %v", payload.Template, resolveErr)
-				return
-			}
-			if _, err := os.Stat(candidatePath); err == nil {
-				templatePath = candidatePath
-			} else {
-				// Template not found — try runtime-default template, then generate config.
-				// #241: sanitizeRuntime() filters payload.Runtime through an
-				// allowlist so an attacker can't smuggle a path-traversal
-				// oracle (`runtime: ../../sensitive`) into the filepath.Join
-				// below. Any unknown runtime collapses to the default.
-				log.Printf("Create: template %q not found, falling back for %s", payload.Template, payload.Name)
-				safeRuntime := sanitizeRuntime(payload.Runtime)
-				runtimeDefault := filepath.Join(h.configsDir, safeRuntime+"-default")
-				if _, err := os.Stat(runtimeDefault); err == nil {
-					templatePath = runtimeDefault
-					log.Printf("Create: using runtime-default template %s for %s", safeRuntime+"-default", payload.Name)
-				} else {
-					configFiles = h.ensureDefaultConfig(id, payload)
-					log.Printf("Create: generating default config for %s (runtime=%s)", payload.Name, payload.Runtime)
-				}
-			}
-		} else {
-			// No template — generate config files in memory
-			configFiles = h.ensureDefaultConfig(id, payload)
-		}
 		go h.provisionWorkspace(id, templatePath, configFiles, payload)
+	} else {
+		// No Docker available (SaaS tenant). Persist basic config as JSON
+		// so the Config tab shows the correct runtime/model/name. Then mark
+		// the workspace as failed with a clear message.
+		cfgJSON := fmt.Sprintf(`{"name":%q,"runtime":%q,"tier":%d,"template":%q}`,
+			payload.Name, payload.Runtime, payload.Tier, payload.Template)
+		db.DB.ExecContext(ctx, `
+			INSERT INTO workspace_config (workspace_id, data) VALUES ($1, $2::jsonb)
+			ON CONFLICT (workspace_id) DO UPDATE SET data = $2::jsonb
+		`, id, cfgJSON)
+		db.DB.ExecContext(ctx,
+			`UPDATE workspaces SET status = 'failed', last_sample_error = 'Docker not available — workspace containers require a Docker daemon or external provisioning.', updated_at = now() WHERE id = $1`, id)
+		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", id, map[string]interface{}{
+			"error": "Docker not available on this platform instance",
+		})
+		log.Printf("Create: no Docker daemon — workspace %s config persisted, marked failed", id)
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
