@@ -28,16 +28,28 @@ func InitRedis(redisURL string) error {
 	return nil
 }
 
-// SetOnline sets the workspace liveness key with a 60s TTL.
+// LivenessTTL is the TTL for the workspace liveness key in Redis.
+// Must be > heartbeat interval × (max acceptable missed heartbeats).
+// Workspace heartbeat loop fires every 30s; a busy Claude Code / Opus
+// synthesis can starve the asyncio scheduler for 60-120s, so a 60s TTL
+// triggered false-positive "unreachable — restart" cycles on busy
+// leaders every ~30 minutes (see README in this package + the commit
+// message). 180s allows up to ~5 missed heartbeats before we conclude
+// the container is actually dead, which still cleanly detects real
+// crashes (the a2a_proxy reactive IsRunning() check catches those on
+// the first failed forward, independent of TTL).
+const LivenessTTL = 180 * time.Second
+
+// SetOnline sets the workspace liveness key with the LivenessTTL.
 func SetOnline(ctx context.Context, workspaceID string) error {
 	key := fmt.Sprintf("ws:%s", workspaceID)
-	return RDB.Set(ctx, key, "online", 60*time.Second).Err()
+	return RDB.Set(ctx, key, "online", LivenessTTL).Err()
 }
 
 // RefreshTTL refreshes the liveness TTL for a workspace.
 func RefreshTTL(ctx context.Context, workspaceID string) error {
 	key := fmt.Sprintf("ws:%s", workspaceID)
-	return RDB.Expire(ctx, key, 60*time.Second).Err()
+	return RDB.Expire(ctx, key, LivenessTTL).Err()
 }
 
 // CacheURL caches a workspace URL for fast resolution.
