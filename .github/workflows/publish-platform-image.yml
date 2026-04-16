@@ -12,8 +12,10 @@ on:
       # Only rebuild when something platform-relevant changes — saves GHA
       # minutes on docs-only / canvas-only / MCP-only PRs.
       - 'platform/**'
-      - 'workspace-configs-templates/**'
       - '.github/workflows/publish-platform-image.yml'
+      # Templates now live in standalone repos — template changes no longer
+      # trigger a platform rebuild. Use workflow_dispatch to manually rebuild
+      # if a template repo update needs to be baked into the image.
   # Manual trigger for re-publishing a tag after a non-platform merge.
   workflow_dispatch:
 
