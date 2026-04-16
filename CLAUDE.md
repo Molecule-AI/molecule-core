@@ -14,6 +14,11 @@ overlap / differentiation / terminology-collision notes. Cross-referenced
 from `PLAN.md` and `README.md`; it's the canonical starting point for
 "what else is out there."
 
+When a term is ambiguous across projects (harness / workspace / plugin /
+flow / crew / component), consult **`docs/glossary.md`** for how we use
+it vs. ecosystem neighbors — authoritative disambiguation table, kept in
+sync with `docs/ecosystem-watch.md`.
+
 ## SaaS ops
 
 When rotating SaaS credentials (Fly / Neon / Upstash / envelope key), read

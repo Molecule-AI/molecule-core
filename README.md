@@ -285,6 +285,7 @@ Then open `http://localhost:3000`:
 - [Canvas UI](./docs/frontend/canvas.md)
 - [Local Development](./docs/development/local-development.md)
 - [Ecosystem Watch](./docs/ecosystem-watch.md) — adjacent projects we track (Holaboss, Hermes, gstack, …)
+- [Glossary](./docs/glossary.md) — how we use "harness", "workspace", "plugin", "flow" vs. ecosystem neighbors
 
 ## Current Scope
 
