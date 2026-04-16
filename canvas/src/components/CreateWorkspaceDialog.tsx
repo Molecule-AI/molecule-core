@@ -10,6 +10,31 @@ interface WorkspaceOption {
   tier: number;
 }
 
+interface HermesProvider {
+  id: string;
+  label: string;
+  envVar: string;
+}
+
+// All providers supported by Hermes runtime via providers.resolve_provider()
+export const HERMES_PROVIDERS: HermesProvider[] = [
+  { id: "anthropic", label: "Anthropic (Claude)", envVar: "ANTHROPIC_API_KEY" },
+  { id: "openai", label: "OpenAI", envVar: "OPENAI_API_KEY" },
+  { id: "openrouter", label: "OpenRouter", envVar: "OPENROUTER_API_KEY" },
+  { id: "xai", label: "xAI (Grok)", envVar: "XAI_API_KEY" },
+  { id: "gemini", label: "Google Gemini", envVar: "GEMINI_API_KEY" },
+  { id: "qwen", label: "Qwen (Alibaba)", envVar: "QWEN_API_KEY" },
+  { id: "glm", label: "GLM (Zhipu AI)", envVar: "GLM_API_KEY" },
+  { id: "kimi", label: "Kimi (Moonshot)", envVar: "KIMI_API_KEY" },
+  { id: "minimax", label: "MiniMax", envVar: "MINIMAX_API_KEY" },
+  { id: "deepseek", label: "DeepSeek", envVar: "DEEPSEEK_API_KEY" },
+  { id: "groq", label: "Groq", envVar: "GROQ_API_KEY" },
+  { id: "mistral", label: "Mistral", envVar: "MISTRAL_API_KEY" },
+  { id: "together", label: "Together AI", envVar: "TOGETHER_API_KEY" },
+  { id: "fireworks", label: "Fireworks AI", envVar: "FIREWORKS_API_KEY" },
+  { id: "hermes", label: "Hermes / Nous (legacy)", envVar: "HERMES_API_KEY" },
+];
+
 export function CreateWorkspaceButton() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -21,6 +46,12 @@ export function CreateWorkspaceButton() {
   const [error, setError] = useState<string | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
 
+  // Hermes-specific state
+  const [hermesProvider, setHermesProvider] = useState("anthropic");
+  const [hermesApiKey, setHermesApiKey] = useState("");
+
+  const isHermes = template.trim().toLowerCase() === "hermes";
+
   // Reset form and load workspaces whenever dialog opens
   useEffect(() => {
     if (!open) return;
@@ -30,6 +61,8 @@ export function CreateWorkspaceButton() {
     setTemplate("");
     setParentId("");
     setError(null);
+    setHermesProvider("anthropic");
+    setHermesApiKey("");
     api
       .get<WorkspaceOption[]>("/workspaces")
       .then((ws) => setWorkspaces(ws))
@@ -41,8 +74,17 @@ export function CreateWorkspaceButton() {
       setError("Name is required");
       return;
     }
+    if (isHermes && !hermesApiKey.trim()) {
+      setError("API key is required for Hermes workspaces");
+      return;
+    }
     setCreating(true);
     setError(null);
+
+    const provider = isHermes
+      ? HERMES_PROVIDERS.find((p) => p.id === hermesProvider)
+      : undefined;
+
     try {
       await api.post("/workspaces", {
         name: name.trim(),
@@ -51,6 +93,9 @@ export function CreateWorkspaceButton() {
         tier,
         parent_id: parentId || undefined,
         canvas: { x: Math.random() * 400 + 100, y: Math.random() * 300 + 100 },
+        ...(isHermes && provider
+          ? { secrets: { [provider.envVar]: hermesApiKey.trim() } }
+          : {}),
       });
       setOpen(false);
     } catch (e) {
@@ -86,7 +131,7 @@ export function CreateWorkspaceButton() {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" />
         <Dialog.Content
-          className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-zinc-900 border border-zinc-700/60 rounded-2xl shadow-2xl shadow-black/40 w-[400px] p-6"
+          className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-zinc-900 border border-zinc-700/60 rounded-2xl shadow-2xl shadow-black/40 w-[400px] max-h-[90vh] overflow-y-auto p-6"
           aria-describedby={undefined}
         >
           <Dialog.Title className="text-base font-semibold text-zinc-100 mb-1">
@@ -172,6 +217,67 @@ export function CreateWorkspaceButton() {
               </select>
             </div>
           </div>
+
+          {/* Hermes provider configuration — shown only when template === "hermes" */}
+          {isHermes && (
+            <div
+              className="mt-4 rounded-xl border border-violet-700/40 bg-violet-950/20 p-4 space-y-3"
+              data-testid="hermes-provider-section"
+            >
+              <p className="text-[11px] font-semibold text-violet-400 uppercase tracking-wide">
+                Hermes Provider
+              </p>
+              <p className="text-[11px] text-zinc-500 -mt-1">
+                Choose the AI provider and paste your API key. The key is
+                stored as an encrypted workspace secret.
+              </p>
+
+              <div>
+                <label
+                  htmlFor="hermes-provider-select"
+                  className="text-[11px] text-zinc-400 block mb-1"
+                >
+                  Provider
+                </label>
+                <select
+                  id="hermes-provider-select"
+                  value={hermesProvider}
+                  onChange={(e) => setHermesProvider(e.target.value)}
+                  aria-label="Hermes provider"
+                  className="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/20 transition-colors"
+                >
+                  {HERMES_PROVIDERS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="hermes-api-key-input"
+                  className="text-[11px] text-zinc-400 block mb-1"
+                >
+                  API Key{" "}
+                  <span aria-hidden="true" className="text-red-400">
+                    *
+                  </span>
+                  <span className="sr-only"> (required)</span>
+                </label>
+                <input
+                  id="hermes-api-key-input"
+                  type="password"
+                  value={hermesApiKey}
+                  onChange={(e) => setHermesApiKey(e.target.value)}
+                  placeholder="sk-…"
+                  aria-label="Hermes API key"
+                  autoComplete="off"
+                  className="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/20 transition-colors font-mono"
+                />
+              </div>
+            </div>
+          )}
 
           {error && (
             <div

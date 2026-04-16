@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
-import { CreateWorkspaceButton } from "../CreateWorkspaceDialog";
+import { CreateWorkspaceButton, HERMES_PROVIDERS } from "../CreateWorkspaceDialog";
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -38,6 +38,13 @@ async function openDialog() {
   expect(btn).toBeTruthy();
   fireEvent.click(btn!);
   await waitFor(() => expect(screen.getByText("Create Workspace")).toBeTruthy());
+}
+
+async function setTemplate(value: string) {
+  fireEvent.change(
+    screen.getByPlaceholderText("e.g. seo-agent (from workspace-configs-templates/)"),
+    { target: { value } }
+  );
 }
 
 describe("CreateWorkspaceDialog", () => {
@@ -126,5 +133,169 @@ describe("CreateWorkspaceDialog", () => {
       expect(select.options.length).toBe(1);
       expect(select.options[0].value).toBe("");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hermes provider picker tests
+// ---------------------------------------------------------------------------
+
+describe("CreateWorkspaceDialog — Hermes provider picker", () => {
+  it("does NOT show hermes provider section for non-hermes templates", async () => {
+    await openDialog();
+    await setTemplate("seo-agent");
+    expect(document.querySelector("[data-testid='hermes-provider-section']")).toBeNull();
+  });
+
+  it("shows hermes provider section when template is 'hermes'", async () => {
+    await openDialog();
+    await setTemplate("hermes");
+    await waitFor(() =>
+      expect(document.querySelector("[data-testid='hermes-provider-section']")).toBeTruthy()
+    );
+  });
+
+  it("shows hermes provider section for template 'HERMES' (case-insensitive)", async () => {
+    await openDialog();
+    await setTemplate("HERMES");
+    await waitFor(() =>
+      expect(document.querySelector("[data-testid='hermes-provider-section']")).toBeTruthy()
+    );
+  });
+
+  it("hermes provider dropdown defaults to 'anthropic'", async () => {
+    await openDialog();
+    await setTemplate("hermes");
+    await waitFor(() =>
+      expect(document.querySelector("[data-testid='hermes-provider-section']")).toBeTruthy()
+    );
+    const providerSelect = document.getElementById("hermes-provider-select") as HTMLSelectElement;
+    expect(providerSelect).toBeTruthy();
+    expect(providerSelect.value).toBe("anthropic");
+  });
+
+  it("hermes provider dropdown lists all 15 providers", async () => {
+    await openDialog();
+    await setTemplate("hermes");
+    await waitFor(() =>
+      expect(document.querySelector("[data-testid='hermes-provider-section']")).toBeTruthy()
+    );
+    const providerSelect = document.getElementById("hermes-provider-select") as HTMLSelectElement;
+    expect(providerSelect.options.length).toBe(HERMES_PROVIDERS.length);
+    const ids = Array.from(providerSelect.options).map((o) => o.value);
+    expect(ids).toContain("anthropic");
+    expect(ids).toContain("openai");
+    expect(ids).toContain("gemini");
+    expect(ids).toContain("deepseek");
+    expect(ids).toContain("hermes");
+  });
+
+  it("hermes API key field is a password input (masked)", async () => {
+    await openDialog();
+    await setTemplate("hermes");
+    await waitFor(() =>
+      expect(document.querySelector("[data-testid='hermes-provider-section']")).toBeTruthy()
+    );
+    const keyInput = document.getElementById("hermes-api-key-input") as HTMLInputElement;
+    expect(keyInput).toBeTruthy();
+    expect(keyInput.type).toBe("password");
+  });
+
+  it("shows an error if hermes template is set but API key is empty on submit", async () => {
+    await openDialog();
+    fireEvent.change(screen.getByPlaceholderText("e.g. SEO Agent"), {
+      target: { value: "Hermes Agent" },
+    });
+    await setTemplate("hermes");
+    await waitFor(() =>
+      expect(document.querySelector("[data-testid='hermes-provider-section']")).toBeTruthy()
+    );
+
+    // Submit without API key
+    const createBtn = screen.getAllByRole("button").find((b) => b.textContent === "Create");
+    fireEvent.click(createBtn!);
+
+    await waitFor(() => {
+      const alert = screen.getByRole("alert");
+      expect(alert.textContent).toContain("API key");
+    });
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it("includes secrets in POST body with correct env var for selected provider", async () => {
+    await openDialog();
+    fireEvent.change(screen.getByPlaceholderText("e.g. SEO Agent"), {
+      target: { value: "Hermes Agent" },
+    });
+    await setTemplate("hermes");
+    await waitFor(() =>
+      expect(document.querySelector("[data-testid='hermes-provider-section']")).toBeTruthy()
+    );
+
+    // Fill in the API key
+    const keyInput = document.getElementById("hermes-api-key-input") as HTMLInputElement;
+    fireEvent.change(keyInput, { target: { value: "sk-test-anthropic-key" } });
+
+    const createBtn = screen.getAllByRole("button").find((b) => b.textContent === "Create");
+    fireEvent.click(createBtn!);
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    const body = mockPost.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.secrets).toEqual({ ANTHROPIC_API_KEY: "sk-test-anthropic-key" });
+    expect(body.template).toBe("hermes");
+  });
+
+  it("uses the correct env var when a non-default provider is selected", async () => {
+    await openDialog();
+    fireEvent.change(screen.getByPlaceholderText("e.g. SEO Agent"), {
+      target: { value: "Hermes OpenAI" },
+    });
+    await setTemplate("hermes");
+    await waitFor(() =>
+      expect(document.querySelector("[data-testid='hermes-provider-section']")).toBeTruthy()
+    );
+
+    // Switch to openai
+    const providerSelect = document.getElementById("hermes-provider-select") as HTMLSelectElement;
+    fireEvent.change(providerSelect, { target: { value: "openai" } });
+
+    const keyInput = document.getElementById("hermes-api-key-input") as HTMLInputElement;
+    fireEvent.change(keyInput, { target: { value: "sk-openai-test" } });
+
+    const createBtn = screen.getAllByRole("button").find((b) => b.textContent === "Create");
+    fireEvent.click(createBtn!);
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    const body = mockPost.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.secrets).toEqual({ OPENAI_API_KEY: "sk-openai-test" });
+  });
+
+  it("does NOT include secrets field when template is not hermes", async () => {
+    await openDialog();
+    fireEvent.change(screen.getByPlaceholderText("e.g. SEO Agent"), {
+      target: { value: "Normal Agent" },
+    });
+    await setTemplate("seo-agent");
+
+    const createBtn = screen.getAllByRole("button").find((b) => b.textContent === "Create");
+    fireEvent.click(createBtn!);
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    const body = mockPost.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.secrets).toBeUndefined();
+  });
+
+  it("hides hermes section and resets state when template is cleared", async () => {
+    await openDialog();
+    await setTemplate("hermes");
+    await waitFor(() =>
+      expect(document.querySelector("[data-testid='hermes-provider-section']")).toBeTruthy()
+    );
+
+    // Clear template
+    await setTemplate("");
+    await waitFor(() =>
+      expect(document.querySelector("[data-testid='hermes-provider-section']")).toBeNull()
+    );
   });
 });
