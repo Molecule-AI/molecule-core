@@ -117,6 +117,25 @@ func RevokeAllForWorkspace(ctx context.Context, db *sql.DB, workspaceID string) 
 	return nil
 }
 
+// WorkspaceExists reports whether a workspace row is present in the
+// database. Used by WorkspaceAuth to close the #318 fail-open gap —
+// the lazy-bootstrap grace period is meant for real workspaces that
+// haven't yet been issued a token, NOT for fabricated UUIDs an
+// unauthenticated caller is using to probe our API surface.
+//
+// Kept in this package (rather than handlers) so the middleware does not
+// need to reach across the handlers boundary for a 1-column EXISTS query.
+func WorkspaceExists(ctx context.Context, db *sql.DB, workspaceID string) (bool, error) {
+	var exists bool
+	err := db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM workspaces WHERE id = $1)`, workspaceID,
+	).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
 // HasAnyLiveToken reports whether the given workspace has at least one
 // live (non-revoked) token on file. Used by the lazy-bootstrap path in
 // the heartbeat handler — a legacy workspace that registered before
