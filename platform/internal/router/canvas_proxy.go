@@ -33,6 +33,11 @@ func newCanvasProxy(targetURL string) gin.HandlerFunc {
 			req.URL.Scheme = target.Scheme
 			req.URL.Host = target.Host
 			req.Host = target.Host
+			// Strip credentials that belong to the platform API — the canvas
+			// Next.js server is internal and should never receive workspace
+			// bearer tokens or session cookies (N2 / issue #451).
+			req.Header.Del("Authorization")
+			req.Header.Del("Cookie")
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			log.Printf("canvas_proxy: %v", err)
