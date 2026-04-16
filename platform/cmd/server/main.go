@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/crypto"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/githubapp"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/handlers"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
@@ -118,6 +120,38 @@ func main() {
 	// the offline callbacks used by both the liveness monitor and the health sweep.
 	wh := handlers.NewWorkspaceHandler(broadcaster, prov, platformURL, configsDir)
 
+	// Wire the GitHub App client so workspace provisioning can mint
+	// short-lived installation tokens instead of distributing the shared
+	// PAT. NewClient returns (nil, nil) when any of the three required
+	// env vars is absent — we log that state once on boot so ops knows
+	// which path is active; err != nil only when config is provided but
+	// malformed (bad PEM / non-RSA key), which is a hard bug worth
+	// surfacing. Config is read from platform env (ops sets these via
+	// /admin/secrets, which plumbs them into the platform process env).
+	if appClient, err := githubapp.NewClient(githubapp.Config{
+		AppID: parseIntEnv("GITHUB_APP_ID"),
+		// Two ways to supply the private key, in priority order:
+		//   1. GITHUB_APP_PRIVATE_KEY_FILE — path to a PEM file (preferred).
+		//      Multi-line PEMs survive cleanly through Docker/Compose env
+		//      plumbing this way; the alternative requires escaping every
+		//      newline in YAML / .env files.
+		//   2. GITHUB_APP_PRIVATE_KEY — literal PEM bytes inline. Useful
+		//      for testing / one-off env exports; production should prefer
+		//      the file path so the key never touches a container's env
+		//      table (visible to anyone with `docker inspect`).
+		// Empty file path or read error → fall through to env var; both
+		// empty → NewClient returns (nil, nil) → static-PAT fallback.
+		PrivateKeyPEM:  loadGitHubAppPrivateKey(),
+		InstallationID: parseIntEnv("GITHUB_APP_INSTALLATION_ID"),
+	}); err != nil {
+		log.Printf("GitHubApp: config present but invalid: %v — staying on static GITHUB_TOKEN path", err)
+	} else if appClient == nil {
+		log.Printf("GitHubApp: not configured (missing GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY[_FILE] / GITHUB_APP_INSTALLATION_ID) — workspaces will use the static GITHUB_TOKEN workspace secret")
+	} else {
+		log.Printf("GitHubApp: installation token minting enabled (AppID=%d)", parseIntEnv("GITHUB_APP_ID"))
+		wh.SetGitHubAppClient(appClient)
+	}
+
 	// Offline handler: broadcast event + auto-restart the dead workspace
 	onWorkspaceOffline := func(innerCtx context.Context, workspaceID string) {
 		if err := broadcaster.RecordAndBroadcast(innerCtx, "WORKSPACE_OFFLINE", workspaceID, map[string]interface{}{}); err != nil {
@@ -185,6 +219,40 @@ func main() {
 	hub.Close()
 
 	log.Println("Platform stopped")
+}
+
+// parseIntEnv reads an int64 env var. Returns 0 for empty / invalid,
+// which makes missing-config indistinguishable from zero-config — the
+// githubapp package treats 0 as "not set" and disables itself.
+// loadGitHubAppPrivateKey returns PEM bytes from
+// GITHUB_APP_PRIVATE_KEY_FILE (preferred) or GITHUB_APP_PRIVATE_KEY
+// (literal). Read errors on the file path log + return empty so the
+// caller treats it as "not configured" rather than "config error" —
+// missing file is operationally indistinguishable from the env var
+// being unset.
+func loadGitHubAppPrivateKey() []byte {
+	if path := os.Getenv("GITHUB_APP_PRIVATE_KEY_FILE"); path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			log.Printf("GitHubApp: GITHUB_APP_PRIVATE_KEY_FILE=%q read failed: %v — trying GITHUB_APP_PRIVATE_KEY env var", path, err)
+		} else {
+			return data
+		}
+	}
+	return []byte(os.Getenv("GITHUB_APP_PRIVATE_KEY"))
+}
+
+func parseIntEnv(key string) int64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		log.Printf("parseIntEnv: %s=%q is not a valid int64 (%v) — treating as unset", key, v, err)
+		return 0
+	}
+	return n
 }
 
 func envOr(key, fallback string) string {

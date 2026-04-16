@@ -12,6 +12,7 @@ import (
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/githubapp"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/models"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
@@ -25,6 +26,13 @@ type WorkspaceHandler struct {
 	provisioner *provisioner.Provisioner
 	platformURL string
 	configsDir  string // path to workspace-configs-templates/ (for reading templates)
+	// githubAppClient mints short-lived installation tokens when the
+	// platform has GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY +
+	// GITHUB_APP_INSTALLATION_ID configured. Nil when App auth isn't set
+	// up yet — provisioner falls back to the static GITHUB_TOKEN workspace
+	// secret. Wired via SetGitHubAppClient after construction so the main
+	// package can build the client once and inject it.
+	githubAppClient *githubapp.Client
 }
 
 func NewWorkspaceHandler(b *events.Broadcaster, p *provisioner.Provisioner, platformURL, configsDir string) *WorkspaceHandler {
@@ -34,6 +42,14 @@ func NewWorkspaceHandler(b *events.Broadcaster, p *provisioner.Provisioner, plat
 		platformURL: platformURL,
 		configsDir:  configsDir,
 	}
+}
+
+// SetGitHubAppClient injects a GitHub App client for installation-token
+// minting during workspace provision. Pass nil to disable (falls back to
+// the static GITHUB_TOKEN path). Safe to call multiple times (last write
+// wins; used by tests to swap clients between cases).
+func (h *WorkspaceHandler) SetGitHubAppClient(c *githubapp.Client) {
+	h.githubAppClient = c
 }
 
 // Create handles POST /workspaces

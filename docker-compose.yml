@@ -128,11 +128,26 @@ services:
       CONFIGS_DIR: /configs
       CONFIGS_HOST_DIR: "${CONFIGS_HOST_DIR:-${PWD}/workspace-configs-templates}"
       PLUGINS_HOST_DIR: "${PLUGINS_HOST_DIR:-${PWD}/plugins}"
+      # GitHub App auth (optional). When all three are present the platform
+      # mints short-lived installation tokens per workspace provision and
+      # passes them as GITHUB_TOKEN. Missing → fall back to static PAT in
+      # workspace_secrets. The `_FILE` form keeps the multi-line PEM out
+      # of the env table (visible to anyone with `docker inspect`).
+      GITHUB_APP_ID: "${GITHUB_APP_ID:-}"
+      GITHUB_APP_INSTALLATION_ID: "${GITHUB_APP_INSTALLATION_ID:-}"
+      GITHUB_APP_PRIVATE_KEY_FILE: "${GITHUB_APP_PRIVATE_KEY_FILE:-}"
     volumes:
       - ./workspace-configs-templates:/configs
       - ./org-templates:/org-templates:ro
       - ./plugins:/plugins:ro
       - /var/run/docker.sock:/var/run/docker.sock
+      # GitHub App private key (read-only). Mounted at the path the
+      # platform expects via GITHUB_APP_PRIVATE_KEY_FILE. The host file
+      # at .secrets/github-app.pem stays gitignored. Optional — bind only
+      # if the host has the secrets dir; compose won't fail when missing
+      # because the env path resolves to empty + platform falls through to
+      # static-PAT.
+      - ./.secrets:/secrets:ro
     ports:
       - "${PLATFORM_PUBLISH_PORT:-8080}:${PLATFORM_PORT:-8080}"
     networks:
