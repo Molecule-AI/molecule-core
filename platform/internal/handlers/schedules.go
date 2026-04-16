@@ -1,3 +1,4 @@
+// Package handlers — schedule health endpoint added in #249.
 package handlers
 
 import (
