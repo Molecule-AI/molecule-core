@@ -3,13 +3,14 @@
 Coverage targets
 ----------------
 - _reasoning_supported()        — model name pattern detection
-- ProviderConfig                — capability flags derived from model name
-- HermesA2AExecutor.__init__   — field assignment + client injection
+- ProviderConfig                — capability flags + sampling_defaults (#500)
+- HermesA2AExecutor.__init__   — field assignment, client injection, sampling
 - HermesA2AExecutor._build_messages — system prompt + user turn assembly
 - HermesA2AExecutor._log_reasoning  — OTEL span emission + swallowed errors
 - HermesA2AExecutor.execute    — happy path, empty input, API error,
                                   Hermes 4 extra_body, Hermes 3 no extra_body,
-                                  reasoning not in reply, reasoning_details
+                                  reasoning not in reply, reasoning_details,
+                                  sampling defaults forwarded, overrides win
 - HermesA2AExecutor.cancel     — TaskStatusUpdateEvent emitted
 
 The ``openai`` module is stubbed in sys.modules so no real API call is made.
@@ -69,6 +70,7 @@ from hermes_executor import (  # noqa: E402
     HermesA2AExecutor,
     ProviderConfig,
     _HERMES4_PATTERNS,
+    _HERMES_SAMPLING_DEFAULTS,
     _reasoning_supported,
 )
 
@@ -699,3 +701,147 @@ async def test_no_system_prompt_only_user_message():
     msgs = mock_client.chat.completions.create.call_args[1]["messages"]
     assert len(msgs) == 1
     assert msgs[0]["role"] == "user"
+
+
+# ---------------------------------------------------------------------------
+# Sampling defaults — issue #500
+# ---------------------------------------------------------------------------
+
+
+def test_hermes_sampling_defaults_constant():
+    """_HERMES_SAMPLING_DEFAULTS matches Nous-recommended values."""
+    assert _HERMES_SAMPLING_DEFAULTS["temperature"] == 0.6
+    assert _HERMES_SAMPLING_DEFAULTS["top_p"] == 0.95
+    assert _HERMES_SAMPLING_DEFAULTS["top_k"] == 20
+
+
+def test_provider_config_hermes4_has_sampling_defaults():
+    """Hermes 4 model → sampling_defaults == Nous recommendations."""
+    cfg = ProviderConfig("nousresearch/hermes-4-0")
+    assert cfg.sampling_defaults == _HERMES_SAMPLING_DEFAULTS
+
+
+def test_provider_config_hermes3_has_sampling_defaults():
+    """Hermes 3 model also gets sampling defaults (same Nous recommendations)."""
+    cfg = ProviderConfig("nousresearch/hermes-3-llama-3.1-70b")
+    assert cfg.sampling_defaults == _HERMES_SAMPLING_DEFAULTS
+
+
+def test_provider_config_non_hermes_no_sampling_defaults():
+    """Non-Hermes model → sampling_defaults is empty dict."""
+    cfg = ProviderConfig("gpt-4o")
+    assert cfg.sampling_defaults == {}
+
+
+def test_provider_config_sampling_defaults_is_independent_copy():
+    """sampling_defaults is a copy — mutations don't affect the constant."""
+    cfg = ProviderConfig("nousresearch/hermes-4-0")
+    cfg.sampling_defaults["temperature"] = 999.0
+    # The constant must remain unchanged
+    assert _HERMES_SAMPLING_DEFAULTS["temperature"] == 0.6
+
+
+def test_executor_sampling_stored_from_provider_defaults():
+    """Constructor stores _sampling from ProviderConfig defaults (no overrides)."""
+    executor = HermesA2AExecutor(model="nousresearch/hermes-4-0", _client=MagicMock())
+    assert executor._sampling == {"temperature": 0.6, "top_p": 0.95, "top_k": 20}
+
+
+def test_executor_temperature_override_wins():
+    """Per-instance temperature override takes precedence over provider default."""
+    executor = HermesA2AExecutor(
+        model="nousresearch/hermes-4-0", temperature=0.1, _client=MagicMock()
+    )
+    assert executor._sampling["temperature"] == 0.1
+    # Other defaults remain unchanged
+    assert executor._sampling["top_p"] == 0.95
+    assert executor._sampling["top_k"] == 20
+
+
+def test_executor_top_p_override_wins():
+    """Per-instance top_p override takes precedence over provider default."""
+    executor = HermesA2AExecutor(
+        model="nousresearch/hermes-4-0", top_p=0.5, _client=MagicMock()
+    )
+    assert executor._sampling["top_p"] == 0.5
+    assert executor._sampling["temperature"] == 0.6  # unchanged
+
+
+def test_executor_top_k_override_wins():
+    """Per-instance top_k override takes precedence over provider default."""
+    executor = HermesA2AExecutor(
+        model="nousresearch/hermes-4-0", top_k=50, _client=MagicMock()
+    )
+    assert executor._sampling["top_k"] == 50
+    assert executor._sampling["temperature"] == 0.6  # unchanged
+
+
+def test_executor_all_overrides_win():
+    """All three sampling params can be overridden simultaneously."""
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        temperature=0.2,
+        top_p=0.8,
+        top_k=10,
+        _client=MagicMock(),
+    )
+    assert executor._sampling == {"temperature": 0.2, "top_p": 0.8, "top_k": 10}
+
+
+def test_executor_non_hermes_no_sampling_params():
+    """Non-Hermes model → _sampling is empty, no defaults injected."""
+    executor = HermesA2AExecutor(model="gpt-4o", _client=MagicMock())
+    assert executor._sampling == {}
+
+
+@pytest.mark.asyncio
+async def test_execute_sampling_defaults_forwarded_to_api():
+    """Hermes model → temperature/top_p/top_k forwarded to chat.completions.create."""
+    executor, mock_client = _make_executor(model="nousresearch/hermes-4-0")
+    mock_client.chat.completions.create.return_value = _make_api_response("ok")
+
+    await executor.execute(_make_context("hello"), AsyncMock())
+
+    call_kwargs = mock_client.chat.completions.create.call_args[1]
+    assert call_kwargs["temperature"] == 0.6
+    assert call_kwargs["top_p"] == 0.95
+    assert call_kwargs["top_k"] == 20
+
+
+@pytest.mark.asyncio
+async def test_execute_sampling_override_forwarded_to_api():
+    """Per-instance override is forwarded to the API call, not the default."""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_api_response("ok")
+    )
+    executor = HermesA2AExecutor(
+        model="nousresearch/hermes-4-0",
+        temperature=0.1,
+        top_k=5,
+        _client=mock_client,
+    )
+
+    await executor.execute(_make_context("hello"), AsyncMock())
+
+    call_kwargs = mock_client.chat.completions.create.call_args[1]
+    assert call_kwargs["temperature"] == 0.1   # override wins
+    assert call_kwargs["top_k"] == 5           # override wins
+    assert call_kwargs["top_p"] == 0.95        # default preserved
+
+
+@pytest.mark.asyncio
+async def test_execute_non_hermes_no_sampling_in_api_call():
+    """Non-Hermes model → no temperature/top_p/top_k in the API call."""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_api_response("ok")
+    )
+    executor = HermesA2AExecutor(model="gpt-4o", _client=mock_client)
+
+    await executor.execute(_make_context("hello"), AsyncMock())
+
+    call_kwargs = mock_client.chat.completions.create.call_args[1]
+    assert "temperature" not in call_kwargs
+    assert "top_p" not in call_kwargs
+    assert "top_k" not in call_kwargs

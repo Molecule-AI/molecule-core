@@ -21,6 +21,18 @@ OTEL activity span so operators can inspect the thinking trace in Langfuse
 A2A reply — doing so would contaminate the agent's next-turn context with
 the model's internal scratchpad.
 
+Sampling defaults (all Hermes entries — #500)
+---------------------------------------------
+NousResearch recommends ``temperature=0.6, top_p=0.95, top_k=20`` across all
+Hermes model sizes (source: HF model cards for Hermes-4-70B and Hermes-4-405B;
+the same values are cited for Hermes 3 sizes).  ``ProviderConfig`` stores these
+as ``sampling_defaults`` for any model whose slug contains ``"hermes"``.
+
+``HermesA2AExecutor`` spreads the defaults into every ``chat.completions.create``
+call.  Per-instance overrides (constructor kwargs ``temperature``, ``top_p``,
+``top_k``) always win over provider defaults.  Non-Hermes providers receive no
+sampling overrides — their endpoint's own defaults apply.
+
 Hermes 3 / unknown models
 --------------------------
 No ``extra_body`` is sent.  The response is processed identically to any
@@ -58,6 +70,17 @@ _HERMES4_PATTERNS: tuple[str, ...] = (
     "hermes4",
 )
 
+# Nous-recommended sampling hyperparameters for all Hermes model family entries.
+# Source: NousResearch HF model cards for Hermes-4-70B and Hermes-4-405B; the
+# same values are cited for Hermes 3 sizes.  Applied to any slug containing
+# the substring "hermes" (case-insensitive) to avoid per-size maintenance.
+# Per-instance overrides (constructor kwargs) always take precedence.
+_HERMES_SAMPLING_DEFAULTS: dict = {
+    "temperature": 0.6,
+    "top_p": 0.95,
+    "top_k": 20,
+}
+
 
 def _reasoning_supported(model: str) -> bool:
     """Return True if *model* identifies a Hermes 4 variant.
@@ -89,26 +112,41 @@ class ProviderConfig:
         model:               Full model identifier (e.g. "nousresearch/hermes-4-0").
         reasoning_supported: True for Hermes 4 entries on OpenRouter / Nous
                              Portal; False for Hermes 3 and all other models.
+        sampling_defaults:   Nous-recommended sampling hyperparameters for any
+                             Hermes family model (``temperature=0.6``,
+                             ``top_p=0.95``, ``top_k=20``).  Empty dict for
+                             non-Hermes models — their provider defaults apply.
 
     Example::
 
         cfg = ProviderConfig("nousresearch/hermes-4-0")
         assert cfg.reasoning_supported is True
+        assert cfg.sampling_defaults == {"temperature": 0.6, "top_p": 0.95, "top_k": 20}
 
         cfg3 = ProviderConfig("nousresearch/hermes-3-llama-3.1-70b")
         assert cfg3.reasoning_supported is False
+        assert cfg3.sampling_defaults == {"temperature": 0.6, "top_p": 0.95, "top_k": 20}
+
+        cfg_other = ProviderConfig("gpt-4o")
+        assert cfg_other.sampling_defaults == {}
     """
 
-    __slots__ = ("model", "reasoning_supported")
+    __slots__ = ("model", "reasoning_supported", "sampling_defaults")
 
     def __init__(self, model: str) -> None:
         self.model: str = model
         self.reasoning_supported: bool = _reasoning_supported(model)
+        # Apply Nous-recommended sampling defaults to any Hermes family slug.
+        # Non-Hermes providers receive an empty dict — their endpoint defaults apply.
+        self.sampling_defaults: dict = (
+            dict(_HERMES_SAMPLING_DEFAULTS) if "hermes" in model.lower() else {}
+        )
 
     def __repr__(self) -> str:  # pragma: no cover
         return (
             f"ProviderConfig(model={self.model!r}, "
-            f"reasoning_supported={self.reasoning_supported})"
+            f"reasoning_supported={self.reasoning_supported}, "
+            f"sampling_defaults={self.sampling_defaults!r})"
         )
 
 
@@ -142,6 +180,14 @@ class HermesA2AExecutor(AgentExecutor):
     heartbeat:
         Optional ``HeartbeatLoop`` instance used to surface the current
         task description in the platform UI.
+    temperature:
+        Override the provider-default sampling temperature.  When omitted,
+        the ``ProviderConfig.sampling_defaults`` value is used (0.6 for
+        Hermes family models; None for other providers).
+    top_p:
+        Override the provider-default nucleus-sampling probability.
+    top_k:
+        Override the provider-default top-k vocabulary filter.
     _client:
         Inject a pre-built ``AsyncOpenAI`` (or compatible mock) — for
         testing only.  When provided, ``base_url`` and ``api_key`` are
@@ -155,12 +201,25 @@ class HermesA2AExecutor(AgentExecutor):
         base_url: str | None = None,
         api_key: str | None = None,
         heartbeat: "HeartbeatLoop | None" = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
         _client: Any = None,
     ) -> None:
         self.model = model
         self.system_prompt = system_prompt
         self._heartbeat = heartbeat
         self._provider = ProviderConfig(model)
+
+        # Resolve sampling params: start from provider defaults, then apply
+        # any per-instance overrides so callers can tune without subclassing.
+        self._sampling: dict = dict(self._provider.sampling_defaults)
+        if temperature is not None:
+            self._sampling["temperature"] = temperature
+        if top_p is not None:
+            self._sampling["top_p"] = top_p
+        if top_k is not None:
+            self._sampling["top_k"] = top_k
 
         if _client is not None:
             # Test injection path — skip real AsyncOpenAI construction so
@@ -273,6 +332,10 @@ class HermesA2AExecutor(AgentExecutor):
                 model=self.model,
                 messages=messages,
                 extra_body=extra_body,
+                # Spread Nous-recommended sampling defaults (or per-instance
+                # overrides).  Empty dict for non-Hermes providers — no kwargs
+                # added, leaving the provider endpoint's own defaults in effect.
+                **self._sampling,
             )
 
             choice = response.choices[0]
