@@ -14,10 +14,21 @@ import (
 // WorkspaceAuth returns a Gin middleware that enforces per-workspace bearer-token
 // authentication on /workspaces/:id/* sub-routes.
 //
-// Same lazy-bootstrap contract as secrets.Values: workspaces that have no live
-// token on file are grandfathered through so in-flight agents keep working
-// during a rolling upgrade. Once a workspace has at least one live token every
-// request MUST present a valid one in Authorization: Bearer <token>.
+// Strict: every request MUST carry Authorization: Bearer <token> matching a
+// live (non-revoked) token for the workspace. No grace period, no fail-open.
+//
+// History: originally this middleware had a lazy-bootstrap grace period for
+// pre-Phase-30.1 workspaces without a live token, so rolling upgrades didn't
+// brick in-flight agents. #318 tightened the fake-UUID leak (non-existent
+// workspace IDs were falling through). #351 then showed the remaining hole:
+// test-artifact workspaces from prior DAST runs still exist in the DB with
+// empty configs and no tokens, so they pass WorkspaceExists + fall through
+// the grace period — leaking global-secret key names to any unauth caller on
+// the Docker network. Phase 30.1 shipped months ago; every live workspace has
+// since gone through multiple boot cycles and acquired a token. The grace
+// period no longer serves legitimate traffic. Removing it entirely closes
+// #351 without affecting registration (which is on /registry/register,
+// outside this middleware's scope).
 //
 // Intended for route groups that cover all /workspaces/:id/* paths.
 // The /workspaces/:id/a2a route must be registered on the root router (outside
@@ -31,40 +42,13 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 		}
 		ctx := c.Request.Context()
 
-		hasLive, err := wsauth.HasAnyLiveToken(ctx, database, workspaceID)
-		if err != nil {
-			log.Printf("wsauth: WorkspaceAuth: HasAnyLiveToken(%s) failed: %v", workspaceID, err)
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "auth check failed"})
+		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
+		if tok == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing workspace auth token"})
 			return
 		}
-		if hasLive {
-			tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
-			if tok == "" {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing workspace auth token"})
-				return
-			}
-			if err := wsauth.ValidateToken(ctx, database, workspaceID, tok); err != nil {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid workspace auth token"})
-				return
-			}
-			c.Next()
-			return
-		}
-
-		// #318: fail-open path. The grandfather window only exists for
-		// workspaces that actually exist in the DB but pre-date Phase 30.1
-		// token issuance. A fabricated UUID must NOT be let through —
-		// without this check, unauthenticated callers could probe
-		// `/workspaces/<fake>/secrets` and enumerate global-secret key
-		// names via the fall-through 200 OK.
-		exists, err := wsauth.WorkspaceExists(ctx, database, workspaceID)
-		if err != nil {
-			log.Printf("wsauth: WorkspaceAuth: WorkspaceExists(%s) failed: %v", workspaceID, err)
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "auth check failed"})
-			return
-		}
-		if !exists {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		if err := wsauth.ValidateToken(ctx, database, workspaceID, tok); err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid workspace auth token"})
 			return
 		}
 		c.Next()
