@@ -13,10 +13,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-# Load providers.py directly (same pattern as test_hermes_providers.py)
+# Load providers.py + escalation.py directly (same pattern as
+# test_hermes_providers.py). The escalation module landed with the
+# ladder work — it's now imported by executor.py, so the inline-exec
+# pattern below has to find both modules at top level.
 _HERMES_DIR = Path(__file__).parent.parent / "adapters" / "hermes"
 sys.path.insert(0, str(_HERMES_DIR))
 import providers  # type: ignore  # noqa: E402
+import escalation  # type: ignore  # noqa: E402
 
 
 def _make_executor(provider_name: str):
@@ -44,15 +48,22 @@ def _make_executor(provider_name: str):
     # which fails under direct spec_from_file_location. Monkey-patch sys.modules
     # so the relative import resolves to our directly-loaded providers module.
     sys.modules["hermes_executor_under_test.providers"] = providers
+    sys.modules["hermes_executor_under_test.escalation"] = escalation
     # Also alias the package-style import path so `from .providers import X`
-    # inside executor.py finds it.
+    # and `from .escalation import X` inside executor.py find them.
     pkg_name = "hermes_executor_under_test"
     sys.modules.setdefault(pkg_name, MagicMock())
     sys.modules[pkg_name].providers = providers  # type: ignore
-    # Read + compile executor.py with the relative import rewritten
+    sys.modules[pkg_name].escalation = escalation  # type: ignore
+    # Read + compile executor.py with relative imports rewritten to match
+    # the sibling-import setup above.
     src = (_HERMES_DIR / "executor.py").read_text()
     src = src.replace("from .providers import", "from providers import")
-    ns: dict = {}
+    src = src.replace("from .escalation import", "from escalation import")
+    # The exec'd module needs `__name__` in its globals because executor.py
+    # calls ``logging.getLogger(__name__)`` at import time. Without this the
+    # exec fails with `KeyError: "'__name__' not in globals"`.
+    ns: dict = {"__name__": "hermes_executor_under_test"}
     exec(compile(src, str(_HERMES_DIR / "executor.py"), "exec"), ns)
     HermesA2AExecutor = ns["HermesA2AExecutor"]
     return HermesA2AExecutor(
@@ -148,8 +159,16 @@ def test_history_to_openai_messages_empty_history():
     import importlib.util
     src = (_HERMES_DIR / "executor.py").read_text().replace(
         "from .providers import", "from providers import"
+    ).replace(
+        "from .escalation import", "from escalation import"
     )
-    ns: dict = {}
+    # `__name__` needed because executor.py does logging.getLogger(__name__)
+    # at import time. `escalation` + `providers` must also be importable
+    # at the top level — the caller handles sys.path for that.
+    sys.modules.setdefault("hermes_executor_under_test", MagicMock())
+    sys.modules["hermes_executor_under_test.providers"] = providers
+    sys.modules["hermes_executor_under_test.escalation"] = escalation
+    ns: dict = {"__name__": "hermes_executor_under_test"}
     exec(compile(src, str(_HERMES_DIR / "executor.py"), "exec"), ns)
     HermesA2AExecutor = ns["HermesA2AExecutor"]
 
@@ -162,8 +181,16 @@ def test_history_to_openai_messages_multi_turn():
     import importlib.util
     src = (_HERMES_DIR / "executor.py").read_text().replace(
         "from .providers import", "from providers import"
+    ).replace(
+        "from .escalation import", "from escalation import"
     )
-    ns: dict = {}
+    # `__name__` needed because executor.py does logging.getLogger(__name__)
+    # at import time. `escalation` + `providers` must also be importable
+    # at the top level — the caller handles sys.path for that.
+    sys.modules.setdefault("hermes_executor_under_test", MagicMock())
+    sys.modules["hermes_executor_under_test.providers"] = providers
+    sys.modules["hermes_executor_under_test.escalation"] = escalation
+    ns: dict = {"__name__": "hermes_executor_under_test"}
     exec(compile(src, str(_HERMES_DIR / "executor.py"), "exec"), ns)
     HermesA2AExecutor = ns["HermesA2AExecutor"]
 
@@ -182,8 +209,16 @@ def test_history_to_anthropic_messages_same_as_openai():
     import importlib.util
     src = (_HERMES_DIR / "executor.py").read_text().replace(
         "from .providers import", "from providers import"
+    ).replace(
+        "from .escalation import", "from escalation import"
     )
-    ns: dict = {}
+    # `__name__` needed because executor.py does logging.getLogger(__name__)
+    # at import time. `escalation` + `providers` must also be importable
+    # at the top level — the caller handles sys.path for that.
+    sys.modules.setdefault("hermes_executor_under_test", MagicMock())
+    sys.modules["hermes_executor_under_test.providers"] = providers
+    sys.modules["hermes_executor_under_test.escalation"] = escalation
+    ns: dict = {"__name__": "hermes_executor_under_test"}
     exec(compile(src, str(_HERMES_DIR / "executor.py"), "exec"), ns)
     HermesA2AExecutor = ns["HermesA2AExecutor"]
 
@@ -198,8 +233,16 @@ def test_history_to_gemini_contents_uses_model_role_and_parts_wrapper():
     import importlib.util
     src = (_HERMES_DIR / "executor.py").read_text().replace(
         "from .providers import", "from providers import"
+    ).replace(
+        "from .escalation import", "from escalation import"
     )
-    ns: dict = {}
+    # `__name__` needed because executor.py does logging.getLogger(__name__)
+    # at import time. `escalation` + `providers` must also be importable
+    # at the top level — the caller handles sys.path for that.
+    sys.modules.setdefault("hermes_executor_under_test", MagicMock())
+    sys.modules["hermes_executor_under_test.providers"] = providers
+    sys.modules["hermes_executor_under_test.escalation"] = escalation
+    ns: dict = {"__name__": "hermes_executor_under_test"}
     exec(compile(src, str(_HERMES_DIR / "executor.py"), "exec"), ns)
     HermesA2AExecutor = ns["HermesA2AExecutor"]
 
@@ -279,8 +322,16 @@ def test_executor_accepts_config_path_kwarg():
     import importlib.util
     src = (_HERMES_DIR / "executor.py").read_text().replace(
         "from .providers import", "from providers import"
+    ).replace(
+        "from .escalation import", "from escalation import"
     )
-    ns: dict = {}
+    # `__name__` needed because executor.py does logging.getLogger(__name__)
+    # at import time. `escalation` + `providers` must also be importable
+    # at the top level — the caller handles sys.path for that.
+    sys.modules.setdefault("hermes_executor_under_test", MagicMock())
+    sys.modules["hermes_executor_under_test.providers"] = providers
+    sys.modules["hermes_executor_under_test.escalation"] = escalation
+    ns: dict = {"__name__": "hermes_executor_under_test"}
     exec(compile(src, str(_HERMES_DIR / "executor.py"), "exec"), ns)
     HermesA2AExecutor = ns["HermesA2AExecutor"]
     cfg = providers.PROVIDERS["openai"]
@@ -305,8 +356,16 @@ def test_create_executor_forwards_config_path():
     import importlib.util
     src = (_HERMES_DIR / "executor.py").read_text().replace(
         "from .providers import", "from providers import"
+    ).replace(
+        "from .escalation import", "from escalation import"
     )
-    ns: dict = {}
+    # `__name__` needed because executor.py does logging.getLogger(__name__)
+    # at import time. `escalation` + `providers` must also be importable
+    # at the top level — the caller handles sys.path for that.
+    sys.modules.setdefault("hermes_executor_under_test", MagicMock())
+    sys.modules["hermes_executor_under_test.providers"] = providers
+    sys.modules["hermes_executor_under_test.escalation"] = escalation
+    ns: dict = {"__name__": "hermes_executor_under_test"}
     exec(compile(src, str(_HERMES_DIR / "executor.py"), "exec"), ns)
     create_executor = ns["create_executor"]
 
@@ -388,8 +447,16 @@ def test_create_executor_passes_provider_cfg():
     import importlib.util
     src = (_HERMES_DIR / "executor.py").read_text().replace(
         "from .providers import", "from providers import"
+    ).replace(
+        "from .escalation import", "from escalation import"
     )
-    ns: dict = {}
+    # `__name__` needed because executor.py does logging.getLogger(__name__)
+    # at import time. `escalation` + `providers` must also be importable
+    # at the top level — the caller handles sys.path for that.
+    sys.modules.setdefault("hermes_executor_under_test", MagicMock())
+    sys.modules["hermes_executor_under_test.providers"] = providers
+    sys.modules["hermes_executor_under_test.escalation"] = escalation
+    ns: dict = {"__name__": "hermes_executor_under_test"}
     exec(compile(src, str(_HERMES_DIR / "executor.py"), "exec"), ns)
     create_executor = ns["create_executor"]
 
