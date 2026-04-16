@@ -435,7 +435,14 @@ Or: APPROVE [post_id] facebook,instagram to publish specific platforms only
 
 ## STEP 3: Platform Posting (when publishing approved posts)
 
-> **READ FIRST**: `~/.claude/skills/social-media-post/SKILL.md` — comprehensive playbook for every platform with the quirks learned the hard way on 2026-04-07. Also see memory `feedback_social_media_platforms.md` for the failure-mode index. The instructions below are the cron-specific shortcuts; the skill is the source of truth.
+> **HARD RULE — NEVER FREESTYLE PUPPETEER.**
+> For every platform below, invoke the matching helper from the `social-publish` skill:
+>
+> ```
+> node org-templates/reno-stars/marketing-leader/skills/social-publish/scripts/<platform>-publish.cjs <video-or-image> "<caption>"
+> ```
+>
+> Full playbook + exit codes: `org-templates/reno-stars/marketing-leader/skills/social-publish/SKILL.md`. If a helper fails, **fix the helper and re-run** — do not re-derive puppeteer code inline. The legacy recipes below remain as reference only for debugging a broken helper. Also see `~/.claude/skills/social-media-post/SKILL.md` and memory `feedback_social_media_platforms.md` for the failure-mode index.
 
 **Universal pre-flight (do BEFORE touching any platform):**
 - Files for upload MUST be under `/Users/renostars/`. Copy first if elsewhere.
