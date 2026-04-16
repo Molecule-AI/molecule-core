@@ -93,6 +93,15 @@ func (h *TranscriptHandler) Get(c *gin.Context) {
 		return
 	}
 
+	// Forward the caller's bearer token so the workspace /transcript handler
+	// (secured by #287/#328) can authenticate the proxied request.
+	// WorkspaceAuth has already validated the token above — forwarding is safe.
+	// Without this the workspace fails-closed (401) and the transcript feature
+	// is non-functional in production. Fixes the QA-2026-04-16 finding.
+	if auth := c.GetHeader("Authorization"); auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
 		// Log the real error server-side (includes the target URL), but
