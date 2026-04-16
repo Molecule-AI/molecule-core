@@ -64,7 +64,7 @@ ECHO_ID=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin)['i
 # Debug: show what the test-token endpoint returns
 TEST_TOKEN_RAW=$(curl -s "$BASE/admin/workspaces/$ECHO_ID/test-token")
 echo "  test-token response: $TEST_TOKEN_RAW"
-ADMIN_TOKEN=$(echo "$TEST_TOKEN_RAW" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))" 2>/dev/null || echo "")
+ADMIN_TOKEN=$(echo "$TEST_TOKEN_RAW" | python3 -c "import sys,json; print(json.load(sys.stdin).get('auth_token',''))" 2>/dev/null || echo "")
 if [ -n "$ADMIN_TOKEN" ]; then
   echo "  (acquired admin token: ${ADMIN_TOKEN:0:8}...)"
 else
