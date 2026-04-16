@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { TestConnectionState, SecretGroup } from '@/types/secrets';
 import { validateSecret } from '@/lib/api/secrets';
