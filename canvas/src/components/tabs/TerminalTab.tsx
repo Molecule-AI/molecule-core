@@ -121,8 +121,8 @@ export function TerminalTab({ workspaceId }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Status bar */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-zinc-700 bg-zinc-800/50">
+      {/* Status bar — role="status" so connection state changes are announced politely */}
+      <div role="status" aria-live="polite" className="flex items-center justify-between px-3 py-1.5 border-b border-zinc-700 bg-zinc-800/50">
         <div className="flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${
             status === "connected" ? "bg-green-500" :
@@ -145,9 +145,9 @@ export function TerminalTab({ workspaceId }: Props) {
         )}
       </div>
 
-      {/* Error message */}
+      {/* Error message — role="alert" announces immediately via assertive live region */}
       {errorMsg && (
-        <div className="mx-3 mt-2 px-3 py-1.5 bg-red-900/30 border border-red-800 rounded text-xs text-red-400">
+        <div role="alert" className="mx-3 mt-2 px-3 py-1.5 bg-red-900/30 border border-red-800 rounded text-xs text-red-400">
           {errorMsg}
         </div>
       )}
