@@ -38,6 +38,7 @@ import logging
 import os
 from typing import Optional
 
+from .escalation import LadderRung, parse_ladder, should_escalate
 from .providers import PROVIDERS, ProviderConfig, resolve_provider
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ def create_executor(
     provider: Optional[str] = None,
     model: Optional[str] = None,
     config_path: Optional[str] = None,
+    escalation_ladder: Optional[list] = None,
 ):
     """Create and return a LangGraph-compatible executor for the Hermes adapter.
 
@@ -84,6 +86,14 @@ def create_executor(
         If ``provider`` is an unknown name, if ``provider`` is known but its
         env vars are all empty, or if auto-detect finds nothing.
     """
+    ladder = parse_ladder(escalation_ladder)
+    if ladder:
+        logger.info(
+            "Hermes: escalation ladder configured — %d rungs (%s)",
+            len(ladder),
+            " → ".join(f"{r.provider}:{r.model}" for r in ladder),
+        )
+
     # Path 1: PR 2 back-compat — explicit hermes_api_key routes to Nous Portal.
     if hermes_api_key:
         cfg = PROVIDERS["nous_portal"]
@@ -93,6 +103,7 @@ def create_executor(
             api_key=hermes_api_key,
             model=model or cfg.default_model,
             config_path=config_path,
+            escalation_ladder=ladder,
         )
 
     # Path 2/3: registry resolution (either explicit provider name or auto-detect).
@@ -109,6 +120,7 @@ def create_executor(
         api_key=api_key,
         model=model or cfg.default_model,
         config_path=config_path,
+        escalation_ladder=ladder,
     )
 
 
@@ -132,6 +144,7 @@ class HermesA2AExecutor:
         model: str,
         heartbeat=None,
         config_path: Optional[str] = None,
+        escalation_ladder: Optional[list] = None,
     ):
         self.provider_cfg = provider_cfg
         self.api_key = api_key
@@ -143,6 +156,11 @@ class HermesA2AExecutor:
         # `system_instruction=` / prepended message. Optional because older
         # callers + tests construct executors directly.
         self._config_path = config_path
+        # Phase 3: escalation ladder. When non-empty, _do_inference retries
+        # transient-failure classes (rate limit, 5xx, overload, context-length)
+        # on each rung in turn before raising. Empty / None = single-shot,
+        # original behaviour. See adapters.hermes.escalation.
+        self._ladder: list[LadderRung] = parse_ladder(escalation_ladder) or []
 
     # ------------------------------------------------------------------
     # History → provider-specific message list converters
@@ -344,23 +362,136 @@ class HermesA2AExecutor:
 
         Phase 2c: multi-turn history.
         Phase 2d-i: optional system_prompt is passed through to the native
-        system field of whichever path wins dispatch (OpenAI ``{role:system}``
-        / Anthropic ``system=`` / Gemini ``system_instruction=``).
+        system field of whichever path wins dispatch.
+        Phase 3: when an escalation ladder is configured, transient failures
+        (rate limit, 5xx, overload, context-length) promote to the next rung
+        before raising. No ladder = single-shot, original behaviour.
         """
-        scheme = self.provider_cfg.auth_scheme
-        if scheme == "anthropic":
-            return await self._do_anthropic_native(user_message, history, system_prompt)
-        if scheme == "gemini":
-            return await self._do_gemini_native(user_message, history, system_prompt)
-        if scheme == "openai":
+        # Fast path: no ladder configured — single call on the pinned model.
+        if not self._ladder:
+            return await self._dispatch(
+                self.provider_cfg, self.model, user_message, history, system_prompt,
+            )
+
+        # Slow path: walk the ladder. Start with the pinned (provider, model)
+        # so the first attempt matches non-ladder behaviour exactly — the
+        # ladder only kicks in when the first attempt fails escalatably.
+        attempts: list[tuple[ProviderConfig, str]] = [(self.provider_cfg, self.model)]
+        for rung in self._ladder:
+            rung_cfg = PROVIDERS.get(rung.provider)
+            if rung_cfg is None:
+                logger.warning(
+                    "Hermes ladder: provider %r not in registry, skipping rung",
+                    rung.provider,
+                )
+                continue
+            attempts.append((rung_cfg, rung.model))
+
+        last_exc: Optional[BaseException] = None
+        for i, (cfg, model) in enumerate(attempts):
+            try:
+                reply = await self._dispatch(
+                    cfg, model, user_message, history, system_prompt,
+                )
+                if i > 0:
+                    logger.info(
+                        "Hermes ladder: succeeded on rung %d (%s:%s) after %d failed attempt(s)",
+                        i, cfg.name, model, i,
+                    )
+                return reply
+            except Exception as exc:
+                last_exc = exc
+                if i == len(attempts) - 1:
+                    logger.error(
+                        "Hermes ladder: exhausted all %d rungs — raising. Last error on %s:%s: %s",
+                        len(attempts), cfg.name, model, exc,
+                    )
+                    raise
+                if not should_escalate(exc):
+                    logger.info(
+                        "Hermes ladder: non-escalatable error on %s:%s — raising without advancing: %s",
+                        cfg.name, model, exc,
+                    )
+                    raise
+                logger.warning(
+                    "Hermes ladder: escalatable failure on rung %d (%s:%s), advancing. Error: %s",
+                    i, cfg.name, model, exc,
+                )
+
+        # Unreachable — the last iteration either returns or raises, but
+        # satisfying the type checker without a blank return.
+        if last_exc is not None:
+            raise last_exc
+        return ""  # pragma: no cover
+
+    async def _dispatch(
+        self,
+        cfg: ProviderConfig,
+        model: str,
+        user_message: str,
+        history: "list[tuple[str, str]] | None",
+        system_prompt: Optional[str],
+    ) -> str:
+        """Single-attempt dispatch on (cfg, model).
+
+        Temporarily rebinds ``self.provider_cfg`` + ``self.base_url`` + ``self.model``
+        so the existing per-provider paths pick up the rung's config. Restores
+        the original values in a finally block so a raised error leaves the
+        executor pinned to its constructor-given state (next call on the same
+        executor instance starts fresh at the top of the ladder).
+
+        For the ladder's non-first rungs, ``self.api_key`` must be the rung's
+        provider key — we resolve it here via ``resolve_provider`` so the
+        first-rung API key (for the pinned provider) isn't mis-used against a
+        different provider's base URL. That lookup can raise ``ValueError``
+        when the rung's env var isn't set; ``should_escalate(ValueError)``
+        returns False so the ladder correctly STOPS rather than escalating
+        further into nothing.
+        """
+        # Fast path: rung matches the executor's pinned config — reuse the
+        # existing api_key, skip the provider re-resolve.
+        if cfg is self.provider_cfg and model == self.model:
+            scheme = cfg.auth_scheme
+            if scheme == "anthropic":
+                return await self._do_anthropic_native(user_message, history, system_prompt)
+            if scheme == "gemini":
+                return await self._do_gemini_native(user_message, history, system_prompt)
+            if scheme == "openai":
+                return await self._do_openai_compat(user_message, history, system_prompt)
+            logger.warning(
+                "Hermes: unknown auth_scheme=%r for provider=%s — falling back to openai-compat",
+                scheme, cfg.name,
+            )
             return await self._do_openai_compat(user_message, history, system_prompt)
-        # Unknown scheme — treat as openai-compat for forward-compat with any
-        # future provider the registry adds without yet having a native path.
-        logger.warning(
-            "Hermes: unknown auth_scheme=%r for provider=%s — falling back to openai-compat",
-            scheme, self.provider_cfg.name,
+
+        # Different rung — temporarily rebind provider_cfg + model + api_key.
+        # resolve_provider reads the rung's env vars fresh.
+        _, rung_key = resolve_provider(cfg.name)
+        orig_cfg, orig_model, orig_key, orig_base = (
+            self.provider_cfg, self.model, self.api_key, self.base_url,
         )
-        return await self._do_openai_compat(user_message, history, system_prompt)
+        try:
+            self.provider_cfg = cfg
+            self.model = model
+            self.api_key = rung_key
+            self.base_url = cfg.base_url
+            scheme = cfg.auth_scheme
+            if scheme == "anthropic":
+                return await self._do_anthropic_native(user_message, history, system_prompt)
+            if scheme == "gemini":
+                return await self._do_gemini_native(user_message, history, system_prompt)
+            if scheme == "openai":
+                return await self._do_openai_compat(user_message, history, system_prompt)
+            logger.warning(
+                "Hermes: unknown auth_scheme=%r for provider=%s — falling back to openai-compat",
+                scheme, cfg.name,
+            )
+            return await self._do_openai_compat(user_message, history, system_prompt)
+        finally:
+            self.provider_cfg = orig_cfg
+            self.model = orig_model
+            self.api_key = orig_key
+            self.base_url = orig_base
 
     # ------------------------------------------------------------------
     # AgentExecutor interface

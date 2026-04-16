@@ -51,9 +51,18 @@ class HermesAdapter(BaseAdapter):
         # Resolve API key: prefer workspace secrets (runtime_config), then env vars
         hermes_api_key = config.runtime_config.get("hermes_api_key") or None
 
+        # Phase 3 escalation ladder — read from runtime_config.escalation_ladder
+        # if present. The platform's org importer copies the ladder from
+        # org.yaml (runtime_config.escalation_ladder) into the container's
+        # /configs/config.yaml, and the workspace-template loader surfaces it
+        # here. Empty / missing = single-shot behaviour (unchanged from pre-
+        # Phase-3). See adapters.hermes.escalation for classification rules.
+        escalation_ladder = config.runtime_config.get("escalation_ladder") or None
+
         executor = create_executor(
             hermes_api_key=hermes_api_key,
             config_path=config.config_path,  # Phase 2d-i: system-prompt.md injection
+            escalation_ladder=escalation_ladder,
         )
 
         # Override model from config if provided
