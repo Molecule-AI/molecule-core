@@ -13,6 +13,12 @@ function readSrc(rel: string) {
   return readFileSync(join(root, "src", rel), "utf8");
 }
 
+function usesGuardedPulse(src: string): boolean {
+  if (src.includes("motion-safe:animate-pulse")) return true;
+  if (src.includes("from \"@/lib/design-tokens\"") || src.includes("from '@/lib/design-tokens'")) return true;
+  return false;
+}
+
 describe("prefers-reduced-motion compliance", () => {
   it("globals.css contains @media (prefers-reduced-motion: reduce) block", () => {
     const css = readSrc("app/globals.css");
@@ -34,10 +40,10 @@ describe("prefers-reduced-motion compliance", () => {
     expect(src).toContain("motion-safe:animate-pulse");
   });
 
-  it("StatusDot.tsx uses motion-safe:animate-pulse", () => {
+  it("StatusDot.tsx uses motion-safe:animate-pulse (inline or via shared tokens)", () => {
     const src = readSrc("components/StatusDot.tsx");
     expect(src.includes("animate-pulse") && !src.includes("motion-safe:animate-pulse")).toBe(false);
-    expect(src).toContain("motion-safe:animate-pulse");
+    expect(usesGuardedPulse(src)).toBe(true);
   });
 
   it("Toolbar.tsx uses motion-safe:animate-pulse", () => {
@@ -52,16 +58,16 @@ describe("prefers-reduced-motion compliance", () => {
     expect(src).toContain("motion-safe:animate-pulse");
   });
 
-  it("Legend.tsx uses motion-safe:animate-pulse", () => {
+  it("Legend.tsx uses motion-safe:animate-pulse (inline or via shared tokens)", () => {
     const src = readSrc("components/Legend.tsx");
     expect(src.includes("animate-pulse") && !src.includes("motion-safe:animate-pulse")).toBe(false);
-    expect(src).toContain("motion-safe:animate-pulse");
+    expect(usesGuardedPulse(src)).toBe(true);
   });
 
-  it("SearchDialog.tsx uses motion-safe:animate-pulse", () => {
+  it("SearchDialog.tsx uses motion-safe:animate-pulse (inline or via shared tokens)", () => {
     const src = readSrc("components/SearchDialog.tsx");
     expect(src.includes("animate-pulse") && !src.includes("motion-safe:animate-pulse")).toBe(false);
-    expect(src).toContain("motion-safe:animate-pulse");
+    expect(usesGuardedPulse(src)).toBe(true);
   });
 
   it("TerminalTab.tsx uses motion-safe:animate-pulse", () => {
@@ -72,6 +78,12 @@ describe("prefers-reduced-motion compliance", () => {
 
   it("TemplatePalette.tsx uses motion-safe:animate-pulse", () => {
     const src = readSrc("components/TemplatePalette.tsx");
+    expect(src.includes("animate-pulse") && !src.includes("motion-safe:animate-pulse")).toBe(false);
+    expect(src).toContain("motion-safe:animate-pulse");
+  });
+
+  it("design-tokens.ts uses motion-safe:animate-pulse, not bare animate-pulse", () => {
+    const src = readSrc("lib/design-tokens.ts");
     expect(src.includes("animate-pulse") && !src.includes("motion-safe:animate-pulse")).toBe(false);
     expect(src).toContain("motion-safe:animate-pulse");
   });

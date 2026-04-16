@@ -1,5 +1,9 @@
 "use client";
 
+import { STATUS_CONFIG } from "@/lib/design-tokens";
+
+const LEGEND_STATUSES = ["online", "provisioning", "degraded", "failed", "paused", "offline"] as const;
+
 export function Legend() {
   return (
     <div className="fixed bottom-6 left-4 z-30 bg-zinc-900/95 border border-zinc-700/50 rounded-xl px-4 py-3 shadow-xl shadow-black/30 backdrop-blur-sm max-w-[280px]">
@@ -9,12 +13,9 @@ export function Legend() {
       <div className="mb-2">
         <div className="text-[11px] text-zinc-500 font-medium mb-1">Status</div>
         <div className="flex flex-wrap gap-x-3 gap-y-1">
-          <StatusItem color="bg-emerald-400" label="Online" />
-          <StatusItem color="bg-sky-400 motion-safe:animate-pulse" label="Starting" />
-          <StatusItem color="bg-amber-400" label="Degraded" />
-          <StatusItem color="bg-red-400" label="Failed" />
-          <StatusItem color="bg-indigo-400" label="Paused" />
-          <StatusItem color="bg-zinc-500" label="Offline" />
+          {LEGEND_STATUSES.map((s) => (
+            <StatusItem key={s} color={STATUS_CONFIG[s].dot} label={STATUS_CONFIG[s].label} />
+          ))}
         </div>
       </div>
 

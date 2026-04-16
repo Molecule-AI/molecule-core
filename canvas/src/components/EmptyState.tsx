@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { useCanvasStore } from "@/store/canvas";
 import { OrgTemplatesSection } from "./TemplatePalette";
-import { TIER_COLORS } from "@/lib/design-tokens";
+import { Spinner } from "./Spinner";
+import { TIER_CONFIG } from "@/lib/design-tokens";
 
 interface Template {
   id: string;
@@ -100,16 +101,13 @@ export function EmptyState() {
         {/* Template grid */}
         {loading ? (
           <div className="flex items-center justify-center gap-2 text-xs text-zinc-400 py-4">
-            <svg className="w-4 h-4 motion-safe:animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25" />
-              <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
+            <Spinner />
             Loading templates...
           </div>
         ) : templates.length > 0 ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-4 text-left">
             {templates.map((t) => {
-              const tierColor = TIER_COLORS[t.tier] || TIER_COLORS[1];
+              const tierColor = TIER_CONFIG[t.tier]?.border || TIER_CONFIG[1].border;
               return (
                 <button
                   key={t.id}

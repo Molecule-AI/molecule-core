@@ -5,6 +5,7 @@ import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { api } from "@/lib/api";
 import { showToast } from "./Toaster";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { statusDotClass } from "@/lib/design-tokens";
 
 interface MenuItem {
   label: string;
@@ -277,9 +278,7 @@ export function ContextMenu() {
         <div className="flex items-center gap-1.5 mt-0.5">
           <div
             aria-hidden="true"
-            className={`w-1.5 h-1.5 rounded-full ${
-              isOnline ? "bg-emerald-400" : isOfflineOrFailed ? "bg-red-400" : "bg-zinc-500"
-            }`}
+            className={`w-1.5 h-1.5 rounded-full ${statusDotClass(contextMenu.nodeData.status)}`}
           />
           <span className="text-[10px] text-zinc-500">{contextMenu.nodeData.status}</span>
         </div>
