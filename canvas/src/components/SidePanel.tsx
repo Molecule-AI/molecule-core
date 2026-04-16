@@ -227,7 +227,7 @@ export function SidePanel() {
 
       {/* Footer — workspace ID */}
       <div className="px-5 py-2 border-t border-zinc-800/40 bg-zinc-900/20">
-        <span className="text-[9px] font-mono text-zinc-600 select-all">
+        <span className="text-[9px] font-mono text-zinc-500 select-all">
           {selectedNodeId}
         </span>
       </div>

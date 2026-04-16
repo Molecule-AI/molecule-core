@@ -377,7 +377,7 @@ export function SkillsTab({ data }: Props) {
 
               {skill.examples.length > 0 && (
                 <div className="mt-2">
-                  <div className="text-[9px] uppercase tracking-[0.2em] text-zinc-600">Examples</div>
+                  <div className="text-[9px] uppercase tracking-[0.2em] text-zinc-500">Examples</div>
                   <div className="mt-1 space-y-1">
                     {skill.examples.slice(0, 2).map((example, index) => (
                       <div

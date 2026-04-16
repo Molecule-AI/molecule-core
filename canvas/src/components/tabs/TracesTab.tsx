@@ -129,7 +129,7 @@ export function TracesTab({ workspaceId }: Props) {
                       Cost: ${trace.totalCost.toFixed(6)}
                     </div>
                   )}
-                  <div className="text-[8px] text-zinc-600 font-mono select-all">
+                  <div className="text-[8px] text-zinc-500 font-mono select-all">
                     {trace.id}
                   </div>
                 </div>

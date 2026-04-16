@@ -163,7 +163,7 @@ export function AgentCommsPanel({ workspaceId }: { workspaceId: string }) {
                 {msg.responseText}
               </div>
             )}
-            <div className="text-[9px] text-zinc-600 mt-1">
+            <div className="text-[9px] text-zinc-500 mt-1">
               {new Date(msg.timestamp).toLocaleTimeString()}
             </div>
           </div>
