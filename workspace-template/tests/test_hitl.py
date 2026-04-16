@@ -623,10 +623,11 @@ class TestAuditImportErrors:
         reg = mod._TaskPauseRegistry()
         monkeypatch.setattr(mod, "pause_registry", reg)
 
-        # Schedule resume quickly so we don't actually wait long
+        # Schedule resume quickly so we don't actually wait long.
+        # pause_task prefixes registry key with WORKSPACE_ID ("ws-test").
         async def _schedule_resume():
             await asyncio.sleep(0.05)
-            reg.resume("audit-err-task", {"ok": True})
+            reg.resume("ws-test:audit-err-task", {"ok": True})
 
         asyncio.create_task(_schedule_resume())
 
@@ -644,7 +645,7 @@ class TestAuditImportErrors:
 
         reg = mod._TaskPauseRegistry()
         monkeypatch.setattr(mod, "pause_registry", reg)
-        reg.register("audit-err-resume")
+        reg.register("ws-test:audit-err-resume")  # resume_task prefixes with WORKSPACE_ID
 
         result = await mod.resume_task("audit-err-resume", "all good")
 
