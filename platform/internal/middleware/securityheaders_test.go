@@ -48,11 +48,9 @@ func TestSecurityHeaders(t *testing.T) {
 		}
 	}
 
-	// CSP: widened to allow Next.js inline scripts/styles + data:/blob:
-	// images because the canvas is reverse-proxied through the same
-	// gin middleware stack. Assert the policy starts with the tight
-	// default-src and contains each expected directive — exact-match
-	// would brittle-break every time we tune a subsource list.
+	// /test is not a registered API prefix → canvas-style permissive CSP.
+	// Fragment-match rather than exact — CSP subsource lists may be tuned
+	// without changing the security posture.
 	csp := w.Header().Get("Content-Security-Policy")
 	for _, fragment := range []string{
 		"default-src 'self'",
@@ -94,10 +92,7 @@ func TestSecurityHeadersPresenceOnMultipleRoutes(t *testing.T) {
 	if v := w2.Header().Get("Strict-Transport-Security"); v != "max-age=31536000; includeSubDomains" {
 		t.Errorf("POST /b: Strict-Transport-Security = %q, want max-age=31536000; includeSubDomains", v)
 	}
-	// Fragment-match rather than exact — CSP subsource lists get tuned
-	// without changing the security posture. Test intent is "CSP is
-	// present + starts with the tight default-src", not "CSP matches
-	// this exact byte-for-byte string".
+	// /a and /b are not API prefixes → canvas-style permissive CSP.
 	csp := w2.Header().Get("Content-Security-Policy")
 	if !strings.Contains(csp, "default-src 'self'") {
 		t.Errorf("POST /b: CSP missing default-src 'self' (full: %q)", csp)
@@ -122,5 +117,131 @@ func TestSecurityHeadersDoNotOverrideExisting(t *testing.T) {
 	got := w.Header().Get("X-Frame-Options")
 	if got != "SAMEORIGIN" {
 		t.Errorf("expected handler override SAMEORIGIN, got %q", got)
+	}
+}
+
+// TestCSPAPIRoutesGetStrictPolicy verifies that all registered Go platform
+// API prefixes receive a strict "default-src 'self'" CSP with no unsafe
+// directives. This is the core fix for issue #450.
+func TestCSPAPIRoutesGetStrictPolicy(t *testing.T) {
+	r := gin.New()
+	r.Use(SecurityHeaders())
+	// Register representative routes for each API prefix.
+	for _, prefix := range apiPrefixes {
+		prefix := prefix // capture
+		r.GET(prefix, func(c *gin.Context) { c.JSON(http.StatusOK, nil) })
+		r.GET(prefix+"/sub", func(c *gin.Context) { c.JSON(http.StatusOK, nil) })
+	}
+
+	strictCSP := "default-src 'self'"
+
+	paths := make([]string, 0, len(apiPrefixes)*2)
+	for _, p := range apiPrefixes {
+		paths = append(paths, p, p+"/sub")
+	}
+
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(http.MethodGet, path, nil)
+			r.ServeHTTP(w, req)
+
+			csp := w.Header().Get("Content-Security-Policy")
+			if csp != strictCSP {
+				t.Errorf("API path %q: want strict CSP %q, got %q", path, strictCSP, csp)
+			}
+			// Belt-and-suspenders: confirm no unsafe directives leak through.
+			for _, bad := range []string{"unsafe-inline", "unsafe-eval"} {
+				if strings.Contains(csp, bad) {
+					t.Errorf("API path %q: CSP must not contain %q, got %q", path, bad, csp)
+				}
+			}
+		})
+	}
+}
+
+// TestCSPCanvasRoutesGetPermissivePolicy verifies that paths not in the API
+// prefix list receive the permissive CSP needed for Next.js hydration.
+func TestCSPCanvasRoutesGetPermissivePolicy(t *testing.T) {
+	r := gin.New()
+	r.Use(SecurityHeaders())
+	// Simulate canvas/NoRoute paths — register them explicitly so Gin
+	// doesn't 404 before reaching our middleware.
+	r.GET("/", func(c *gin.Context) { c.String(http.StatusOK, "<html/>") })
+	r.GET("/canvas", func(c *gin.Context) { c.String(http.StatusOK, "<html/>") })
+	r.GET("/canvas/some-page", func(c *gin.Context) { c.String(http.StatusOK, "<html/>") })
+	r.GET("/some-unknown-path", func(c *gin.Context) { c.String(http.StatusOK, "<html/>") })
+
+	canvasPaths := []string{
+		"/",
+		"/canvas",
+		"/canvas/some-page",
+		"/some-unknown-path",
+	}
+
+	for _, path := range canvasPaths {
+		t.Run(path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(http.MethodGet, path, nil)
+			r.ServeHTTP(w, req)
+
+			csp := w.Header().Get("Content-Security-Policy")
+			// Canvas CSP must contain unsafe-inline for Next.js hydration.
+			if !strings.Contains(csp, "'unsafe-inline'") {
+				t.Errorf("canvas path %q: CSP should contain 'unsafe-inline' for Next.js, got %q", path, csp)
+			}
+			// 'unsafe-eval' must NOT be present — it was removed after
+			// confirming production canvas renders without it.
+			if strings.Contains(csp, "'unsafe-eval'") {
+				t.Errorf("canvas path %q: CSP must not contain 'unsafe-eval', got %q", path, csp)
+			}
+		})
+	}
+}
+
+// TestIsAPIPath unit-tests the path classifier directly.
+func TestIsAPIPath(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		// Exact prefix matches
+		{"/workspaces", true},
+		{"/health", true},
+		{"/admin", true},
+		{"/metrics", true},
+		{"/registry", true},
+		{"/settings", true},
+		{"/bundles", true},
+		{"/org", true},
+		{"/templates", true},
+		{"/plugins", true},
+		{"/webhooks", true},
+		{"/channels", true},
+		{"/ws", true},
+		{"/events", true},
+		{"/approvals", true},
+		// Sub-paths
+		{"/workspaces/abc-123", true},
+		{"/workspaces/abc-123/state", true},
+		{"/registry/discover/xyz", true},
+		{"/admin/liveness", true},
+		// Canvas / non-API paths
+		{"/", false},
+		{"/canvas", false},
+		{"/canvas/viewport", false}, // returned by Next.js canvas page, not the Go API
+		{"/some-page", false},
+		{"/_next/static/chunks/main.js", false},
+		// Ensure prefix is not a substring match (e.g. "/workspaces" should
+		// not match "/workspacesXXX").
+		{"/workspacesX", false},
+		{"/healthcheck", false},
+	}
+
+	for _, tc := range cases {
+		got := isAPIPath(tc.path)
+		if got != tc.want {
+			t.Errorf("isAPIPath(%q) = %v, want %v", tc.path, got, tc.want)
+		}
 	}
 }
