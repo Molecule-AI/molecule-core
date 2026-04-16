@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useCanvasStore } from "@/store/canvas";
 import { api } from "@/lib/api";
+import { COMM_TYPE_LABELS } from "@/lib/design-tokens";
 
 interface Communication {
   id: string;
@@ -143,14 +144,17 @@ export function CommunicationOverlay() {
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className={typeColor} aria-hidden="true">{typeIcon}</span>
+                  <span className="sr-only">{COMM_TYPE_LABELS[c.type] ?? c.type}</span>
                   <span className="text-zinc-300 font-medium truncate">
                     {c.sourceName}
                   </span>
                   <span className="text-zinc-400" aria-hidden="true">→</span>
+                  <span className="sr-only">to</span>
                   <span className="text-zinc-300 truncate">{c.targetName}</span>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <span className={statusColor} aria-hidden="true">{statusIcon}</span>
+                  <span className="sr-only">{c.status}</span>
                   <span className="text-zinc-400">{age}</span>
                 </div>
               </div>

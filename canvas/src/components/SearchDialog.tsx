@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useCanvasStore } from "@/store/canvas";
+import { statusDotClass } from "@/lib/design-tokens";
 
 export function SearchDialog() {
   const open = useCanvasStore((s) => s.searchOpen);
@@ -142,12 +143,7 @@ export function SearchDialog() {
               >
                 <div
                   aria-hidden="true"
-                  className={`w-2 h-2 rounded-full shrink-0 ${
-                    node.data.status === "online" ? "bg-emerald-400" :
-                    node.data.status === "failed" ? "bg-red-400" :
-                    node.data.status === "provisioning" ? "bg-sky-400 motion-safe:animate-pulse" :
-                    "bg-zinc-500"
-                  }`}
+                  className={`w-2 h-2 rounded-full shrink-0 ${statusDotClass(node.data.status)}`}
                 />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm text-zinc-200 truncate">{node.data.name}</div>
