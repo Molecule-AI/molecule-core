@@ -66,21 +66,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/docker-config"
-          cat > "${RUNNER_TEMP}/docker-config/config.json" <<'JSON'
-{
-  "auths": {},
-  "credsStore": "",
-  "credHelpers": {}
-}
-JSON
+          printf '{"auths":{},"credsStore":"","credHelpers":{}}\n' > "${RUNNER_TEMP}/docker-config/config.json"
           echo "DOCKER_CONFIG=${RUNNER_TEMP}/docker-config" >> "${GITHUB_ENV}"
-          echo "=== Runner docker diagnostics ==="
-          echo "PATH=$PATH"
-          command -v docker || echo "(docker not in PATH — the runner is missing the Docker CLI or it's not symlinked to a visible location)"
-          docker --version 2>&1 || true
-          ls -la /usr/local/bin/docker /opt/homebrew/bin/docker 2>&1 || true
-          echo "=== config.json after setup ==="
+          echo "=== config.json ==="
           cat "${RUNNER_TEMP}/docker-config/config.json"
+          echo "=== docker ==="
+          command -v docker || echo "(docker not in PATH)"
+          docker --version 2>&1 || true
 
       - name: Set up QEMU
         # Required on the Apple-silicon self-hosted runner — Fly tenant machines
