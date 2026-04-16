@@ -38,47 +38,53 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Isolate Docker config (skip keychain)
+      - name: Configure registry auth (skip docker login + Keychain)
         # The Mac mini self-hosted runner runs as a non-interactive
-        # launchd service; docker/login-action's default credential store
-        # is the macOS Keychain, which raises
-        #   error storing credentials - err: exit status 1, out:
-        #   `User interaction is not allowed. (-25308)`
-        # without an unlocked desktop session.
+        # launchd user agent. `docker/login-action` calls `docker login`,
+        # which on macOS unconditionally writes credentials to osxkeychain
+        # — even when DOCKER_CONFIG/config.json declares `credsStore: ""`.
+        # Docker rewrites credsStore back to "osxkeychain" on every
+        # successful login (verified locally 2026-04-16). The Keychain is
+        # locked under launchd, so storage fails with `User interaction is
+        # not allowed (-25308)`. Earlier attempts (#273, #319, #322, #341)
+        # all relied on the credsStore-empty workaround; none worked.
         #
-        # Point DOCKER_CONFIG at a per-run temp dir. IMPORTANT: writing
-        # `{"auths": {}}` alone is NOT enough — Docker on macOS picks up
-        # `osxkeychain` as the default credential store even when
-        # config.json doesn't declare one, inheriting from Docker
-        # Desktop's bundled credsStore binding. We must explicitly set
-        # `credsStore` to an empty string AND clear `credHelpers` so the
-        # login step writes credentials into the auths map of this
-        # disposable config.json rather than reaching for the keychain.
-        # (First tried in #273 without the empty-credsStore line; #319
-        # + #322 merges showed it still regressed.)
+        # Bypass `docker login` entirely: write the base64(user:pat) auths
+        # for ghcr.io AND registry.fly.io directly into the disposable
+        # DOCKER_CONFIG. build-push-action and the Docker daemon both
+        # honor the auths map for push, no daemon login required, no
+        # Keychain involved.
         #
-        # Plus diagnostics: print the docker path so a future EACCES on
-        # /usr/local/bin/docker surfaces in the log instead of via a
-        # cryptic docker-login failure mid-step.
+        # Fly registry username MUST be literal "x" (verified 2026-04-15).
+        # FLY_API_TOKEN lives in GitHub Actions secrets AND in `fly secrets`
+        # on molecule-cp — see docs/runbooks/saas-secrets.md before rotating.
         shell: bash
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FLY_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          set -euo pipefail
+          set -eu
           mkdir -p "${RUNNER_TEMP}/docker-config"
-          cat > "${RUNNER_TEMP}/docker-config/config.json" <<'JSON'
+          GHCR_AUTH=$(printf '%s:%s' "${GHCR_USER}" "${GHCR_TOKEN}" | base64)
+          FLY_AUTH=$(printf '%s:%s' 'x' "${FLY_TOKEN}" | base64)
+          umask 077
+          cat > "${RUNNER_TEMP}/docker-config/config.json" <<JSON
           {
-            "auths": {},
-            "credsStore": "",
-            "credHelpers": {}
+            "auths": {
+              "ghcr.io":          { "auth": "${GHCR_AUTH}" },
+              "registry.fly.io":  { "auth": "${FLY_AUTH}" }
+            }
           }
           JSON
           echo "DOCKER_CONFIG=${RUNNER_TEMP}/docker-config" >> "${GITHUB_ENV}"
+          # Diagnostics that don't leak the tokens.
           echo "=== Runner docker diagnostics ==="
-          echo "PATH=$PATH"
-          command -v docker || echo "(docker not in PATH — the runner is missing the Docker CLI or it's not symlinked to a visible location)"
+          command -v docker || echo "(docker not in PATH)"
           docker --version 2>&1 || true
           ls -la /usr/local/bin/docker /opt/homebrew/bin/docker 2>&1 || true
-          echo "=== config.json after setup ==="
-          cat "${RUNNER_TEMP}/docker-config/config.json"
+          echo "=== auths registries (no values) ==="
+          grep -o '"[a-zA-Z0-9.-]*\.io"' "${RUNNER_TEMP}/docker-config/config.json" || true
 
       - name: Set up QEMU
         # Required on the Apple-silicon self-hosted runner — Fly tenant machines
@@ -92,26 +98,6 @@ jobs:
         # Buildx enables cache-from/cache-to via GHA cache and multi-arch
         # builds without local docker daemon wrangling.
         uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Log in to Fly registry
-        # username MUST be literal "x". Fly's registry returns 401 for any
-        # other value (verified locally 2026-04-15 — "molecule-ai" fails,
-        # "x" succeeds with the same token). The password is the FLY_API_TOKEN.
-        # Rotation: see docs/runbooks/saas-secrets.md — FLY_API_TOKEN lives in
-        # two places (GitHub Actions secret here + `fly secrets` on molecule-cp)
-        # and MUST be updated in both on rotation.
-        uses: docker/login-action@v3
-        with:
-          registry: registry.fly.io
-          username: x
-          password: ${{ secrets.FLY_API_TOKEN }}
 
       - name: Compute tags
         id: tags
