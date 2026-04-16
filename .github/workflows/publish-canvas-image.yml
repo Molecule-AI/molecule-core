@@ -44,22 +44,42 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Isolate Docker config (skip macOS Keychain)
-        # Same workaround as publish-platform-image.yml — launchd service
-        # runners can't reach the Keychain, so we write a disposable
-        # config.json with an empty credsStore to force auths-map storage.
-        # IMPORTANT: no indentation inside the heredoc — JSON must be valid.
+      - name: Configure GHCR auth (write auths map; do NOT call docker login)
+        # `docker login` on macOS unconditionally writes credentials to the
+        # osxkeychain credential helper, even when DOCKER_CONFIG/config.json
+        # declares `credsStore: ""` and even when invoked with `--config`.
+        # Verified locally 2026-04-16 — after a successful login, Docker
+        # rewrites the same config file to:
+        #     { "auths": { "ghcr.io": {} }, "credsStore": "osxkeychain" }
+        # i.e. the auth lives in the Keychain, not the config file. The
+        # Mac mini runner is a launchd user agent with a locked Keychain,
+        # so storage fails with `User interaction is not allowed (-25308)`.
+        #
+        # Six prior PRs (#273, #319, #322, #341, #484, #486) all kept calling
+        # `docker login` and tried to coerce credsStore — none worked.
+        # The only reliable fix is to skip `docker login` entirely and write
+        # the auth string directly. `docker/build-push-action@v5` and the
+        # daemon honor the `auths` map for push without needing login.
         shell: bash
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
+          set -eu
           mkdir -p "${RUNNER_TEMP}/docker-config"
-          printf '{"auths":{},"credsStore":"","credHelpers":{}}\n' > "${RUNNER_TEMP}/docker-config/config.json"
+          AUTH=$(printf '%s:%s' "${GHCR_USER}" "${GHCR_TOKEN}" | base64)
+          umask 077
+          cat > "${RUNNER_TEMP}/docker-config/config.json" <<JSON
+          { "auths": { "ghcr.io": { "auth": "${AUTH}" } } }
+          JSON
           echo "DOCKER_CONFIG=${RUNNER_TEMP}/docker-config" >> "${GITHUB_ENV}"
-          echo "=== config.json ==="
-          cat "${RUNNER_TEMP}/docker-config/config.json"
+          # Diagnostics that don't leak the token.
           echo "=== docker ==="
           command -v docker || echo "(docker not in PATH)"
           docker --version 2>&1 || true
+          ls -la /usr/local/bin/docker /opt/homebrew/bin/docker 2>&1 || true
+          echo "=== auths registries (no values) ==="
+          grep -o '"[a-zA-Z0-9.-]*\.io"' "${RUNNER_TEMP}/docker-config/config.json" || true
 
       - name: Set up QEMU
         # Apple-silicon runner building linux/amd64 images for x86 hosts.
@@ -69,10 +89,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        shell: bash
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Compute tags
         id: tags
