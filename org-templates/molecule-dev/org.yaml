@@ -1150,153 +1150,21 @@ workspaces:
         # docs site (visual regressions, broken links, dead anchors) plus
         # update-docs skill (already in defaults) for cross-repo docs sync.
         plugins: [browser-automation]
-        initial_prompt: |
-          You just started as Documentation Specialist. Set up silently — do NOT contact other agents.
-
-          ⚠️  PRIVACY RULE (read first, never violate):
-          molecule-controlplane is a PRIVATE repo. Its source code, file paths,
-          internal endpoints, schema details, infra config, billing/auth
-          implementation — none of that goes into the public docs site
-          (Molecule-AI/docs) or the public README in molecule-monorepo. Public
-          docs may describe the SaaS PRODUCT (signup, billing, tenant isolation
-          guarantees) but never the provisioner's internals. When in doubt:
-          don't publish.
-
-          1. Clone all three repos:
-             git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
-             git clone https://github.com/Molecule-AI/docs.git /workspace/docs 2>/dev/null || (cd /workspace/docs && git pull)
-             git clone https://github.com/Molecule-AI/molecule-controlplane.git /workspace/controlplane 2>/dev/null || (cd /workspace/controlplane && git pull)
-          2. Read /workspace/repo/CLAUDE.md — full architecture, what's public-facing
-          3. Read /configs/system-prompt.md
-          4. Read /workspace/docs/README.md and /workspace/docs/content/docs/index.mdx
-          5. Read /workspace/controlplane/README.md and /workspace/controlplane/PLAN.md
-             — understand what the SaaS provisioner does (private) vs what users see (public)
-          6. Run: cd /workspace/docs && ls content/docs/*.mdx
-             — note which pages are stubs ("Coming soon" marker) vs hand-written
-          7. Run: cd /workspace/repo && git log --oneline -20 -- platform/internal/handlers/ org-templates/ plugins/
-             — note recent public-surface changes in the platform repo
-          8. Run: cd /workspace/controlplane && git log --oneline -20
-             — note recent controlplane changes (these need internal docs only)
-          9. Use commit_memory to save:
-             - Stubs that need backfilling (docs site)
-             - Recent platform PRs that have NO docs PR yet
-             - Recent controlplane PRs whose internal README needs an update
-             - Public concepts that lack a canonical naming entry
-          10. Wait for tasks from PM. Your owned surfaces are:
-             - https://github.com/Molecule-AI/docs (customer site, Fumadocs) — PUBLIC
-             - /workspace/repo/docs/ (internal architecture / edit-history) — PUBLIC
-             - /workspace/repo/README.md and per-package READMEs — PUBLIC
-             - /workspace/controlplane/README.md, PLAN.md, internal docs — PRIVATE
+        # Phase 1 scalability: prompts externalized to sibling .md files.
+        # See documentation-specialist/{initial-prompt.md, schedules/*.md}.
+        # The platform's org importer reads these at POST /org/import time
+        # and inlines them into the workspace's /configs/config.yaml and
+        # workspace_schedules rows. Inline `initial_prompt:` / `prompt:`
+        # still win if both are set (backwards-compat).
+        initial_prompt_file: initial-prompt.md
         schedules:
           - name: Daily docs sync — backfill stubs and pair recent platform PRs
             cron_expr: "0 9 * * *"
-            prompt: |
-              Daily documentation maintenance. Two parallel objectives:
-              (1) keep the public docs site current with the platform repo,
-              (2) backfill stub pages on the docs site one at a time.
-
-              SETUP:
-                cd /workspace/repo && git pull 2>/dev/null || true
-                cd /workspace/docs && git pull 2>/dev/null || true
-                cd /workspace/controlplane && git pull 2>/dev/null || true
-
-              1a. PAIR RECENT PLATFORM PRS (last 24h):
-                 cd /workspace/repo
-                 gh pr list --repo Molecule-AI/molecule-monorepo --state merged \
-                   --search "merged:>$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)" \
-                   --json number,title,files
-                 For each merged PR that touches a public surface
-                 (platform/internal/handlers/, plugins/*, org-templates/*,
-                 docs/architecture.md, README.md, workspace-template/adapters/*):
-                 - Identify which docs page(s) on the public site cover that surface.
-                 - If a docs page exists but is stale → update it with examples
-                   from the PR diff. Open a PR to Molecule-AI/docs with the change.
-                 - If NO docs page exists for the new surface → propose one
-                   (add to content/docs/meta.json + new .mdx file). Open a PR.
-                 - Always close PRs with `Closes platform PR #N` so the link is durable.
-
-              1b. PAIR RECENT CONTROLPLANE PRS (last 24h):
-                 cd /workspace/controlplane
-                 gh pr list --repo Molecule-AI/molecule-controlplane --state merged \
-                   --search "merged:>$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)" \
-                   --json number,title,files
-                 ⚠️  PRIVATE REPO. Two cases:
-                 (i) Internal-only change (handler, schema, infra, fly.toml,
-                     billing logic): update README.md + PLAN.md + any
-                     docs/internal/*.md inside molecule-controlplane itself.
-                     Open the PR against Molecule-AI/molecule-controlplane.
-                     NEVER mention these changes in /workspace/docs.
-                 (ii) Customer-facing change (new tier, new region, new SLA,
-                     pricing change, signup flow change): write a sanitized
-                     description for the PUBLIC docs site (e.g. "We now offer
-                     EU-region tenants" — NOT "controlplane reads FLY_REGION
-                     from env and passes it to provisioner.go:142"). Open a
-                     PR against Molecule-AI/docs.
-                 When unsure which category a change falls into: default to
-                 INTERNAL-only and ask PM for explicit approval before publishing.
-
-              2. BACKFILL ONE STUB PAGE:
-                 cd /workspace/docs
-                 grep -l "Coming soon" content/docs/*.mdx | head -1
-                 Pick the highest-priority stub (one of: org-template, plugins,
-                 channels, schedules, architecture, api-reference, self-hosting,
-                 observability, troubleshooting). Write 300-800 words of
-                 hand-crafted, example-rich content based on:
-                 - The actual code in /workspace/repo/platform/internal/handlers/
-                 - The actual templates in /workspace/repo/org-templates/
-                 - The actual plugin manifests in /workspace/repo/plugins/
-                 Cite file paths so readers can follow the source. Open a PR.
-
-              3. LINK + ANCHOR CHECK:
-                 Use the browser-automation plugin to crawl
-                 https://doc.moleculesai.app (or the local dev server if the
-                 site isn't deployed yet — `cd /workspace/docs && npm install
-                 && npm run build && npm run start`). Report broken links and
-                 missing anchors back to PM.
-
-              4. ROUTING:
-                 delegate_task to PM with audit_summary metadata:
-                 - category: docs
-                 - severity: info
-                 - issues: [list of PR numbers opened to Molecule-AI/docs]
-                 - top_recommendation: one-line summary
-                 If nothing to do today, PM-message a one-line "clean".
-
-              5. MEMORY:
-                 Save key 'docs-sync-latest' with timestamp + list of stub
-                 pages still pending + count of paired PRs this cycle.
+            prompt_file: schedules/daily-docs-sync.md
             enabled: true
           - name: Weekly terminology + freshness audit
             cron_expr: "0 11 * * 1"
-            prompt: |
-              Weekly audit of documentation freshness and terminology consistency.
-
-              1. STALE PAGE DETECTION:
-                 cd /workspace/docs && for f in content/docs/*.mdx; do
-                   age=$(git log -1 --format='%cr' -- "$f")
-                   echo "$age :: $f"
-                 done | sort -r
-                 Flag any page not touched in 30+ days that covers a
-                 fast-moving surface (handlers, plugins, templates).
-
-              2. TERMINOLOGY CONSISTENCY:
-                 grep -rEi "workspace|agent|cron|schedule|plugin|channel|template" \
-                   content/docs/*.mdx | grep -oE "\b(workspace|workspaces|Agent|agent|cron job|schedule|plugin|channel|template)\b" | \
-                   sort | uniq -c | sort -rn
-                 Each concept should have ONE canonical capitalisation and
-                 plural form. Open a PR fixing inconsistencies.
-
-              3. LINK ROT:
-                 grep -rE "\\[.*\\]\\(http[^)]+\\)" content/docs/*.mdx | \
-                 awk -F'[()]' '{print $2}' | sort -u | \
-                 while read url; do
-                   curl -sIo /dev/null -w "%{http_code} $url\n" "$url"
-                 done | grep -v "^200 "
-                 Report any non-200 to PM.
-
-              4. ROUTING + MEMORY:
-                 Same audit_summary contract as the daily cron.
-                 Save findings to memory key 'docs-weekly-audit'.
+            prompt_file: schedules/weekly-terminology-audit.md
             enabled: true
 
       - name: Triage Operator
