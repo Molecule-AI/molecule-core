@@ -406,6 +406,19 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	sh := handlers.NewSocketHandler(hub)
 	r.GET("/ws", sh.HandleConnect)
 
+	// Canvas reverse proxy — when running as a combined tenant image
+	// (Dockerfile.tenant), the Next.js canvas server runs on :3000 inside
+	// the same container. Any route not matched by the API handlers above
+	// gets proxied to the canvas so the browser only ever talks to :8080.
+	//
+	// When CANVAS_PROXY_URL is empty (self-hosted / local dev), this is a
+	// no-op and Gin returns its default 404. The canvas dev server runs
+	// separately on :3000 in that setup.
+	if canvasURL := os.Getenv("CANVAS_PROXY_URL"); canvasURL != "" {
+		canvasProxy := newCanvasProxy(canvasURL)
+		r.NoRoute(canvasProxy)
+	}
+
 	return r
 }
 
