@@ -128,11 +128,22 @@ services:
       CONFIGS_DIR: /configs
       CONFIGS_HOST_DIR: "${CONFIGS_HOST_DIR:-${PWD}/workspace-configs-templates}"
       PLUGINS_HOST_DIR: "${PLUGINS_HOST_DIR:-${PWD}/plugins}"
+      # github-app-auth plugin — injects GITHUB_TOKEN / GH_TOKEN into every
+      # workspace env from the App installation token. Remap the host-side
+      # path in GITHUB_APP_PRIVATE_KEY_FILE to /secrets/github-app.pem inside
+      # the container (the private key is bind-mounted below read-only).
+      # Soft-dep: skipped entirely when GITHUB_APP_ID is unset.
+      GITHUB_APP_ID: "${GITHUB_APP_ID:-}"
+      GITHUB_APP_INSTALLATION_ID: "${GITHUB_APP_INSTALLATION_ID:-}"
+      GITHUB_APP_PRIVATE_KEY_FILE: "/secrets/github-app.pem"
     volumes:
       - ./workspace-configs-templates:/configs
       - ./org-templates:/org-templates:ro
       - ./plugins:/plugins:ro
       - /var/run/docker.sock:/var/run/docker.sock
+      # App private key — read-only bind-mount. The host-side path is
+      # gitignored per .gitignore rules (/.secrets/ + *.pem).
+      - ./.secrets/github-app.pem:/secrets/github-app.pem:ro
     ports:
       - "${PLATFORM_PUBLISH_PORT:-8080}:${PLATFORM_PORT:-8080}"
     networks:

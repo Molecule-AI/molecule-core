@@ -117,3 +117,9 @@ org-templates/**/.auth-token
 # GitHub App private key + other local-only secrets — never committed.
 .secrets/
 *.pem
+
+# Cloned-via-manifest dirs — populated locally by scripts/clone-manifest.sh,
+# tracked in their own standalone repos. Never commit to core.
+/org-templates/
+/plugins/
+/workspace-configs-templates/
