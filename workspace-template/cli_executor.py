@@ -81,6 +81,21 @@ RUNTIME_PRESETS: dict[str, dict] = {
         "default_auth_env": "",
         "default_auth_file": "",
     },
+    # Gemini CLI (github.com/google-gemini/gemini-cli, Apache 2.0).
+    # Auth via GEMINI_API_KEY env var; MCP is wired via ~/.gemini/settings.json
+    # (not --mcp-config) — the adapter's setup() handles that step.
+    # System prompt is seeded into GEMINI.md (equivalent of CLAUDE.md).
+    "gemini-cli": {
+        "command": "gemini",
+        "base_args": ["--yolo"],        # auto-approve all tool calls (non-interactive)
+        "prompt_flag": "-p",
+        "model_flag": "--model",
+        "system_prompt_flag": None,     # GEMINI.md used instead; seeded by adapter.setup()
+        "auth_pattern": "env",          # GEMINI_API_KEY; also enables A2A MCP instructions
+        "default_auth_env": "GEMINI_API_KEY",
+        "default_auth_file": "",
+        "mcp_via_settings": True,       # MCP injected into ~/.gemini/settings.json, not --mcp-config
+    },
 }
 
 
@@ -232,8 +247,10 @@ class CLIAgentExecutor(AgentExecutor):
             settings = json.dumps({"apiKeyHelper": self._auth_helper_path})
             args.extend(["--settings", settings])
 
-        # A2A MCP server — inject for MCP-compatible runtimes (created once in __init__)
-        if self._mcp_config_path:
+        # A2A MCP server — inject for MCP-compatible runtimes (created once in __init__).
+        # Runtimes that declare `mcp_via_settings: True` (e.g. gemini-cli) wire MCP
+        # through their own settings file (adapter.setup()) instead of --mcp-config.
+        if self._mcp_config_path and not self.preset.get("mcp_via_settings"):
             args.extend(["--mcp-config", self._mcp_config_path])
 
         # Extra args from config (before prompt so flags are parsed correctly)
