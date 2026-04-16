@@ -45,11 +45,11 @@ class FakeClient:
     async def __aexit__(self, *args):
         pass
 
-    async def post(self, url, json=None):
+    async def post(self, url, json=None, headers=None, **kwargs):
         self.calls.append(("POST", url, json))
         return FakeResponse(201, {"id": "mem-abc", "scope": json.get("scope", "LOCAL") if json else "LOCAL"})
 
-    async def get(self, url, params=None):
+    async def get(self, url, params=None, headers=None, **kwargs):
         self.calls.append(("GET", url, params))
         return FakeResponse(200, [
             {"id": "mem-1", "content": "Test memory", "scope": "LOCAL"},
@@ -124,7 +124,7 @@ async def test_recall_memory_empty(monkeypatch):
     mcp = _load_mcp()
 
     class EmptyClient(FakeClient):
-        async def get(self, url, params=None):
+        async def get(self, url, params=None, headers=None, **kwargs):
             return FakeResponse(200, [])
 
     monkeypatch.setattr("a2a_tools.httpx.AsyncClient", lambda **kw: EmptyClient())
