@@ -1,2 +1,0 @@
-autogen-agentchat>=0.4.0
-autogen-ext[openai]>=0.4.0
