@@ -22,10 +22,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// isSaaSTenant returns true when running as a SaaS tenant (MOLECULE_ORG_ID set).
+// On SaaS, all workspaces use the external agent pattern — no Docker provisioning.
+func isSaaSTenant() bool {
+	return os.Getenv("MOLECULE_ORG_ID") != ""
+}
+
 type WorkspaceHandler struct {
 	broadcaster *events.Broadcaster
 	provisioner *provisioner.Provisioner
-	cpProv      *provisioner.CPProvisioner
 	platformURL string
 	configsDir  string // path to workspace-configs-templates/ (for reading templates)
 	// envMutators runs registered EnvMutator plugins right before
@@ -44,11 +49,6 @@ func NewWorkspaceHandler(b *events.Broadcaster, p *provisioner.Provisioner, plat
 	}
 }
 
-// SetCPProvisioner wires the control plane provisioner for SaaS tenants.
-// Auto-activated when MOLECULE_ORG_ID is set (no manual config needed).
-func (h *WorkspaceHandler) SetCPProvisioner(cp *provisioner.CPProvisioner) {
-	h.cpProv = cp
-}
 
 // SetEnvMutators wires a provisionhook.Registry into the handler. Plugins
 // living in separate repos register on the same Registry instance during
@@ -147,21 +147,11 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		log.Printf("Create: canvas layout insert failed for %s (workspace will appear at 0,0): %v", id, err)
 	}
 
-	// Broadcast provisioning event
-	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, map[string]interface{}{
-		"name": payload.Name,
-		"tier": payload.Tier,
-	})
-
-	// External workspaces: no container provisioning — just set the URL and mark online
-	if payload.External {
-		if payload.URL != "" {
-			db.DB.ExecContext(ctx, `UPDATE workspaces SET url = $1, status = 'online', updated_at = now() WHERE id = $2`, payload.URL, id)
-			if err := db.CacheURL(ctx, id, payload.URL); err != nil {
-				log.Printf("External workspace: failed to cache URL for %s: %v", id, err)
-			}
-		} else {
-			db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'online', updated_at = now() WHERE id = $1`, id)
+	// External workspace with URL — mark online immediately
+	if payload.External && payload.URL != "" {
+		db.DB.ExecContext(ctx, `UPDATE workspaces SET url = $1, status = 'online', updated_at = now() WHERE id = $2`, payload.URL, id)
+		if err := db.CacheURL(ctx, id, payload.URL); err != nil {
+			log.Printf("External workspace: failed to cache URL for %s: %v", id, err)
 		}
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_ONLINE", id, map[string]interface{}{
 			"name": payload.Name, "external": true,
@@ -175,8 +165,44 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Resolve template config — needed for both Docker provisioning and
-	// config-only persistence (tenant SaaS without Docker).
+	// SaaS tenant (MOLECULE_ORG_ID set) — all workspaces use the external
+	// pattern. No Docker, no Fly, no CP provisioner. The platform creates
+	// the DB record with config, the user connects the agent themselves.
+	// This is the universal pattern: the platform is the registry, not the
+	// runtime. Agents run wherever the user wants — their laptop, cloud,
+	// edge device — and register via POST /registry/register.
+	if isSaaSTenant() {
+		// Persist template config so Config tab shows correct runtime/model
+		cfgJSON := fmt.Sprintf(`{"name":%q,"runtime":%q,"tier":%d,"template":%q}`,
+			payload.Name, payload.Runtime, payload.Tier, payload.Template)
+		db.DB.ExecContext(ctx, `
+			INSERT INTO workspace_config (workspace_id, data) VALUES ($1, $2::jsonb)
+			ON CONFLICT (workspace_id) DO UPDATE SET data = $2::jsonb
+		`, id, cfgJSON)
+		// Set status to 'waiting' — agent hasn't connected yet
+		db.DB.ExecContext(ctx,
+			`UPDATE workspaces SET status = 'offline', updated_at = now() WHERE id = $1`, id)
+		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_CREATED", id, map[string]interface{}{
+			"name":    payload.Name,
+			"runtime": payload.Runtime,
+			"tier":    payload.Tier,
+		})
+		log.Printf("Created workspace %s (%s) — waiting for agent to register", payload.Name, id)
+		c.JSON(http.StatusCreated, gin.H{
+			"id":      id,
+			"status":  "offline",
+			"runtime": payload.Runtime,
+			"message": "Workspace created. Connect an agent via POST /registry/register to bring it online.",
+		})
+		return
+	}
+
+	// Self-hosted: Docker provisioning (existing flow)
+	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, map[string]interface{}{
+		"name": payload.Name,
+		"tier": payload.Tier,
+	})
+
 	var templatePath string
 	var configFiles map[string][]byte
 	if payload.Template != "" {
@@ -201,27 +227,12 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		configFiles = h.ensureDefaultConfig(id, payload)
 	}
 
-	// Auto-provision — pick backend: control plane (SaaS) or Docker (self-hosted)
-	if h.cpProv != nil {
-		go h.provisionWorkspaceCP(id, templatePath, configFiles, payload)
-	} else if h.provisioner != nil {
+	if h.provisioner != nil {
 		go h.provisionWorkspace(id, templatePath, configFiles, payload)
 	} else {
-		// No Docker available (SaaS tenant). Persist basic config as JSON
-		// so the Config tab shows the correct runtime/model/name. Then mark
-		// the workspace as failed with a clear message.
-		cfgJSON := fmt.Sprintf(`{"name":%q,"runtime":%q,"tier":%d,"template":%q}`,
-			payload.Name, payload.Runtime, payload.Tier, payload.Template)
-		db.DB.ExecContext(ctx, `
-			INSERT INTO workspace_config (workspace_id, data) VALUES ($1, $2::jsonb)
-			ON CONFLICT (workspace_id) DO UPDATE SET data = $2::jsonb
-		`, id, cfgJSON)
+		log.Printf("Create: no Docker daemon — workspace %s created but cannot provision", id)
 		db.DB.ExecContext(ctx,
-			`UPDATE workspaces SET status = 'failed', last_sample_error = 'Docker not available — workspace containers require a Docker daemon or external provisioning.', updated_at = now() WHERE id = $1`, id)
-		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", id, map[string]interface{}{
-			"error": "Docker not available on this platform instance",
-		})
-		log.Printf("Create: no Docker daemon — workspace %s config persisted, marked failed", id)
+			`UPDATE workspaces SET status = 'offline', updated_at = now() WHERE id = $1`, id)
 	}
 
 	c.JSON(http.StatusCreated, gin.H{

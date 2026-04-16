@@ -100,23 +100,13 @@ func main() {
 		}
 	}()
 
-	// Provisioner — auto-detect backend:
-	//   1. MOLECULE_ORG_ID set → SaaS tenant → control plane provisioner
-	//   2. Docker available     → self-hosted → Docker provisioner
-	//   3. Neither              → provisioner disabled (external agents only)
+	// Provisioner — Docker for self-hosted only. SaaS tenants use the
+	// external agent pattern (no provisioner needed — agents register
+	// themselves via POST /registry/register).
 	var prov *provisioner.Provisioner
-	var cpProv *provisioner.CPProvisioner
 	if os.Getenv("MOLECULE_ORG_ID") != "" {
-		// SaaS tenant — provision via control plane (holds Fly token, manages billing)
-		if cp, err := provisioner.NewCPProvisioner(); err != nil {
-			log.Printf("Control plane provisioner unavailable: %v", err)
-		} else {
-			cpProv = cp
-			defer cpProv.Close()
-			log.Println("Provisioner: Control Plane (auto-detected SaaS tenant)")
-		}
+		log.Println("Provisioner: disabled (SaaS tenant — all workspaces use external agent pattern)")
 	} else {
-		// Self-hosted — use local Docker daemon
 		if p, err := provisioner.New(); err != nil {
 			log.Printf("Provisioner disabled (Docker not available): %v", err)
 		} else {
@@ -134,9 +124,6 @@ func main() {
 	// WorkspaceHandler is created before the router so RestartByID can be wired into
 	// the offline callbacks used by both the liveness monitor and the health sweep.
 	wh := handlers.NewWorkspaceHandler(broadcaster, prov, platformURL, configsDir)
-	if cpProv != nil {
-		wh.SetCPProvisioner(cpProv)
-	}
 
 	// Offline handler: broadcast event + auto-restart the dead workspace
 	onWorkspaceOffline := func(innerCtx context.Context, workspaceID string) {
