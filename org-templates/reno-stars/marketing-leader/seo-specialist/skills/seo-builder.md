@@ -73,10 +73,43 @@ Chinese (zh) pages are performing well in search (zh/guides at position 4.4). Af
 - If any ZH translation is machine-generated boilerplate, flag it for human review
 - When creating new EN content (BUILD_NEW mode), always create the ZH version in the same commit
 
+**Code-level blockers (hand off to Dev Leader — do NOT escalate to human):**
+
+Some pages have metadata driven by code (e.g., `app/[locale]/services/bathroom/white-rock/page.tsx` overrides layout metadata, or `messages/en.json` strings exceed Google's 160-char description cap). You can't fix those via DB updates from this cron.
+
+When you find one, **delegate to Dev Leader** via A2A — do NOT list it under "ACTION ITEMS (human)" in the Telegram report:
+
+1. Find Dev Leader's workspace ID:
+   ```
+   list_peers()  # returns [{id, name, role, ...}]
+   ```
+   Pick the peer whose role mentions "dev" / "code" / "automation".
+
+2. Delegate with enough context to fix without a round-trip:
+   ```
+   delegate_task(
+     workspace_id=<dev-leader-id>,
+     task=f\"\"\"
+     Fix code-level SEO blockers found during SEO Builder Run {run_num} ({date}).
+     File 1: /Users/renostars/.openclaw/workspace/reno-stars-nextjs-prod/app/[locale]/services/bathroom/white-rock/page.tsx
+       - Issue: metadata override bypasses the DB-driven title/description used elsewhere
+       - GSC: 315 impressions, position 24.4, target query "bathroom renovation white rock"
+       - Fix: replace hard-coded `export const metadata` with a `generateMetadata` call that reads from the pages table (same pattern as /en/areas/*)
+     File 2: /Users/renostars/.openclaw/workspace/reno-stars-nextjs-prod/messages/en.json (key: guides.wholeHouseVancouverCost.metaDescription)
+       - Issue: 176 chars exceeds Google's 160-char cap
+       - Fix: trim to <160 while keeping the keyword "whole house renovation cost vancouver" in the first 100c
+     Deploy after merge. Reply with PR URL when done.
+     \"\"\"
+   )
+   ```
+
+3. In the Telegram report, list these under "🔧 Handed off to Dev Leader" — NOT "ACTION ITEMS (human)". Only use "ACTION ITEMS (human)" for things that genuinely need a human (e.g., Yelp email verification requires clicking a link in the owner's inbox).
+
 **DO NOT:**
 - Build any new blog post, guide, or service-area page in this mode
 - Touch the priority queue
 - Run STEP 0 audit (skip the PageSpeed/W3C/SSL/Schema/Headers checks unless something CRITICAL surfaces while editing)
+- Escalate code-level blockers to the human — always delegate to Dev Leader first
 
 Batch everything — the goal is to improve every qualifying page each run, not drip one per day.
 
