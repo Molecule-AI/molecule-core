@@ -12,6 +12,7 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/models"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
 )
 
 // provisionWorkspace handles async container deployment with timeout.
@@ -121,6 +122,17 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 		}
 	}
 
+	// Issue/rotate the workspace auth token and inject the plaintext into the
+	// config volume so the workspace always has a valid bearer credential on
+	// disk, even after a container rebuild wiped the volume (issue #418).
+	//
+	// We must rotate (revoke-then-issue) rather than reuse because the DB only
+	// stores sha256(plaintext) — we cannot reconstruct the original token to
+	// write it back. The new plaintext is written into /configs/.auth_token via
+	// WriteFilesToContainer, which runs immediately after ContainerStart and
+	// wins the race against the Python adapter's startup time (~1-2 s).
+	h.issueAndInjectToken(ctx, workspaceID, &cfg)
+
 	url, err := h.provisioner.Start(ctx, cfg)
 	if err != nil {
 		// Persist the error text to last_sample_error so the canvas and
@@ -219,6 +231,37 @@ func (h *WorkspaceHandler) buildProvisionerConfig(
 		AwarenessURL:       os.Getenv("AWARENESS_URL"),
 		AwarenessNamespace: awarenessNamespace,
 	}
+}
+
+// issueAndInjectToken rotates the workspace auth token and injects the
+// plaintext into cfg.ConfigFiles[".auth_token"] so it is written into the
+// /configs volume by WriteFilesToContainer immediately after the container
+// starts (issue #418: container rebuild wipes /configs/.auth_token).
+//
+// Rotation strategy: since the DB only stores sha256(plaintext) we can never
+// recover an existing token. We revoke all live tokens first and issue a
+// fresh one. On any error the injection is skipped and a warning is logged;
+// provisioning continues — the workspace will get 401 on its first heartbeat
+// and can recover on the next restart.
+func (h *WorkspaceHandler) issueAndInjectToken(ctx context.Context, workspaceID string, cfg *provisioner.WorkspaceConfig) {
+	// Revoke any existing live tokens. If this fails we bail out rather than
+	// issuing a second live token whose plaintext we can't also deliver.
+	if err := wsauth.RevokeAllForWorkspace(ctx, db.DB, workspaceID); err != nil {
+		log.Printf("Provisioner: failed to revoke existing tokens for %s: %v — skipping auth-token injection", workspaceID, err)
+		return
+	}
+
+	token, err := wsauth.IssueToken(ctx, db.DB, workspaceID)
+	if err != nil {
+		log.Printf("Provisioner: failed to issue auth token for %s: %v — skipping auth-token injection", workspaceID, err)
+		return
+	}
+
+	if cfg.ConfigFiles == nil {
+		cfg.ConfigFiles = make(map[string][]byte)
+	}
+	cfg.ConfigFiles[".auth_token"] = []byte(token)
+	log.Printf("Provisioner: injected fresh auth token for workspace %s into config volume", workspaceID)
 }
 
 // findTemplateByName looks for a workspace-configs-templates directory matching a name.
