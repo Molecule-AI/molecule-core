@@ -7,6 +7,7 @@ import { SettingsButton } from "@/components/settings/SettingsButton";
 import { settingsGearRef } from "@/components/settings/SettingsPanel";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { showToast } from "@/components/Toaster";
+import { statusDotClass } from "@/lib/design-tokens";
 
 export function Toolbar() {
   const nodes = useCanvasStore((s) => s.nodes);
@@ -120,15 +121,15 @@ export function Toolbar() {
 
       {/* Status counts */}
       <div className="flex items-center gap-2.5">
-        <StatusPill color="bg-emerald-400" count={counts.online} label="online" />
+        <StatusPill color={statusDotClass("online")} count={counts.online} label="online" />
         {counts.offline > 0 && (
-          <StatusPill color="bg-zinc-500" count={counts.offline} label="offline" />
+          <StatusPill color={statusDotClass("offline")} count={counts.offline} label="offline" />
         )}
         {counts.provisioning > 0 && (
-          <StatusPill color="bg-sky-400 motion-safe:animate-pulse" count={counts.provisioning} label="starting" />
+          <StatusPill color={statusDotClass("provisioning")} count={counts.provisioning} label="starting" />
         )}
         {counts.failed > 0 && (
-          <StatusPill color="bg-red-400" count={counts.failed} label="failed" />
+          <StatusPill color={statusDotClass("failed")} count={counts.failed} label="failed" />
         )}
       </div>
 
@@ -259,7 +260,7 @@ function WsStatusPill({ status }: { status: "connected" | "connecting" | "discon
   if (status === "connected") {
     return (
       <div className="flex items-center gap-1.5" title="Real-time updates: connected">
-        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+        <div className={`w-1.5 h-1.5 rounded-full ${statusDotClass("online")}`} />
         <span className="text-[10px] text-zinc-500">Live</span>
       </div>
     );
@@ -274,7 +275,7 @@ function WsStatusPill({ status }: { status: "connected" | "connecting" | "discon
   }
   return (
     <div className="flex items-center gap-1.5" title="Real-time updates: disconnected">
-      <div className="w-1.5 h-1.5 rounded-full bg-red-400" />
+      <div className={`w-1.5 h-1.5 rounded-full ${statusDotClass("failed")}`} />
       <span className="text-[10px] text-zinc-500">Offline</span>
     </div>
   );

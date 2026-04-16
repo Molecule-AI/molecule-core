@@ -5,6 +5,7 @@ import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { showToast } from "@/components/Toaster";
 import { Tooltip } from "@/components/Tooltip";
+import { STATUS_CONFIG, TIER_CONFIG } from "@/lib/design-tokens";
 import { useShallow } from "zustand/react/shallow";
 
 /** Stable selector: returns children, grandchild flag, and descendant count for a node */
@@ -27,15 +28,6 @@ function useHierarchyInfo(parentId: string) {
   return { children, hasGrandchildren, descendantCount };
 }
 
-const STATUS_CONFIG: Record<string, { dot: string; glow: string; label: string; bar: string }> = {
-  online: { dot: "bg-emerald-400", glow: "shadow-emerald-400/50", label: "Online", bar: "from-emerald-500/20 to-transparent" },
-  offline: { dot: "bg-zinc-500", glow: "", label: "Offline", bar: "from-zinc-600/10 to-transparent" },
-  paused: { dot: "bg-indigo-400", glow: "", label: "Paused", bar: "from-indigo-500/10 to-transparent" },
-  degraded: { dot: "bg-amber-400", glow: "shadow-amber-400/50", label: "Degraded", bar: "from-amber-500/20 to-transparent" },
-  failed: { dot: "bg-red-400", glow: "shadow-red-400/50", label: "Failed", bar: "from-red-500/20 to-transparent" },
-  provisioning: { dot: "bg-sky-400 motion-safe:animate-pulse", glow: "shadow-sky-400/50", label: "Starting", bar: "from-sky-500/20 to-transparent" },
-};
-
 /** Eject/extract arrow icon — visually distinct from delete ✕ */
 function EjectIcon() {
   return (
@@ -45,13 +37,6 @@ function EjectIcon() {
     </svg>
   );
 }
-
-const TIER_CONFIG: Record<number, { label: string; color: string }> = {
-  1: { label: "T1", color: "text-zinc-500 bg-zinc-800/80" },
-  2: { label: "T2", color: "text-sky-400 bg-sky-950/50" },
-  3: { label: "T3", color: "text-violet-400 bg-violet-950/50" },
-  4: { label: "T4", color: "text-amber-400 bg-amber-950/50" },
-};
 
 export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) {
   const statusCfg = STATUS_CONFIG[data.status] || STATUS_CONFIG.offline;
@@ -123,6 +108,7 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
           : "bg-zinc-900/90 border border-zinc-700/80 hover:border-zinc-500/60 shadow-lg shadow-black/30 hover:shadow-xl hover:shadow-black/40"
         }
         backdrop-blur-sm
+        focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950
       `}
     >
       {/* Status gradient bar at top */}
