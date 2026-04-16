@@ -459,13 +459,18 @@ func (h *WorkspaceHandler) ensureDefaultConfig(workspaceID string, payload model
 
 // provisionWorkspaceFly provisions a workspace as a Fly Machine instead
 // of a local Docker container. Same secret-loading + env-var logic as
-// provisionWorkspaceOpts, but calls FlyProvisioner.Start instead of
-// the Docker provisioner.
-func (h *WorkspaceHandler) provisionWorkspaceFly(workspaceID, templatePath string, configFiles map[string][]byte, payload models.CreateWorkspacePayload) {
+// provisionWorkspaceFly is removed — use provisionWorkspaceCP instead.
+// Direct Fly provisioning from the tenant was replaced by the control
+// plane architecture (the CP holds the Fly token, manages billing/quotas).
+
+// provisionWorkspaceCP provisions a workspace via the control plane API.
+// The control plane holds the Fly token and manages billing/quotas — the
+// tenant platform never talks to Fly directly.
+func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string, configFiles map[string][]byte, payload models.CreateWorkspacePayload) {
 	ctx, cancel := context.WithTimeout(context.Background(), provisioner.ProvisionTimeout)
 	defer cancel()
 
-	// Load secrets (same as Docker path)
+	// Load secrets (same as Docker/Fly paths)
 	envVars := map[string]string{}
 	globalRows, globalErr := db.DB.QueryContext(ctx,
 		`SELECT key, encrypted_value, encryption_version FROM global_secrets`)
@@ -478,7 +483,7 @@ func (h *WorkspaceHandler) provisionWorkspaceFly(workspaceID, templatePath strin
 			if globalRows.Scan(&k, &v, &ver) == nil {
 				decrypted, decErr := crypto.DecryptVersioned(v, ver)
 				if decErr != nil {
-					log.Printf("FlyProvisioner: failed to decrypt global secret %s for %s: %v", k, workspaceID, decErr)
+					log.Printf("CPProvisioner: failed to decrypt global secret %s for %s: %v", k, workspaceID, decErr)
 					db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
 						workspaceID, fmt.Sprintf("cannot decrypt global secret %s", k))
 					return
@@ -504,28 +509,23 @@ func (h *WorkspaceHandler) provisionWorkspaceFly(workspaceID, templatePath strin
 
 	applyAgentGitIdentity(envVars, payload.Name)
 	if err := h.envMutators.Run(ctx, workspaceID, envVars); err != nil {
-		log.Printf("FlyProvisioner: env mutator failed for %s: %v", workspaceID, err)
+		log.Printf("CPProvisioner: env mutator failed for %s: %v", workspaceID, err)
 		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
 			workspaceID, err.Error())
 		return
 	}
 
-	awarenessNamespace := h.loadAwarenessNamespace(ctx, workspaceID)
-
 	cfg := provisioner.WorkspaceConfig{
-		WorkspaceID:        workspaceID,
-		TemplatePath:       templatePath,
-		ConfigFiles:        configFiles,
-		Tier:               payload.Tier,
-		Runtime:            payload.Runtime,
-		EnvVars:            envVars,
-		PlatformURL:        h.platformURL,
-		AwarenessNamespace: awarenessNamespace,
+		WorkspaceID: workspaceID,
+		Tier:        payload.Tier,
+		Runtime:     payload.Runtime,
+		EnvVars:     envVars,
+		PlatformURL: h.platformURL,
 	}
 
-	machineID, err := h.flyProv.Start(ctx, cfg)
+	machineID, err := h.cpProv.Start(ctx, cfg)
 	if err != nil {
-		log.Printf("FlyProvisioner: failed to start workspace %s: %v", workspaceID, err)
+		log.Printf("CPProvisioner: failed to start workspace %s: %v", workspaceID, err)
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
 			"error": err.Error(),
 		})
@@ -534,14 +534,12 @@ func (h *WorkspaceHandler) provisionWorkspaceFly(workspaceID, templatePath strin
 		return
 	}
 
-	log.Printf("FlyProvisioner: workspace %s started as Fly machine %s", workspaceID, machineID)
-	// The workspace will register via POST /registry/register once the
-	// agent boots inside the Fly machine, which transitions it to 'online'.
-	// We issue a token preemptively so the agent can authenticate.
+	log.Printf("CPProvisioner: workspace %s started as machine %s via control plane", workspaceID, machineID)
+	// Issue token so the agent can authenticate on boot
 	token, tokenErr := wsauth.IssueToken(ctx, db.DB, workspaceID)
 	if tokenErr != nil {
-		log.Printf("FlyProvisioner: failed to issue token for %s: %v", workspaceID, tokenErr)
+		log.Printf("CPProvisioner: failed to issue token for %s: %v", workspaceID, tokenErr)
 	} else {
-		log.Printf("FlyProvisioner: issued auth token for workspace %s (prefix: %s...)", workspaceID, token[:8])
+		log.Printf("CPProvisioner: issued auth token for workspace %s (prefix: %s...)", workspaceID, token[:8])
 	}
 }
