@@ -207,11 +207,11 @@ function ActivityRow({
             </span>
           )}
 
-          <span className="text-[8px] text-zinc-600 shrink-0">
+          <span className="text-[8px] text-zinc-500 shrink-0">
             {formatTime(entry.created_at)}
           </span>
 
-          <span className="text-[9px] text-zinc-600">
+          <span className="text-[9px] text-zinc-500">
             {expanded ? "▼" : "▶"}
           </span>
         </div>
@@ -233,7 +233,7 @@ function ActivityRow({
                 {resolveName(entry.source_id)}
               </span>
             )}
-            <span className="text-[9px] text-zinc-600">→</span>
+            <span className="text-[9px] text-zinc-500">→</span>
             {entry.target_id && (
               <span className="text-[9px] text-blue-400/80 truncate max-w-[140px]" title={entry.target_id}>
                 {resolveName(entry.target_id)}
@@ -275,7 +275,7 @@ function ActivityRow({
           {entry.response_body && (
             <JsonBlock label="Response" data={entry.response_body} />
           )}
-          <div className="text-[8px] text-zinc-600 font-mono select-all">
+          <div className="text-[8px] text-zinc-500 font-mono select-all">
             ID: {entry.id}
           </div>
         </div>

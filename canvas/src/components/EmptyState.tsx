@@ -129,7 +129,7 @@ export function EmptyState() {
                     {t.description || "No description"}
                   </p>
                   {t.skill_count > 0 && (
-                    <p className="text-[9px] text-zinc-600 mt-1.5">
+                    <p className="text-[9px] text-zinc-500 mt-1.5">
                       {t.skill_count} skill{t.skill_count !== 1 ? "s" : ""}
                       {t.model ? ` · ${t.model}` : ""}
                     </p>

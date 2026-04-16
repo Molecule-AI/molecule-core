@@ -281,7 +281,7 @@ export function ScheduleTab({ workspaceId }: Props) {
           <div className="p-6 text-center">
             <div className="text-2xl mb-2">⏲</div>
             <div className="text-[10px] text-zinc-400 mb-1">No schedules yet</div>
-            <div className="text-[9px] text-zinc-600">
+            <div className="text-[9px] text-zinc-500">
               Add a schedule to run tasks automatically — daily scans, periodic reports, standup reminders.
             </div>
           </div>
@@ -317,10 +317,10 @@ export function ScheduleTab({ workspaceId }: Props) {
                       <span className="text-zinc-600"> ({sched.timezone})</span>
                     )}
                   </div>
-                  <div className="text-[9px] text-zinc-600 mt-0.5 truncate">
+                  <div className="text-[9px] text-zinc-500 mt-0.5 truncate">
                     {sched.prompt.slice(0, 80)}{sched.prompt.length > 80 ? "..." : ""}
                   </div>
-                  <div className="flex items-center gap-3 mt-1 text-[8px] text-zinc-600">
+                  <div className="flex items-center gap-3 mt-1 text-[8px] text-zinc-500">
                     <span>Last: {relativeTime(sched.last_run_at)}</span>
                     <span>Next: {relativeTime(sched.next_run_at)}</span>
                     <span>Runs: {sched.run_count}</span>
