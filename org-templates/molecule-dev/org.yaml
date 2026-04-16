@@ -801,7 +801,11 @@ workspaces:
               6. Wait for tasks from Dev Lead.
             schedules:
               - name: Hourly UI/UX audit with live screenshots
-                cron_expr: "5,20,35,50 * * * *"
+                # #306: was "5,20,35,50 * * * *" (every 15 min — 96
+                # ticks/day × 8 screenshots × vision = runaway cost).
+                # Hourly matches the schedule name and is sufficient
+                # because the canvas UI only changes on deploys.
+                cron_expr: "5 * * * *"
                 prompt: |
                   Hourly UX audit of the live Molecule AI canvas. Take real screenshots
                   and analyse actual user flows. The runtime discovered a working Chromium
