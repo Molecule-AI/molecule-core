@@ -8,14 +8,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// TestCanvasProxy_StripsAuthorizationHeader verifies that workspace bearer
-// tokens are NOT forwarded to the canvas Next.js server (issue #451 / N2).
-// A compromised or unpatched Next.js route could echo the token back to an
-// attacker; stripping it at the proxy layer is the safe default.
+// closeNotifyRecorder wraps httptest.ResponseRecorder with a no-op
+// CloseNotify so httputil.ReverseProxy doesn't panic when served
+// through Gin (which casts the writer to http.CloseNotifier).
+type closeNotifyRecorder struct {
+	*httptest.ResponseRecorder
+}
+
+func (c *closeNotifyRecorder) CloseNotify() <-chan bool {
+	return make(chan bool)
+}
+
+func newTestRecorder() *closeNotifyRecorder {
+	return &closeNotifyRecorder{httptest.NewRecorder()}
+}
+
 func TestCanvasProxy_StripsAuthorizationHeader(t *testing.T) {
 	var capturedAuth string
-
-	// Stand up a tiny upstream that records what headers it received.
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedAuth = r.Header.Get("Authorization")
 		w.WriteHeader(http.StatusOK)
@@ -26,7 +35,7 @@ func TestCanvasProxy_StripsAuthorizationHeader(t *testing.T) {
 	engine := gin.New()
 	engine.NoRoute(newCanvasProxy(upstream.URL))
 
-	w := httptest.NewRecorder()
+	w := newTestRecorder()
 	req := httptest.NewRequest("GET", "/some-canvas-page", nil)
 	req.Header.Set("Authorization", "Bearer ws-secret-token")
 	engine.ServeHTTP(w, req)
@@ -36,11 +45,8 @@ func TestCanvasProxy_StripsAuthorizationHeader(t *testing.T) {
 	}
 }
 
-// TestCanvasProxy_StripsCookieHeader verifies that session cookies are not
-// forwarded to the canvas Next.js server (same rationale as Authorization).
 func TestCanvasProxy_StripsCookieHeader(t *testing.T) {
 	var capturedCookie string
-
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedCookie = r.Header.Get("Cookie")
 		w.WriteHeader(http.StatusOK)
@@ -51,7 +57,7 @@ func TestCanvasProxy_StripsCookieHeader(t *testing.T) {
 	engine := gin.New()
 	engine.NoRoute(newCanvasProxy(upstream.URL))
 
-	w := httptest.NewRecorder()
+	w := newTestRecorder()
 	req := httptest.NewRequest("GET", "/canvas-route", nil)
 	req.Header.Set("Cookie", "session=abc123; auth=secret")
 	engine.ServeHTTP(w, req)
@@ -61,12 +67,8 @@ func TestCanvasProxy_StripsCookieHeader(t *testing.T) {
 	}
 }
 
-// TestCanvasProxy_ForwardsOtherHeaders verifies that non-credential headers
-// (e.g. Accept, X-Request-ID) still reach the upstream — stripping is
-// surgical, not a blanket header wipe.
 func TestCanvasProxy_ForwardsOtherHeaders(t *testing.T) {
 	var capturedAccept, capturedRequestID string
-
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedAccept = r.Header.Get("Accept")
 		capturedRequestID = r.Header.Get("X-Request-Id")
@@ -78,7 +80,7 @@ func TestCanvasProxy_ForwardsOtherHeaders(t *testing.T) {
 	engine := gin.New()
 	engine.NoRoute(newCanvasProxy(upstream.URL))
 
-	w := httptest.NewRecorder()
+	w := newTestRecorder()
 	req := httptest.NewRequest("GET", "/page", nil)
 	req.Header.Set("Accept", "text/html")
 	req.Header.Set("X-Request-Id", "trace-abc")
@@ -93,11 +95,8 @@ func TestCanvasProxy_ForwardsOtherHeaders(t *testing.T) {
 	}
 }
 
-// TestCanvasProxy_NoBothCredentialHeaders is the combined regression: a request
-// carrying both Authorization AND Cookie must have both stripped.
 func TestCanvasProxy_NoBothCredentialHeaders(t *testing.T) {
 	var gotAuth, gotCookie string
-
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
 		gotCookie = r.Header.Get("Cookie")
@@ -109,7 +108,7 @@ func TestCanvasProxy_NoBothCredentialHeaders(t *testing.T) {
 	engine := gin.New()
 	engine.NoRoute(newCanvasProxy(upstream.URL))
 
-	w := httptest.NewRecorder()
+	w := newTestRecorder()
 	req := httptest.NewRequest("GET", "/dashboard", nil)
 	req.Header.Set("Authorization", "Bearer token123")
 	req.Header.Set("Cookie", "sid=xyz")
