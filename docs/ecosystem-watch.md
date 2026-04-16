@@ -895,6 +895,46 @@ builders; Molecule AI users are developers building agent companies.
 **Last reviewed:** 2026-04-15 · **Stars / activity:** ~2.2k ⭐, +1,020 today, Vercel Labs
 
 ---
+
+### Gemini CLI — `google-gemini/gemini-cli`
+
+**Pitch:** "An open-source AI agent that brings the power of Gemini directly into your terminal."
+
+**Shape:** TypeScript (Apache 2.0), ~101k ⭐, v0.38.1 released April 15, 2026. Single-agent interactive CLI with a 1M-token context window (Gemini models). Tool surface: file read/write, shell execution, web fetch, Google Search grounding. MCP support via `~/.gemini/settings.json` — any MCP server can extend its tool set. ReAct loop architecture. No persistent agent identity between sessions. Ships from Google's own org (`google-gemini`).
+
+**Overlap with us:** Direct structural parallel to our Claude Code runtime adapter — both are agentic CLIs wrapping a frontier model with file+shell tools. Developers choosing between Claude Code and Gemini CLI for their workspace runtime will hit our adapter story immediately. MCP support means the same skills installed for a Claude Code workspace *can* target a Gemini CLI workspace with zero changes.
+
+**Differentiation:** No persistent memory, no org hierarchy, no A2A, no scheduling, no canvas. A session ends when the terminal closes. Molecule AI's Claude Code adapter sits *on top* of Claude Code; Gemini CLI would need a parallel adapter. We're the platform; Gemini CLI is the runtime candidate.
+
+**Worth borrowing:** Google Search grounding as a first-class tool — grounded web results with citations surfaced inline. Our Research Lead workspace uses raw WebSearch; grounding would reduce hallucinated citations. Consider exposing a `google_search_grounded` tool in our claude-code skill pack.
+
+**Terminology collisions:** "agent" — their single-session CLI process; our long-lived Docker workspace.
+
+**Signals to react to:** If Gemini CLI adds persistent memory between sessions → it closes the gap with our Claude Code adapter; push adoption of the `gemini-cli` runtime adapter. If `gemini-cli` MCP adoption exceeds `claude-code` MCP adoption → re-weight our adapter documentation priority. If Google ships a multi-agent layer on top of Gemini CLI → direct platform threat with massive distribution.
+
+**Last reviewed:** 2026-04-16 · **Stars / activity:** ~101k ⭐, v0.38.1 April 15, 2026, Google-maintained
+
+---
+
+### open-multi-agent — `JackChen-me/open-multi-agent`
+
+**Pitch:** "TypeScript multi-agent framework — one `runTeam()` call from goal to result. Auto task decomposition, parallel execution. 3 dependencies, deploys anywhere Node.js runs."
+
+**Shape:** TypeScript (MIT), ~5.7k ⭐, v1.1.0 released April 1, 2026. Coordinator-based architecture: one coordinator agent decomposes a natural-language goal into a dependency DAG of tasks, assigns each to a specialist agent, and fans results back. Shared message bus + memory pool across the agent pool. Three runtime deps (`@anthropic-ai/sdk`, `openai`, `zod`). MCP servers connected via `connectMCPTools()`. Supports Claude, GPT, Gemini, Grok, Ollama, and any OpenAI-compatible endpoint per-agent.
+
+**Overlap with us:** Coordinator-DAG decomposition mirrors our PM → Dev Lead → Engineer delegation chain, but automated at runtime from a single goal string — where we rely on system-prompt-encoded delegation rules. The shared message bus maps to our A2A event queue. MCP-native means workspace skills install into `open-multi-agent` teams as easily as ours. The per-agent model selection (cheap model for shallow tasks, expensive for deep) is the same `model_policy` we've been deferring.
+
+**Differentiation:** No persistent agent identity across runs, no visual canvas, no scheduling, no Docker isolation, no channels. Teams are ephemeral in-process objects. Molecule AI is an operational platform for long-lived agents; `open-multi-agent` is a library for one-shot goal execution.
+
+**Worth borrowing:** Runtime goal-to-DAG decomposition — instead of hard-coding delegation trees in system prompts, the PM workspace could call a decomposition step that generates a task graph from the user's goal. Cheap to prototype: wrap `runTeam()` logic as a PM skill.
+
+**Terminology collisions:** "coordinator" — their orchestrating agent; our PM workspace plays the same role but with a persistent identity. "team" — their ephemeral agent pool; our org-chart canvas of live workspaces.
+
+**Signals to react to:** If `open-multi-agent` adds persistent agent state → library becomes a platform; assess as a dependency or competitor for our TypeScript SDK. If `runTeam()` pattern becomes idiomatic in the Node.js agent ecosystem → expose a compatible API surface in our SDK for parity.
+
+**Last reviewed:** 2026-04-16 · **Stars / activity:** ~5.7k ⭐, v1.1.0 April 1, 2026, MIT
+
+---
 ## Candidates to add (backlog)
 
 Short-list of projects to write up next time someone has an hour:
