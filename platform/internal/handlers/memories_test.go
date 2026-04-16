@@ -505,3 +505,103 @@ func TestMemoriesSearch_NamespaceFilter(t *testing.T) {
 		t.Errorf("unexpected result: %v", result)
 	}
 }
+
+// ---------- MemoriesHandler: limit cap (#377) ----------
+
+// TestMemoriesSearch_LimitCap_OverMaxClampsTo50 verifies that requesting
+// more than 50 results (e.g. ?limit=100) is silently clamped to 50.
+// The LIMIT argument passed to the DB must be 50, not 100.
+func TestMemoriesSearch_LimitCap_OverMaxClampsTo50(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewMemoriesHandler()
+
+	mock.ExpectQuery("SELECT parent_id FROM workspaces WHERE id").
+		WithArgs("ws-limit-cap").
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(nil))
+
+	// LOCAL scope: args are (workspace_id, limit). Expect limit arg = 50 even
+	// though the caller asked for 100.
+	mock.ExpectQuery("SELECT id, workspace_id, content, scope, namespace, created_at FROM agent_memories WHERE workspace_id").
+		WithArgs("ws-limit-cap", 50).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id", "content", "scope", "namespace", "created_at"}))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-limit-cap"}}
+	c.Request = httptest.NewRequest("GET", "/memories?scope=LOCAL&limit=100", nil)
+	c.Request.URL.RawQuery = "scope=LOCAL&limit=100"
+
+	handler.Search(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations not met (limit was not clamped to 50): %v", err)
+	}
+}
+
+// TestMemoriesSearch_LimitExplicit_HonouredWhenBelowMax verifies that
+// ?limit=10 is honoured as-is (well under the 50 ceiling).
+func TestMemoriesSearch_LimitExplicit_HonouredWhenBelowMax(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewMemoriesHandler()
+
+	mock.ExpectQuery("SELECT parent_id FROM workspaces WHERE id").
+		WithArgs("ws-limit-10").
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(nil))
+
+	// Expect limit arg = 10.
+	mock.ExpectQuery("SELECT id, workspace_id, content, scope, namespace, created_at FROM agent_memories WHERE workspace_id").
+		WithArgs("ws-limit-10", 10).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id", "content", "scope", "namespace", "created_at"}))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-limit-10"}}
+	c.Request = httptest.NewRequest("GET", "/memories?scope=LOCAL&limit=10", nil)
+	c.Request.URL.RawQuery = "scope=LOCAL&limit=10"
+
+	handler.Search(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations not met (limit=10 was not passed through): %v", err)
+	}
+}
+
+// TestMemoriesSearch_LimitDefault_Is50 verifies that omitting ?limit uses
+// the default ceiling of 50.
+func TestMemoriesSearch_LimitDefault_Is50(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewMemoriesHandler()
+
+	mock.ExpectQuery("SELECT parent_id FROM workspaces WHERE id").
+		WithArgs("ws-limit-default").
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(nil))
+
+	// No ?limit param → expect DB arg = 50.
+	mock.ExpectQuery("SELECT id, workspace_id, content, scope, namespace, created_at FROM agent_memories WHERE workspace_id").
+		WithArgs("ws-limit-default", 50).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id", "content", "scope", "namespace", "created_at"}))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-limit-default"}}
+	c.Request = httptest.NewRequest("GET", "/memories?scope=LOCAL", nil)
+	c.Request.URL.RawQuery = "scope=LOCAL"
+
+	handler.Search(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations not met (default limit should be 50): %v", err)
+	}
+}
