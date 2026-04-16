@@ -196,15 +196,22 @@ func (h *OrgHandler) ListTemplates(c *gin.Context) {
 			continue
 		}
 		// Look for org.yaml inside the directory
-		orgFile := filepath.Join(h.orgDir, e.Name(), "org.yaml")
+		templateDir := filepath.Join(h.orgDir, e.Name())
+		orgFile := filepath.Join(templateDir, "org.yaml")
 		data, err := os.ReadFile(orgFile)
 		if err != nil {
 			// Try org.yml
-			orgFile = filepath.Join(h.orgDir, e.Name(), "org.yml")
+			orgFile = filepath.Join(templateDir, "org.yml")
 			data, err = os.ReadFile(orgFile)
 			if err != nil {
 				continue
 			}
+		}
+		// Expand !include directives before unmarshal so templates that
+		// split across team/role files still report an accurate workspace
+		// count on the /org/templates listing.
+		if expanded, err := resolveYAMLIncludes(data, templateDir); err == nil {
+			data = expanded
 		}
 		var tmpl OrgTemplate
 		if err := yaml.Unmarshal(data, &tmpl); err != nil {
@@ -253,7 +260,15 @@ func (h *OrgHandler) Import(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("org template not found: %s", body.Dir)})
 			return
 		}
-		if err := yaml.Unmarshal(data, &tmpl); err != nil {
+		// Expand !include directives before unmarshal. Splits org.yaml
+		// into per-team or per-role files; Phase 3 of the scalability
+		// refactor. Fails loudly on missing / cyclic / escaping includes.
+		expanded, err := resolveYAMLIncludes(data, orgBaseDir)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("!include expansion failed: %v", err)})
+			return
+		}
+		if err := yaml.Unmarshal(expanded, &tmpl); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid YAML: %v", err)})
 			return
 		}
