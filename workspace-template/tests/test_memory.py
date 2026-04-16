@@ -78,9 +78,13 @@ def test_commit_memory_uses_awareness_client_when_configured(monkeypatch, memory
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-        async def post(self, url, json):
-            captured["url"] = url
-            captured["json"] = json
+        async def post(self, url, json, headers=None):
+            # Only capture the memories write — _record_memory_activity
+            # fires a second /activity post that would overwrite
+            # captured["url"] otherwise.
+            if "/memories" in url:
+                captured["url"] = url
+                captured["json"] = json
             return _FakeResponse(201, {"id": "mem-123"})
 
     monkeypatch.setenv("AWARENESS_URL", "http://awareness.test")
@@ -108,7 +112,7 @@ def test_search_memory_uses_platform_fallback_without_awareness(monkeypatch, mem
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-        async def get(self, url, params):
+        async def get(self, url, params, headers=None):
             captured["url"] = url
             captured["params"] = params
             return _FakeResponse(200, [{"content": "existing"}])
@@ -140,9 +144,15 @@ def test_commit_memory_uses_platform_fallback_without_awareness(monkeypatch, mem
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-        async def post(self, url, json):
-            captured["url"] = url
-            captured["json"] = json
+        async def post(self, url, json, headers=None):
+            # commit_memory first hits /workspaces/:id/memories (the fix
+            # under test), then _record_memory_activity hits /activity as
+            # a fire-and-forget follow-up. Filter to only capture the
+            # memories call so the subsequent activity post doesn't
+            # overwrite captured["url"].
+            if "/memories" in url:
+                captured["url"] = url
+                captured["json"] = json
             return _FakeResponse(201, {"id": "platform-mem"})
 
     monkeypatch.setattr(memory.httpx, "AsyncClient", FakeAsyncClient)
@@ -168,12 +178,14 @@ def test_commit_memory_promoted_packet_logs_skill_promotion(monkeypatch, tmp_pat
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-        async def post(self, url, json):
+        async def post(self, url, json, headers=None):
             captured["calls"].append((url, json))
             if url.endswith("/memories"):
                 return _FakeResponse(201, {"id": "mem-skill"})
             if url.endswith("/activity"):
                 return _FakeResponse(200, {"status": "logged"})
+            if url.endswith("/registry/heartbeat"):
+                return _FakeResponse(200, {"status": "ok"})
             raise AssertionError(f"unexpected URL: {url}")
 
     monkeypatch.setattr(memory.httpx, "AsyncClient", FakeAsyncClient)
@@ -193,19 +205,30 @@ def test_commit_memory_promoted_packet_logs_skill_promotion(monkeypatch, tmp_pat
     result = asyncio.run(memory.commit_memory(json.dumps(packet), "team"))
 
     assert result == {"success": True, "id": "mem-skill", "scope": "TEAM"}
-    assert len(captured["calls"]) == 3
+    # Promoted packets now produce 4 calls (pre-#215-fix the memory-write
+    # activity call was silently dropped because the test fake didn't
+    # accept a `headers=` kwarg, which changed as the fakes were updated
+    # to match the new auth-headers wiring):
+    #   [0] POST /memories          — the memory write itself
+    #   [1] POST /activity           — memory_write activity row (#125)
+    #   [2] POST /activity           — skill_promotion activity row
+    #   [3] POST /registry/heartbeat — heartbeat update with promotion task
+    assert len(captured["calls"]) == 4
     memory_url, memory_payload = captured["calls"][0]
-    activity_url, activity_payload = captured["calls"][1]
-    heartbeat_url, heartbeat_payload = captured["calls"][2]
+    memory_activity_url, memory_activity_payload = captured["calls"][1]
+    skill_activity_url, skill_activity_payload = captured["calls"][2]
+    heartbeat_url, heartbeat_payload = captured["calls"][3]
     assert memory_url == "http://platform.test/workspaces/ws-test/memories"
     assert memory_payload == {"content": json.dumps(packet), "scope": "TEAM"}
-    assert activity_url == "http://platform.test/workspaces/ws-test/activity"
-    assert activity_payload["activity_type"] == "skill_promotion"
-    assert activity_payload["method"] == "memory/skill-promotion"
-    assert activity_payload["summary"] == "Repeated GitHub webhook handling is now a skill candidate"
-    assert activity_payload["metadata"]["promote_to_skill"] is True
-    assert activity_payload["metadata"]["memory_id"] == "mem-skill"
-    assert activity_payload["metadata"]["repetition_signal"] == packet["repetition_signal"]
+    assert memory_activity_url == "http://platform.test/workspaces/ws-test/activity"
+    assert memory_activity_payload["activity_type"] == "memory_write"
+    assert skill_activity_url == "http://platform.test/workspaces/ws-test/activity"
+    assert skill_activity_payload["activity_type"] == "skill_promotion"
+    assert skill_activity_payload["method"] == "memory/skill-promotion"
+    assert skill_activity_payload["summary"] == "Repeated GitHub webhook handling is now a skill candidate"
+    assert skill_activity_payload["metadata"]["promote_to_skill"] is True
+    assert skill_activity_payload["metadata"]["memory_id"] == "mem-skill"
+    assert skill_activity_payload["metadata"]["repetition_signal"] == packet["repetition_signal"]
     assert heartbeat_url == "http://platform.test/registry/heartbeat"
     assert heartbeat_payload["current_task"] == "Skill promotion: Repeated GitHub webhook handling is now a skill candidate"
     assert heartbeat_payload["active_tasks"] == 1
@@ -349,8 +372,12 @@ def test_commit_memory_httpx_201_success(memory_modules_with_mocks):
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-        async def post(self, url, json):
-            captured["url"] = url
+        async def post(self, url, json, headers=None):
+            # Only capture the /memories call — _record_memory_activity
+            # fires /activity after on success and would otherwise
+            # overwrite captured["url"].
+            if "/memories" in url:
+                captured["url"] = url
             return _FakeResponse(201, {"id": "new-mem-1"})
 
     memory.httpx.AsyncClient = FakeAsyncClient
@@ -372,7 +399,7 @@ def test_commit_memory_httpx_non_201(memory_modules_with_mocks):
         def __init__(self, timeout): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return None
-        async def post(self, url, json):
+        async def post(self, url, json, headers=None):
             return _FakeResponse(400, {"error": "bad request"})
 
     memory.httpx.AsyncClient = FakeAsyncClient
@@ -394,7 +421,7 @@ def test_commit_memory_httpx_exception(memory_modules_with_mocks):
         def __init__(self, timeout): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return None
-        async def post(self, url, json):
+        async def post(self, url, json, headers=None):
             raise ConnectionError("network gone")
 
     memory.httpx.AsyncClient = FakeAsyncClient
@@ -416,7 +443,7 @@ def test_commit_memory_result_failure(memory_modules_with_mocks):
         def __init__(self, timeout): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return None
-        async def post(self, url, json):
+        async def post(self, url, json, headers=None):
             return _FakeResponse(400, {"error": "storage full"})
 
     memory.httpx.AsyncClient = FakeAsyncClient
@@ -513,7 +540,7 @@ def test_search_memory_httpx_200_success(memory_modules_with_mocks):
         def __init__(self, timeout): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return None
-        async def get(self, url, params):
+        async def get(self, url, params, headers=None):
             return _FakeResponse(200, [{"content": "result1"}, {"content": "result2"}])
 
     memory.httpx.AsyncClient = FakeAsyncClient
@@ -536,7 +563,7 @@ def test_search_memory_httpx_non_200(memory_modules_with_mocks):
         def __init__(self, timeout): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return None
-        async def get(self, url, params):
+        async def get(self, url, params, headers=None):
             return _FakeResponse(500, {"error": "server error"})
 
     memory.httpx.AsyncClient = FakeAsyncClient
@@ -558,7 +585,7 @@ def test_search_memory_httpx_exception(memory_modules_with_mocks):
         def __init__(self, timeout): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return None
-        async def get(self, url, params):
+        async def get(self, url, params, headers=None):
             raise TimeoutError("request timed out")
 
     memory.httpx.AsyncClient = FakeAsyncClient
@@ -614,7 +641,7 @@ def test_maybe_log_skill_promotion_no_packet(memory_modules_with_mocks):
         def __init__(self, timeout): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return None
-        async def post(self, url, json):
+        async def post(self, url, json, headers=None):
             http_called.append(url)
 
     memory.httpx.AsyncClient = FakeAsyncClient
@@ -675,7 +702,7 @@ def test_commit_memory_httpx_exception_span_record_fails(memory_modules_with_moc
         def __init__(self, timeout): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return None
-        async def post(self, url, json):
+        async def post(self, url, json, headers=None):
             raise ConnectionError("network gone")
 
     memory.httpx.AsyncClient = FakeAsyncClient
@@ -697,7 +724,7 @@ def test_search_memory_httpx_exception_span_record_fails(memory_modules_with_moc
         def __init__(self, timeout): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return None
-        async def get(self, url, params):
+        async def get(self, url, params, headers=None):
             raise TimeoutError("request timed out")
 
     memory.httpx.AsyncClient = FakeAsyncClient
@@ -731,7 +758,7 @@ def test_maybe_log_skill_promotion_no_workspace_id(memory_modules_with_mocks):
         def __init__(self, timeout): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return None
-        async def post(self, url, json):
+        async def post(self, url, json, headers=None):
             http_called.append(url)
 
     memory.httpx.AsyncClient = FakeAsyncClient
