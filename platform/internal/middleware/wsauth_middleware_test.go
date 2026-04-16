@@ -14,13 +14,10 @@ import (
 // WorkspaceAuth middleware tests (covers findings C4, C8 and the full
 // per-workspace bearer-token contract).
 //
-// WorkspaceAuth calls wsauth.HasAnyLiveToken to decide whether to enforce:
-//   - 0 live tokens → fail-open (bootstrap / rolling upgrade)
-//   - ≥1 live token → Authorization: Bearer <token> required and validated
+// Since PR #357 (#351 fix) the middleware enforces strictly: every request
+// under /workspaces/:id/* must carry a valid bearer token — no fail-open,
+// no grace period, no existence check.
 // ────────────────────────────────────────────────────────────────────────────
-
-// hasLiveTokenQuery is the SQL fragment matched by sqlmock for HasAnyLiveToken.
-const hasLiveTokenQuery = "SELECT COUNT.*FROM workspace_auth_tokens.*workspace_id"
 
 // hasAnyLiveTokenGlobalQuery is matched for HasAnyLiveTokenGlobal.
 const hasAnyLiveTokenGlobalQuery = "SELECT COUNT.*FROM workspace_auth_tokens"
@@ -43,10 +40,6 @@ func newWorkspaceAuthRouter(db sqlmock.Sqlmock, realDB interface{ Close() error 
 	// test-local var — this helper is only used to build the router topology.
 	return r
 }
-
-// workspaceExistsQuery is matched by sqlmock for wsauth.WorkspaceExists.
-// Matches the SELECT EXISTS(SELECT 1 FROM workspaces WHERE id = $1) query.
-const workspaceExistsQuery = "SELECT EXISTS.*FROM workspaces WHERE id"
 
 // TestWorkspaceAuth_351_NoBearer_Returns401 — strict contract: every request
 // under /workspaces/:id/* must carry a valid bearer, period. No fail-open,
