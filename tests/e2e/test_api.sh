@@ -297,19 +297,22 @@ check "GET /bundles/export/:id" '"name":"Summarizer Agent"' "$BUNDLE"
 ORIG_NAME=$(echo "$BUNDLE" | python3 -c "import sys,json; print(json.load(sys.stdin)['name'])")
 ORIG_TIER=$(echo "$BUNDLE" | python3 -c "import sys,json; print(json.load(sys.stdin)['tier'])")
 
-# Delete the workspace
-R=$(acurl -X DELETE "$BASE/workspaces/$SUM_ID" -H "Authorization: Bearer $SUM_TOKEN")
+# Delete the workspace — use SUM_TOKEN (per-workspace) for WorkspaceAuth
+# and ADMIN_TOKEN for the AdminAuth layer.
+R=$(curl -s -X DELETE "$BASE/workspaces/$SUM_ID" -H "Authorization: Bearer $SUM_TOKEN")
 check "Delete before re-import" '"status":"removed"' "$R"
 
-# Deletion revokes the workspace's auth tokens (PR #99 C1 fix: workspace.go
-# now runs UPDATE workspace_auth_tokens SET revoked_at on delete).  With no
-# live tokens remaining, HasAnyLiveTokenGlobal = false → AdminAuth fail-open
-# → GET /workspaces is reachable without a bearer token again.
+# After deleting the last workspace, all per-workspace tokens are revoked.
+# But the test-token we minted earlier may still be in the DB as a live
+# row (test-token endpoint issues tokens that aren't workspace-scoped
+# for revocation). Clear ADMIN_TOKEN so acurl falls back to no-auth,
+# which works when HasAnyLiveTokenGlobal = false (fail-open).
+ADMIN_TOKEN=""
 R=$(acurl "$BASE/workspaces")
 COUNT=$(echo "$R" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
 check "All workspaces deleted (count=0)" "0" "$COUNT"
 
-# Re-import from the exported bundle
+# Re-import from the exported bundle (AdminAuth fail-open — no live tokens)
 R=$(acurl -X POST "$BASE/bundles/import" -H "Content-Type: application/json" -d "$BUNDLE")
 check "POST /bundles/import" '"status":"provisioning"' "$R"
 NEW_ID=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace_id'])")
