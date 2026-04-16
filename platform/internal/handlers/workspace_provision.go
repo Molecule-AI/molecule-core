@@ -248,6 +248,25 @@ func findTemplateByName(configsDir, name string) string {
 	return ""
 }
 
+// resolveOrgTemplate looks for a matching role directory under
+// configsDir/org-templates/ and returns the absolute path and a short label
+// ("org-templates/<dir>"). Used by the restart handler's rebuild_config path
+// (#239) so a workspace can recover from a destroyed config volume without
+// admin intervention.
+// Returns ("", "") when no match is found.
+func resolveOrgTemplate(configsDir, wsName string) (path, label string) {
+	orgDir := filepath.Join(configsDir, "org-templates")
+	match := findTemplateByName(orgDir, wsName)
+	if match == "" {
+		return "", ""
+	}
+	full := filepath.Join(orgDir, match)
+	if _, err := os.Stat(full); err != nil {
+		return "", ""
+	}
+	return full, "org-templates/" + match
+}
+
 // configDirName returns the standard config directory name for a workspace ID.
 // Used by resolveConfigDir in templates.go for host-side template resolution.
 func configDirName(workspaceID string) string {
