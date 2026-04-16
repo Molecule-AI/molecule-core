@@ -47,6 +47,25 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid workspace auth token"})
 				return
 			}
+			c.Next()
+			return
+		}
+
+		// #318: fail-open path. The grandfather window only exists for
+		// workspaces that actually exist in the DB but pre-date Phase 30.1
+		// token issuance. A fabricated UUID must NOT be let through —
+		// without this check, unauthenticated callers could probe
+		// `/workspaces/<fake>/secrets` and enumerate global-secret key
+		// names via the fall-through 200 OK.
+		exists, err := wsauth.WorkspaceExists(ctx, database, workspaceID)
+		if err != nil {
+			log.Printf("wsauth: WorkspaceAuth: WorkspaceExists(%s) failed: %v", workspaceID, err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "auth check failed"})
+			return
+		}
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
 		}
 		c.Next()
 	}
