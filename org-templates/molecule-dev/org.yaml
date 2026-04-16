@@ -551,6 +551,14 @@ workspaces:
             # #280: molecule-skill-code-review — self-review rubric for
             # Dockerfiles, CI workflows, infra scripts before PR.
             plugins: [molecule-hitl, molecule-skill-code-review]
+            # #247: notify on build-break — DevOps routes CI failures + infra
+            # alerts via Telegram so they're not invisible until morning review.
+            channels:
+              - type: telegram
+                config:
+                  bot_token: ${TELEGRAM_BOT_TOKEN}
+                  chat_id: ${TELEGRAM_CHAT_ID}
+                enabled: true
             initial_prompt: |
               You just started as DevOps Engineer. Set up silently — do NOT contact other agents.
               1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
@@ -625,6 +633,15 @@ workspaces:
               - molecule-skill-llm-judge
               - molecule-security-scan
               - molecule-hitl
+            # #246: notify on critical findings — Security Auditor pushes HIGH+
+            # severity alerts via Telegram so they're not invisible until next
+            # manual memory check.
+            channels:
+              - type: telegram
+                config:
+                  bot_token: ${TELEGRAM_BOT_TOKEN}
+                  chat_id: ${TELEGRAM_CHAT_ID}
+                enabled: true
             initial_prompt: |
               You just started as Security Auditor. Set up silently — do NOT contact other agents.
               1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
