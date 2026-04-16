@@ -17,7 +17,7 @@ import os
 
 import httpx
 from langchain_core.tools import tool
-from adapters.shared_runtime import build_peer_section
+from shared_runtime import build_peer_section
 from policies.routing import build_team_routing_payload
 
 logger = logging.getLogger(__name__)
