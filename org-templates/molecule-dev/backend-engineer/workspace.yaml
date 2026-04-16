@@ -1,0 +1,29 @@
+name: Backend Engineer
+role: >-
+  Owns the Go/Gin platform layer: REST handlers, WebSocket hub,
+  workspace provisioner, and A2A proxy. Manages Postgres schema,
+  migrations, and parameterized query safety; Redis pub/sub,
+  heartbeat TTLs, and per-workspace key cleanup. Enforces access
+  control on every endpoint and structured error handling across
+  all platform/ code. Primary reviewer for any platform-layer PR.
+tier: 3
+model: opus
+files_dir: backend-engineer
+            # #266: HITL gate — Backend Engineer's scope includes destructive
+            # DB migrations + runtime config changes; the @requires_approval
+            # decorator stops an unattended agent from shipping a prod
+            # schema mutation without a human click. UNION with defaults.
+            # #280: molecule-skill-code-review — self-review rubric before
+            # raising a PR (same rubric Dev Lead applies in review).
+            # #303: molecule-security-scan — CVE gate at dev time, not
+            # just at Security Auditor's 12h cron. Catches supply-chain
+            # deps + secret patterns before they reach PR review.
+            # #310: molecule-skill-llm-judge — self-gate before PR review.
+            # #322: molecule-compliance — OA-03 excessive-agency cap; Backend
+            # Engineer is the highest tool-call-volume role (platform PRs,
+            # migrations, API changes) so a hard cap is a concrete guard
+            # against runaway loops during large refactors.
+plugins: [molecule-hitl, molecule-skill-code-review, molecule-security-scan, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 600
+initial_prompt_file: initial-prompt.md
+idle_prompt_file: idle-prompt.md
