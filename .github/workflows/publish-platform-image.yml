@@ -35,64 +35,12 @@ env:
 
 jobs:
   build-and-push:
-    runs-on: [self-hosted, macos, arm64]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Isolate Docker config (skip keychain)
-        # The Mac mini self-hosted runner runs as a non-interactive
-        # launchd service; docker/login-action's default credential store
-        # is the macOS Keychain, which raises
-        #   error storing credentials - err: exit status 1, out:
-        #   `User interaction is not allowed. (-25308)`
-        # without an unlocked desktop session.
-        #
-        # Point DOCKER_CONFIG at a per-run temp dir. IMPORTANT: writing
-        # `{"auths": {}}` alone is NOT enough — Docker on macOS picks up
-        # `osxkeychain` as the default credential store even when
-        # config.json doesn't declare one, inheriting from Docker
-        # Desktop's bundled credsStore binding. We must explicitly set
-        # `credsStore` to an empty string AND clear `credHelpers` so the
-        # login step writes credentials into the auths map of this
-        # disposable config.json rather than reaching for the keychain.
-        # (First tried in #273 without the empty-credsStore line; #319
-        # + #322 merges showed it still regressed.)
-        #
-        # Plus diagnostics: print the docker path so a future EACCES on
-        # /usr/local/bin/docker surfaces in the log instead of via a
-        # cryptic docker-login failure mid-step.
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/docker-config"
-          cat > "${RUNNER_TEMP}/docker-config/config.json" <<'JSON'
-{
-  "auths": {},
-  "credsStore": "",
-  "credHelpers": {}
-}
-JSON
-          echo "DOCKER_CONFIG=${RUNNER_TEMP}/docker-config" >> "${GITHUB_ENV}"
-          echo "=== Runner docker diagnostics ==="
-          echo "PATH=$PATH"
-          command -v docker || echo "(docker not in PATH — the runner is missing the Docker CLI or it's not symlinked to a visible location)"
-          docker --version 2>&1 || true
-          ls -la /usr/local/bin/docker /opt/homebrew/bin/docker 2>&1 || true
-          echo "=== config.json after setup ==="
-          cat "${RUNNER_TEMP}/docker-config/config.json"
-
-      - name: Set up QEMU
-        # Required on the Apple-silicon self-hosted runner — Fly tenant machines
-        # pull linux/amd64, and buildx needs binfmt handlers in Docker Desktop's
-        # VM to emulate amd64 during the build.
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: linux/amd64
-
       - name: Set up Docker Buildx
-        # Buildx enables cache-from/cache-to via GHA cache and multi-arch
-        # builds without local docker daemon wrangling.
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
