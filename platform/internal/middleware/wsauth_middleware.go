@@ -209,6 +209,13 @@ func canvasOriginAllowed(origin string) bool {
 // on every request.
 var canvasProxyActive = os.Getenv("CANVAS_PROXY_URL") != ""
 
+// IsSameOriginCanvas is the exported version for use outside the middleware
+// package (e.g. workspace.go field-level auth). Same logic as the internal
+// callers in AdminAuth/WorkspaceAuth/CanvasOrBearer.
+func IsSameOriginCanvas(c *gin.Context) bool {
+	return isSameOriginCanvas(c)
+}
+
 func isSameOriginCanvas(c *gin.Context) bool {
 	if !canvasProxyActive {
 		return false
