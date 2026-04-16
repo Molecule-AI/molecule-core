@@ -240,9 +240,11 @@ OPENAI_API_KEY=... bash scripts/test-team-e2e.sh           # E2E: Multi-template
 cd platform && go test -race ./...               # 818 Go tests (handlers, registry, provisioner, CLI, delegation, org, channels, wsauth, middleware, scheduler, crypto, db — sqlmock + miniredis; +2 on 2026-04-15 tick-32 for YAML-injection runtime/model allowlist + TestSanitizeRuntime_Allowlist; +70 on 2026-04-15 overnight sweep across the security fix cluster; +6 on 2026-04-14 tick-8 for TestTenantGuard_*)
 cd canvas && npm test                            # 482 Vitest tests (store, components, hydration, buildTree, secrets API, org template import, ConfirmDialog singleButton + 7 native-dialog replacements, WCAG critical batch, +12 on tick-32 for CookieConsent dialog + privacy-preserving default, +17 on tick-32 for PricingTable dispatch matrix + billing helper)
 cd workspace-template && python -m pytest -v     # 1179 pytest tests (adds platform_auth token store for Phase 30.1, memory_write activity logging, Hermes multi-provider registry, +10 on tick-32 for test_hermes_phase2_dispatch covering native Anthropic + native Gemini paths via auth_scheme dispatch; fixed env-var leak in test_hermes_providers fixture via snapshot/restore)
-# SDK + MCP server tests now in standalone repos:
-# github.com/Molecule-AI/molecule-sdk-python    (pip install molecule-ai-sdk)
-# github.com/Molecule-AI/molecule-mcp-server    (npx @molecule-ai/mcp-server)
+# SDK, MCP, CLI, and workspace runtime now in standalone repos:
+# https://github.com/Molecule-AI/molecule-sdk-python         pip install molecule-ai-sdk (132 tests)
+# https://github.com/Molecule-AI/molecule-mcp-server         npx @molecule-ai/mcp-server (97 tests)
+# https://github.com/Molecule-AI/molecule-cli                go install (Go TUI dashboard)
+# https://github.com/Molecule-AI/molecule-ai-workspace-runtime  pip install molecule-ai-workspace-runtime (shared adapter base)
 ```
 
 ### Integration Tests

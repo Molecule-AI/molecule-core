@@ -37,13 +37,12 @@ func SecurityHeaders() gin.HandlerFunc {
 		// Content-Type after Next() — but that's too late for headers.
 		//
 		// Simpler: apply a permissive CSP that allows Next.js to work.
-		// 'unsafe-inline' + 'unsafe-eval' are needed for Next.js dev
-		// hydration; in production Next.js uses nonces but we don't
-		// propagate them through the proxy. This is acceptable because
-		// the canvas is our own code, not user-generated content.
+		// 'unsafe-inline' is needed for Next.js standalone builds that
+		// inject inline scripts for hydration. 'unsafe-eval' was dropped
+		// after confirming production canvas renders without it.
 		c.Header("Content-Security-Policy",
 			"default-src 'self'; "+
-				"script-src 'self' 'unsafe-inline' 'unsafe-eval'; "+
+				"script-src 'self' 'unsafe-inline'; "+
 				"style-src 'self' 'unsafe-inline'; "+
 				"img-src 'self' data: blob:; "+
 				"connect-src 'self' ws: wss:; "+
