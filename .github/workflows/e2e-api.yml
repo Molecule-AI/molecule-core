@@ -1,0 +1,128 @@
+name: E2E API Smoke Test
+# Extracted from ci.yml so workflow-level concurrency can protect this job
+# from run-level cancellation (issue #458).
+#
+# Problem: the job-level `concurrency.cancel-in-progress: false` in ci.yml
+# prevented *sibling* E2E jobs from killing each other, but GitHub still
+# cancelled the parent *workflow run* when a new push arrived. Since the job
+# lived inside that run, it got cancelled too.
+#
+# Fix: a dedicated workflow gets its own concurrency group at the workflow
+# level. New pushes to the same branch queue here instead of cancelling.
+# Fast jobs (platform-build, canvas-build, etc.) stay in ci.yml and continue
+# to benefit from run-level cancellation for quick feedback.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Workflow-level concurrency: new runs queue rather than cancel.
+# `cancel-in-progress: false` is load-bearing — without it GitHub would still
+# cancel this run when the next push arrives, defeating the whole fix.
+# The group key includes github.ref so PRs don't compete with main.
+concurrency:
+  group: e2e-api-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  e2e-api:
+    name: E2E API Smoke Test
+    runs-on: [self-hosted, macos, arm64]
+    timeout-minutes: 15
+    # `services:` is Linux-only on self-hosted runners — we start postgres
+    # and redis via `docker run` instead. Ports 15432/16379 avoid collision
+    # with anything the host may already have on the standard ports.
+    env:
+      DATABASE_URL: postgres://dev:dev@localhost:15432/molecule?sslmode=disable
+      REDIS_URL: redis://localhost:16379
+      PORT: "8080"
+      PG_CONTAINER: molecule-ci-postgres
+      REDIS_CONTAINER: molecule-ci-redis
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: true
+          cache-dependency-path: platform/go.sum
+      - name: Start Postgres (docker)
+        run: |
+          docker rm -f "$PG_CONTAINER" 2>/dev/null || true
+          docker run -d --name "$PG_CONTAINER" \
+            -e POSTGRES_USER=dev \
+            -e POSTGRES_PASSWORD=dev \
+            -e POSTGRES_DB=molecule \
+            -p 15432:5432 \
+            postgres:16
+          for i in $(seq 1 30); do
+            if docker exec "$PG_CONTAINER" pg_isready -U dev >/dev/null 2>&1; then
+              echo "Postgres ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Postgres did not become ready in 30s"
+          docker logs "$PG_CONTAINER" || true
+          exit 1
+      - name: Start Redis (docker)
+        run: |
+          docker rm -f "$REDIS_CONTAINER" 2>/dev/null || true
+          docker run -d --name "$REDIS_CONTAINER" -p 16379:6379 redis:7
+          for i in $(seq 1 15); do
+            if docker exec "$REDIS_CONTAINER" redis-cli ping 2>/dev/null | grep -q PONG; then
+              echo "Redis ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Redis did not become ready in 15s"
+          exit 1
+      - name: Build platform
+        working-directory: platform
+        run: go build -o platform-server ./cmd/server
+      - name: Start platform (background)
+        working-directory: platform
+        run: |
+          ./platform-server > platform.log 2>&1 &
+          echo $! > platform.pid
+      - name: Wait for /health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health > /dev/null; then
+              echo "Platform up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Platform did not become healthy in 30s"
+          cat platform/platform.log || true
+          exit 1
+      - name: Assert migrations applied
+        # Migrations auto-run at platform boot. Fail fast if they silently
+        # didn't — catches future migration-author mistakes before the E2E run.
+        run: |
+          tables=$(docker exec "$PG_CONTAINER" psql -U dev -d molecule -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='workspaces'")
+          if [ "$tables" != "1" ]; then
+            echo "::error::Migrations did not apply — 'workspaces' table missing"
+            cat platform/platform.log || true
+            exit 1
+          fi
+          echo "Migrations OK (workspaces table present)"
+      - name: Run E2E API tests
+        run: bash tests/e2e/test_api.sh
+      - name: Dump platform log on failure
+        if: failure()
+        run: cat platform/platform.log || true
+      - name: Stop platform
+        if: always()
+        run: |
+          if [ -f platform/platform.pid ]; then
+            kill "$(cat platform/platform.pid)" 2>/dev/null || true
+          fi
+      - name: Stop service containers
+        if: always()
+        run: |
+          docker rm -f "$PG_CONTAINER" 2>/dev/null || true
+          docker rm -f "$REDIS_CONTAINER" 2>/dev/null || true
