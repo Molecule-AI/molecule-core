@@ -61,6 +61,13 @@ func (h *ChannelHandler) List(c *gin.Context) {
 
 		var config map[string]interface{}
 		json.Unmarshal(configJSON, &config)
+		// #319: decrypt sensitive fields first so the mask operates on
+		// plaintext (first-4 / last-4 of the real token, not the ciphertext
+		// prefix). Decrypt errors are logged but non-fatal — List must keep
+		// returning the rest of the channel even if one field is corrupt.
+		if err := channels.DecryptSensitiveFields(config); err != nil {
+			log.Printf("Channels: decrypt config on list for channel %s: %v", id, err)
+		}
 		// Mask bot_token in list response
 		if _, ok := config["bot_token"]; ok {
 			token, _ := config["bot_token"].(string)
@@ -126,6 +133,15 @@ func (h *ChannelHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// #319: encrypt sensitive fields (bot_token, webhook_secret) before
+	// persisting so a DB read/backup leak can't recover the credentials.
+	// Validation above ran against plaintext; storage is ciphertext.
+	if err := channels.EncryptSensitiveFields(body.Config); err != nil {
+		log.Printf("Channels: encrypt config failed for workspace %s: %v", workspaceID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "encrypt failed"})
+		return
+	}
+
 	configJSON, _ := json.Marshal(body.Config)
 	allowedJSON, _ := json.Marshal(body.AllowedUsers)
 	enabled := true
@@ -174,6 +190,14 @@ func (h *ChannelHandler) Update(c *gin.Context) {
 	// COALESCE-based update
 	var configArg, allowedArg interface{}
 	if body.Config != nil {
+		// #319: re-encrypt sensitive fields on every config update — the
+		// PATCH body carries plaintext (client already had them plaintext in
+		// List response's unmasked path or typed fresh).
+		if err := channels.EncryptSensitiveFields(body.Config); err != nil {
+			log.Printf("Channels: encrypt update for workspace %s: %v", workspaceID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "encrypt failed"})
+			return
+		}
 		j, _ := json.Marshal(body.Config)
 		configArg = string(j)
 	}
@@ -391,6 +415,13 @@ func (h *ChannelHandler) Webhook(c *gin.Context) {
 		}
 		json.Unmarshal(configJSON, &row.Config)
 		json.Unmarshal(allowedJSON, &row.AllowedUsers)
+		// #319: decrypt sensitive fields before comparing webhook_secret /
+		// using bot_token downstream. Skip rows whose decrypt fails so a
+		// single corrupt channel cannot block webhooks for all others.
+		if err := channels.DecryptSensitiveFields(row.Config); err != nil {
+			log.Printf("Channels: decrypt webhook row %s: %v", row.ID, err)
+			continue
+		}
 
 		// Verify webhook secret_token if the channel has one configured
 		if expectedSecret, _ := row.Config["webhook_secret"].(string); expectedSecret != "" {
