@@ -6,18 +6,9 @@ interface Props {
   workspaceId: string;
 }
 
-// Derive base WebSocket URL (without /ws path) for terminal connections.
-const WS_URL = (() => {
-  const explicit = process.env.NEXT_PUBLIC_WS_URL;
-  if (explicit) return explicit.replace("/ws", "");
-  const platform = process.env.NEXT_PUBLIC_PLATFORM_URL;
-  if (platform) return platform.replace(/^http/, "ws");
-  if (typeof window !== "undefined") {
-    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${proto}//${window.location.host}`;
-  }
-  return "ws://localhost:8080";
-})();
+import { deriveWsBaseUrl } from "@/lib/ws-url";
+
+const WS_URL = deriveWsBaseUrl();
 
 export function TerminalTab({ workspaceId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);

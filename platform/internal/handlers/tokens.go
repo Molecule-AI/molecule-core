@@ -3,6 +3,7 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
@@ -30,12 +31,26 @@ type tokenListItem struct {
 func (h *TokenHandler) List(c *gin.Context) {
 	workspaceID := c.Param("id")
 
+	limit := 50
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	offset := 0
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
 	rows, err := db.DB.QueryContext(c.Request.Context(), `
 		SELECT id, prefix, created_at, last_used_at
 		FROM workspace_auth_tokens
 		WHERE workspace_id = $1 AND revoked_at IS NULL
 		ORDER BY created_at DESC
-	`, workspaceID)
+		LIMIT $2 OFFSET $3
+	`, workspaceID, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list tokens"})
 		return

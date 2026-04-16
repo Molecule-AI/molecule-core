@@ -17,6 +17,8 @@ PORT=3000 HOSTNAME=0.0.0.0 node server.js &
 CANVAS_PID=$!
 
 # Start Go platform in foreground-ish (we trap signals)
+# CANVAS_PROXY_URL tells the platform to proxy unmatched routes to Canvas.
+export CANVAS_PROXY_URL="${CANVAS_PROXY_URL:-http://localhost:3000}"
 cd /
 /platform &
 PLATFORM_PID=$!
