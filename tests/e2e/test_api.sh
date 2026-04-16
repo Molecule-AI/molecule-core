@@ -86,14 +86,16 @@ R=$(acurl "$BASE/workspaces/$ECHO_ID")
 check "GET /workspaces/:id" '"name":"Echo Agent"' "$R"
 check "GET /workspaces/:id (agent_card null)" '"agent_card":null' "$R"
 
-# Test 7: Register echo
-R=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
+# Test 7: Register echo — use acurl because the workspace may already
+# have a token from the provisioner's auto-registration (C18 re-register
+# protection requires bearer when tokens exist).
+R=$(acurl -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
   -d "{\"id\":\"$ECHO_ID\",\"url\":\"http://localhost:8001\",\"agent_card\":{\"name\":\"Echo Agent\",\"skills\":[{\"id\":\"echo\",\"name\":\"Echo\"}]}}")
 check "POST /registry/register (echo)" '"status":"registered"' "$R"
 ECHO_TOKEN=$(echo "$R" | e2e_extract_token)
 
 # Test 8: Register summarizer
-R=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
+R=$(acurl -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
   -d "{\"id\":\"$SUM_ID\",\"url\":\"http://localhost:8002\",\"agent_card\":{\"name\":\"Summarizer\",\"skills\":[{\"id\":\"summarize\",\"name\":\"Summarize\"}]}}")
 check "POST /registry/register (summarizer)" '"status":"registered"' "$R"
 SUM_TOKEN=$(echo "$R" | e2e_extract_token)
@@ -166,7 +168,7 @@ curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" -
   -d "{\"workspace_id\":\"$ECHO_ID\",\"error_rate\":0.0,\"sample_error\":\"\",\"active_tasks\":0,\"uptime_seconds\":180}" > /dev/null
 
 # Re-register to force online status in case liveness expired
-curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
+acurl -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
   -d "{\"id\":\"$ECHO_ID\",\"url\":\"http://localhost:8001\",\"agent_card\":{\"name\":\"Echo Agent v2\",\"skills\":[{\"id\":\"echo\",\"name\":\"Echo\"},{\"id\":\"repeat\",\"name\":\"Repeat\"}]}}" > /dev/null
 
 # Now send high error rate to trigger degraded
