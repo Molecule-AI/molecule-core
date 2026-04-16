@@ -15,6 +15,7 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/models"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
+	"github.com/Molecule-AI/molecule-monorepo/platform/pkg/provisionhook"
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
 	"github.com/google/uuid"
@@ -25,6 +26,11 @@ type WorkspaceHandler struct {
 	provisioner *provisioner.Provisioner
 	platformURL string
 	configsDir  string // path to workspace-configs-templates/ (for reading templates)
+	// envMutators runs registered EnvMutator plugins right before
+	// container Start, after built-in secret loads. Nil = no plugins
+	// registered; Registry.Run handles a nil receiver as a no-op so the
+	// hot path stays a single nil-pointer compare.
+	envMutators *provisionhook.Registry
 }
 
 func NewWorkspaceHandler(b *events.Broadcaster, p *provisioner.Provisioner, platformURL, configsDir string) *WorkspaceHandler {
@@ -34,6 +40,15 @@ func NewWorkspaceHandler(b *events.Broadcaster, p *provisioner.Provisioner, plat
 		platformURL: platformURL,
 		configsDir:  configsDir,
 	}
+}
+
+// SetEnvMutators wires a provisionhook.Registry into the handler. Plugins
+// living in separate repos register on the same Registry instance during
+// boot (see cmd/server/main.go) and main.go calls this setter once before
+// router.Setup. Re-callable for tests but not safe under concurrent
+// provisions — only invoke during single-threaded init.
+func (h *WorkspaceHandler) SetEnvMutators(r *provisionhook.Registry) {
+	h.envMutators = r
 }
 
 // Create handles POST /workspaces
