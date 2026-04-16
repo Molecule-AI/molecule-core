@@ -25,12 +25,12 @@ RUN useradd -m -s /bin/bash agent
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy runtime code
+# Copy runtime code (adapters/ has been removed — adapters now live in standalone
+# template repos and install molecule-ai-workspace-runtime from PyPI)
 COPY *.py ./
 COPY entrypoint.sh ./
 COPY skill_loader/ ./skill_loader/
 COPY builtin_tools/ ./builtin_tools/
-COPY adapters/ ./adapters/
 COPY plugins_registry/ ./plugins_registry/
 COPY policies/ ./policies/
 

@@ -118,7 +118,7 @@ Canvas (Next.js :3000) ←WebSocket→ Platform (Go :8080) ←HTTP→ Postgres +
 Four main components:
 - **Platform** (`platform/`): Go/Gin control plane — workspace CRUD, registry, discovery, WebSocket hub, liveness monitoring
 - **Canvas** (`canvas/`): Next.js 15 + React Flow (@xyflow/react v12) + Zustand + Tailwind — visual workspace graph
-- **Workspace Runtime** (`workspace-template/`): Unified Docker image with pluggable adapter system — supports LangGraph, Claude Code, OpenClaw, DeepAgents, CrewAI, AutoGen. Adapters in `workspace-template/adapters/`. Deps installed at startup via `entrypoint.sh`.
+- **Workspace Runtime** (`workspace-template/`): Shared runtime published as [`molecule-ai-workspace-runtime`](https://pypi.org/project/molecule-ai-workspace-runtime/) on PyPI. Supports LangGraph, Claude Code, OpenClaw, DeepAgents, CrewAI, AutoGen. Each adapter lives in its own standalone template repo (e.g. `molecule-ai-workspace-template-claude-code`). See `docs/workspace-runtime-package.md` for the full picture.
 - **molecli** (`platform/cmd/cli/`): Go TUI dashboard (Bubbletea + Lipgloss) — real-time workspace monitoring, event log, health overview, delete/filter operations
 
 ## Build & Run Commands
@@ -172,21 +172,20 @@ Env vars: `NEXT_PUBLIC_PLATFORM_URL` (default http://localhost:8080), `NEXT_PUBL
 
 ### Workspace Images
 ```bash
-bash workspace-template/build-all.sh                   # Build base + ALL runtime images
-bash workspace-template/build-all.sh claude-code       # Build base + specific runtime only
+bash workspace-template/build-all.sh   # Build base image only (workspace-template:base)
 ```
-Each runtime has its own Docker image extending `workspace-template:base`, with deps pre-installed for fast startup. The base Dockerfile (`workspace-template/Dockerfile`) builds `:base`, then each `adapters/*/Dockerfile` extends it (e.g. `claude_code/Dockerfile` installs the `claude` CLI). **Always use `build-all.sh`** — it builds base first, then all runtimes in order. No `:latest` tag — each runtime uses its own tag to avoid confusion.
+Adapters are now in standalone template repos. Each repo has its own `Dockerfile` that installs `molecule-ai-workspace-runtime` from PyPI + adapter-specific deps. The base `workspace-template/Dockerfile` still builds `:base` for local dev. See `docs/workspace-runtime-package.md` for the adapter repo list and details.
 
-| Runtime | Image Tag | Key Deps |
-|---------|-----------|----------|
-| langgraph | `workspace-template:langgraph` | langchain-anthropic, langgraph |
-| claude-code | `workspace-template:claude-code` | claude-agent-sdk (pip), @anthropic-ai/claude-code (npm) |
-| openclaw | `workspace-template:openclaw` | openclaw deps |
-| crewai | `workspace-template:crewai` | crewai |
-| autogen | `workspace-template:autogen` | autogen |
-| deepagents | `workspace-template:deepagents` | deepagents |
-| hermes | `workspace-template:hermes` | openai (OpenAI-compatible client; Nous Portal via `HERMES_API_KEY` or OpenRouter via `OPENROUTER_API_KEY` fallback) |
-| gemini-cli | `workspace-template:gemini-cli` | @google/gemini-cli (npm); requires `GEMINI_API_KEY`; MCP wired via `~/.gemini/settings.json`; memory file: `GEMINI.md` |
+| Runtime | Standalone Repo | Key Deps |
+|---------|-----------------|----------|
+| langgraph | `molecule-ai-workspace-template-langgraph` | molecule-ai-workspace-runtime, langchain-anthropic, langgraph |
+| claude-code | `molecule-ai-workspace-template-claude-code` | molecule-ai-workspace-runtime, claude-agent-sdk (pip), @anthropic-ai/claude-code (npm) |
+| openclaw | `molecule-ai-workspace-template-openclaw` | molecule-ai-workspace-runtime, openclaw (npm) |
+| crewai | `molecule-ai-workspace-template-crewai` | molecule-ai-workspace-runtime, crewai |
+| autogen | `molecule-ai-workspace-template-autogen` | molecule-ai-workspace-runtime, autogen |
+| deepagents | `molecule-ai-workspace-template-deepagents` | molecule-ai-workspace-runtime, deepagents |
+| hermes | `molecule-ai-workspace-template-hermes` | molecule-ai-workspace-runtime, openai, anthropic, google-genai |
+| gemini-cli | `molecule-ai-workspace-template-gemini-cli` | molecule-ai-workspace-runtime, @google/gemini-cli (npm) |
 
 Templates live in standalone repos under `Molecule-AI/molecule-ai-workspace-template-*` (8 workspace templates) and `Molecule-AI/molecule-ai-org-template-*` (5 org templates). They're cloned at Docker build time into the platform image. The template registry (`template_registry` table in the control plane DB) tracks all templates with their `github://` source URLs. Agent roles are configured after deployment via Config tab or API.
 
