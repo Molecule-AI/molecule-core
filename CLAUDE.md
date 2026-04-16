@@ -237,9 +237,9 @@ OPENAI_API_KEY=... bash scripts/test-team-e2e.sh           # E2E: Multi-template
 
 ### Unit Tests
 ```bash
-cd platform && go test -race ./...               # 818 Go tests (handlers, registry, provisioner, CLI, delegation, org, channels, wsauth, middleware, scheduler, crypto, db — sqlmock + miniredis; +2 on 2026-04-15 tick-32 for YAML-injection runtime/model allowlist + TestSanitizeRuntime_Allowlist; +70 on 2026-04-15 overnight sweep across the security fix cluster; +6 on 2026-04-14 tick-8 for TestTenantGuard_*)
-cd canvas && npm test                            # 482 Vitest tests (store, components, hydration, buildTree, secrets API, org template import, ConfirmDialog singleButton + 7 native-dialog replacements, WCAG critical batch, +12 on tick-32 for CookieConsent dialog + privacy-preserving default, +17 on tick-32 for PricingTable dispatch matrix + billing helper)
-cd workspace-template && python -m pytest -v     # 1179 pytest tests (adds platform_auth token store for Phase 30.1, memory_write activity logging, Hermes multi-provider registry, +10 on tick-32 for test_hermes_phase2_dispatch covering native Anthropic + native Gemini paths via auth_scheme dispatch; fixed env-var leak in test_hermes_providers fixture via snapshot/restore)
+cd platform && go test -race ./...               # 12 Go packages (handlers, registry, provisioner, channels, wsauth, middleware, scheduler, crypto, db, plugins, supervised, envx)
+cd canvas && npm test                            # 490 Vitest tests (33 test files — store, components, hydration, buildTree, secrets API, org template import, WCAG batch)
+cd workspace-template && python -m pytest -v     # 955 pytest tests (shared runtime, builtin_tools, config, heartbeat, platform_auth, preflight — adapter-specific tests moved to standalone repos)
 # SDK, MCP, CLI, and workspace runtime now in standalone repos:
 # https://github.com/Molecule-AI/molecule-sdk-python         pip install molecule-ai-sdk (132 tests)
 # https://github.com/Molecule-AI/molecule-mcp-server         npx @molecule-ai/mcp-server (97 tests)
@@ -272,7 +272,12 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main and PRs:
 - **python-lint**: `pytest --cov=. --cov-report=term-missing` (workspace-template tests; SDK + MCP now in standalone repos)
 - **e2e-api** (added 2026-04-13): spins up Postgres + Redis service containers, runs platform migrations via `docker exec`, then executes `tests/e2e/test_api.sh` against a locally-built binary (62/62 must pass)
 - **shellcheck** (added 2026-04-13): lints every `tests/e2e/*.sh` via the shellcheck marketplace action
-- **publish-platform-image** (`.github/workflows/publish-platform-image.yml`, added 2026-04-14 tick-9): on push to main touching `platform/**`, builds `platform/Dockerfile` and pushes to `ghcr.io/molecule-ai/platform:latest` + `:sha-<short>`. Used by the private `molecule-controlplane` provisioner as tenant VM image. Manual re-trigger via `workflow_dispatch`.
+- **publish-platform-image** (`.github/workflows/publish-platform-image.yml`): on push to main touching `platform/**`, builds `platform/Dockerfile` (clones templates + plugins from GitHub via `manifest.json` at build time) and pushes to `ghcr.io/molecule-ai/platform:latest` + `:sha-<short>`. Tenant image uses `platform/Dockerfile.tenant` (combined Go + Canvas). Manual re-trigger via `workflow_dispatch`.
+
+**Standalone repo CI** — all 33 plugin + template repos call reusable workflows from `Molecule-AI/molecule-ci`:
+- Plugins: validates `plugin.yaml` schema, content presence, secrets scan
+- Workspace templates: validates `config.yaml`, `template_schema_version`, Docker build smoke test
+- Org templates: validates `org.yaml` hierarchy, `files_dir` references, custom YAML tag handling
 
 ### Docker Compose
 ```bash
