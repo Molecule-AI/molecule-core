@@ -165,3 +165,24 @@ JSON
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.description=Molecule AI tenant platform (one instance per org)
+
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to Fly tenant machines
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          MACHINES=$(flyctl machines list -a molecule-tenant --json | jq -r '.[] | select(.state == "started" or .state == "stopped") | .id')
+          if [ -z "$MACHINES" ]; then
+            echo "No tenant machines found — skipping deploy (control plane provisions on demand)"
+            exit 0
+          fi
+          for id in $MACHINES; do
+            echo "Updating machine $id to sha-${{ steps.tags.outputs.sha }}..."
+            flyctl machines update "$id" \
+              --image "${{ env.FLY_IMAGE_NAME }}:sha-${{ steps.tags.outputs.sha }}" \
+              -a molecule-tenant \
+              --yes
+          done
+          echo "All tenant machines updated to sha-${{ steps.tags.outputs.sha }}"
