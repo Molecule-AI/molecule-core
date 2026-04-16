@@ -81,11 +81,26 @@ type OrgTemplate struct {
 }
 
 type OrgDefaults struct {
-	Runtime       string              `yaml:"runtime" json:"runtime"`
-	Tier          int                 `yaml:"tier" json:"tier"`
-	Model         string              `yaml:"model" json:"model"`
-	Plugins       []string            `yaml:"plugins" json:"plugins"`
-	InitialPrompt string              `yaml:"initial_prompt" json:"initial_prompt"`
+	Runtime       string   `yaml:"runtime" json:"runtime"`
+	Tier          int      `yaml:"tier" json:"tier"`
+	Model         string   `yaml:"model" json:"model"`
+	Plugins       []string `yaml:"plugins" json:"plugins"`
+	InitialPrompt string   `yaml:"initial_prompt" json:"initial_prompt"`
+	// InitialPromptFile is a file ref alternative to InitialPrompt. Path is
+	// resolved relative to the workspace's files_dir (or the org base dir
+	// when used at defaults level — defaults don't have their own files_dir,
+	// so the file must live at the org root). Inline InitialPrompt wins
+	// when both are set.
+	InitialPromptFile string `yaml:"initial_prompt_file" json:"initial_prompt_file"`
+	// IdlePrompt / IdleIntervalSeconds are the workspace-default idle-loop
+	// body and cadence (see workspace-template/heartbeat.py). They were
+	// previously dropped by the org importer because the struct didn't
+	// declare them — causing live configs to boot without idle_prompts
+	// even when org.yaml had them. Phase 1 scalability work adds both
+	// inline + file-ref forms.
+	IdlePrompt           string `yaml:"idle_prompt" json:"idle_prompt"`
+	IdlePromptFile       string `yaml:"idle_prompt_file" json:"idle_prompt_file"`
+	IdleIntervalSeconds  int    `yaml:"idle_interval_seconds" json:"idle_interval_seconds"`
 	// CategoryRouting maps issue/audit category → list of target roles.
 	// Per-workspace blocks UNION + override per-key with these defaults.
 	// Rendered into each workspace's config.yaml so agent prompts can read it
@@ -98,7 +113,13 @@ type OrgSchedule struct {
 	CronExpr string `yaml:"cron_expr" json:"cron_expr"`
 	Timezone string `yaml:"timezone" json:"timezone"`
 	Prompt   string `yaml:"prompt" json:"prompt"`
-	Enabled  *bool  `yaml:"enabled" json:"enabled"`
+	// PromptFile is a file ref alternative to inline Prompt. Path is
+	// resolved relative to the workspace's files_dir. Inline Prompt wins
+	// when both are set. Scalability: hourly/weekly cron prompts are the
+	// largest text bodies in org.yaml (~1-5 KB each); externalizing them
+	// cuts the file by ~62%.
+	PromptFile string `yaml:"prompt_file" json:"prompt_file"`
+	Enabled    *bool  `yaml:"enabled" json:"enabled"`
 }
 
 // OrgChannel defines a social channel (Telegram, Slack, etc.) to auto-link
@@ -112,32 +133,52 @@ type OrgChannel struct {
 }
 
 type OrgWorkspace struct {
-	Name          string         `yaml:"name" json:"name"`
-	Role          string         `yaml:"role" json:"role"`
-	Runtime       string         `yaml:"runtime" json:"runtime"`
-	Tier          int            `yaml:"tier" json:"tier"`
-	Template      string         `yaml:"template" json:"template"`
-	FilesDir      string         `yaml:"files_dir" json:"files_dir"`
-	SystemPrompt  string         `yaml:"system_prompt" json:"system_prompt"`
-	Model         string         `yaml:"model" json:"model"`
-	WorkspaceDir    string `yaml:"workspace_dir" json:"workspace_dir"`
-	WorkspaceAccess string `yaml:"workspace_access" json:"workspace_access"` // #65: "none" (default), "read_only", "read_write"
-	Plugins       []string       `yaml:"plugins" json:"plugins"`
-	InitialPrompt string         `yaml:"initial_prompt" json:"initial_prompt"`
+	Name     string `yaml:"name" json:"name"`
+	Role     string `yaml:"role" json:"role"`
+	Runtime  string `yaml:"runtime" json:"runtime"`
+	Tier     int    `yaml:"tier" json:"tier"`
+	Template string `yaml:"template" json:"template"`
+	FilesDir string `yaml:"files_dir" json:"files_dir"`
+	// SystemPrompt is an inline override. Normally each role's system-prompt.md
+	// lives at `<files_dir>/system-prompt.md` and is copied via the files_dir
+	// template-copy step; inline overrides that path for ad-hoc workspaces.
+	SystemPrompt    string   `yaml:"system_prompt" json:"system_prompt"`
+	Model           string   `yaml:"model" json:"model"`
+	WorkspaceDir    string   `yaml:"workspace_dir" json:"workspace_dir"`
+	WorkspaceAccess string   `yaml:"workspace_access" json:"workspace_access"` // #65: "none" (default), "read_only", "read_write"
+	Plugins         []string `yaml:"plugins" json:"plugins"`
+	// InitialPrompt is the one-shot boot prompt. Agents run this once on first
+	// start; the body often clones the repo, reads CLAUDE.md + system-prompt,
+	// and commits conventions to memory. InitialPromptFile is the file-ref
+	// alternative — read at import time from `<files_dir>/<InitialPromptFile>`.
+	// Inline wins when both are set.
+	InitialPrompt     string `yaml:"initial_prompt" json:"initial_prompt"`
+	InitialPromptFile string `yaml:"initial_prompt_file" json:"initial_prompt_file"`
+	// IdlePrompt / IdleIntervalSeconds drive the idle-loop reflection
+	// pattern (#205). When IdlePrompt is non-empty, the workspace self-sends
+	// this prompt every IdleIntervalSeconds while heartbeat.active_tasks == 0.
+	// Both fields were previously dropped by the org importer (struct didn't
+	// declare them); Phase 1 scalability PR adds them so engineer + researcher
+	// idle loops propagate correctly from org.yaml → /configs/config.yaml.
+	// IdlePromptFile is the file-ref alternative — same semantics as
+	// InitialPromptFile. Inline wins when both are set.
+	IdlePrompt          string `yaml:"idle_prompt" json:"idle_prompt"`
+	IdlePromptFile      string `yaml:"idle_prompt_file" json:"idle_prompt_file"`
+	IdleIntervalSeconds int    `yaml:"idle_interval_seconds" json:"idle_interval_seconds"`
 	// CategoryRouting extends/overrides defaults.category_routing per-workspace.
 	// Merge semantics: workspace keys replace defaults' value for the same key
 	// (empty list drops the category entirely); new keys are added. See
 	// mergeCategoryRouting.
 	CategoryRouting map[string][]string `yaml:"category_routing" json:"category_routing"`
-	Schedules     []OrgSchedule  `yaml:"schedules" json:"schedules"`
-	Channels      []OrgChannel   `yaml:"channels" json:"channels"`
-	External      bool           `yaml:"external" json:"external"`
-	URL           string         `yaml:"url" json:"url"`
-	Canvas        struct {
+	Schedules       []OrgSchedule       `yaml:"schedules" json:"schedules"`
+	Channels        []OrgChannel        `yaml:"channels" json:"channels"`
+	External        bool                `yaml:"external" json:"external"`
+	URL             string              `yaml:"url" json:"url"`
+	Canvas          struct {
 		X float64 `yaml:"x" json:"x"`
 		Y float64 `yaml:"y" json:"y"`
 	} `yaml:"canvas" json:"canvas"`
-	Children      []OrgWorkspace `yaml:"children" json:"children"`
+	Children []OrgWorkspace `yaml:"children" json:"children"`
 }
 
 // ListTemplates handles GET /org/templates — lists available org templates.
@@ -437,10 +478,21 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 			}
 		}
 
-		// Inject initial_prompt into config.yaml (workspace-level overrides default)
-		initialPrompt := ws.InitialPrompt
+		// Resolve initial_prompt — inline wins, then file-ref, then defaults
+		// (inline → file → defaults.inline → defaults.file). File refs are
+		// rooted at <orgBaseDir>/<files_dir>/ per resolvePromptRef semantics.
+		initialPrompt, err := resolvePromptRef(ws.InitialPrompt, ws.InitialPromptFile, orgBaseDir, ws.FilesDir)
+		if err != nil {
+			log.Printf("Org import: failed to resolve initial_prompt for %s: %v", ws.Name, err)
+		}
 		if initialPrompt == "" {
-			initialPrompt = defaults.InitialPrompt
+			// Fall back to defaults. Defaults live at the org root, so they
+			// resolve with empty filesDir (relative to orgBaseDir).
+			var defaultErr error
+			initialPrompt, defaultErr = resolvePromptRef(defaults.InitialPrompt, defaults.InitialPromptFile, orgBaseDir, "")
+			if defaultErr != nil {
+				log.Printf("Org import: failed to resolve defaults.initial_prompt for %s: %v", ws.Name, defaultErr)
+			}
 		}
 		if initialPrompt != "" {
 			if configFiles == nil {
@@ -456,6 +508,46 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 			indented := strings.Join(lines, "\n  ")
 			configFiles["config.yaml"] = appendYAMLBlock(configFiles["config.yaml"], fmt.Sprintf("initial_prompt: |\n  %s\n", indented))
 			log.Printf("Org import: injected initial_prompt (%d chars) into config.yaml for %s", len(trimmed), ws.Name)
+		}
+
+		// Resolve idle_prompt — same precedence (ws inline → ws file → defaults).
+		// Inject into config.yaml alongside idle_interval_seconds so the
+		// workspace's heartbeat loop picks up the idle-reflection cadence on
+		// boot (see workspace-template/heartbeat.py + config.py).
+		idlePrompt, err := resolvePromptRef(ws.IdlePrompt, ws.IdlePromptFile, orgBaseDir, ws.FilesDir)
+		if err != nil {
+			log.Printf("Org import: failed to resolve idle_prompt for %s: %v", ws.Name, err)
+		}
+		if idlePrompt == "" {
+			var defaultErr error
+			idlePrompt, defaultErr = resolvePromptRef(defaults.IdlePrompt, defaults.IdlePromptFile, orgBaseDir, "")
+			if defaultErr != nil {
+				log.Printf("Org import: failed to resolve defaults.idle_prompt for %s: %v", ws.Name, defaultErr)
+			}
+		}
+		idleInterval := ws.IdleIntervalSeconds
+		if idleInterval == 0 {
+			idleInterval = defaults.IdleIntervalSeconds
+		}
+		if idlePrompt != "" {
+			if configFiles == nil {
+				configFiles = map[string][]byte{}
+			}
+			trimmed := strings.TrimSpace(idlePrompt)
+			lines := strings.Split(trimmed, "\n")
+			for i, line := range lines {
+				lines[i] = strings.TrimRight(line, " \t")
+			}
+			indented := strings.Join(lines, "\n  ")
+			// idle_interval_seconds belongs with idle_prompt — empty idle_prompt
+			// means the idle loop never fires regardless of interval, so we
+			// only emit interval when there's a body to go with it.
+			if idleInterval <= 0 {
+				idleInterval = 600 // same default as workspace-template/config.py
+			}
+			block := fmt.Sprintf("idle_interval_seconds: %d\nidle_prompt: |\n  %s\n", idleInterval, indented)
+			configFiles["config.yaml"] = appendYAMLBlock(configFiles["config.yaml"], block)
+			log.Printf("Org import: injected idle_prompt (%d chars, interval=%ds) into config.yaml for %s", len(trimmed), idleInterval, ws.Name)
 		}
 
 		// Inline system_prompt (only if no files_dir provides one)
@@ -503,7 +595,10 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 		go h.workspace.provisionWorkspace(id, templatePath, configFiles, payload)
 	}
 
-	// Insert schedules if defined
+	// Insert schedules if defined. Resolve each schedule's prompt body from
+	// either inline `prompt:` or `prompt_file:` (file ref relative to the
+	// workspace's files_dir). Inline wins; empty prompt after resolution is
+	// a configuration error (cron with no body would never do anything).
 	for _, sched := range ws.Schedules {
 		tz := sched.Timezone
 		if tz == "" {
@@ -513,12 +608,21 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 		if sched.Enabled != nil {
 			enabled = *sched.Enabled
 		}
+		prompt, promptErr := resolvePromptRef(sched.Prompt, sched.PromptFile, orgBaseDir, ws.FilesDir)
+		if promptErr != nil {
+			log.Printf("Org import: failed to resolve prompt for schedule '%s' on %s: %v — skipping insert", sched.Name, ws.Name, promptErr)
+			continue
+		}
+		if prompt == "" {
+			log.Printf("Org import: schedule '%s' on %s has empty prompt (neither prompt nor prompt_file set) — skipping insert", sched.Name, ws.Name)
+			continue
+		}
 		nextRun, _ := scheduler.ComputeNextRun(sched.CronExpr, tz, time.Now())
 		if _, err := db.DB.ExecContext(context.Background(), orgImportScheduleSQL,
-			id, sched.Name, sched.CronExpr, tz, sched.Prompt, enabled, nextRun); err != nil {
+			id, sched.Name, sched.CronExpr, tz, prompt, enabled, nextRun); err != nil {
 			log.Printf("Org import: failed to upsert schedule '%s' for %s: %v", sched.Name, ws.Name, err)
 		} else {
-			log.Printf("Org import: schedule '%s' (%s) upserted for %s (source=template)", sched.Name, sched.CronExpr, ws.Name)
+			log.Printf("Org import: schedule '%s' (%s, %d chars) upserted for %s (source=template)", sched.Name, sched.CronExpr, len(prompt), ws.Name)
 		}
 	}
 
@@ -636,6 +740,53 @@ func countWorkspaces(workspaces []OrgWorkspace) int {
 		count += countWorkspaces(ws.Children)
 	}
 	return count
+}
+
+// resolvePromptRef reads a prompt body from either an inline string or a
+// file ref relative to the workspace's files_dir. Inline always wins when
+// both are non-empty (caller-provided inline is more authoritative than a
+// file path that may not exist yet during dev loops).
+//
+// File resolution:
+//   - `<orgBaseDir>/<filesDir>/<fileRef>` when filesDir is non-empty
+//   - `<orgBaseDir>/<fileRef>` when filesDir is empty (defaults-level refs)
+//
+// Both paths go through resolveInsideRoot so a crafted fileRef can't escape
+// the org template directory via traversal (same defense the files_dir
+// copy-step uses).
+//
+// Returns (resolved body, error). If both inline and fileRef are empty,
+// returns ("", nil) — caller decides whether that's a problem.
+func resolvePromptRef(inline, fileRef, orgBaseDir, filesDir string) (string, error) {
+	if inline != "" {
+		return inline, nil
+	}
+	if fileRef == "" {
+		return "", nil
+	}
+	if orgBaseDir == "" {
+		// Inline-only template (POST /org/import with a raw Template in the
+		// JSON body, not a dir). File refs can't be resolved — surface the
+		// problem rather than silently returning empty.
+		return "", fmt.Errorf("prompt_file %q requires a dir-based org template (no orgBaseDir in inline-template mode)", fileRef)
+	}
+	searchRoot := orgBaseDir
+	if filesDir != "" {
+		p, err := resolveInsideRoot(orgBaseDir, filesDir)
+		if err != nil {
+			return "", fmt.Errorf("invalid files_dir %q: %w", filesDir, err)
+		}
+		searchRoot = p
+	}
+	abs, err := resolveInsideRoot(searchRoot, fileRef)
+	if err != nil {
+		return "", fmt.Errorf("invalid prompt_file %q: %w", fileRef, err)
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return "", fmt.Errorf("read prompt_file %q: %w", fileRef, err)
+	}
+	return string(data), nil
 }
 
 // envVarRefPattern matches actual ${VAR} or $VAR references (not literal $).
