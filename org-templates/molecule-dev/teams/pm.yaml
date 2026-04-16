@@ -1,0 +1,28 @@
+name: PM
+role: Project Manager — coordinates Research and Dev teams
+tier: 3
+model: opus
+files_dir: pm
+workspace_dir: ${WORKSPACE_DIR}
+canvas: {x: 400, y: 50}
+    # PM-specific: /triage (PR triage) and /retro (weekly retrospective).
+plugins: [molecule-workflow-triage, molecule-workflow-retro]
+    # Auto-link Telegram so the user can talk to PM directly from Telegram.
+    # Bot token + chat ID come from pm/.env (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID).
+channels:
+  - type: telegram
+    config:
+      bot_token: ${TELEGRAM_BOT_TOKEN}
+      chat_id: ${TELEGRAM_CHAT_ID}
+    enabled: true
+schedules:
+  - name: Orchestrator pulse
+    cron_expr: "1,6,11,16,21,26,31,36,41,46,51,56 * * * *"
+    enabled: true
+    prompt_file: schedules/orchestrator-pulse.md
+children:
+  - !include research.yaml
+  - !include dev.yaml
+  - !include documentation-specialist.yaml
+  - !include triage-operator.yaml
+initial_prompt_file: initial-prompt.md
