@@ -16,8 +16,12 @@
 -- existing agent tool keeps working without modification.
 --
 -- Baseline: existing rows start at version 1. New rows default to 1.
+-- IF NOT EXISTS keeps this re-runnable. The platform's migration runner
+-- has no schema_migrations tracking table (#TODO follow-up issue) and
+-- replays every .up.sql on every boot, so any non-idempotent ALTER will
+-- crash boot on the second start against an existing volume.
 ALTER TABLE workspace_memory
-    ADD COLUMN version BIGINT NOT NULL DEFAULT 1;
+    ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
 
 COMMENT ON COLUMN workspace_memory.version IS
     'Monotonic revision counter. Incremented on every successful write. '
