@@ -172,7 +172,7 @@ export function MissingKeysModal({
                   <div className="text-[11px] text-zinc-300 font-medium">
                     {entry.label}
                   </div>
-                  <div className="text-[9px] font-mono text-zinc-600">
+                  <div className="text-[9px] font-mono text-zinc-500">
                     {entry.key}
                   </div>
                 </div>

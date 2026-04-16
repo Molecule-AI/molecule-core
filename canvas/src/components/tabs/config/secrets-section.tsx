@@ -56,7 +56,7 @@ function SecretRow({ label, secretKey, isSet, scope, globalMode, onSave, onDelet
         <div className="min-w-0">
           <div className="text-[10px] text-zinc-300">{label}</div>
           <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-[9px] font-mono text-zinc-600">{secretKey}</span>
+            <span className="text-[9px] font-mono text-zinc-500">{secretKey}</span>
             {isSet && (
               <span className="text-[9px] font-mono text-zinc-500 tracking-widest" title="Value is set (encrypted)">
                 •••••
@@ -305,7 +305,7 @@ export function SecretsSection({ workspaceId }: { workspaceId: string }) {
             </button>
           )}
 
-          <div className="text-[9px] text-zinc-600 pt-1">
+          <div className="text-[9px] text-zinc-500 pt-1">
             Values are encrypted and never exposed to the browser.
             {globalMode
               ? " Global keys are shared across all workspaces. Restart workspaces to apply changes."
