@@ -129,20 +129,19 @@ function CanvasInner() {
   }, [selectNode]);
 
   // Team zoom-in: double-click a team node to zoom to its children
-  const { fitBounds, setCenter } = useReactFlow();
+  const { fitBounds, fitView } = useReactFlow();
 
-  // Pan to newly deployed workspace
+  // Pan to newly deployed workspace.
+  // Uses fitView({ nodes }) so the viewport adapts to any current zoom level
+  // instead of forcing zoom=1 (which was jarring when the user was zoomed out).
   const panTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => {
     const handler = (e: Event) => {
       const { nodeId } = (e as CustomEvent<{ nodeId: string }>).detail;
-      // Small delay so ReactFlow has time to lay out the node
+      // Small delay so ReactFlow has time to measure the newly rendered node
       clearTimeout(panTimerRef.current);
       panTimerRef.current = setTimeout(() => {
-        const node = useCanvasStore.getState().nodes.find((n) => n.id === nodeId);
-        if (node) {
-          setCenter(node.position.x + 130, node.position.y + 60, { zoom: 1, duration: 500 });
-        }
+        fitView({ nodes: [{ id: nodeId }], duration: 400, padding: 0.3 });
       }, 100);
     };
     window.addEventListener("molecule:pan-to-node", handler);
@@ -150,7 +149,7 @@ function CanvasInner() {
       window.removeEventListener("molecule:pan-to-node", handler);
       clearTimeout(panTimerRef.current);
     };
-  }, [setCenter]);
+  }, [fitView]);
   useEffect(() => {
     const handler = (e: Event) => {
       const { nodeId } = (e as CustomEvent).detail;
