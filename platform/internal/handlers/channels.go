@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"log"
@@ -435,10 +436,17 @@ func (h *ChannelHandler) Webhook(c *gin.Context) {
 			continue
 		}
 
-		// Verify webhook secret_token if the channel has one configured
+		// Verify webhook secret_token if the channel has one configured.
+		// #337: use constant-time comparison. Go's `!=` short-circuits on
+		// the first mismatched byte and leaks timing information; an
+		// attacker on the Docker network could enumerate the secret
+		// byte-by-byte. subtle.ConstantTimeCompare runs in time
+		// proportional to the length of the shorter input and returns
+		// 1 on match / 0 otherwise (never -1). Same posture as the
+		// cdp-proxy token compare in host-bridge.
 		if expectedSecret, _ := row.Config["webhook_secret"].(string); expectedSecret != "" {
 			receivedSecret := c.GetHeader("X-Telegram-Bot-Api-Secret-Token")
-			if receivedSecret != expectedSecret {
+			if subtle.ConstantTimeCompare([]byte(receivedSecret), []byte(expectedSecret)) != 1 {
 				continue // Wrong secret — try other channels (could be different bot)
 			}
 		}
