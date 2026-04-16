@@ -13,15 +13,13 @@ import (
 )
 
 // CPProvisioner provisions workspace agents by calling the control plane's
-// workspace provision API. The control plane holds the Fly API token and
-// manages billing/quotas/cleanup. The tenant platform never talks to Fly
-// directly.
+// workspace provision API. The control plane creates EC2 instances with
+// Docker + the workspace runtime installed at boot from PyPI.
 //
-// Set CONTAINER_BACKEND=controlplane to activate. Requires CP_PROVISION_URL
-// (control plane base URL, e.g. "https://api.moleculesai.app").
+// Auto-activated when MOLECULE_ORG_ID is set (SaaS tenant).
 type CPProvisioner struct {
-	baseURL    string // e.g. "https://api.moleculesai.app"
-	orgID      string // MOLECULE_ORG_ID — identifies which org is provisioning
+	baseURL    string
+	orgID      string
 	httpClient *http.Client
 }
 
@@ -29,13 +27,10 @@ type CPProvisioner struct {
 func NewCPProvisioner() (*CPProvisioner, error) {
 	orgID := os.Getenv("MOLECULE_ORG_ID")
 	if orgID == "" {
-		return nil, fmt.Errorf("MOLECULE_ORG_ID required for controlplane provisioner")
+		return nil, fmt.Errorf("MOLECULE_ORG_ID required for control plane provisioner")
 	}
 
-	// Auto-derive control plane URL. Priority:
-	// 1. Explicit CP_PROVISION_URL (override for testing)
-	// 2. Explicit MOLECULE_CP_URL
-	// 3. Default: https://api.moleculesai.app (production SaaS)
+	// Auto-derive control plane URL.
 	baseURL := os.Getenv("CP_PROVISION_URL")
 	if baseURL == "" {
 		baseURL = os.Getenv("MOLECULE_CP_URL")
@@ -45,11 +40,9 @@ func NewCPProvisioner() (*CPProvisioner, error) {
 	}
 
 	return &CPProvisioner{
-		baseURL: baseURL,
-		orgID:   orgID,
-		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
-		},
+		baseURL:    baseURL,
+		orgID:      orgID,
+		httpClient: &http.Client{Timeout: 120 * time.Second},
 	}, nil
 }
 
@@ -63,14 +56,13 @@ type cpProvisionRequest struct {
 }
 
 type cpProvisionResponse struct {
-	MachineID string `json:"machine_id"`
-	Name      string `json:"name"`
-	Region    string `json:"region"`
-	Status    string `json:"status"`
-	Error     string `json:"error"`
+	InstanceID string `json:"instance_id"`
+	PrivateIP  string `json:"private_ip"`
+	State      string `json:"state"`
+	Error      string `json:"error"`
 }
 
-// Start provisions a workspace by calling the control plane.
+// Start provisions a workspace by calling the control plane → EC2.
 func (p *CPProvisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string, error) {
 	req := cpProvisionRequest{
 		OrgID:       p.orgID,
@@ -111,49 +103,34 @@ func (p *CPProvisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string,
 		return "", fmt.Errorf("cp provisioner: provision failed (%d): %s", resp.StatusCode, errMsg)
 	}
 
-	log.Printf("CP provisioner: workspace %s → machine %s in %s", cfg.WorkspaceID, result.MachineID, result.Region)
-	return result.MachineID, nil
+	log.Printf("CP provisioner: workspace %s → EC2 instance %s (%s)", cfg.WorkspaceID, result.InstanceID, result.State)
+	return result.InstanceID, nil
 }
 
-// Stop destroys the workspace machine via the control plane.
+// Stop terminates the workspace's EC2 instance via the control plane.
 func (p *CPProvisioner) Stop(ctx context.Context, workspaceID string) error {
-	url := fmt.Sprintf("%s/cp/workspaces/%s", p.baseURL, workspaceID)
-	body, _ := json.Marshal(map[string]string{
-		"org_id":       p.orgID,
-		"workspace_id": workspaceID,
-	})
-
-	req, _ := http.NewRequestWithContext(ctx, "DELETE", url, bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-
+	url := fmt.Sprintf("%s/cp/workspaces/%s?instance_id=%s", p.baseURL, workspaceID, workspaceID)
+	req, _ := http.NewRequestWithContext(ctx, "DELETE", url, nil)
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("cp provisioner: stop: %w", err)
 	}
 	resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("cp provisioner: stop failed (%d)", resp.StatusCode)
-	}
 	return nil
 }
 
-// IsRunning checks workspace machine status via the control plane.
+// IsRunning checks workspace EC2 instance state via the control plane.
 func (p *CPProvisioner) IsRunning(ctx context.Context, workspaceID string) (bool, error) {
-	url := fmt.Sprintf("%s/cp/workspaces/%s/status?machine_id=%s", p.baseURL, workspaceID, workspaceID)
+	url := fmt.Sprintf("%s/cp/workspaces/%s/status?instance_id=%s", p.baseURL, workspaceID, workspaceID)
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
-
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return false, err
 	}
 	defer resp.Body.Close()
-
-	var result struct {
-		State string `json:"state"`
-	}
+	var result struct{ State string `json:"state"` }
 	json.NewDecoder(resp.Body).Decode(&result)
-	return result.State == "started", nil
+	return result.State == "running", nil
 }
 
 // Close is a no-op.
