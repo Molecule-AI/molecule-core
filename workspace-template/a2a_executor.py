@@ -41,7 +41,7 @@ from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
 from a2a.types import Part, TextPart
 from a2a.utils import new_agent_text_message
-from adapters.shared_runtime import (
+from shared_runtime import (
     extract_history as _extract_history,
     extract_message_text,
     brief_task,
