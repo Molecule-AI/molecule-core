@@ -11,6 +11,18 @@ FAIL=0
 ECHO_TOKEN=""
 SUM_TOKEN=""
 
+# AdminAuth-gated calls need a bearer token once any workspace token
+# exists in the DB. ADMIN_TOKEN is populated after the first workspace
+# create + test-token mint. acurl = "authenticated curl".
+ADMIN_TOKEN=""
+acurl() {
+  if [ -n "$ADMIN_TOKEN" ]; then
+    curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "$@"
+  else
+    curl -s "$@"
+  fi
+}
+
 # Pre-test cleanup: remove any workspaces left over from prior runs so
 # count-based assertions ("empty", "count=2") are reproducible.
 e2e_cleanup_all_workspaces
@@ -38,26 +50,34 @@ R=$(curl -s "$BASE/health")
 check "GET /health" '"status":"ok"' "$R"
 
 # Test 2: Empty list
-R=$(curl -s "$BASE/workspaces")
+R=$(acurl "$BASE/workspaces")
 check "GET /workspaces (empty)" '[]' "$R"
 
-# Test 3: Create workspace A
+# Test 3: Create workspace A (AdminAuth fail-open — no tokens exist yet)
 R=$(curl -s -X POST "$BASE/workspaces" -H "Content-Type: application/json" -d '{"name":"Echo Agent","tier":1}')
 check "POST /workspaces (create echo)" '"status":"provisioning"' "$R"
 ECHO_ID=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 
-# Test 4: Create workspace B
-R=$(curl -s -X POST "$BASE/workspaces" -H "Content-Type: application/json" -d '{"name":"Summarizer Agent","tier":1}')
+# Mint a test token so all subsequent AdminAuth-gated calls succeed.
+# The test-token endpoint is NOT behind AdminAuth (always accessible
+# when MOLECULE_ENV != production), so this works even on first boot.
+ADMIN_TOKEN=$(curl -s "$BASE/admin/workspaces/$ECHO_ID/test-token" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))" 2>/dev/null || echo "")
+if [ -n "$ADMIN_TOKEN" ]; then
+  echo "  (acquired admin token via test-token endpoint)"
+fi
+
+# Test 4: Create workspace B (needs bearer — tokens now exist in DB)
+R=$(acurl -X POST "$BASE/workspaces" -H "Content-Type: application/json" -d '{"name":"Summarizer Agent","tier":1}')
 check "POST /workspaces (create summarizer)" '"status":"provisioning"' "$R"
 SUM_ID=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 
 # Test 5: List has 2
-R=$(curl -s "$BASE/workspaces")
+R=$(acurl "$BASE/workspaces")
 COUNT=$(echo "$R" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
 check "GET /workspaces (count=2)" "2" "$COUNT"
 
 # Test 6: Get single
-R=$(curl -s "$BASE/workspaces/$ECHO_ID")
+R=$(acurl "$BASE/workspaces/$ECHO_ID")
 check "GET /workspaces/:id" '"name":"Echo Agent"' "$R"
 check "GET /workspaces/:id (agent_card null)" '"agent_card":null' "$R"
 
@@ -74,7 +94,7 @@ check "POST /registry/register (summarizer)" '"status":"registered"' "$R"
 SUM_TOKEN=$(echo "$R" | e2e_extract_token)
 
 # Test 9: Both online
-R=$(curl -s "$BASE/workspaces/$ECHO_ID")
+R=$(acurl "$BASE/workspaces/$ECHO_ID")
 check "Echo is online" '"status":"online"' "$R"
 check "Echo has agent_card" '"skills"' "$R"
 check "Echo has url" '"url":"http://localhost:8001"' "$R"
@@ -84,7 +104,7 @@ R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/jso
   -d "{\"workspace_id\":\"$ECHO_ID\",\"error_rate\":0.0,\"sample_error\":\"\",\"active_tasks\":2,\"uptime_seconds\":120}")
 check "POST /registry/heartbeat" '"status":"ok"' "$R"
 
-R=$(curl -s "$BASE/workspaces/$ECHO_ID")
+R=$(acurl "$BASE/workspaces/$ECHO_ID")
 check "Heartbeat updated active_tasks" '"active_tasks":2' "$R"
 check "Heartbeat updated uptime" '"uptime_seconds":120' "$R"
 
@@ -109,25 +129,25 @@ R=$(curl -s -X POST "$BASE/registry/check-access" -H "Content-Type: application/
 check "POST /registry/check-access (siblings allowed)" '"allowed":true' "$R"
 
 # Test 15: PATCH workspace (update position)
-R=$(curl -s -X PATCH "$BASE/workspaces/$ECHO_ID" -H "Content-Type: application/json" -d '{"x":100,"y":200}')
+R=$(acurl -X PATCH "$BASE/workspaces/$ECHO_ID" -H "Content-Type: application/json" -d '{"x":100,"y":200}')
 check "PATCH /workspaces/:id (position)" '"status":"updated"' "$R"
 
-R=$(curl -s "$BASE/workspaces/$ECHO_ID")
+R=$(acurl "$BASE/workspaces/$ECHO_ID")
 check "Position saved (x=100)" '"x":100' "$R"
 check "Position saved (y=200)" '"y":200' "$R"
 
 # Test 16: PATCH workspace (update name)
-R=$(curl -s -X PATCH "$BASE/workspaces/$ECHO_ID" -H "Content-Type: application/json" -d '{"name":"Echo Agent v2"}')
+R=$(acurl -X PATCH "$BASE/workspaces/$ECHO_ID" -H "Content-Type: application/json" -d '{"name":"Echo Agent v2"}')
 check "PATCH /workspaces/:id (name)" '"status":"updated"' "$R"
 
-R=$(curl -s "$BASE/workspaces/$ECHO_ID")
+R=$(acurl "$BASE/workspaces/$ECHO_ID")
 check "Name updated" '"name":"Echo Agent v2"' "$R"
 
 # Test 17: Events (#165 / PR #167 — now admin-gated, bearer required)
-R=$(curl -s "$BASE/events" -H "Authorization: Bearer $ECHO_TOKEN")
+R=$(acurl "$BASE/events" -H "Authorization: Bearer $ECHO_TOKEN")
 check "GET /events (has events)" 'WORKSPACE_ONLINE' "$R"
 
-R=$(curl -s "$BASE/events/$ECHO_ID" -H "Authorization: Bearer $ECHO_TOKEN")
+R=$(acurl "$BASE/events/$ECHO_ID" -H "Authorization: Bearer $ECHO_TOKEN")
 check "GET /events/:id (has events for echo)" 'WORKSPACE_ONLINE' "$R"
 
 # Test 18: Update card
@@ -149,7 +169,7 @@ R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/jso
   -d "{\"workspace_id\":\"$ECHO_ID\",\"error_rate\":0.8,\"sample_error\":\"API rate limit\",\"active_tasks\":0,\"uptime_seconds\":200}")
 check "Heartbeat (high error_rate)" '"status":"ok"' "$R"
 
-R=$(curl -s "$BASE/workspaces/$ECHO_ID")
+R=$(acurl "$BASE/workspaces/$ECHO_ID")
 check "Status degraded" '"status":"degraded"' "$R"
 
 # Test 20: Recovery
@@ -157,7 +177,7 @@ R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/jso
   -d "{\"workspace_id\":\"$ECHO_ID\",\"error_rate\":0.0,\"sample_error\":\"\",\"active_tasks\":0,\"uptime_seconds\":300}")
 check "Heartbeat (recovered)" '"status":"ok"' "$R"
 
-R=$(curl -s "$BASE/workspaces/$ECHO_ID")
+R=$(acurl "$BASE/workspaces/$ECHO_ID")
 check "Status back online" '"status":"online"' "$R"
 
 # ---------- Activity Log Tests ----------
@@ -224,7 +244,7 @@ R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/jso
 check "Heartbeat with current_task" '"status":"ok"' "$R"
 
 # Test: Verify current_task in GET /workspaces/:id
-R=$(curl -s "$BASE/workspaces/$ECHO_ID")
+R=$(acurl "$BASE/workspaces/$ECHO_ID")
 check "current_task visible in workspace" '"current_task":"Analyzing document"' "$R"
 check "active_tasks updated" '"active_tasks":1' "$R"
 
@@ -233,7 +253,7 @@ R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/jso
   -d "{\"workspace_id\":\"$ECHO_ID\",\"error_rate\":0.0,\"sample_error\":\"\",\"active_tasks\":0,\"uptime_seconds\":500,\"current_task\":\"\"}")
 check "Heartbeat clear current_task" '"status":"ok"' "$R"
 
-R=$(curl -s "$BASE/workspaces/$ECHO_ID")
+R=$(acurl "$BASE/workspaces/$ECHO_ID")
 check "current_task cleared" '"current_task":""' "$R"
 
 # Test: current_task in workspace list — now admin-auth gated (C1 fix), so a
@@ -242,7 +262,7 @@ R=$(curl -s "$BASE/workspaces" -H "Authorization: Bearer $ECHO_TOKEN")
 check "current_task in list response" '"current_task"' "$R"
 
 # Test 21: Delete
-R=$(curl -s -X DELETE "$BASE/workspaces/$ECHO_ID" -H "Authorization: Bearer $ECHO_TOKEN")
+R=$(acurl -X DELETE "$BASE/workspaces/$ECHO_ID" -H "Authorization: Bearer $ECHO_TOKEN")
 check "DELETE /workspaces/:id" '"status":"removed"' "$R"
 
 R=$(curl -s "$BASE/workspaces" -H "Authorization: Bearer $SUM_TOKEN")
@@ -262,19 +282,19 @@ ORIG_NAME=$(echo "$BUNDLE" | python3 -c "import sys,json; print(json.load(sys.st
 ORIG_TIER=$(echo "$BUNDLE" | python3 -c "import sys,json; print(json.load(sys.stdin)['tier'])")
 
 # Delete the workspace
-R=$(curl -s -X DELETE "$BASE/workspaces/$SUM_ID" -H "Authorization: Bearer $SUM_TOKEN")
+R=$(acurl -X DELETE "$BASE/workspaces/$SUM_ID" -H "Authorization: Bearer $SUM_TOKEN")
 check "Delete before re-import" '"status":"removed"' "$R"
 
 # Deletion revokes the workspace's auth tokens (PR #99 C1 fix: workspace.go
 # now runs UPDATE workspace_auth_tokens SET revoked_at on delete).  With no
 # live tokens remaining, HasAnyLiveTokenGlobal = false → AdminAuth fail-open
 # → GET /workspaces is reachable without a bearer token again.
-R=$(curl -s "$BASE/workspaces")
+R=$(acurl "$BASE/workspaces")
 COUNT=$(echo "$R" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
 check "All workspaces deleted (count=0)" "0" "$COUNT"
 
 # Re-import from the exported bundle
-R=$(curl -s -X POST "$BASE/bundles/import" -H "Content-Type: application/json" -d "$BUNDLE")
+R=$(acurl -X POST "$BASE/bundles/import" -H "Content-Type: application/json" -d "$BUNDLE")
 check "POST /bundles/import" '"status":"provisioning"' "$R"
 NEW_ID=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace_id'])")
 
