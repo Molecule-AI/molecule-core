@@ -226,6 +226,22 @@ async def main():  # pragma: no cover
                         print(f"Saved workspace auth token (prefix={tok[:8]}…)")
                 except Exception as parse_exc:
                     print(f"Warning: couldn't parse register response for token: {parse_exc}")
+            elif resp.status_code == 401:
+                # #418: registration rejected — platform has a live token on file
+                # but our /configs/.auth_token is missing (e.g. config volume was
+                # wiped). The workspace is stuck: it can't re-register without the
+                # token, and it can't get a new token without registering.
+                # Recovery: restart with {"apply_template": true} via the Canvas
+                # Config tab or API — the platform will revoke stale tokens and
+                # issue a fresh one on the next register call.
+                print(
+                    "FATAL: registration rejected (401 — missing auth token). "
+                    "The /configs/.auth_token file is absent but the platform "
+                    "has a live token on record. Recovery: POST "
+                    f"/workspaces/{workspace_id}/restart {{\"apply_template\":true}} "
+                    "to revoke stale tokens and re-bootstrap auth. "
+                    "All A2A calls will fail until this is resolved."
+                )
         except Exception as e:
             print(f"Warning: failed to register with platform: {e}")
 

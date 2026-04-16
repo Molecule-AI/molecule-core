@@ -13,6 +13,7 @@ import (
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/models"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
 	"github.com/gin-gonic/gin"
 )
 
@@ -149,6 +150,22 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 			templatePath = runtimeTemplate
 			configLabel = dbRuntime + "-default"
 			log.Printf("Restart: applying template %s (runtime change)", configLabel)
+		}
+	}
+
+	// #418: when apply_template is true the caller is requesting a full
+	// config reset (e.g. runtime was changed, org-template freshened, or
+	// the config volume was wiped and rebuilt). Revoke all existing auth
+	// tokens so the workspace bootstraps a fresh one on its next
+	// /registry/register call. Without this, a workspace that lost its
+	// /configs/.auth_token file (volume destroyed + rebuilt) is stuck in
+	// a 401 loop: the DB still has the old token so registration requires
+	// a bearer header the workspace no longer possesses.
+	if body.ApplyTemplate && templatePath != "" {
+		if revokeErr := wsauth.RevokeAllForWorkspace(ctx, db.DB, id); revokeErr != nil {
+			log.Printf("Restart: failed to revoke tokens for %s: %v (continuing)", id, revokeErr)
+		} else {
+			log.Printf("Restart: revoked auth tokens for %s — fresh token will be issued on next register", id)
 		}
 	}
 
