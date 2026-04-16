@@ -1015,6 +1015,46 @@ builders; Molecule AI users are developers building agent companies.
 **Last reviewed:** 2026-04-17 · **Stars / activity:** ~900 ⭐, Apache 2.0, actively maintained
 
 ---
+
+### AMD GAIA — `amd/gaia`
+
+**Pitch:** "Build AI agents for your PC — an open-source framework for agents that run 100% locally on AMD Ryzen AI hardware with no cloud dependency."
+
+**Shape:** Python + C++ (MIT), ~1.2k ⭐, v0.17.2 April 10, 2026. AMD-backed. Requires AMD Ryzen AI 300+ hardware (NPU-accelerated); no NVIDIA/CPU-only path documented. High-level API: subclass `Agent`, decorate tools with `@tool`, define system prompt. MCP client support — connects to any MCP server for external tool access. Built-in RAG (50+ file formats), vision (Qwen3-VL), voice (Whisper ASR + Kokoro TTS). `pip install amd-gaia`.
+
+**Overlap with us:** MCP support means GAIA agents can consume the same tool servers our workspaces use. The `@tool` decorator registration pattern is structurally identical to our `@app.workflow_task`. "No cloud dependency" is a shared positioning — we're both self-hostable, privacy-first alternatives to managed cloud agents. GAIA targets the developer's laptop; Molecule AI targets the team's server.
+
+**Differentiation:** Hardware-locked to AMD Ryzen AI — not general-purpose. No A2A, no org hierarchy, no canvas, no scheduling, no channels. Single-agent. Molecule AI runs anywhere Docker runs.
+
+**Worth borrowing:** Clean `@tool` decorator pattern for agent tool registration — simpler than our MCP-tool-as-config approach; worth evaluating for the workspace adapter layer. RAG + vision + voice as first-class built-ins show what a complete local agent surface looks like.
+
+**Terminology collisions:** "agent" — their in-process Python object; our Docker workspace. "tool" — same concept, same decorator pattern.
+
+**Signals to react to:** If GAIA adds NVIDIA/CPU-only support → becomes a general local-agent framework with serious AMD backing; evaluate as a runtime adapter. If MCP server protocol via GAIA gains adoption → alignment already exists via our MCP server (#313).
+
+**Last reviewed:** 2026-04-18 · **Stars / activity:** ~1.2k ⭐, v0.17.2 April 10, 2026, AMD-maintained
+
+---
+
+### ClawRun — `clawrun-sh/clawrun`
+
+**Pitch:** "Deploy and manage AI agents in seconds — one config to launch secure, sandboxed agents across any cloud."
+
+**Shape:** TypeScript (Apache 2.0), ~84 ⭐, 45 releases, active 2026. Hosting and lifecycle layer for open-source agents: deploys into secure Vercel Sandboxes (more providers planned), manages startup, heartbeat keep-alive, snapshot/resume, and wake-on-message. Channels: Telegram, Discord, Slack, WhatsApp. Web dashboard + CLI. Cost tracking and budget enforcement per channel. Pluggable agent/provider/channel architecture.
+
+**Overlap with us:** This is the closest architectural match we've tracked. Feature-for-feature: sandbox → our Docker workspace, heartbeat → our `active_tasks` + `last_heartbeat`, snapshot/resume → our workspace pause/resume, channels → our `workspace_channels`, cost tracking → our usage logging, pluggable architecture → our adapter + plugin system. ClawRun is building the same platform from a different starting point (agent hosting → adding channels) vs our approach (multi-agent org → adding deployment).
+
+**Differentiation:** No visual canvas, no org hierarchy, no A2A between agents, no memory, no scheduling, no multi-agent coordination. 84 stars signals early stage — but 45 releases shows active shipping. Our differentiator: agent identity + memory + A2A coordination vs ClawRun's pure hosting focus.
+
+**Worth borrowing:** Per-channel budget enforcement — our `workspace_channels` has no cost cap; adding a `budget_limit` field per channel would prevent runaway messaging costs. Wake-on-message lifecycle — agents sleep when idle and wake only when a message arrives; more cost-efficient than our always-on containers for low-traffic workspaces.
+
+**Terminology collisions:** "sandbox" — their Vercel Sandbox container; our Docker workspace container. "channel" — same word, same concept.
+
+**Signals to react to:** If ClawRun adds A2A or multi-agent coordination → becomes a direct lightweight competitor with Apache 2.0 and a simpler onboarding story. If their sandbox provider list expands (AWS/GCP/Azure) → pricing pressure on our Docker-first deployment model.
+
+**Last reviewed:** 2026-04-18 · **Stars / activity:** ~84 ⭐, 45 releases, Apache 2.0, actively shipped
+
+---
 ## Candidates to add (backlog)
 
 Short-list of projects to write up next time someone has an hour:
