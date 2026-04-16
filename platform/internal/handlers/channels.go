@@ -269,6 +269,24 @@ func (h *ChannelHandler) Send(c *gin.Context) {
 		return
 	}
 
+	// Per-channel budget enforcement (#368).
+	// Reads message_count and channel_budget in one query. If channel_budget IS
+	// NOT NULL and message_count has already reached it, reject with 429.
+	// DB errors are logged and treated as fail-open (budget not enforced) so a
+	// transient DB hiccup doesn't silently block outbound messages.
+	var msgCount int
+	var budget sql.NullInt64
+	if err := db.DB.QueryRowContext(ctx,
+		`SELECT message_count, channel_budget FROM workspace_channels WHERE id = $1`,
+		channelID,
+	).Scan(&msgCount, &budget); err != nil && err != sql.ErrNoRows {
+		log.Printf("Channels: budget check failed for channel %s: %v", channelID, err)
+	}
+	if budget.Valid && int64(msgCount) >= budget.Int64 {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "channel budget exceeded"})
+		return
+	}
+
 	if err := h.manager.SendOutbound(ctx, channelID, body.Text); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
