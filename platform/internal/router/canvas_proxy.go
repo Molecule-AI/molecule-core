@@ -19,6 +19,11 @@ import (
 // (Next.js checks Host in dev mode). Response headers from canvas flow back
 // to the client unchanged.
 //
+// Security: Authorization and Cookie headers are stripped before forwarding.
+// Workspace bearer tokens must not reach the Next.js process — canvas has no
+// token-validation logic and an unpatched Next.js route could echo them back
+// to an attacker via an error page or debug endpoint (issue #451).
+//
 // Why NoRoute + proxy instead of nginx: one fewer process, one fewer config
 // file, and the Go router already knows which routes are API routes. Any
 // path not registered as an API route is a canvas page by elimination.
@@ -33,6 +38,10 @@ func newCanvasProxy(targetURL string) gin.HandlerFunc {
 			req.URL.Scheme = target.Scheme
 			req.URL.Host = target.Host
 			req.Host = target.Host
+			// N2 (issue #451): strip credential headers — workspace bearer
+			// tokens and session cookies must not reach the canvas process.
+			req.Header.Del("Authorization")
+			req.Header.Del("Cookie")
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			log.Printf("canvas_proxy: %v", err)
