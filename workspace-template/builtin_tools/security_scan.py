@@ -207,6 +207,7 @@ def scan_skill_dependencies(
     skill_name: str,
     skill_path: Path,
     mode: str,
+    fail_open_if_no_scanner: bool = True,
 ) -> ScanResult:
     """Scan a skill's dependency file for known CVEs.
 
@@ -214,13 +215,21 @@ def scan_skill_dependencies(
         skill_name: Name of the skill (used in log messages and audit events).
         skill_path: Absolute path to the skill's root directory.
         mode:       ``"block"`` | ``"warn"`` | ``"off"``
+        fail_open_if_no_scanner:
+            When *True* (default) silently skip scanning if neither snyk nor
+            pip-audit is in PATH.  When *False* and ``mode="block"``, raise
+            :class:`SkillSecurityError` so operators know the gate is absent.
+            Corresponds to ``security_scan.fail_open_if_no_scanner`` in
+            config.yaml.  Closes #268.
 
     Returns:
         A :class:`ScanResult` describing what was found.
 
     Raises:
-        :class:`SkillSecurityError`: Only when ``mode="block"`` and one or
-            more critical/high severity CVEs are found.
+        :class:`SkillSecurityError`: When ``mode="block"`` and one or more
+            critical/high severity CVEs are found — OR when
+            ``mode="block"`` and ``fail_open_if_no_scanner=False`` and no
+            scanner is available.
     """
     if mode == "off":
         return ScanResult(skill_name=skill_name, scanner="none", requirements_file=None)
@@ -269,6 +278,19 @@ def scan_skill_dependencies(
             requirements_file=str(req_file),
             mode=mode,
         )
+        # #268: if fail_open_if_no_scanner=False and mode=block, the operator
+        # explicitly opted in to "fail closed" — raise so the missing scanner
+        # is visible rather than silently skipped.
+        if not fail_open_if_no_scanner and mode == "block":
+            raise SkillSecurityError(
+                skill_name=skill_name,
+                scanner="none",
+                findings=[],
+                scan_error=(
+                    "No scanner (snyk or pip-audit) found in PATH and "
+                    "fail_open_if_no_scanner=false — skill loading blocked"
+                ),
+            )
         return ScanResult(
             skill_name=skill_name,
             scanner="none",
