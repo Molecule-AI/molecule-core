@@ -109,6 +109,7 @@ export function ChatTab({ workspaceId, data }: Props) {
         }}
       >
         <button
+          id="chat-tab-my-chat"
           role="tab"
           aria-selected={subTab === "my-chat"}
           aria-controls="chat-panel-my-chat"
@@ -123,6 +124,7 @@ export function ChatTab({ workspaceId, data }: Props) {
           My Chat
         </button>
         <button
+          id="chat-tab-agent-comms"
           role="tab"
           aria-selected={subTab === "agent-comms"}
           aria-controls="chat-panel-agent-comms"
@@ -137,17 +139,14 @@ export function ChatTab({ workspaceId, data }: Props) {
           Agent Comms
         </button>
       </div>
-      {/* Content */}
-      <div className="flex-1 overflow-hidden flex flex-col">
-        {subTab === "my-chat" ? (
-          <div id="chat-panel-my-chat" role="tabpanel" className="flex-1 overflow-hidden flex flex-col">
-            <MyChatPanel workspaceId={workspaceId} data={data} />
-          </div>
-        ) : (
-          <div id="chat-panel-agent-comms" role="tabpanel" className="flex-1 overflow-hidden flex flex-col">
-            <AgentCommsPanel workspaceId={workspaceId} />
-          </div>
-        )}
+      {/* Content — both panels are always in the DOM so aria-controls targets exist.
+           The inactive panel is hidden via the HTML `hidden` attribute (removed from
+           display and accessibility tree, but present in the DOM for WCAG 4.1.2). */}
+      <div id="chat-panel-my-chat" role="tabpanel" aria-labelledby="chat-tab-my-chat" hidden={subTab !== "my-chat"} className="flex-1 overflow-hidden flex flex-col">
+        <MyChatPanel workspaceId={workspaceId} data={data} />
+      </div>
+      <div id="chat-panel-agent-comms" role="tabpanel" aria-labelledby="chat-tab-agent-comms" hidden={subTab !== "agent-comms"} className="flex-1 overflow-hidden flex flex-col">
+        <AgentCommsPanel workspaceId={workspaceId} />
       </div>
     </div>
   );
@@ -398,7 +397,7 @@ function MyChatPanel({ workspaceId, data }: Props) {
                 <div className="mt-1.5 text-[9px] text-zinc-500 space-y-0.5">
                   <div className="text-zinc-400">Processing with {runtimeDisplayName(data.runtime)}...</div>
                   {activityLog.map((line, i) => (
-                    <div key={i} className="pl-2 border-l border-zinc-700">◇ {line}</div>
+                    <div key={line + i} className="pl-2 border-l border-zinc-700">◇ {line}</div>
                   ))}
                 </div>
               )}

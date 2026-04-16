@@ -150,7 +150,7 @@ export function CommunicationOverlay() {
                   <span className="text-zinc-300 truncate">{c.targetName}</span>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <span className={statusColor}>{statusIcon}</span>
+                  <span className={statusColor} aria-hidden="true">{statusIcon}</span>
                   <span className="text-zinc-400">{age}</span>
                 </div>
               </div>
