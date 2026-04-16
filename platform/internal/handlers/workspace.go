@@ -12,6 +12,7 @@ import (
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/middleware"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/models"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
@@ -488,6 +489,9 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 		}
 		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
 		if tok == "" {
+			if middleware.IsSameOriginCanvas(c) {
+				break // tenant canvas — trusted same-origin
+			}
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "admin auth required for field: " + field})
 			return
 		}
