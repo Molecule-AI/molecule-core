@@ -432,7 +432,7 @@ function TeamMemberChip({
         {/* Status + active tasks row */}
         <div className="flex items-center justify-between">
           {data.status !== "online" ? (
-            <span className={`text-[7px] uppercase tracking-widest font-medium ${
+            <span className={`text-[9px] uppercase tracking-widest font-medium ${
               data.status === "failed" ? "text-red-400" :
               data.status === "degraded" ? "text-amber-400" :
               data.status === "provisioning" ? "text-sky-400" :
@@ -444,7 +444,7 @@ function TeamMemberChip({
           {data.activeTasks > 0 && (
             <div className="flex items-center gap-0.5">
               <div className="w-1 h-1 rounded-full bg-amber-400 motion-safe:animate-pulse" />
-              <span className="text-[7px] text-amber-300/80 tabular-nums">
+              <span className="text-[9px] text-amber-300/80 tabular-nums">
                 {data.activeTasks}
               </span>
             </div>
@@ -456,7 +456,7 @@ function TeamMemberChip({
           <Tooltip text={String(data.currentTask)}>
             <div className="flex items-center gap-1 mt-0.5 px-1.5 py-0.5 bg-amber-950/20 rounded border border-amber-800/20 cursor-default">
               <div className="w-1 h-1 rounded-full bg-amber-400 motion-safe:animate-pulse shrink-0" />
-              <span className="text-[7px] text-amber-300/70 truncate">{data.currentTask}</span>
+              <span className="text-[9px] text-amber-300/70 truncate">{data.currentTask}</span>
             </div>
           </Tooltip>
         )}

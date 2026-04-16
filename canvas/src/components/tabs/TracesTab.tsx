@@ -96,11 +96,11 @@ export function TracesTab({ workspaceId }: Props) {
                     </span>
                   )}
                   {trace.usage?.total != null && (
-                    <span className="text-[9px] text-zinc-600 tabular-nums">
+                    <span className="text-[9px] text-zinc-500 tabular-nums">
                       {trace.usage.total} tok
                     </span>
                   )}
-                  <span className="text-[9px] text-zinc-600">
+                  <span className="text-[9px] text-zinc-500">
                     {expanded === trace.id ? "▼" : "▶"}
                   </span>
                 </div>
