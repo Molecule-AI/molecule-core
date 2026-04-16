@@ -1,1 +1,0 @@
-{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"bash ${CLAUDE_DIR}/hooks/session-start-context.sh"}]}]}}

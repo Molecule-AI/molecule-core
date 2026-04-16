@@ -1,1 +1,0 @@
-{"hooks":{"PreToolUse":[{"matcher":"Edit|Write|NotebookEdit","hooks":[{"type":"command","command":"bash ${CLAUDE_DIR}/hooks/pre-edit-freeze.sh"}]}]}}

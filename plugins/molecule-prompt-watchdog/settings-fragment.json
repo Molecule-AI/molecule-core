@@ -1,1 +1,0 @@
-{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"bash ${CLAUDE_DIR}/hooks/user-prompt-tag.sh"}]}]}}
