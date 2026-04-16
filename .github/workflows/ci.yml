@@ -218,12 +218,19 @@ jobs:
           cat > /tmp/deploy-reminder.md << 'BODY'
           ## Canvas build passed ✅ — deploy required
 
-          The canvas container is **not auto-deployed**. Merged canvas changes are invisible until the host container is rebuilt.
+          The `publish-canvas-image` workflow is now building a fresh Docker image
+          (`ghcr.io/molecule-ai/canvas:latest`) in the background.
 
-          Run this on the host machine to apply:
+          Once it completes (~3–5 min), apply on the host machine with:
           ```bash
           cd /g/personal_programs/molecule-monorepo
           git pull origin main
+          docker compose pull canvas && docker compose up -d canvas
+          ```
+
+          If you need to rebuild from local source instead (e.g. testing unreleased
+          changes or a new `NEXT_PUBLIC_*` URL), use:
+          ```bash
           docker compose build canvas && docker compose up -d canvas
           ```
           BODY
