@@ -38,6 +38,17 @@ COPY policies/ ./policies/
 RUN ln -s /app/a2a_cli.py /usr/local/bin/a2a && chmod +x /app/a2a_cli.py /app/a2a_mcp_server.py && \
     ln -s /app/molecule_ai_status.py /usr/local/bin/molecule-monorepo-status && chmod +x /app/molecule_ai_status.py
 
+# gh wrapper — auto-prefixes PR / issue titles with the agent role + appends
+# a body footer. Every agent in the template shares one GitHub PAT so plain
+# `gh pr list` can't distinguish workspaces; the wrapper reads GIT_AUTHOR_NAME
+# (set by the platform provisioner, "Molecule AI <Role>") and rewrites the
+# title/body accordingly. Fails open when the env is missing. Anything that
+# isn't `gh pr create` or `gh issue create` passes through untouched.
+# /usr/local/bin is earlier in PATH than /usr/bin/gh so this shadows the
+# real binary without renaming it.
+COPY scripts/gh-wrapper.sh /usr/local/bin/gh
+RUN chmod +x /usr/local/bin/gh
+
 # Dirs and permissions
 RUN mkdir -p /workspace /plugins /home/agent/.claude /home/agent/.config /home/agent/.local && \
     chown -R agent:agent /app /home/agent /workspace
