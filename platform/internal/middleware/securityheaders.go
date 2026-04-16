@@ -15,7 +15,6 @@ func SecurityHeaders() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("X-Frame-Options", "DENY")
-		c.Header("Content-Security-Policy", "default-src 'self'")
 		c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		// #282: these two were documented in CLAUDE.md but missing from
 		// the middleware. Referrer-Policy prevents browsers from leaking
@@ -25,6 +24,30 @@ func SecurityHeaders() gin.HandlerFunc {
 		// canvas embeds iframes for Langfuse traces.
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
 		c.Header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+
+		// CSP: only apply to API responses. Canvas-proxied routes
+		// (NoRoute → reverse-proxy to Next.js) serve HTML with inline
+		// scripts + styles that `default-src 'self'` blocks. Next.js
+		// sets its own CSP via <meta> tags. The Go middleware should
+		// not override it for proxied HTML responses.
+		//
+		// Detection: API routes are registered explicitly in the router;
+		// canvas-proxied routes hit NoRoute. We can't detect NoRoute
+		// before c.Next() fires, so instead we check the response
+		// Content-Type after Next() — but that's too late for headers.
+		//
+		// Simpler: apply a permissive CSP that allows Next.js to work.
+		// 'unsafe-inline' + 'unsafe-eval' are needed for Next.js dev
+		// hydration; in production Next.js uses nonces but we don't
+		// propagate them through the proxy. This is acceptable because
+		// the canvas is our own code, not user-generated content.
+		c.Header("Content-Security-Policy",
+			"default-src 'self'; "+
+				"script-src 'self' 'unsafe-inline' 'unsafe-eval'; "+
+				"style-src 'self' 'unsafe-inline'; "+
+				"img-src 'self' data: blob:; "+
+				"connect-src 'self' ws: wss:; "+
+				"font-src 'self' data:")
 		c.Next()
 	}
 }

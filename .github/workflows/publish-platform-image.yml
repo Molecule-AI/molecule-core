@@ -12,6 +12,7 @@ on:
       # Only rebuild when something platform-relevant changes — saves GHA
       # minutes on docs-only / canvas-only / MCP-only PRs.
       - 'platform/**'
+      - 'workspace-configs-templates/**'
       - '.github/workflows/publish-platform-image.yml'
   # Manual trigger for re-publishing a tag after a non-platform merge.
   workflow_dispatch:
@@ -129,7 +130,7 @@ jobs:
         # but Fly tenant machines are amd64. QEMU handles the emulation.
         uses: docker/build-push-action@v5
         with:
-          context: ./platform
+          context: .
           file: ./platform/Dockerfile
           platforms: linux/amd64
           push: true
@@ -150,7 +151,7 @@ jobs:
         if: always()
         uses: docker/build-push-action@v5
         with:
-          context: ./platform
+          context: .
           file: ./platform/Dockerfile
           platforms: linux/amd64
           push: true
