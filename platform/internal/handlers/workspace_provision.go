@@ -95,6 +95,25 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 	// workspace_secret named GIT_AUTHOR_NAME if they want custom identity.
 	applyAgentGitIdentity(envVars, payload.Name)
 
+	// Plugin extension point: run any registered EnvMutators (e.g.
+	// github-app-auth, vault-secrets) AFTER built-in identity injection so
+	// plugins can override or augment GIT_AUTHOR_*, GITHUB_TOKEN, etc.
+	// A failure here aborts provisioning — a missing GitHub App token
+	// would manifest later as opaque "git push 401" loops, and the agent
+	// never recovers. Failing fast here surfaces the cause to the operator.
+	if err := h.envMutators.Run(ctx, workspaceID, envVars); err != nil {
+		log.Printf("Provisioner: env mutator chain failed for %s: %v", workspaceID, err)
+		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+			"error": err.Error(),
+		})
+		if _, dbErr := db.DB.ExecContext(ctx,
+			`UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
+			workspaceID, err.Error()); dbErr != nil {
+			log.Printf("Provisioner: failed to mark workspace %s as failed after mutator error: %v", workspaceID, dbErr)
+		}
+		return
+	}
+
 	cfg := h.buildProvisionerConfig(workspaceID, templatePath, configFiles, payload, envVars, pluginsPath, awarenessNamespace)
 	cfg.ResetClaudeSession = resetClaudeSession // #12
 
