@@ -112,25 +112,25 @@ export function OrgTemplatesSection() {
         return (
           <div
             key={o.dir}
-            className="bg-zinc-800/30 border border-zinc-700/40 rounded-lg p-2.5"
+            className="bg-zinc-900/50 border border-zinc-800/60 rounded-xl p-3 hover:border-zinc-700/60 transition-all"
           >
-            <div className="flex items-center justify-between mb-0.5">
-              <span className="text-[11px] font-semibold text-zinc-200 truncate">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[12px] font-semibold text-zinc-200 truncate">
                 {o.name || o.dir}
               </span>
-              <span className="text-[9px] font-mono text-violet-400 bg-violet-950/40 px-1.5 py-0.5 rounded shrink-0">
-                {o.workspaces}w
+              <span className="text-[9px] font-mono text-sky-400 bg-sky-950/40 px-1.5 py-0.5 rounded-md shrink-0">
+                {o.workspaces} workspaces
               </span>
             </div>
             {o.description && (
-              <p className="text-[10px] text-zinc-500 mb-2 line-clamp-2 leading-relaxed">
+              <p className="text-[10px] text-zinc-500 mb-2.5 line-clamp-2 leading-relaxed">
                 {o.description}
               </p>
             )}
             <button
               onClick={() => handleImport(o)}
               disabled={isImporting}
-              className="w-full px-2 py-1 bg-violet-600/20 hover:bg-violet-600/30 border border-violet-500/30 rounded text-[10px] text-violet-300 font-medium transition-colors disabled:opacity-50"
+              className="w-full px-2 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 rounded-lg text-[10px] text-blue-300 font-medium transition-colors disabled:opacity-50"
             >
               {isImporting ? "Importing…" : "Import org"}
             </button>
