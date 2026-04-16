@@ -116,11 +116,21 @@ async def commit_memory(content: str, scope: str = "LOCAL") -> dict:
                     pass
                 return {"success": False, "error": str(e)}
         else:
+            # #215-class bug: platform now gates /workspaces/:id/memories behind
+            # workspace auth. Import auth_headers lazily (same pattern as the
+            # activity-log path below) so test environments that don't ship
+            # platform_auth still work.
+            try:
+                from platform_auth import auth_headers as _auth
+                _headers = _auth()
+            except Exception:
+                _headers = {}
             async with httpx.AsyncClient(timeout=10.0) as client:
                 try:
                     resp = await client.post(
                         f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/memories",
                         json={"content": content, "scope": scope},
+                        headers=_headers,
                     )
                     if resp.status_code == 201:
                         result = {"success": True, "id": resp.json().get("id"), "scope": scope}
@@ -264,11 +274,23 @@ async def search_memory(query: str = "", scope: str = "") -> dict:
         if scope:
             params["scope"] = scope.upper()
 
+        # #215-class bug (search path): same fix as commit_memory above —
+        # the platform gates GET /workspaces/:id/memories behind workspace
+        # auth, so without auth_headers() every search silently 401s and the
+        # agent thinks its backlog is empty (observed on Technical Researcher
+        # idle-loop pilot 2026-04-15).
+        try:
+            from platform_auth import auth_headers as _auth
+            _headers = _auth()
+        except Exception:
+            _headers = {}
+
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
                 resp = await client.get(
                     f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/memories",
                     params=params,
+                    headers=_headers,
                 )
                 if resp.status_code == 200:
                     memories = resp.json()
