@@ -648,6 +648,123 @@ func TestDisableChannelByChatID_WiredSetsEnabledFalse(t *testing.T) {
 	}
 }
 
+// ==================== SlackAdapter Tests (#384) ====================
+
+func TestSlackAdapter_Type(t *testing.T) {
+	a := &SlackAdapter{}
+	if a.Type() != "slack" {
+		t.Errorf("expected 'slack', got %q", a.Type())
+	}
+}
+
+func TestSlackAdapter_DisplayName(t *testing.T) {
+	a := &SlackAdapter{}
+	if a.DisplayName() != "Slack" {
+		t.Errorf("expected 'Slack', got %q", a.DisplayName())
+	}
+}
+
+func TestSlackAdapter_ValidateConfig_Valid(t *testing.T) {
+	a := &SlackAdapter{}
+	err := a.ValidateConfig(map[string]interface{}{
+		"webhook_url": "https://hooks.slack.com/services/T000/B000/xxx",
+	})
+	if err != nil {
+		t.Errorf("expected no error for valid webhook URL, got %v", err)
+	}
+}
+
+func TestSlackAdapter_ValidateConfig_MissingWebhookURL(t *testing.T) {
+	a := &SlackAdapter{}
+	err := a.ValidateConfig(map[string]interface{}{})
+	if err == nil {
+		t.Error("expected error for missing webhook_url")
+	}
+}
+
+func TestSlackAdapter_ValidateConfig_InvalidPrefix(t *testing.T) {
+	// Any URL that doesn't start with https://hooks.slack.com/ must be rejected.
+	a := &SlackAdapter{}
+	cases := []string{
+		"http://hooks.slack.com/services/T000/B000/xxx",    // wrong scheme
+		"https://evil.example.com/slack-hook",              // wrong host
+		"https://hooks.slack.com.evil.com/services/T/B/x", // SSRF lookalike
+		"not-a-url",
+		"",
+	}
+	for _, u := range cases {
+		config := map[string]interface{}{"webhook_url": u}
+		err := a.ValidateConfig(config)
+		if err == nil {
+			t.Errorf("expected error for webhook_url %q, got nil", u)
+		}
+		if u != "" && err != nil && err.Error() != "invalid Slack webhook URL" {
+			t.Errorf("webhook_url %q: expected 'invalid Slack webhook URL', got %q", u, err.Error())
+		}
+	}
+}
+
+func TestSlackAdapter_ValidateConfig_EmptyString(t *testing.T) {
+	a := &SlackAdapter{}
+	err := a.ValidateConfig(map[string]interface{}{"webhook_url": ""})
+	if err == nil {
+		t.Error("expected error for empty webhook_url")
+	}
+}
+
+func TestSlackAdapter_SendMessage_EmptyWebhookURL(t *testing.T) {
+	a := &SlackAdapter{}
+	err := a.SendMessage(context.Background(), map[string]interface{}{}, "ignored-chat", "hello")
+	if err == nil {
+		t.Error("expected error for missing webhook_url")
+	}
+}
+
+func TestSlackAdapter_SendMessage_InvalidPrefix(t *testing.T) {
+	a := &SlackAdapter{}
+	err := a.SendMessage(context.Background(), map[string]interface{}{
+		"webhook_url": "https://evil.example.com/hook",
+	}, "ignored", "hello")
+	if err == nil {
+		t.Error("expected error for invalid webhook URL prefix in SendMessage")
+	}
+}
+
+func TestSlackAdapter_StartPolling_ReturnsNil(t *testing.T) {
+	// Slack webhooks don't support polling — must return nil immediately.
+	a := &SlackAdapter{}
+	err := a.StartPolling(context.Background(), map[string]interface{}{}, nil)
+	if err != nil {
+		t.Errorf("expected nil from StartPolling, got %v", err)
+	}
+}
+
+func TestGetAdapter_Slack(t *testing.T) {
+	a, ok := GetAdapter("slack")
+	if !ok || a == nil {
+		t.Error("expected slack adapter to be registered")
+	}
+	if a.Type() != "slack" {
+		t.Errorf("expected type 'slack', got %q", a.Type())
+	}
+}
+
+func TestListAdapters_IncludesSlack(t *testing.T) {
+	list := ListAdapters()
+	found := false
+	for _, a := range list {
+		if a["type"] == "slack" {
+			found = true
+			if a["display_name"] != "Slack" {
+				t.Errorf("expected display_name 'Slack', got %q", a["display_name"])
+			}
+		}
+	}
+	if !found {
+		t.Error("slack not found in ListAdapters")
+	}
+}
+
 func TestDisableChannelByChatID_NoRowsAffectedSkipsReload(t *testing.T) {
 	// When the chat_id doesn't match any row (already disabled, or a different
 	// bot), the UPDATE returns RowsAffected=0 and we skip the reload. Verifies
