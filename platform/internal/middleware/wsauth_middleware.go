@@ -43,15 +43,21 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 		ctx := c.Request.Context()
 
 		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
-		if tok == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing workspace auth token"})
+		if tok != "" {
+			if err := wsauth.ValidateToken(ctx, database, workspaceID, tok); err != nil {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid workspace auth token"})
+				return
+			}
+			c.Next()
 			return
 		}
-		if err := wsauth.ValidateToken(ctx, database, workspaceID, tok); err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid workspace auth token"})
+		// Same-origin canvas on tenant image — Referer matches Host.
+		if isSameOriginCanvas(c) {
+			c.Next()
 			return
 		}
-		c.Next()
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing workspace auth token"})
+		return
 	}
 }
 
