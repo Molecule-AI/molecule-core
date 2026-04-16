@@ -11,8 +11,8 @@
     },
     "molecule": {
       "type": "stdio",
-      "command": "node",
-      "args": ["./mcp-server/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@molecule-ai/mcp-server"],
       "env": {
         "MOLECULE_URL": "http://localhost:8080"
       }

@@ -1,7 +1,7 @@
 # Remote Workspaces — Readiness Audit
 
-**Status:** scoping doc for Phase 30 (SaaS / Cross-Network Federation)
-**Last reviewed:** 2026-04-13
+**Status:** Phase 30.1 shipped (auth tokens + token management API). Phases 30.2–30.7 in progress.
+**Last reviewed:** 2026-04-16
 **Scope:** what it takes to let a Python agent on a different machine / different
 network / behind NAT join the same Molecule AI organization as a first-class workspace.
 
@@ -93,7 +93,7 @@ drift — grep for the function name.
 
 | # | Problem | Impact | Solution zone |
 |---|---------|--------|---------------|
-| A | **Spoofing.** `X-Workspace-ID` is a namespace header, not auth. Any internet host knowing a workspace ID can impersonate it, call heartbeat, pull secrets, answer A2A as that workspace. | **Blocker.** Cannot expose registry endpoints to the internet without this fix. | Per-workspace auth tokens (30.1). |
+| A | **Spoofing.** ~~`X-Workspace-ID` is a namespace header, not auth.~~ **SHIPPED (30.1).** Per-workspace bearer tokens now required on heartbeat, update-card, discover, peers, secrets, and all /workspaces/:id/* sub-routes. Token management API: `GET/POST/DELETE /workspaces/:id/tokens`. See [token-management.md](guides/token-management.md). | ~~Blocker~~ **Resolved.** | Per-workspace auth tokens (30.1) ✅ |
 | B | **NAT / firewall asymmetry.** Agent→platform: fine (outbound). Platform→agent: blocked for most home/office agents. | Anything platform-initiated (config push, restart, plugin install, WS event) fails. | Pull-based APIs for the things that today are pushed (30.2, 30.3, 30.4). |
 | C | **Secrets delivery.** Today: push at container-create. Remote agent was never provisioned. | Remote agent can't get API keys; any tool that needs them fails. | `GET /workspaces/:id/secrets` (30.2). |
 | D | **Plugin install.** Today: `docker exec pip install` into the container. No Docker for remote. | Remote agent can't install plugins that require deps. | Plugin tarball download (30.3); agent runs its own install. |
@@ -144,5 +144,10 @@ state polling (30.4), live A2A proxy auth (30.5), sibling URL cache
 ## 5. Ordered next-step list
 
 See [PLAN.md Phase 30](../PLAN.md). Eight steps, ~2 weeks to GA.
-Step 30.1 is the only one that is strictly prerequisite for all the
-others — ship it first, standalone. Steps 30.2–30.8 can parallelize.
+Step 30.1 is shipped. Steps 30.2–30.8 can parallelize.
+
+## 6. Related guides
+
+- [External Agent Registration Guide](guides/external-agent-registration.md) — step-by-step for any agent to join, with Python + Node.js examples
+- [Token Management API](guides/token-management.md) — create, list, revoke bearer tokens
+- [MCP Server Setup](guides/mcp-server-setup.md) — 87 tools for managing workspaces via MCP

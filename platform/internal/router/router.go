@@ -256,6 +256,12 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		// (mirrors the /workspaces/:id/a2a pattern). Issue #249.
 		r.GET("/workspaces/:id/schedules/health", schedh.Health)
 
+		// Token management (user-facing create/list/revoke)
+		tokh := handlers.NewTokenHandler()
+		wsAuth.GET("/tokens", tokh.List)
+		wsAuth.POST("/tokens", tokh.Create)
+		wsAuth.DELETE("/tokens/:tokenId", tokh.Revoke)
+
 		// Memory
 		memh := handlers.NewMemoryHandler()
 		wsAuth.GET("/memory", memh.List)
