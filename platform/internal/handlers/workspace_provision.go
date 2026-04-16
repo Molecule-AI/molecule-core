@@ -456,3 +456,92 @@ func (h *WorkspaceHandler) ensureDefaultConfig(workspaceID string, payload model
 	log.Printf("Provisioner: generated %d config files for workspace %s (runtime: %s)", len(files), workspaceID, runtime)
 	return files
 }
+
+// provisionWorkspaceFly provisions a workspace as a Fly Machine instead
+// of a local Docker container. Same secret-loading + env-var logic as
+// provisionWorkspaceOpts, but calls FlyProvisioner.Start instead of
+// the Docker provisioner.
+func (h *WorkspaceHandler) provisionWorkspaceFly(workspaceID, templatePath string, configFiles map[string][]byte, payload models.CreateWorkspacePayload) {
+	ctx, cancel := context.WithTimeout(context.Background(), provisioner.ProvisionTimeout)
+	defer cancel()
+
+	// Load secrets (same as Docker path)
+	envVars := map[string]string{}
+	globalRows, globalErr := db.DB.QueryContext(ctx,
+		`SELECT key, encrypted_value, encryption_version FROM global_secrets`)
+	if globalErr == nil {
+		defer globalRows.Close()
+		for globalRows.Next() {
+			var k string
+			var v []byte
+			var ver int
+			if globalRows.Scan(&k, &v, &ver) == nil {
+				decrypted, decErr := crypto.DecryptVersioned(v, ver)
+				if decErr != nil {
+					log.Printf("FlyProvisioner: failed to decrypt global secret %s for %s: %v", k, workspaceID, decErr)
+					db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
+						workspaceID, fmt.Sprintf("cannot decrypt global secret %s", k))
+					return
+				}
+				envVars[k] = string(decrypted)
+			}
+		}
+	}
+	wsRows, err := db.DB.QueryContext(ctx,
+		`SELECT key, encrypted_value, encryption_version FROM workspace_secrets WHERE workspace_id = $1`, workspaceID)
+	if err == nil {
+		defer wsRows.Close()
+		for wsRows.Next() {
+			var k string
+			var v []byte
+			var ver int
+			if wsRows.Scan(&k, &v, &ver) == nil {
+				decrypted, _ := crypto.DecryptVersioned(v, ver)
+				envVars[k] = string(decrypted)
+			}
+		}
+	}
+
+	applyAgentGitIdentity(envVars, payload.Name)
+	if err := h.envMutators.Run(ctx, workspaceID, envVars); err != nil {
+		log.Printf("FlyProvisioner: env mutator failed for %s: %v", workspaceID, err)
+		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
+			workspaceID, err.Error())
+		return
+	}
+
+	awarenessNamespace := h.loadAwarenessNamespace(ctx, workspaceID)
+
+	cfg := provisioner.WorkspaceConfig{
+		WorkspaceID:        workspaceID,
+		TemplatePath:       templatePath,
+		ConfigFiles:        configFiles,
+		Tier:               payload.Tier,
+		Runtime:            payload.Runtime,
+		EnvVars:            envVars,
+		PlatformURL:        h.platformURL,
+		AwarenessNamespace: awarenessNamespace,
+	}
+
+	machineID, err := h.flyProv.Start(ctx, cfg)
+	if err != nil {
+		log.Printf("FlyProvisioner: failed to start workspace %s: %v", workspaceID, err)
+		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+			"error": err.Error(),
+		})
+		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
+			workspaceID, err.Error())
+		return
+	}
+
+	log.Printf("FlyProvisioner: workspace %s started as Fly machine %s", workspaceID, machineID)
+	// The workspace will register via POST /registry/register once the
+	// agent boots inside the Fly machine, which transitions it to 'online'.
+	// We issue a token preemptively so the agent can authenticate.
+	token, tokenErr := wsauth.IssueToken(ctx, db.DB, workspaceID)
+	if tokenErr != nil {
+		log.Printf("FlyProvisioner: failed to issue token for %s: %v", workspaceID, tokenErr)
+	} else {
+		log.Printf("FlyProvisioner: issued auth token for workspace %s (prefix: %s...)", workspaceID, token[:8])
+	}
+}
