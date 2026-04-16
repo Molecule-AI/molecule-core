@@ -100,13 +100,27 @@ func main() {
 		}
 	}()
 
-	// Provisioner (optional — gracefully degrades if Docker not available)
+	// Provisioner — select backend based on CONTAINER_BACKEND env var.
+	// "flyio" → Fly Machines API (SaaS tenants). Anything else → Docker (default).
 	var prov *provisioner.Provisioner
-	if p, err := provisioner.New(); err != nil {
-		log.Printf("Provisioner disabled (Docker not available): %v", err)
-	} else {
-		prov = p
-		defer prov.Close()
+	var flyProv *provisioner.FlyProvisioner
+	switch os.Getenv("CONTAINER_BACKEND") {
+	case "flyio":
+		if fp, err := provisioner.NewFlyProvisioner(); err != nil {
+			log.Printf("Fly provisioner failed: %v", err)
+		} else {
+			flyProv = fp
+			defer flyProv.Close()
+			log.Printf("Provisioner: Fly Machines (app=%s)", os.Getenv("FLY_WORKSPACE_APP"))
+		}
+	default:
+		if p, err := provisioner.New(); err != nil {
+			log.Printf("Provisioner disabled (Docker not available): %v", err)
+		} else {
+			prov = p
+			defer prov.Close()
+			log.Println("Provisioner: Docker")
+		}
 	}
 
 	port := envOr("PORT", "8080")
@@ -117,6 +131,9 @@ func main() {
 	// WorkspaceHandler is created before the router so RestartByID can be wired into
 	// the offline callbacks used by both the liveness monitor and the health sweep.
 	wh := handlers.NewWorkspaceHandler(broadcaster, prov, platformURL, configsDir)
+	if flyProv != nil {
+		wh.SetFlyProvisioner(flyProv)
+	}
 
 	// Offline handler: broadcast event + auto-restart the dead workspace
 	onWorkspaceOffline := func(innerCtx context.Context, workspaceID string) {

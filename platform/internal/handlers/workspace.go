@@ -24,6 +24,7 @@ import (
 type WorkspaceHandler struct {
 	broadcaster *events.Broadcaster
 	provisioner *provisioner.Provisioner
+	flyProv     *provisioner.FlyProvisioner
 	platformURL string
 	configsDir  string // path to workspace-configs-templates/ (for reading templates)
 	// envMutators runs registered EnvMutator plugins right before
@@ -40,6 +41,13 @@ func NewWorkspaceHandler(b *events.Broadcaster, p *provisioner.Provisioner, plat
 		platformURL: platformURL,
 		configsDir:  configsDir,
 	}
+}
+
+// SetFlyProvisioner wires the Fly Machines provisioner. When set,
+// workspace containers are provisioned as Fly Machines instead of
+// local Docker containers.
+func (h *WorkspaceHandler) SetFlyProvisioner(fp *provisioner.FlyProvisioner) {
+	h.flyProv = fp
 }
 
 // SetEnvMutators wires a provisionhook.Registry into the handler. Plugins
@@ -193,8 +201,10 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		configFiles = h.ensureDefaultConfig(id, payload)
 	}
 
-	// Auto-provision — start a container
-	if h.provisioner != nil {
+	// Auto-provision — start a container (Docker) or Fly Machine
+	if h.flyProv != nil {
+		go h.provisionWorkspaceFly(id, templatePath, configFiles, payload)
+	} else if h.provisioner != nil {
 		go h.provisionWorkspace(id, templatePath, configFiles, payload)
 	} else {
 		// No Docker available (SaaS tenant). Persist basic config as JSON
