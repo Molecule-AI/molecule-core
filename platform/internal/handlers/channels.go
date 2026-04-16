@@ -310,9 +310,20 @@ func (h *ChannelHandler) Discover(c *gin.Context) {
 	var body struct {
 		ChannelType string `json:"channel_type"`
 		BotToken    string `json:"bot_token"`
+		WorkspaceID string `json:"workspace_id"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil || body.BotToken == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bot_token is required"})
+		return
+	}
+	// #329: workspace_id is required so PausePollersForToken can scope the
+	// decryption lookup to the caller's tenant. Legacy clients that omit
+	// the field still work — they just won't be able to pause a previously-
+	// saved poller sharing the same token, which fails loudly at Telegram
+	// with a 409 Conflict rather than silently decrypting every tenant's
+	// token.
+	if body.WorkspaceID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "workspace_id is required"})
 		return
 	}
 
@@ -329,9 +340,10 @@ func (h *ChannelHandler) Discover(c *gin.Context) {
 		return
 	}
 
-	// Pause any active poller using this bot token to avoid Telegram's
-	// "only one getUpdates at a time" 409 Conflict.
-	resumeFn := h.manager.PausePollersForToken(body.BotToken)
+	// Pause any active poller in THIS workspace using this bot token to
+	// avoid Telegram's "only one getUpdates at a time" 409 Conflict.
+	// #329: scoped to workspace_id so we never decrypt other tenants' tokens.
+	resumeFn := h.manager.PausePollersForToken(body.WorkspaceID, body.BotToken)
 	defer resumeFn()
 
 	result, err := tg.DiscoverChats(c.Request.Context(), body.BotToken)

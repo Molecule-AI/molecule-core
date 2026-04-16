@@ -102,23 +102,29 @@ func (m *Manager) Start(ctx context.Context) {
 	m.Reload(ctx)
 }
 
-// PausePollersForToken stops any pollers that share the given bot token,
-// then returns a resume function. Used during discovery to avoid Telegram's
-// "only one getUpdates at a time" 409 Conflict.
+// PausePollersForToken stops any pollers in the given workspace that share
+// the given bot token, then returns a resume function. Used during discovery
+// to avoid Telegram's "only one getUpdates at a time" 409 Conflict.
 //
 // #319: bot_token is stored encrypted in channel_config so we cannot match
-// with SQL `channel_config->>'bot_token' = $1` anymore. Load all enabled
-// channels, decrypt each, and compare the plaintext in Go. The cardinality
-// is small (typically <10 enabled channels per install) so the extra work
-// is negligible.
-func (m *Manager) PausePollersForToken(botToken string) func() {
-	if botToken == "" {
+// with SQL `channel_config->>'bot_token' = $1` anymore. Load channels,
+// decrypt each, and compare the plaintext in Go.
+//
+// #329: scope the lookup to the requesting workspace. The unscoped variant
+// loaded plaintext tokens for every tenant into memory on each discovery
+// call — blast-radius concern if a heap dump / profiler leaked process
+// memory. Reload() keeps the unscoped query since it legitimately needs
+// every workspace's pollers at startup; PausePollersForToken operates in
+// the context of a single workspace's API request and does not.
+func (m *Manager) PausePollersForToken(workspaceID, botToken string) func() {
+	if botToken == "" || workspaceID == "" {
 		return func() {}
 	}
 
 	rows, err := db.DB.QueryContext(context.Background(), `
-		SELECT id, channel_config FROM workspace_channels WHERE enabled = true
-	`)
+		SELECT id, channel_config FROM workspace_channels
+		WHERE enabled = true AND workspace_id = $1
+	`, workspaceID)
 	if err != nil {
 		return func() {}
 	}

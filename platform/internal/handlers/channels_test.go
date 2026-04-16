@@ -361,9 +361,12 @@ func TestChannelHandler_Discover_MissingToken(t *testing.T) {
 func TestChannelHandler_Discover_UnsupportedType(t *testing.T) {
 	handler := NewChannelHandler(newTestChannelManager())
 
+	// #329: workspace_id required — include so we actually reach the
+	// unsupported-type check instead of bouncing at the new scope gate.
 	body, _ := json.Marshal(map[string]interface{}{
 		"channel_type": "whatsapp",
 		"bot_token":    "fake",
+		"workspace_id": "ws-test",
 	})
 
 	w := httptest.NewRecorder()
@@ -384,6 +387,7 @@ func TestChannelHandler_Discover_InvalidBotToken(t *testing.T) {
 	body, _ := json.Marshal(map[string]interface{}{
 		"channel_type": "telegram",
 		"bot_token":    "clearly-not-a-real-token",
+		"workspace_id": "ws-test",
 	})
 
 	w := httptest.NewRecorder()
@@ -403,6 +407,35 @@ func TestChannelHandler_Discover_InvalidBotToken(t *testing.T) {
 	errMsg, _ := resp["error"].(string)
 	if errMsg == "" {
 		t.Error("expected error field in response")
+	}
+}
+
+// #329: workspace_id is now required. Without it, Discover must 400
+// *before* issuing the unscoped DB query that would decrypt every
+// tenant's bot tokens.
+func TestChannelHandler_Discover_329_RequiresWorkspaceID(t *testing.T) {
+	handler := NewChannelHandler(newTestChannelManager())
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"channel_type": "telegram",
+		"bot_token":    "any-non-empty-token",
+		// workspace_id intentionally omitted
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/channels/discover", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Discover(c)
+
+	if w.Code != 400 {
+		t.Errorf("expected 400 when workspace_id missing, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if errMsg, _ := resp["error"].(string); errMsg != "workspace_id is required" {
+		t.Errorf("expected workspace_id error, got %q", errMsg)
 	}
 }
 
