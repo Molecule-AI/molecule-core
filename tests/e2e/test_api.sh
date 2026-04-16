@@ -61,9 +61,14 @@ ECHO_ID=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin)['i
 # Mint a test token so all subsequent AdminAuth-gated calls succeed.
 # The test-token endpoint is NOT behind AdminAuth (always accessible
 # when MOLECULE_ENV != production), so this works even on first boot.
-ADMIN_TOKEN=$(curl -s "$BASE/admin/workspaces/$ECHO_ID/test-token" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))" 2>/dev/null || echo "")
+# Debug: show what the test-token endpoint returns
+TEST_TOKEN_RAW=$(curl -s "$BASE/admin/workspaces/$ECHO_ID/test-token")
+echo "  test-token response: $TEST_TOKEN_RAW"
+ADMIN_TOKEN=$(echo "$TEST_TOKEN_RAW" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))" 2>/dev/null || echo "")
 if [ -n "$ADMIN_TOKEN" ]; then
-  echo "  (acquired admin token via test-token endpoint)"
+  echo "  (acquired admin token: ${ADMIN_TOKEN:0:8}...)"
+else
+  echo "  WARNING: no admin token acquired — subsequent AdminAuth calls will fail"
 fi
 
 # Test 4: Create workspace B (needs bearer — tokens now exist in DB)
