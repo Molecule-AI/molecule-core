@@ -1,7 +1,12 @@
 import { getTenantSlug } from "./tenant";
 
+// When NEXT_PUBLIC_PLATFORM_URL is set to "" (empty string), the canvas
+// uses relative paths — correct for the combined tenant image where Go
+// platform + canvas run on the same port via reverse proxy. The `??`
+// operator preserves "" as a valid value; `||` would fall through to
+// the localhost default.
 export const PLATFORM_URL =
-  process.env.NEXT_PUBLIC_PLATFORM_URL || "http://localhost:8080";
+  process.env.NEXT_PUBLIC_PLATFORM_URL ?? "http://localhost:8080";
 
 async function request<T>(
   method: string,
