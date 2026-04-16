@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { handleCanvasEvent } from "../canvas-events";
+import { handleCanvasEvent, resetProvisioningSequence } from "../canvas-events";
 import type { WSMessage } from "../socket";
 import type { WorkspaceNodeData } from "../canvas";
 import type { Node, Edge } from "@xyflow/react";
@@ -174,6 +174,12 @@ describe("handleCanvasEvent – WORKSPACE_DEGRADED", () => {
 // ---------------------------------------------------------------------------
 
 describe("handleCanvasEvent – WORKSPACE_PROVISIONING", () => {
+  // Reset the monotonic sequence counter before each test so positions are
+  // deterministic regardless of test execution order.
+  beforeEach(() => {
+    resetProvisioningSequence();
+  });
+
   it("creates a new node when workspace_id is unknown", () => {
     const { get, set } = makeStore([]);
 
@@ -233,6 +239,96 @@ describe("handleCanvasEvent – WORKSPACE_PROVISIONING", () => {
     expect(data.status).toBe("provisioning");
     expect(data.needsRestart).toBe(false);
     expect(data.currentTask).toBe("");
+  });
+
+  it("assigns unique grid positions across 4 columns then wraps to second row", () => {
+    // Grid: COL_SPACING=320, ROW_SPACING=160, ORIGIN=(100,100), COLS=4
+    const { get, set } = makeStore([]);
+    const ids = ["ws-a", "ws-b", "ws-c", "ws-d", "ws-e"];
+
+    for (const id of ids) {
+      handleCanvasEvent(
+        makeMsg({ event: "WORKSPACE_PROVISIONING", workspace_id: id, payload: {} }),
+        get,
+        set
+      );
+    }
+
+    const finalNodes = (set.mock.calls[4][0] as { nodes: Node<WorkspaceNodeData>[] }).nodes;
+    const pos = (id: string) => finalNodes.find((n) => n.id === id)!.position;
+    expect(pos("ws-a")).toEqual({ x: 100,  y: 100 }); // idx 0
+    expect(pos("ws-b")).toEqual({ x: 420,  y: 100 }); // idx 1
+    expect(pos("ws-c")).toEqual({ x: 740,  y: 100 }); // idx 2
+    expect(pos("ws-d")).toEqual({ x: 1060, y: 100 }); // idx 3
+    expect(pos("ws-e")).toEqual({ x: 100,  y: 260 }); // idx 4 — second row
+  });
+
+  it("does NOT reuse a grid slot after a node is removed (collision regression)", () => {
+    // This is the core bug: nodes.length drops on delete, causing the next
+    // provisioned node to share a position with an existing one.
+    //
+    //   Before fix: Provision A(0), B(1), C(2) → Remove A → Provision D → idx=2 → COLLISION with C
+    //   After fix:  D gets idx=3 → unique slot (1060, 100)
+    const { get, set } = makeStore([]);
+
+    // Provision A, B, C
+    for (const id of ["ws-a", "ws-b", "ws-c"]) {
+      handleCanvasEvent(
+        makeMsg({ event: "WORKSPACE_PROVISIONING", workspace_id: id, payload: {} }),
+        get,
+        set
+      );
+    }
+
+    // Remove A — with the old bug this drops nodes.length to 2
+    handleCanvasEvent(makeMsg({ event: "WORKSPACE_REMOVED", workspace_id: "ws-a" }), get, set);
+
+    // Provision D — must land at idx=3, NOT idx=2 (which would collide with C)
+    handleCanvasEvent(
+      makeMsg({ event: "WORKSPACE_PROVISIONING", workspace_id: "ws-d", payload: {} }),
+      get,
+      set
+    );
+
+    const lastNodes = (set.mock.calls[set.mock.calls.length - 1][0] as { nodes: Node<WorkspaceNodeData>[] }).nodes;
+    const dPos = lastNodes.find((n) => n.id === "ws-d")!.position;
+    const cPos = lastNodes.find((n) => n.id === "ws-c")!.position;
+
+    // D must not share C's position
+    expect(dPos).not.toEqual(cPos);
+    // D should land at idx=3: (100 + 3*320, 100) = (1060, 100)
+    expect(dPos).toEqual({ x: 1060, y: 100 });
+  });
+
+  it("does not increment the sequence counter on the restart path", () => {
+    // Restart (existing node re-provisioned) must not burn a sequence slot.
+    // After: provision A (slot 0), restart A (no slot consumed), provision B → slot 1.
+    const { get, set } = makeStore([]);
+
+    // Provision A → idx 0
+    handleCanvasEvent(
+      makeMsg({ event: "WORKSPACE_PROVISIONING", workspace_id: "ws-a", payload: {} }),
+      get,
+      set
+    );
+
+    // Restart A — ws-a already exists, so restart path runs; counter must stay at 1
+    handleCanvasEvent(
+      makeMsg({ event: "WORKSPACE_PROVISIONING", workspace_id: "ws-a", payload: {} }),
+      get,
+      set
+    );
+
+    // Provision B → must get idx 1, not idx 2
+    handleCanvasEvent(
+      makeMsg({ event: "WORKSPACE_PROVISIONING", workspace_id: "ws-b", payload: {} }),
+      get,
+      set
+    );
+
+    const lastNodes = (set.mock.calls[set.mock.calls.length - 1][0] as { nodes: Node<WorkspaceNodeData>[] }).nodes;
+    const bPos = lastNodes.find((n) => n.id === "ws-b")!.position;
+    expect(bPos).toEqual({ x: 420, y: 100 }); // idx 1 = (100 + 320, 100)
   });
 });
 
