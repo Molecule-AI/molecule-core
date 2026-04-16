@@ -186,10 +186,10 @@ export function SidePanel() {
             aria-controls={`panel-${tab.id}`}
             tabIndex={panelTab === tab.id ? 0 : -1}
             onClick={() => setPanelTab(tab.id)}
-            className={`shrink-0 px-3 py-2.5 text-[10px] font-medium tracking-wide transition-all rounded-t-lg mx-0.5 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600 ${
+            className={`shrink-0 px-3 py-2.5 text-[10px] font-medium tracking-wide transition-all rounded-t-lg mx-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 ${
               panelTab === tab.id
                 ? "text-zinc-100 bg-zinc-800/40 border-b-2 border-blue-500"
-                : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/20"
+                : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/40"
             }`}
           >
             <span className="mr-1 opacity-50" aria-hidden="true">{tab.icon}</span>

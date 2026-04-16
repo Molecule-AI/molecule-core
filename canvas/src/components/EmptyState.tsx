@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { useCanvasStore } from "@/store/canvas";
 import { OrgTemplatesSection } from "./TemplatePalette";
+import { TIER_COLORS } from "@/lib/design-tokens";
 
 interface Template {
   id: string;
@@ -14,13 +15,6 @@ interface Template {
   skills: string[];
   skill_count: number;
 }
-
-const TIER_COLORS: Record<number, string> = {
-  1: "text-zinc-400 border-zinc-700/60",
-  2: "text-sky-400 border-sky-500/30",
-  3: "text-violet-400 border-violet-500/30",
-  4: "text-amber-400 border-amber-500/30",
-};
 
 export function EmptyState() {
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -105,7 +99,13 @@ export function EmptyState() {
 
         {/* Template grid */}
         {loading ? (
-          <div className="text-xs text-zinc-400 py-4">Loading templates...</div>
+          <div className="flex items-center justify-center gap-2 text-xs text-zinc-400 py-4">
+            <svg className="w-4 h-4 motion-safe:animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+              <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            Loading templates...
+          </div>
         ) : templates.length > 0 ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-4 text-left">
             {templates.map((t) => {
@@ -115,7 +115,7 @@ export function EmptyState() {
                   key={t.id}
                   onClick={() => deploy(t)}
                   disabled={!!deploying}
-                  className="group rounded-xl border border-zinc-800/60 bg-zinc-900/50 px-3.5 py-3 hover:border-blue-500/40 hover:bg-zinc-900/80 transition-all disabled:opacity-50 text-left"
+                  className="group rounded-xl border border-zinc-800/60 bg-zinc-900/50 px-3.5 py-3 hover:border-blue-500/40 hover:bg-zinc-900/80 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-zinc-800/60 disabled:hover:bg-zinc-900/50 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
                 >
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-sm font-medium text-zinc-200 group-hover:text-zinc-100 truncate">
@@ -144,7 +144,7 @@ export function EmptyState() {
         <button
           onClick={createBlank}
           disabled={!!deploying}
-          className="w-full rounded-xl border border-dashed border-zinc-700/60 bg-zinc-900/30 px-4 py-3 text-sm text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 hover:bg-zinc-900/50 transition-all disabled:opacity-50"
+          className="w-full rounded-xl border border-dashed border-zinc-700/60 bg-zinc-900/30 px-4 py-3 text-sm text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 hover:bg-zinc-900/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-zinc-400 disabled:hover:border-zinc-700/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
         >
           {deploying === "blank" ? "Creating..." : "+ Create blank workspace"}
         </button>
