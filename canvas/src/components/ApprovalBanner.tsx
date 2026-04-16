@@ -54,11 +54,14 @@ export function ApprovalBanner() {
       {approvals.map((approval) => (
         <div
           key={approval.id}
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
           className="bg-amber-950/90 backdrop-blur-md border border-amber-700/50 rounded-xl px-5 py-3 shadow-2xl shadow-black/40 max-w-md animate-in slide-in-from-top duration-300"
         >
           <div className="flex items-start gap-3">
             <div className="w-8 h-8 rounded-lg bg-amber-800/40 flex items-center justify-center shrink-0 mt-0.5">
-              <span className="text-amber-300 text-lg">⚠</span>
+              <span className="text-amber-300 text-lg" aria-hidden="true">⚠</span>
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-xs text-amber-200 font-semibold">{approval.workspace_name} needs approval</div>
