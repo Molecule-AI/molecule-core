@@ -113,3 +113,7 @@ org-templates/**/.auth-token
 .initial_prompt_done
 .claude-bridge/
 .claude/scheduled_tasks.json
+
+# GitHub App private key + other local-only secrets — never committed.
+.secrets/
+*.pem
