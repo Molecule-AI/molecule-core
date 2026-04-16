@@ -22,6 +22,11 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/scheduler"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/supervised"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/ws"
+
+	// External plugin — registers an EnvMutator that injects GITHUB_TOKEN /
+	// GH_TOKEN from a GitHub App installation token. Soft-dep: only active
+	// when GITHUB_APP_ID env var is set (see main() for the gate).
+	pluginloader "github.com/Molecule-AI/molecule-ai-plugin-github-app-auth/pluginloader"
 )
 
 func main() {
@@ -136,6 +141,22 @@ func main() {
 	wh := handlers.NewWorkspaceHandler(broadcaster, prov, platformURL, configsDir)
 	if cpProv != nil {
 		wh.SetCPProvisioner(cpProv)
+	}
+
+	// github-app-auth plugin — injects GITHUB_TOKEN + GH_TOKEN into every
+	// workspace env using the App's installation access token (rotates ~hourly).
+	// Soft-skip when GITHUB_APP_* env vars are absent so dev/self-hosters
+	// without an App configured keep working; fail-loud only on MISCONFIG
+	// (e.g. APP_ID set but key file missing), not on unset.
+	if os.Getenv("GITHUB_APP_ID") != "" {
+		if reg, err := pluginloader.BuildRegistry(); err != nil {
+			log.Fatalf("github-app-auth plugin: %v", err)
+		} else {
+			wh.SetEnvMutators(reg)
+			log.Printf("github-app-auth: registered, %d mutator(s) in chain", reg.Len())
+		}
+	} else {
+		log.Println("github-app-auth: GITHUB_APP_ID unset — skipping plugin registration (agents will use any PAT from .env)")
 	}
 
 	// Offline handler: broadcast event + auto-restart the dead workspace
