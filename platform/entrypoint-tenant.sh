@@ -18,6 +18,8 @@ CANVAS_PID=$!
 
 # Start Go platform in foreground-ish (we trap signals)
 # CANVAS_PROXY_URL tells the platform to proxy unmatched routes to Canvas.
+# CONTAINER_BACKEND: empty = Docker (default for self-hosted/local).
+# Set to "flyio" via Fly machine env to use Fly Machines API instead.
 export CANVAS_PROXY_URL="${CANVAS_PROXY_URL:-http://localhost:3000}"
 cd /
 /platform &
