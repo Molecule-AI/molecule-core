@@ -380,6 +380,15 @@ func buildContainerEnv(cfg WorkspaceConfig) []string {
 		fmt.Sprintf("MOLECULE_URL=%s", cfg.PlatformURL),
 		fmt.Sprintf("TIER=%d", cfg.Tier),
 		"PLUGINS_DIR=/plugins",
+		// PYTHONPATH=/app makes ADAPTER_MODULE imports resolve regardless of
+		// runtime cwd. Standalone workspace-template repos COPY adapter.py to
+		// /app and set ENV ADAPTER_MODULE=adapter, but molecule-runtime is a
+		// pip console_script entry point so cwd isn't on sys.path automatically.
+		// Setting PYTHONPATH from the provisioner fixes every adapter image
+		// (claude-code, hermes, langgraph, …) without needing to PR each
+		// standalone template repo. Per-template ENV in the Dockerfile can
+		// still override (Dockerfile ENV is overridden by docker -e at runtime).
+		"PYTHONPATH=/app",
 	}
 	if cfg.AwarenessNamespace != "" && cfg.AwarenessURL != "" {
 		env = append(env, fmt.Sprintf("AWARENESS_NAMESPACE=%s", cfg.AwarenessNamespace))
