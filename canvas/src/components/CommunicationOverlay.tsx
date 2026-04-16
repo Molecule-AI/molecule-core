@@ -143,14 +143,17 @@ export function CommunicationOverlay() {
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className={typeColor} aria-hidden="true">{typeIcon}</span>
+                  <span className="sr-only">{c.type === "a2a_send" ? "sent" : c.type === "a2a_receive" ? "received" : "task update"}</span>
                   <span className="text-zinc-300 font-medium truncate">
                     {c.sourceName}
                   </span>
                   <span className="text-zinc-400" aria-hidden="true">→</span>
+                  <span className="sr-only">to</span>
                   <span className="text-zinc-300 truncate">{c.targetName}</span>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <span className={statusColor} aria-hidden="true">{statusIcon}</span>
+                  <span className="sr-only">{c.status}</span>
                   <span className="text-zinc-400">{age}</span>
                 </div>
               </div>

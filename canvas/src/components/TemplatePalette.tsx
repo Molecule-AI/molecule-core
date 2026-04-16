@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { checkDeploySecrets, type PreflightResult } from "@/lib/deploy-preflight";
 import { MissingKeysModal } from "./MissingKeysModal";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { TIER_CONFIG as TIER_LABELS_SHARED } from "@/lib/design-tokens";
 
 interface Template {
   id: string;
@@ -90,7 +91,11 @@ export function OrgTemplatesSection() {
       </div>
 
       {loading && (
-        <div role="status" aria-live="polite" className="text-[10px] text-zinc-500">
+        <div role="status" aria-live="polite" className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+          <svg className="w-3 h-3 motion-safe:animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+            <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
           Loading…
         </div>
       )}
@@ -141,12 +146,7 @@ export function OrgTemplatesSection() {
   );
 }
 
-const TIER_LABELS: Record<number, { label: string; color: string }> = {
-  1: { label: "T1", color: "text-zinc-400 bg-zinc-800/60" },
-  2: { label: "T2", color: "text-sky-400 bg-sky-950/40" },
-  3: { label: "T3", color: "text-violet-400 bg-violet-950/40" },
-  4: { label: "T4", color: "text-amber-400 bg-amber-950/40" },
-};
+const TIER_LABELS = TIER_LABELS_SHARED;
 
 function ImportAgentButton({ onImported }: { onImported: () => void }) {
   const [importing, setImporting] = useState(false);
@@ -354,7 +354,11 @@ export function TemplatePalette() {
 
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {loading && (
-              <div role="status" aria-live="polite" className="text-xs text-zinc-500 text-center py-8">
+              <div role="status" aria-live="polite" className="flex items-center justify-center gap-2 text-xs text-zinc-500 text-center py-8">
+                <svg className="w-4 h-4 motion-safe:animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+                  <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
                 Loading…
               </div>
             )}
@@ -380,7 +384,7 @@ export function TemplatePalette() {
                   key={t.id}
                   onClick={() => handleDeploy(t)}
                   disabled={isDeploying}
-                  className="w-full text-left bg-zinc-800/40 hover:bg-zinc-800/70 border border-zinc-700/40 hover:border-zinc-600/50 rounded-xl p-3 transition-all disabled:opacity-50 group"
+                  className="w-full text-left bg-zinc-800/40 hover:bg-zinc-800/70 border border-zinc-700/40 hover:border-zinc-600/50 rounded-xl p-3 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-zinc-800/40 disabled:hover:border-zinc-700/40 group focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-zinc-100 truncate">
