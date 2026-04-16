@@ -106,13 +106,18 @@ async function run() {
     process.exit(0);
   }
   const p = JSON.parse(fs.readFileSync(PROFILE_PATH, 'utf8'));
-  const creds = { email: p.email, password: 'RenoStars2026!Directory' };
+  const directoryPassword = p.directory_password || process.env.DIRECTORY_PASSWORD;
+  if (!directoryPassword) {
+    console.log(JSON.stringify({ status: 'failed', reason: 'directory_password not set in business-profile.json and DIRECTORY_PASSWORD env not set' }));
+    process.exit(0);
+  }
+  const creds = { email: p.email, password: directoryPassword };
 
   const values = {
     business_name: p.name,
-    first_name: 'Reno Stars',
-    last_name: 'Vancouver',
-    full_name: 'Reno Stars Vancouver',
+    first_name: p.contact?.first_name || p.name,
+    last_name: p.contact?.last_name || '',
+    full_name: p.contact?.full_name || p.name,
     email: creds.email,
     phone: p.phone,
     website: p.website,
