@@ -512,7 +512,10 @@ workspaces:
             # schema mutation without a human click. UNION with defaults.
             # #280: molecule-skill-code-review — self-review rubric before
             # raising a PR (same rubric Dev Lead applies in review).
-            plugins: [molecule-hitl, molecule-skill-code-review]
+            # #303: molecule-security-scan — CVE gate at dev time, not
+            # just at Security Auditor's 12h cron. Catches supply-chain
+            # deps + secret patterns before they reach PR review.
+            plugins: [molecule-hitl, molecule-skill-code-review, molecule-security-scan]
             initial_prompt: |
               You just started as Backend Engineer. Set up silently — do NOT contact other agents.
               1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
