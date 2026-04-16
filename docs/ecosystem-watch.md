@@ -975,6 +975,46 @@ builders; Molecule AI users are developers building agent companies.
 **Last reviewed:** 2026-04-16 · **Stars / activity:** ~4.3k ⭐, v0.17.10 April 13, 2026
 
 ---
+
+### GenericAgent — `lsdefine/GenericAgent`
+
+**Pitch:** "Self-evolving agent: grows a skill tree from a 3.3K-line seed, achieving full system control with 6x less token consumption."
+
+**Shape:** Python (MIT), ~2.1k ⭐, v1.0 released January 16, 2026. Single-agent, system-level: browser automation, terminal, filesystem, keyboard/mouse, screen vision, mobile/ADB. Nine atomic tools. **Self-evolving skill tree:** each solved task is crystallised into a reusable skill stored in a four-tier memory hierarchy (L0 rules → L1 indices → L2 facts → L3 task-skills → L4 session archives). Subsequent similar tasks skip exploration and replay the stored skill directly. No MCP. No multi-agent.
+
+**Overlap with us:** The four-tier memory taxonomy (rules / indices / facts / skills / archives) is structurally more expressive than our flat `agent_memories` key-value table. Skill crystallisation — automatically converting a solved task into a reusable procedure — is the same instinct as our `plugins/` registry but applied at runtime rather than install-time.
+
+**Differentiation:** Single agent, no org hierarchy, no A2A, no canvas, no channels. The skill tree grows from one user's usage; our plugins are shared org-wide. GenericAgent targets "personal OS agent"; we're "AI company for engineering teams."
+
+**Worth borrowing:** Four-tier memory taxonomy as a named model for `agent_memories` — add explicit labels (rules / facts / skills / archives) to our memory scopes to improve inspectability and retrieval quality.
+
+**Terminology collisions:** "skills" — theirs are crystallised task executions (runtime-generated procedures); ours are installed behaviour bundles (developer-authored Markdown). Same word, different origin.
+
+**Signals to react to:** If skill crystallisation gets formalised as a standard (e.g., aligns with agentskills.io schema) → evaluate automatic skill generation from workspace task history.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ~2.1k ⭐, v1.0 January 16, 2026, active
+
+---
+
+### OpenSRE — `Tracer-Cloud/opensre`
+
+**Pitch:** "Build your own AI SRE agents — the open source toolkit for the AI era."
+
+**Shape:** Python (Apache 2.0), ~900 ⭐, active 2026. Framework + toolkit for AI-powered Site Reliability Engineering. Agents autonomously investigate incidents: fetch alert context, correlate logs/metrics/traces, identify root cause, suggest remediation, optionally execute fixes. **40+ pre-built integrations:** LLM providers (OpenAI, Anthropic, Gemini, local), observability (Grafana, Datadog, Honeycomb, CloudWatch), infrastructure (K8s, AWS EKS/EC2/Lambda, GCP, Azure), databases, PagerDuty, Slack. MCP support including GitHub MCP. Incident summaries delivered directly to Slack/PagerDuty channels.
+
+**Overlap with us:** Our DevOps workspace (`org-templates/molecule-dev/devops/`) handles infrastructure monitoring and deployment tasks — the same surface OpenSRE's agents cover. MCP integration means OpenSRE tools could be consumed by a Molecule AI DevOps workspace as a skill pack. Slack/PagerDuty delivery mirrors our `workspace_channels` feature.
+
+**Differentiation:** OpenSRE is a specialised SRE toolkit, not a general agent platform. No visual canvas, no org hierarchy, no A2A between agents, no scheduling, no memory across sessions.
+
+**Worth borrowing:** 40+ production-tested DevOps integrations as a reference skill pack — rather than building infra tool integrations from scratch, evaluate wrapping OpenSRE's adapters as Molecule AI DevOps workspace skills.
+
+**Terminology collisions:** "agent" — their incident-response runner; our long-lived Docker workspace.
+
+**Signals to react to:** If OpenSRE ships a workspace/session persistence layer → closes the gap with our DevOps adapter; reassess. If their 40+ integration catalogue becomes the de facto DevOps tool standard → make them a first-class skill pack dependency for DevOps workspaces.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ~900 ⭐, Apache 2.0, actively maintained
+
+---
 ## Candidates to add (backlog)
 
 Short-list of projects to write up next time someone has an hour:
