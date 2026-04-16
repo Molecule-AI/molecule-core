@@ -68,6 +68,11 @@ install_macos() {
   <key>StandardErrorPath</key><string>${HOME}/.molecule-cdp-proxy.log</string>
 </dict></plist>
 EOF
+  # #296: the plist contains the CDP_PROXY_TOKEN in plaintext. Default
+  # umask leaves it world-readable (~0644) which leaks the token to any
+  # local user on a multi-account macOS host. Lock to owner-only. launchctl
+  # loads user agents as the owning UID so 0600 is safe.
+  chmod 600 "$plist"
   launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
   launchctl bootstrap "gui/$(id -u)" "$plist"
   launchctl kickstart -k "gui/$(id -u)/${LABEL}"
