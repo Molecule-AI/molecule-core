@@ -84,6 +84,10 @@ func (h *MemoriesHandler) Commit(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"id": memoryID, "scope": body.Scope, "namespace": namespace})
 }
 
+// memoryRecallMaxLimit is the hard ceiling for results returned by Search.
+// Callers may request fewer via ?limit=N but never more (#377).
+const memoryRecallMaxLimit = 50
+
 // Search handles GET /workspaces/:id/memories
 // Searches memories visible to the requesting workspace.
 //
@@ -92,11 +96,22 @@ func (h *MemoriesHandler) Commit(c *gin.Context) {
 //   - ?q=... full-text search (ts_rank ordered) when len>=memoryFTSMinQueryLen;
 //     falls back to ILIKE for shorter strings
 //   - ?namespace=... additional filter on the Holaboss-style namespace tag
+//   - ?limit=N max results (1–50); values >50 are silently clamped to 50 (#377)
 func (h *MemoriesHandler) Search(c *gin.Context) {
 	workspaceID := c.Param("id")
 	scope := c.DefaultQuery("scope", "")
 	query := c.DefaultQuery("q", "")
 	namespace := c.DefaultQuery("namespace", "")
+
+	// Parse and cap the limit. Anything ≤0 or absent → 50 (full page).
+	// Anything >50 → 50 (hard ceiling — never error, just clamp).
+	limit := memoryRecallMaxLimit
+	if raw := c.Query("limit"); raw != "" {
+		var n int
+		if _, err := fmt.Sscanf(raw, "%d", &n); err == nil && n > 0 && n < memoryRecallMaxLimit {
+			limit = n
+		}
+	}
 	ctx := c.Request.Context()
 
 	// Get workspace info for access control
@@ -171,7 +186,8 @@ func (h *MemoriesHandler) Search(c *gin.Context) {
 	} else {
 		sqlQuery += ` ORDER BY created_at DESC`
 	}
-	sqlQuery += ` LIMIT 50`
+	sqlQuery += ` LIMIT ` + nextArg(len(args))
+	args = append(args, limit)
 
 	rows, err := db.DB.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
