@@ -6,6 +6,7 @@ import * as Tabs from '@radix-ui/react-tabs';
 import { useSecretsStore } from '@/stores/secrets-store';
 import { useKeyboardShortcut } from '@/hooks/use-keyboard-shortcut';
 import { SecretsTab } from './SecretsTab';
+import { TokensTab } from './TokensTab';
 import { UnsavedChangesGuard } from './UnsavedChangesGuard';
 
 /** Module-level ref so TopBar's SettingsButton can receive focus back on close. */
@@ -106,14 +107,10 @@ export function SettingsPanel({ workspaceId }: SettingsPanelProps) {
             <Tabs.Root defaultValue="api-keys">
               <Tabs.List className="settings-panel__tabs" aria-label="Settings sections">
                 <Tabs.Trigger value="api-keys" className="settings-panel__tab">
-                  API Keys
+                  Secrets
                 </Tabs.Trigger>
-                <Tabs.Trigger
-                  value="general"
-                  className="settings-panel__tab"
-                  disabled
-                >
-                  General
+                <Tabs.Trigger value="tokens" className="settings-panel__tab">
+                  API Tokens
                 </Tabs.Trigger>
               </Tabs.List>
 
@@ -121,8 +118,8 @@ export function SettingsPanel({ workspaceId }: SettingsPanelProps) {
                 <SecretsTab workspaceId={workspaceId} />
               </Tabs.Content>
 
-              <Tabs.Content value="general" className="settings-panel__content">
-                {/* Future: General settings */}
+              <Tabs.Content value="tokens" className="settings-panel__content">
+                <TokensTab workspaceId={workspaceId} />
               </Tabs.Content>
             </Tabs.Root>
 
@@ -132,7 +129,7 @@ export function SettingsPanel({ workspaceId }: SettingsPanelProps) {
               </span>
               <span className="settings-panel__separator">·</span>
               <a
-                href="https://docs.example.com/secrets"
+                href="https://doc.moleculesai.app/docs/tokens"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="settings-panel__docs-link"
