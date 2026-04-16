@@ -736,6 +736,19 @@ workspaces:
                      - Secret leakage in logs/errors/responses
                      - Command injection (exec.Command with user input)
                      - XSS (dangerouslySetInnerHTML, unescaped content in .tsx)
+                     - #337 class: every secret/token/HMAC comparison MUST use
+                       `subtle.ConstantTimeCompare` (Go) or `crypto.timingSafeEqual`
+                       (Node). Flag any `!=` / `==` / `bytes.Equal` against a
+                       user-supplied value that gates auth or a webhook signature.
+                     - #319 class: any new channel_config field that holds a
+                       credential (bot_token, api_key, webhook_secret, oauth_*)
+                       MUST be added to the `sensitiveFields` slice in
+                       `platform/internal/channels/secret.go`. Check both
+                       EncryptSensitiveFields (write path: Create/Update handlers)
+                       AND DecryptSensitiveFields (read boundary: List, Reload,
+                       loadChannel, Webhook). Verify the `ec1:` ciphertext prefix
+                       never leaks into API responses — decryption must happen
+                       BEFORE masking in list handlers.
 
                   4. LIVE API CHECKS against http://host.docker.internal:8080:
                      - CanCommunicate bypass: POST /workspaces/<zero-id>/a2a
