@@ -7,8 +7,74 @@ defaults:
   tier: 2
   required_env:
     - CLAUDE_CODE_OAUTH_TOKEN
+  # Default plugin set applied to every workspace. Per-workspace `plugins:`
+  # UNIONs with this set (#71). Use just the additions; prefix `!` (or `-`)
+  # to opt a default OUT for one workspace if needed.
+  #
+  # Coding / guardrail essentials:
+  # - ecc:                            "Everything Claude Code" guardrails + coding skills
+  # - molecule-dev:                   Molecule AI codebase conventions, past bugs, review-loop
+  # - superpowers:                    systematic-debugging, TDD, planning, verification-before-completion
+  #
+  # Safety hooks (PreToolUse/PostToolUse/UserPromptSubmit) — universal:
+  # - molecule-careful-bash:          refuse destructive shell (rm -rf, push --force main, DROP TABLE)
+  # - molecule-prompt-watchdog:       inject warnings on destructive user prompts
+  # - molecule-audit-trail:           append every Edit/Write to .claude/audit.jsonl
+  #
+  # Operational memory — keeps agents consistent across sessions/cron ticks:
+  # - molecule-session-context:       auto-load cron learnings + PR/issue counts on SessionStart
+  # - molecule-skill-cron-learnings:  per-tick learning JSONL format (pairs with session-context)
+  #
+  # Docs hygiene:
+  # - molecule-skill-update-docs:     keep architecture / README / edit-history aligned with code
+  plugins:
+    - ecc
+    - molecule-dev
+    - superpowers
+    - molecule-careful-bash
+    - molecule-prompt-watchdog
+    - molecule-audit-trail
+    - molecule-session-context
+    - molecule-skill-cron-learnings
+    - molecule-skill-update-docs
+
+  # Audit-summary routing — generic per-template mapping (issue #51).
+  # Auditors (Security Auditor, UIUX Designer, QA Engineer) send A2A messages
+  # with metadata.audit_summary.category set. The receiver (PM) reads this
+  # table from its own /configs/config.yaml and delegates to each listed role.
+  # Each org template owns its own mapping — role names are NOT hardcoded in
+  # prompts, so adding/renaming roles is a config-only change.
+  category_routing:
+    security: [Backend Engineer, DevOps Engineer]
+    ui: [Frontend Engineer]
+    ux: [Frontend Engineer]
+    infra: [DevOps Engineer]
+    qa: [QA Engineer]
+    performance: [Backend Engineer]
+    docs: [Documentation Specialist]
+    mixed: [Dev Lead]
+    # Evolution-cron categories (#93): these four are fired by hourly
+    # self-review schedules (Research Lead, Technical Researcher, Dev Lead,
+    # DevOps Engineer). Routing them to the same role that generated them
+    # is a safe default — it converts the summary into a delegation back
+    # to the author so they act on their own findings. Override per-org
+    # if you want a different fan-out.
+    research: [Research Lead]
+    plugins: [Technical Researcher]
+    template: [Dev Lead]
+    channels: [DevOps Engineer]
+
   # workspace_dir: not set by default — each agent gets an isolated Docker volume
   # Set per-workspace to bind-mount a host directory as /workspace
+
+  # Idle-loop reflection pattern (#205). When idle_prompt is non-empty, the
+  # workspace self-sends this prompt every idle_interval_seconds while its
+  # heartbeat.active_tasks == 0. Pattern from Hermes/Letta. Cost collapses to
+  # event-driven (no LLM call unless there's actually nothing to do). Off by
+  # default to avoid surprising token burn — set per-workspace to enable.
+  # Keep idle prompts local (no A2A sends): same rule as initial_prompt.
+  idle_prompt: ""
+  idle_interval_seconds: 600   # 10 min — ignored when idle_prompt is empty
 
   # initial_prompt runs once on first boot (not on restart).
   # ${GITHUB_REPO} is a container env var from .env secrets.
@@ -16,7 +82,16 @@ defaults:
   # be ready yet. Keep it local: clone, read, memorize. Wait for tasks.
   initial_prompt: |
     You just started. Set up your environment silently — do NOT contact other agents yet.
-    1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
+    1. Clone the repo (authenticated when GITHUB_TOKEN is available, anonymous otherwise).
+       When a token is present, use it in-URL ONLY for the clone, then immediately scrub
+       the remote URL so the token is never persisted to /workspace/repo/.git/config:
+       if [ -n "$GITHUB_TOKEN" ]; then
+         git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git" /workspace/repo 2>/dev/null \
+           && (cd /workspace/repo && git remote set-url origin "https://github.com/${GITHUB_REPO}.git") \
+           || (cd /workspace/repo && git pull)
+       else
+         git clone "https://github.com/${GITHUB_REPO}.git" /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
+       fi
     2. Set up git hooks: cd /workspace/repo && git config core.hooksPath .githooks
     3. Read /workspace/repo/CLAUDE.md to understand the project
     4. Read your system prompt at /configs/system-prompt.md to understand your role
@@ -32,6 +107,8 @@ workspaces:
     files_dir: pm
     workspace_dir: ${WORKSPACE_DIR}
     canvas: { x: 400, y: 50 }
+    # PM-specific: /triage (PR triage) and /retro (weekly retrospective).
+    plugins: [molecule-workflow-triage, molecule-workflow-retro]
     # Auto-link Telegram so the user can talk to PM directly from Telegram.
     # Bot token + chat ID come from pm/.env (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID).
     channels:
@@ -54,11 +131,66 @@ workspaces:
       4. Run: git -C $REPO log --oneline -5 to see recent changes
       5. Use commit_memory to save a brief summary of recent changes
       6. You are now ready. Wait for the CEO to give you tasks.
+    schedules:
+      - name: Orchestrator pulse
+        cron_expr: "1,6,11,16,21,26,31,36,41,46,51,56 * * * *"
+        prompt: |
+          You're on a 5-minute orchestration pulse. Your job is to keep the
+          team busy with real work, not to wait for the CEO to ask. This is
+          the inner loop of the 24/7 autonomous team.
+
+          1. SCAN TEAM STATE (who is idle):
+             curl -s http://host.docker.internal:8080/workspaces | \
+               python3 -c "import json,sys
+             for w in json.load(sys.stdin):
+               if w.get('status')=='online':
+                 busy='Y' if w.get('active_tasks',0)>0 else 'N'
+                 print(f\"{w['name']:28} busy={busy} | {(w.get('current_task') or '')[:70]}\")"
+             Note idle leaders (Dev Lead, Research Lead) and idle workers.
+
+          2. SCAN EXTERNAL BACKLOG (GitHub):
+             - gh pr list --repo ${GITHUB_REPO} --state open --json number,title,author,statusCheckRollup
+             - gh issue list --repo ${GITHUB_REPO} --state open --label needs-work --json number,title,labels
+             Priority: CI-green PRs awaiting review > issues labeled needs-work > issues
+             labeled good-first-issue.
+
+          3. SCAN INTERNAL BACKLOG:
+             search_memory "backlog:" — pull any stashed improvement ideas from prior pulses.
+
+          4. DISPATCH (max 3 A2A per pulse):
+             - For each engineering issue without an assigned PR branch → delegate_task to Dev Lead
+               ("Assign issue #<N> to an idle engineer; branch fix/issue-<N>-<slug>; open PR.")
+             - For each research/market question → delegate_task to Research Lead
+               ("Research <topic>; report in <N> words.")
+             - For each PR that's CI-green and mergeable → leave a GH review comment approving,
+               or if you own merge rights, merge it directly.
+             - For each docs gap → delegate_task to Documentation Specialist.
+             Do NOT dispatch to workspaces with active_tasks>0.
+
+          5. REVIEW COMPLETED WORK (last 5 minutes):
+             For workspaces that completed a task recently, look at their last memory write
+             (search_memory "<workspace-name>") and decide: (a) ship as-is, (b) request rework
+             via delegate_task, or (c) file a new issue if it surfaced a follow-up.
+
+          6. REPORT:
+             commit_memory with one line: "pulse HH:MM — dispatched <N>, reviewed <M>, idle <K>".
+
+          HARD RULES:
+          - Max 3 A2A sends per pulse. If more work exists, next pulse (5 min) picks it up.
+          - NEVER dispatch to a busy workspace — the scheduler rejects it anyway.
+          - Under 90 seconds wall-clock per pulse. If you're still thinking at 60s, pick the
+            single highest-priority item, dispatch, and stop.
+          - If every agent is idle AND the backlog is empty → write "orchestrator-clean HH:MM"
+            to memory and stop. Do NOT fabricate busy work.
+        enabled: true
     children:
       - name: Research Lead
         role: Market analysis and technical research
         files_dir: research-lead
         canvas: { x: 200, y: 250 }
+        # Research roles add browser-automation for live web scraping
+        # (product pages, GitHub trending, docs).
+        plugins: [browser-automation]
         initial_prompt: |
           You just started as Research Lead. Set up silently — do NOT contact other agents.
           1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
@@ -67,22 +199,167 @@ workspaces:
           4. Read /workspace/repo/docs/product/overview.md to understand the product
           5. Use commit_memory to save key product facts for later recall
           6. Wait for tasks from PM.
+        schedules:
+          - name: Orchestrator pulse
+            cron_expr: "4,9,14,19,24,29,34,39,44,49,54,59 * * * *"
+            prompt: |
+              You're on a 5-minute research orchestration pulse. Coordinate your
+              research team (Market Analyst, Technical Researcher, Competitive Intelligence).
+              Keep them busy with real research, not idle between eco-watch fires.
+
+              1. SCAN TEAM STATE:
+                 curl -s http://host.docker.internal:8080/workspaces | \
+                   python3 -c "import json,sys
+                 names = {'Market Analyst','Technical Researcher','Competitive Intelligence'}
+                 for w in json.load(sys.stdin):
+                   if w.get('name') in names and w.get('status')=='online':
+                     print(f\"{w['name']:25} busy={'Y' if w.get('active_tasks',0)>0 else 'N'}\")"
+
+              2. CHECK RESEARCH BACKLOG:
+                 - gh issue list --repo ${GITHUB_REPO} --state open --label research --json number,title
+                 - search_memory "research-question" — questions from PM waiting for an answer
+                 - Questions you yourself stashed from eco-watch reflection
+
+              3. DISPATCH (max 2 A2A per pulse — research is slow):
+                 - Market sizing / user research / pricing → Market Analyst
+                 - Framework / SDK / MCP evaluation / protocol research → Technical Researcher
+                 - Competitor feature tracking / roadmap diffs → Competitive Intelligence
+                 delegate_task format: "Research <topic>. Report in <N> words. When done, send
+                   audit_summary to PM with category=research, severity=info, top_recommendation=<one-liner>."
+
+              4. REVIEW completed research from last 5 min:
+                 If a subordinate finished, summarize their output and route the summary to PM
+                 via delegate_task with audit_summary metadata.
+
+              5. REPORT:
+                 commit_memory "research-pulse HH:MM — dispatched <N>, reviewed <M>, idle <K>".
+
+              HARD RULES:
+              - Max 2 A2A sends per pulse.
+              - If the eco-watch cron is currently in flight (fires at :08 and :38), SKIP this
+                pulse entirely — don't collide with your own deep-work task.
+              - Don't dispatch to a busy researcher.
+              - Under 60 seconds wall-clock per pulse.
+              - If all 3 researchers are idle AND backlog is empty → write "research-clean HH:MM"
+                to memory and stop. No busy work.
+            enabled: true
+          - name: Hourly ecosystem watch
+            cron_expr: "8,38 * * * *"
+            prompt: |
+              Daily survey for new agent-infra / AI-agent projects worth tracking.
+
+              1. Pull docs/ecosystem-watch.md to know what's already tracked.
+              2. Browse the web for last 24h:
+                 - github.com/trending?since=daily&language=python (and typescript, go)
+                 - HN front page, anything about agent frameworks
+                 - Twitter/X mentions of new agent SDKs, MCP servers, frameworks
+              3. Cross-reference: skip anything already in ecosystem-watch.md.
+              4. For each genuinely new + relevant project (1-3 max per day):
+                 - Add an entry under "## Entries" using the existing template
+                   (Pitch / Shape / Overlap / Differentiation / Worth borrowing /
+                    Terminology collisions / Signals to react to / Last reviewed + stars)
+                 - Keep each entry ≤200 words.
+              5. If a finding suggests a concrete improvement to plugins/, workspace-template/,
+                 or org-templates/, file a GH issue (`gh issue create`) with the proposal.
+              6. Commit additions to a branch named chore/eco-watch-YYYY-MM-DD. PUSH it
+                 (per the repo "always raise PR" policy) and open a PR.
+              7. Routing: delegate_task to PM with summary
+                 (audit_summary metadata: category=research, severity=info,
+                  issues=[<gh issue numbers>], top_recommendation=<one-liner>).
+              8. If nothing notable today, skip the commit and PM-message a one-line "clean".
+            enabled: true
         children:
           - name: Market Analyst
             role: Market sizing, trends, user research
             files_dir: market-analyst
+            plugins: [browser-automation]
           - name: Technical Researcher
             role: AI frameworks and protocol evaluation
             files_dir: technical-researcher
+            plugins: [browser-automation]
+            # Idle-loop pilot (#205) — Technical Researcher is the first workspace
+            # to opt in to the reflection-on-completion pattern. Measure
+            # activity_logs delta over 24h, then roll to the rest of the research
+            # team if it produces useful backlog-pull dispatches.
+            idle_interval_seconds: 600
+            idle_prompt: |
+              You have no active task. Backlog-pull + reflect, under 60 seconds:
+
+              1. search_memory "research-backlog:technical-researcher" — pull any
+                 stashed research questions from prior cron fires or Research Lead
+                 delegations. If you find one:
+                 - delegate_task to Research Lead with a concrete deliverable spec:
+                   "Research <topic>. Report in <N> words. Link 2-3 primary sources.
+                    When done, route audit_summary to PM with category=research."
+                 - commit_memory removing that item from the backlog (or replacing
+                   with the next one) so you don't re-dispatch on the next tick.
+
+              2. If the backlog is empty, look at your LAST memory entry from the
+                 Hourly plugin curation cron. Did that finding surface a follow-up
+                 study worth doing? (Examples: "which providers does Hermes Agent
+                 actually support beyond our list?", "is there a newer MCP server
+                 we should evaluate?", "does <framework> have feature parity with
+                 <other framework>?") If yes:
+                 - File a GH issue with the question body, label `research`.
+                 - commit_memory "research-backlog:technical-researcher" with the
+                   same question so the NEXT idle tick picks it up via step 1.
+
+              3. If neither backlog nor reflection produced anything actionable,
+                 write "tr-idle HH:MM — clean" to memory and stop. Do NOT fabricate
+                 busy work; idle-clean is a legitimate outcome.
+
+              Hard rules:
+              - Max 1 A2A send per idle tick.
+              - If Research Lead is currently busy (check workspaces API), skip
+                step 1 and go straight to step 2 (which doesn't delegate).
+              - Under 60 seconds wall-clock per tick. If you're still thinking at
+                45s, commit to one decision, ship it, stop.
+              - NEVER call any cron's own prompt from here — idle_prompt is a
+                lightweight reflection, not a re-run of the hourly survey.
+            schedules:
+              - name: Hourly plugin curation
+                cron_expr: "22 * * * *"
+                prompt: |
+                  Weekly survey of `plugins/` and `workspace-template/builtin_tools/` for
+                  evolution opportunities. The team should keep gaining capabilities.
+
+                  1. Inventory:
+                     - ls plugins/ — every plugin and its plugin.yaml description
+                     - ls workspace-template/builtin_tools/*.py — every builtin tool
+                     - cat org-templates/molecule-dev/org.yaml — see how plugins are wired
+                  2. Gap analysis:
+                     - Any builtin_tool not exposed via a plugin?
+                     - Any role with no plugins beyond defaults that *should* have extras?
+                     - Any plugin that's installed everywhere via defaults but is rarely used?
+                  3. External survey (use browser-automation):
+                     - github.com/topics/ai-agents (last week)
+                     - github.com/topics/mcp-server (last week)
+                     - claude.ai/cookbook, openai/swarm releases
+                     - anthropic blog, openai blog, langchain blog (last week)
+                  4. For 1-3 highest-value findings, file a GH issue with concrete proposal:
+                     - "Plugin proposal: <name> — wraps <upstream tool> for <role(s)>"
+                     - body: what it does, which roles benefit, integration sketch (~30 lines),
+                       upstream link, license check.
+                  5. Routing: delegate_task to PM with audit_summary metadata
+                     (category=plugins, issues=[…], top_recommendation=…).
+                  6. If nothing notable this week, PM-message a one-line "clean".
+                enabled: true
           - name: Competitive Intelligence
             role: Competitor tracking and feature comparison
             files_dir: competitive-intelligence
+            plugins: [browser-automation]
 
       - name: Dev Lead
         role: Engineering planning and team coordination
         tier: 3
         model: opus
         files_dir: dev-lead
+        # Dev Lead enforces PR quality gates (see gate 2a in
+        # .claude/skills/triage/SKILL.md) and reviews engineering output
+        # before handoff to PM. The code-review skill surfaces the
+        # 16-criteria rubric — without it Dev Lead falls back to ad-hoc
+        # review prompts. Issue #133.
+        plugins: [molecule-skill-code-review, molecule-skill-llm-judge]
         canvas: { x: 650, y: 250 }
         initial_prompt: |
           You just started as Dev Lead. Set up silently — do NOT contact other agents.
@@ -92,6 +369,101 @@ workspaces:
           4. Run: cd /workspace/repo && git log --oneline -5
           5. Use commit_memory to save the architecture summary and recent changes
           6. Wait for tasks from PM.
+        schedules:
+          - name: Orchestrator pulse
+            cron_expr: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
+            prompt: |
+              You're on a 5-minute engineering orchestration pulse. Dispatch dev work
+              and review completed work. Keep Backend Engineer, Frontend Engineer, and
+              DevOps Engineer busy with real issues.
+
+              1. SCAN ENGINEERING TEAM STATE:
+                 curl -s http://host.docker.internal:8080/workspaces | \
+                   python3 -c "import json,sys
+                 names = {'Backend Engineer','Frontend Engineer','DevOps Engineer','QA Engineer'}
+                 for w in json.load(sys.stdin):
+                   if w.get('name') in names and w.get('status')=='online':
+                     print(f\"{w['name']:25} busy={'Y' if w.get('active_tasks',0)>0 else 'N'}\")"
+
+              2. REVIEW OPEN PRs from your direct reports:
+                 gh pr list --repo ${GITHUB_REPO} --state open --json number,title,headRefName,author,statusCheckRollup
+                 For each PR:
+                 - If CI green + author is an engineer on your team → run molecule-skill-code-review
+                   against the diff (gh pr diff <N>). If clean, leave approving review comment.
+                   If issues, delegate_task back to the author with the list of fixes.
+                 - If CI red → delegate_task to the author with the failure summary from
+                   gh run view <run-id> --log-failed.
+
+              3. SCAN ENGINEERING BACKLOG:
+                 gh issue list --repo ${GITHUB_REPO} --state open --label bug,feature,security \
+                   --json number,title,labels
+                 Priority order: security > bug > feature > refactor.
+
+              4. DISPATCH (max 3 A2A per pulse):
+                 Match idle engineer → highest-priority unassigned issue:
+                 - Backend Engineer → security / platform / Go / database issues
+                 - Frontend Engineer → canvas / a11y / UX / TypeScript issues
+                 - DevOps Engineer → docker / CI / deployment / infra issues
+                 delegate_task format: "Work on issue #<N>: <title>. Create branch
+                   fix/issue-<N>-<slug>. Run tests. Open PR. Link issue in PR body."
+
+              5. REPORT:
+                 commit_memory "dev-pulse HH:MM — dispatched <N>, reviewed <M>, idle <K>".
+
+              HARD RULES:
+              - Max 3 A2A sends per pulse.
+              - If your own template-fitness audit is in flight (fires at :15 and :45), SKIP
+                this pulse — don't double up your own workload.
+              - Never dispatch to a busy engineer (active_tasks>0).
+              - Under 90 seconds wall-clock per pulse. If >60s, pick one highest-priority
+                dispatch and ship.
+              - If all engineers idle AND backlog clean → write "dev-clean HH:MM" to memory
+                and stop. No fabricating busy work.
+            enabled: true
+          - name: Hourly template fitness audit
+            cron_expr: "15,45 * * * *"
+            prompt: |
+              Daily audit of `org-templates/molecule-dev/`. Catches drift, stale prompts,
+              missing schedules, and gaps that block the team-runs-24/7 goal. Symptom
+              of prior incident (issue #85): cron scheduler died silently for 10+ hours
+              and nobody noticed because no one was watching template fitness.
+
+              1. CHECK SCHEDULES ARE FIRING:
+                 For every workspace_schedule in the platform DB:
+                 curl -s http://host.docker.internal:8080/workspaces/<id>/schedules
+                 Compare last_run_at to now() vs cron interval. Anything more than 2x
+                 the interval behind = STALE. File issue against platform.
+
+              2. CHECK SYSTEM PROMPTS ARE FRESH:
+                 cd /workspace/repo
+                 for f in org-templates/molecule-dev/*/system-prompt.md; do
+                   echo "$(git log -1 --format='%ar' -- "$f") $f"
+                 done
+                 Anything not touched in 30+ days might be stale relative to recent
+                 platform changes. Spot-check vs CLAUDE.md and recent merges.
+
+              3. CHECK ROLES HAVE PLUGINS THEY NEED:
+                 yq '.workspaces[] | (.name, .plugins)' org-templates/molecule-dev/org.yaml
+                 (or python+yaml). Roles inherit defaults; flag any role that should
+                 plausibly have role-specific extras (compare role description vs
+                 plugins list).
+
+              4. CHECK CRONS COVER THE EVOLUTION LEVERS:
+                 The team must keep evolving plugins, template, channels, watchlist.
+                 Verify schedules exist for: ecosystem-watch (Research Lead),
+                 plugin-curation (Technical Researcher), template-fitness (you,
+                 this cron), channel-expansion (DevOps).
+                 Any missing? File issue.
+
+              5. CHECK CHANNELS:
+                 Today only PM has telegram. Should any other role have a channel?
+                 (Security Auditor → email on critical findings; DevOps → Slack on
+                  build breaks; etc.) File issue if a channel gap is meaningful.
+
+              6. ROUTING: delegate_task to PM with audit_summary metadata
+                 (category=template, severity=…, issues=[…], top_recommendation=…).
+              7. If everything is fit and current, PM-message one-line "clean".
+            enabled: true
         children:
           - name: Frontend Engineer
             role: >-
@@ -164,6 +536,37 @@ workspaces:
               4. Read /workspace/repo/.github/workflows/ci.yml
               5. Use commit_memory to save CI pipeline structure
               6. Wait for tasks from Dev Lead.
+            schedules:
+              - name: Hourly channel expansion survey
+                cron_expr: "47 * * * *"
+                prompt: |
+                  Weekly survey of channel integrations (Telegram, Slack, Discord, email,
+                  webhooks). The team should grow its external comms surface where useful,
+                  not stay locked at "PM-only Telegram".
+
+                  1. INVENTORY:
+                     yq '.workspaces[] | {name: .name, channels: .channels}' \
+                       org-templates/molecule-dev/org.yaml 2>/dev/null
+                     (or python+yaml). List which roles have which channels.
+                  2. PLATFORM CAPABILITY CHECK:
+                     grep -rE "channel|telegram|slack|discord|webhook" \
+                       platform/internal/handlers/ --include="*.go" -l
+                     What channel types does the platform actually support today?
+                  3. GAP ANALYSIS:
+                     - PM has Telegram → can the user reach OTHER roles directly?
+                     - Security Auditor: would email-on-critical-finding help?
+                     - DevOps Engineer: would Slack-on-CI-break help?
+                     - Any role that produces high-value asynchronous output but the
+                       user has to poll memory to see it?
+                  4. EXTERNAL: are there channel platforms we should consider adding?
+                     (Discord for community, GitHub Discussions for product, etc.)
+                  5. For the top 1-2 gaps, file a GH issue:
+                     - "Channel proposal: <type> for <role>" with rationale, integration
+                       sketch, secret requirements (e.g. SLACK_BOT_TOKEN as global secret).
+                  6. ROUTING: delegate_task to PM with audit_summary metadata
+                     (category=channels, issues=[…], top_recommendation=…).
+                  7. If no gap this week, PM-message a one-line "clean".
+                enabled: true
           - name: Security Auditor
             role: >-
               Owns security posture across the full stack: Go/Gin handlers
@@ -184,6 +587,12 @@ workspaces:
             tier: 3
             model: opus
             files_dir: security-auditor
+            # Security Auditor adds three security-critical skills on top of defaults:
+            # - molecule-skill-code-review:          multi-criteria review for security-relevant PRs
+            # - molecule-skill-cross-vendor-review:  adversarial second opinion via non-Claude model
+            #                                        (use ONLY for noteworthy PRs — auth, billing, data)
+            # - molecule-skill-llm-judge:            cheap gate that catches "wrong thing shipped"
+            plugins: [molecule-skill-code-review, molecule-skill-cross-vendor-review, molecule-skill-llm-judge]
             initial_prompt: |
               You just started as Security Auditor. Set up silently — do NOT contact other agents.
               1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
@@ -198,32 +607,98 @@ workspaces:
                 prompt: |
                   Recurring security audit. Be thorough and incremental.
 
-                  1. Pull latest: cd /workspace/repo && git pull
-                  2. Check what you audited last time: use search_memory("security audit") to recall prior findings
-                  3. See what changed since last audit: git log --oneline --since="12 hours ago"
-                  4. For each changed file, do a full security review:
-                     - SQL injection (parameterized queries, not fmt.Sprintf)
-                     - Path traversal (any endpoint accepting file paths)
-                     - Missing access control (every endpoint must check permissions)
-                     - Secrets leaking into logs, errors, or responses
-                     - Command injection (shell exec with user input)
-                     - XSS (user content rendered in canvas)
-                  5. Check for open PRs: cd /workspace/repo && gh pr list --state open
-                     Review each open PR for security issues
-                  6. Record your findings to memory:
-                     Use commit_memory with key "security-audit-latest" and value containing:
-                     - Date and commit hash audited up to
-                     - Files reviewed
-                     - Issues found (or "clean")
-                     - Areas that need deeper review next time
-                  7. If you find issues, report to Dev Lead via delegate_task with file:line references
-                  8. If clean, still record what you checked so next audit covers new ground
+                  1. SETUP:
+                     cd /workspace/repo && git pull 2>/dev/null || true
+                     LAST_SHA=$(cat /tmp/last-security-audit-sha 2>/dev/null || git rev-parse HEAD~48 2>/dev/null || echo '')
+                     CURRENT=$(git rev-parse HEAD)
+                     CHANGED=$(git diff --name-only $LAST_SHA $CURRENT 2>/dev/null)
+
+                  2. STATIC ANALYSIS on changed files:
+                     - Go: gosec -quiet <files>
+                     - Python: bandit -ll <files>
+
+                  3. MANUAL REVIEW of every changed file:
+                     - SQL injection (fmt.Sprintf in DB queries vs $1/$2 params)
+                     - Path traversal (filepath.Join without validation)
+                     - Missing auth on new HTTP handlers
+                     - Secret leakage in logs/errors/responses
+                     - Command injection (exec.Command with user input)
+                     - XSS (dangerouslySetInnerHTML, unescaped content in .tsx)
+
+                  4. LIVE API CHECKS against http://host.docker.internal:8080:
+                     - CanCommunicate bypass: POST /workspaces/<zero-id>/a2a
+                     - CORS: verify Access-Control-Allow-Origin on a cross-origin request
+                     - Rate limit headers on /health
+
+                  4a. DAST TEARDOWN (MANDATORY — prevents test-artifact leak into prod DB):
+                      Any workspace, secret, or plugin you CREATE during this audit must be
+                      DELETED before this step exits. Maintain three lists as you go:
+
+                        TESTS_WORKSPACES=""   # workspace IDs you POSTed
+                        TESTS_SECRETS=""      # secret keys you set
+                        TESTS_PLUGINS=""      # "<ws_id>:<plugin_name>" pairs
+
+                      At the end of step 4, iterate each list and DELETE — even if the audit
+                      aborts, the teardown block must run:
+
+                        for ws_id in $TESTS_WORKSPACES; do
+                          curl -s -X DELETE "http://host.docker.internal:8080/workspaces/$ws_id" \
+                            -H "Authorization: Bearer $WORKSPACE_AUTH_TOKEN" > /dev/null || true
+                        done
+                        for key in $TESTS_SECRETS; do
+                          curl -s -X DELETE "http://host.docker.internal:8080/admin/secrets/$key" > /dev/null || true
+                        done
+                        for pair in $TESTS_PLUGINS; do
+                          ws="${pair%:*}"; pl="${pair#*:}"
+                          curl -s -X DELETE "http://host.docker.internal:8080/workspaces/$ws/plugins/$pl" > /dev/null || true
+                        done
+
+                      Prior incident (#17): repeated DAST runs leaked 4 workspaces
+                      (aaaaaaaa-/bbbbbbbb-/cccccccc-/dddddddd-) into the live DB, each trapped
+                      in a restart loop on missing config.yaml. This teardown step prevents
+                      that class of leak regardless of which specific probes you run.
+
+                  5. SECRETS SCAN: last 20 commits grepped for token patterns
+                     (sk-ant, sk-or, api_key= etc.) excluding test files.
+
+                  6. OPEN-PR REVIEW:
+                     gh pr list --repo Molecule-AI/molecule-monorepo --state open --json number
+                     For each: gh pr diff | grep '^+' for injection / exec / unsafe patterns.
+
+                  7. RECORD commit SHA:
+                     echo $CURRENT > /tmp/last-security-audit-sha
+
+                  === FINAL STEP — DELIVERABLE ROUTING (MANDATORY every cycle) ===
+
+                  a. For each CRITICAL or HIGH finding, FILE A GITHUB ISSUE:
+                     - Dedupe first: gh issue list --repo Molecule-AI/molecule-monorepo --search "<category>" --state open
+                     - If not already open: gh issue create --repo Molecule-AI/molecule-monorepo
+                       --title "security(<category>): <short>"
+                       --body with severity, file:line, concrete repro (curl or code), proposed fix, related issues
+                     - Capture the issue number for the PM summary below.
+
+                  b. delegate_task to PM (workspace id: see `list_peers` for "PM") with a summary:
+                     - Audit timestamp + SHA range audited
+                     - Counts by severity (critical / high / medium / low / clean)
+                     - List of GH issue numbers filed this cycle
+                     - Top recommendation
+                     PM decides which dev agent picks up each issue.
+
+                  c. If NOTHING critical or high this cycle: STILL delegate_task to PM with a
+                     one-line "clean, audited <SHA_RANGE>, no new findings" so the audit is observable.
+                     Memory write is a secondary record, not the primary deliverable.
+
+                  d. Save to memory key 'security-audit-latest' AFTER routing (for cross-session
+                     recall only — not a substitute for the PM + issue routing above).
                 enabled: true
           - name: QA Engineer
             role: Testing, quality assurance, test automation
             tier: 3
             model: opus
             files_dir: qa-engineer
+            # QA reviews test coverage + runs llm-judge on whether test
+            # deliverables actually match acceptance criteria. Issue #133.
+            plugins: [molecule-skill-code-review, molecule-skill-llm-judge]
             initial_prompt: |
               You just started as QA Engineer. Set up silently — do NOT contact other agents.
               1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
@@ -261,14 +736,29 @@ workspaces:
                      - Files with missing test coverage
                      - Quality issues found
                      - Areas to investigate deeper next time
-                  9. If you find issues, report to Dev Lead via delegate_task
-                  10. If all clean, still record what was checked so next audit covers new ground
+                  === FINAL STEP — DELIVERABLE ROUTING (MANDATORY every cycle) ===
+
+                  a. For each failing test, build break, or coverage regression: FILE A GITHUB ISSUE:
+                     - Dedupe: gh issue list --repo Molecule-AI/molecule-monorepo --search "<suite>" --state open
+                     - If new: gh issue create --title "qa: <suite> — <short>" --body with failure log, commit SHA,
+                       reproducer command, suspected file:line, proposed approach
+                     - Capture issue numbers for the PM summary.
+
+                  b. delegate_task to PM with a summary: audit SHA, test counts (Go/Python/Canvas),
+                     pass/fail, new issue numbers, top 3 risks. PM routes to dev.
+
+                  c. If all clean: delegate_task to PM with "qa clean on SHA <X>" so the audit is observable.
+
+                  d. Save to memory key 'qa-audit-latest' as a secondary record only.
                 enabled: true
           - name: UIUX Designer
             role: User flow design, visual design review, interaction patterns, accessibility
             tier: 3
             model: opus
             files_dir: uiux-designer
+            # browser-automation for live canvas screenshots via Puppeteer
+            # (Chrome CDP path; recipe in the cron prompt below).
+            plugins: [browser-automation]
             initial_prompt: |
               You just started as UIUX Designer. Set up silently — do NOT contact other agents.
               1. Clone the repo: git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
@@ -280,3 +770,246 @@ workspaces:
                  - /workspace/repo/canvas/src/components/SidePanel.tsx
               5. Use commit_memory to save: dark zinc theme (zinc-900/950 bg, zinc-300/400 text, blue-500/600 accents, border-zinc-700/800)
               6. Wait for tasks from Dev Lead.
+            schedules:
+              - name: Hourly UI/UX audit with live screenshots
+                cron_expr: "5,20,35,50 * * * *"
+                prompt: |
+                  Hourly UX audit of the live Molecule AI canvas. Take real screenshots
+                  and analyse actual user flows. The runtime discovered a working Chromium
+                  path that bypasses the missing-libglib issue; use it rather than the
+                  bundled `playwright install --with-deps` path (which fails in our sandbox).
+
+                  1. SETUP BROWSER (proven-working recipe from Run 6, 2026-04-14):
+                     # Install @sparticuz/chromium + puppeteer-core via npm if not present
+                     # and reuse the NSS/NSPR libs bundled with Playwright's Firefox binary.
+                     cd /tmp && [ -d uiux-browser ] || (mkdir uiux-browser && cd uiux-browser && \
+                       npm init -y >/dev/null && npm install --quiet @sparticuz/chromium puppeteer-core 2>&1 | tail -3)
+                     # Ensure Playwright's firefox is present (ships libnss3.so, libnspr4.so)
+                     npx playwright install firefox 2>/dev/null || true
+                     FIREFOX_LIBS=$(ls -d /home/agent/.cache/ms-playwright/firefox-*/firefox 2>/dev/null | head -1)
+                     [ -z "$FIREFOX_LIBS" ] && FIREFOX_LIBS=$(ls -d /root/.cache/ms-playwright/firefox-*/firefox 2>/dev/null | head -1)
+
+                  2. TAKE SCREENSHOTS against http://host.docker.internal:3000:
+                     Write a small puppeteer script capturing: home/empty state, create-workspace
+                     modal, full canvas, help dropdown, settings panel (open + detail), template
+                     palette, mobile 375px, responsive 1280px. Save to /tmp/ux-screenshots/.
+                     Invoke with:
+                        LD_LIBRARY_PATH="$FIREFOX_LIBS" node /tmp/uiux-browser/capture.cjs
+                     Then Read each PNG in /tmp/ux-screenshots/ to analyse with vision.
+                     If the browser still won't launch, fall back to curl+HTML and note it.
+
+                  3. HTML / CSS ANALYSIS (always runs):
+                     - curl http://host.docker.internal:3000 — verify build ID / HTML size
+                     - Grep shipped JS chunks for 'window.alert|window.confirm|window.prompt'
+                       (should be 0 — ConfirmDialog replaces them)
+                     - cd /workspace/repo/canvas && grep-check: every .tsx using hooks has
+                       'use client' as its first line
+                     - Inspect any recently-changed .css / .tsx for light-theme regressions
+                       (hard zinc-900/950 bg mandate — no #fff, #f4f4f5 backgrounds)
+
+                  4. USER-FLOW SANITY:
+                     - Workspace creation modal fields + submit path
+                     - Canvas node positioning and edges
+                     - Side-panel chat input and send
+                     - Toolbar tooltips
+                     - Responsive layout at 1280px
+
+                  === FINAL STEP — DELIVERABLE ROUTING (MANDATORY every cycle) ===
+
+                  a. For each CRITICAL (broken flow, inaccessible control, theme regression):
+                     FILE A GITHUB ISSUE:
+                     - Dedupe: gh issue list --repo Molecule-AI/molecule-monorepo --search "ui OR ux OR theme" --state open
+                     - gh issue create --title "ui: <short>" --body with file:line, screenshot link (if available),
+                       expected vs actual, dark-theme rule cited.
+
+                  b. delegate_task to PM with summary: build ID audited, screenshots count,
+                     violation counts by severity, new issue numbers, top 3 recommended
+                     improvements. PM routes to Frontend Engineer.
+
+                  c. If clean: delegate_task to PM with "ui clean on build <X>" so the audit
+                     is observable.
+
+                  d. Save to memory key 'uiux-audit-latest' as a secondary record only.
+                enabled: true
+
+      - name: Documentation Specialist
+        role: >-
+          Owns end-to-end documentation across THREE Molecule AI repos:
+          (1) the platform monorepo (public, Molecule-AI/molecule-monorepo) —
+          internal architecture, READMEs, edit-history, public API references;
+          (2) the docs site (public, Molecule-AI/docs) — Fumadocs + Next.js 15,
+          deployed to doc.moleculesai.app, customer-facing;
+          (3) the SaaS controlplane (PRIVATE, Molecule-AI/molecule-controlplane) —
+          Go service that provisions tenants on Fly Machines, with the strict
+          rule that private implementation details NEVER leak into the public
+          docs site. Documents controlplane changes only in its own internal
+          README and the platform monorepo's docs/saas/ section (which itself
+          is gated). Public docs only describe the SaaS PRODUCT (signup, billing,
+          tenant lifecycle, multi-tenant data isolation guarantees) — not the
+          provisioner's internals.
+          Watches PRs landing on all three repos and opens corresponding docs
+          PRs whenever a public API changes, a new template/plugin/channel
+          lands, a user-facing concept evolves, or an ecosystem-watch entry
+          needs publishing. Holds the line on terminology consistency — every
+          concept has exactly one canonical name across all three repos.
+          Definition of done: every public surface has accurate, current,
+          example-rich documentation; every merged PR that touches a public
+          surface has a paired docs PR open within one cron tick; every stub
+          page on the docs site eventually gets backfilled; controlplane
+          internal docs stay current; nothing private leaks to public.
+        tier: 3
+        model: opus
+        files_dir: documentation-specialist
+        canvas: { x: 900, y: 250 }
+        # Documentation Specialist needs browser-automation to crawl the live
+        # docs site (visual regressions, broken links, dead anchors) plus
+        # update-docs skill (already in defaults) for cross-repo docs sync.
+        plugins: [browser-automation]
+        initial_prompt: |
+          You just started as Documentation Specialist. Set up silently — do NOT contact other agents.
+
+          ⚠️  PRIVACY RULE (read first, never violate):
+          molecule-controlplane is a PRIVATE repo. Its source code, file paths,
+          internal endpoints, schema details, infra config, billing/auth
+          implementation — none of that goes into the public docs site
+          (Molecule-AI/docs) or the public README in molecule-monorepo. Public
+          docs may describe the SaaS PRODUCT (signup, billing, tenant isolation
+          guarantees) but never the provisioner's internals. When in doubt:
+          don't publish.
+
+          1. Clone all three repos:
+             git clone https://github.com/${GITHUB_REPO}.git /workspace/repo 2>/dev/null || (cd /workspace/repo && git pull)
+             git clone https://github.com/Molecule-AI/docs.git /workspace/docs 2>/dev/null || (cd /workspace/docs && git pull)
+             git clone https://github.com/Molecule-AI/molecule-controlplane.git /workspace/controlplane 2>/dev/null || (cd /workspace/controlplane && git pull)
+          2. Read /workspace/repo/CLAUDE.md — full architecture, what's public-facing
+          3. Read /configs/system-prompt.md
+          4. Read /workspace/docs/README.md and /workspace/docs/content/docs/index.mdx
+          5. Read /workspace/controlplane/README.md and /workspace/controlplane/PLAN.md
+             — understand what the SaaS provisioner does (private) vs what users see (public)
+          6. Run: cd /workspace/docs && ls content/docs/*.mdx
+             — note which pages are stubs ("Coming soon" marker) vs hand-written
+          7. Run: cd /workspace/repo && git log --oneline -20 -- platform/internal/handlers/ org-templates/ plugins/
+             — note recent public-surface changes in the platform repo
+          8. Run: cd /workspace/controlplane && git log --oneline -20
+             — note recent controlplane changes (these need internal docs only)
+          9. Use commit_memory to save:
+             - Stubs that need backfilling (docs site)
+             - Recent platform PRs that have NO docs PR yet
+             - Recent controlplane PRs whose internal README needs an update
+             - Public concepts that lack a canonical naming entry
+          10. Wait for tasks from PM. Your owned surfaces are:
+             - https://github.com/Molecule-AI/docs (customer site, Fumadocs) — PUBLIC
+             - /workspace/repo/docs/ (internal architecture / edit-history) — PUBLIC
+             - /workspace/repo/README.md and per-package READMEs — PUBLIC
+             - /workspace/controlplane/README.md, PLAN.md, internal docs — PRIVATE
+        schedules:
+          - name: Daily docs sync — backfill stubs and pair recent platform PRs
+            cron_expr: "0 9 * * *"
+            prompt: |
+              Daily documentation maintenance. Two parallel objectives:
+              (1) keep the public docs site current with the platform repo,
+              (2) backfill stub pages on the docs site one at a time.
+
+              SETUP:
+                cd /workspace/repo && git pull 2>/dev/null || true
+                cd /workspace/docs && git pull 2>/dev/null || true
+                cd /workspace/controlplane && git pull 2>/dev/null || true
+
+              1a. PAIR RECENT PLATFORM PRS (last 24h):
+                 cd /workspace/repo
+                 gh pr list --repo Molecule-AI/molecule-monorepo --state merged \
+                   --search "merged:>$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)" \
+                   --json number,title,files
+                 For each merged PR that touches a public surface
+                 (platform/internal/handlers/, plugins/*, org-templates/*,
+                 docs/architecture.md, README.md, workspace-template/adapters/*):
+                 - Identify which docs page(s) on the public site cover that surface.
+                 - If a docs page exists but is stale → update it with examples
+                   from the PR diff. Open a PR to Molecule-AI/docs with the change.
+                 - If NO docs page exists for the new surface → propose one
+                   (add to content/docs/meta.json + new .mdx file). Open a PR.
+                 - Always close PRs with `Closes platform PR #N` so the link is durable.
+
+              1b. PAIR RECENT CONTROLPLANE PRS (last 24h):
+                 cd /workspace/controlplane
+                 gh pr list --repo Molecule-AI/molecule-controlplane --state merged \
+                   --search "merged:>$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)" \
+                   --json number,title,files
+                 ⚠️  PRIVATE REPO. Two cases:
+                 (i) Internal-only change (handler, schema, infra, fly.toml,
+                     billing logic): update README.md + PLAN.md + any
+                     docs/internal/*.md inside molecule-controlplane itself.
+                     Open the PR against Molecule-AI/molecule-controlplane.
+                     NEVER mention these changes in /workspace/docs.
+                 (ii) Customer-facing change (new tier, new region, new SLA,
+                     pricing change, signup flow change): write a sanitized
+                     description for the PUBLIC docs site (e.g. "We now offer
+                     EU-region tenants" — NOT "controlplane reads FLY_REGION
+                     from env and passes it to provisioner.go:142"). Open a
+                     PR against Molecule-AI/docs.
+                 When unsure which category a change falls into: default to
+                 INTERNAL-only and ask PM for explicit approval before publishing.
+
+              2. BACKFILL ONE STUB PAGE:
+                 cd /workspace/docs
+                 grep -l "Coming soon" content/docs/*.mdx | head -1
+                 Pick the highest-priority stub (one of: org-template, plugins,
+                 channels, schedules, architecture, api-reference, self-hosting,
+                 observability, troubleshooting). Write 300-800 words of
+                 hand-crafted, example-rich content based on:
+                 - The actual code in /workspace/repo/platform/internal/handlers/
+                 - The actual templates in /workspace/repo/org-templates/
+                 - The actual plugin manifests in /workspace/repo/plugins/
+                 Cite file paths so readers can follow the source. Open a PR.
+
+              3. LINK + ANCHOR CHECK:
+                 Use the browser-automation plugin to crawl
+                 https://doc.moleculesai.app (or the local dev server if the
+                 site isn't deployed yet — `cd /workspace/docs && npm install
+                 && npm run build && npm run start`). Report broken links and
+                 missing anchors back to PM.
+
+              4. ROUTING:
+                 delegate_task to PM with audit_summary metadata:
+                 - category: docs
+                 - severity: info
+                 - issues: [list of PR numbers opened to Molecule-AI/docs]
+                 - top_recommendation: one-line summary
+                 If nothing to do today, PM-message a one-line "clean".
+
+              5. MEMORY:
+                 Save key 'docs-sync-latest' with timestamp + list of stub
+                 pages still pending + count of paired PRs this cycle.
+            enabled: true
+          - name: Weekly terminology + freshness audit
+            cron_expr: "0 11 * * 1"
+            prompt: |
+              Weekly audit of documentation freshness and terminology consistency.
+
+              1. STALE PAGE DETECTION:
+                 cd /workspace/docs && for f in content/docs/*.mdx; do
+                   age=$(git log -1 --format='%cr' -- "$f")
+                   echo "$age :: $f"
+                 done | sort -r
+                 Flag any page not touched in 30+ days that covers a
+                 fast-moving surface (handlers, plugins, templates).
+
+              2. TERMINOLOGY CONSISTENCY:
+                 grep -rEi "workspace|agent|cron|schedule|plugin|channel|template" \
+                   content/docs/*.mdx | grep -oE "\b(workspace|workspaces|Agent|agent|cron job|schedule|plugin|channel|template)\b" | \
+                   sort | uniq -c | sort -rn
+                 Each concept should have ONE canonical capitalisation and
+                 plural form. Open a PR fixing inconsistencies.
+
+              3. LINK ROT:
+                 grep -rE "\\[.*\\]\\(http[^)]+\\)" content/docs/*.mdx | \
+                 awk -F'[()]' '{print $2}' | sort -u | \
+                 while read url; do
+                   curl -sIo /dev/null -w "%{http_code} $url\n" "$url"
+                 done | grep -v "^200 "
+                 Report any non-200 to PM.
+
+              4. ROUTING + MEMORY:
+                 Same audit_summary contract as the daily cron.
+                 Save findings to memory key 'docs-weekly-audit'.
+            enabled: true
