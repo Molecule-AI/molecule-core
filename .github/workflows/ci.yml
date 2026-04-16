@@ -57,21 +57,9 @@ jobs:
       - name: Run tests
         run: npx vitest run
 
-  mcp-server-build:
-    name: MCP Server (Node.js)
-    runs-on: [self-hosted, macos, arm64]
-    defaults:
-      run:
-        working-directory: mcp-server
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: mcp-server/package-lock.json
-      - run: npm ci
-      - run: npm run build
+  # MCP Server + SDK removed from CI — now in standalone repos:
+  # - github.com/Molecule-AI/molecule-mcp-server (npm CI)
+  # - github.com/Molecule-AI/molecule-sdk-python (PyPI CI)
 
   e2e-api:
     name: E2E API Smoke Test
@@ -263,16 +251,5 @@ jobs:
       - run: pip3.11 install -r requirements.txt pytest pytest-asyncio pytest-cov
       - run: python3.11 -m pytest --tb=short -q --cov=. --cov-report=term-missing
 
-      # Lint first-party plugins. The validator checks each plugin
-      # against the format it declares — currently agentskills.io for all
-      # of ours, but the same command covers any future shape that lands
-      # under a sibling adapter (MCP, DeepAgents sub-agent, etc.).
-      - name: Install molecule-plugin SDK
-        working-directory: sdk/python
-        run: pip3.11 install -e .
-      - name: Lint first-party plugins
-        working-directory: ${{ github.workspace }}
-        run: python3.11 -m molecule_plugin validate plugins/molecule-dev plugins/superpowers plugins/ecc
-      - name: Run SDK tests
-        working-directory: sdk/python
-        run: python3.11 -m pytest --tb=short -q
+      # SDK + plugin validation moved to standalone repo:
+      # github.com/Molecule-AI/molecule-sdk-python

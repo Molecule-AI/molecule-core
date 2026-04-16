@@ -1,6 +1,7 @@
-# Build context: repo root (not ./platform) so we can COPY both the Go
-# source and the workspace-configs-templates directory that lives beside it.
-# CI workflow sets `context: .` and `file: ./platform/Dockerfile`.
+# Platform-only image (no canvas). Used by publish-platform-image workflow
+# for GHCR + Fly registry. Tenant image uses Dockerfile.tenant instead.
+#
+# Build context: repo root.
 
 FROM golang:1.25-alpine AS builder
 WORKDIR /app
@@ -9,15 +10,19 @@ RUN go mod download
 COPY platform/ .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /platform ./cmd/server
 
+# Clone templates + plugins at build time from manifest.json
+FROM alpine:3.20 AS templates
+RUN apk add --no-cache git python3
+COPY manifest.json /manifest.json
+COPY scripts/clone-manifest.sh /scripts/clone-manifest.sh
+RUN chmod +x /scripts/clone-manifest.sh && /scripts/clone-manifest.sh /manifest.json /workspace-configs-templates /org-templates /plugins
+
 FROM alpine:3.20
-# git is required by the `github` SourceResolver for plugin installs from
-# GitHub URLs (POST /workspaces/:id/plugins {"source": "github://..."}).
 RUN apk add --no-cache ca-certificates git tzdata
 COPY --from=builder /platform /platform
 COPY platform/migrations /migrations
-# Default templates baked into the image so tenants boot with a working
-# template picker. Phase B adds a registry + on-demand fetch for
-# community templates; these curated defaults always ship in the image.
-COPY workspace-configs-templates /workspace-configs-templates
+COPY --from=templates /workspace-configs-templates /workspace-configs-templates
+COPY --from=templates /org-templates /org-templates
+COPY --from=templates /plugins /plugins
 EXPOSE 8080
 CMD ["/platform"]
