@@ -469,6 +469,53 @@ func TestBuildContainerEnv_InjectsBothPlatformURLAndMoleculeAIURL(t *testing.T) 
 	}
 }
 
+func TestBuildContainerEnv_InjectsPYTHONPATH(t *testing.T) {
+	// Standalone workspace-template repos COPY adapter.py to /app and rely on
+	// `import adapter` resolving via PYTHONPATH. molecule-runtime is a pip
+	// console_script entry, so cwd isn't on sys.path automatically. The
+	// provisioner injects PYTHONPATH=/app so every adapter image works
+	// without per-template Dockerfile patching. See workspace-runtime#1
+	// for the runtime-side bug this works around.
+	cfg := WorkspaceConfig{WorkspaceID: "ws-x", PlatformURL: "http://x", Tier: 1}
+	env := buildContainerEnv(cfg)
+	want := "PYTHONPATH=/app"
+	for _, e := range env {
+		if e == want {
+			return
+		}
+	}
+	t.Errorf("expected env to contain %q, got %v", want, env)
+}
+
+func TestBuildContainerEnv_WorkspaceEnvVarsCanOverridePYTHONPATH(t *testing.T) {
+	// Operator escape hatch: a per-workspace EnvVars["PYTHONPATH"] = "/custom"
+	// MUST appear AFTER the default in the env slice so Docker uses the
+	// later one. Without this, an operator who needs a custom path can't
+	// override the provisioner default.
+	cfg := WorkspaceConfig{
+		WorkspaceID: "ws-x",
+		PlatformURL: "http://x",
+		Tier:        1,
+		EnvVars:     map[string]string{"PYTHONPATH": "/custom:/app"},
+	}
+	env := buildContainerEnv(cfg)
+	defaultIdx, customIdx := -1, -1
+	for i, e := range env {
+		if e == "PYTHONPATH=/app" {
+			defaultIdx = i
+		}
+		if e == "PYTHONPATH=/custom:/app" {
+			customIdx = i
+		}
+	}
+	if defaultIdx < 0 || customIdx < 0 {
+		t.Fatalf("expected both default and custom PYTHONPATH entries, got %v", env)
+	}
+	if customIdx < defaultIdx {
+		t.Errorf("custom PYTHONPATH (idx=%d) must come AFTER default (idx=%d) so Docker takes the operator override", customIdx, defaultIdx)
+	}
+}
+
 func TestBuildContainerEnv_MoleculeAIURLAlwaysMatchesPlatformURL(t *testing.T) {
 	// Regression guard: MOLECULE_URL must never drift from PLATFORM_URL —
 	// if someone changes one they must change the other. This test pins

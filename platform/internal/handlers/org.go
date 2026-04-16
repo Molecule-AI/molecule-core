@@ -357,6 +357,17 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 		role = ws.Role
 	}
 
+	// Expand ${VAR} references in workspace_dir against the org's .env files
+	// before validation. Without this, a template that ships
+	// `workspace_dir: ${WORKSPACE_DIR}` (so each operator can pick the host
+	// path to bind-mount) reaches validateWorkspaceDir as the literal
+	// "${WORKSPACE_DIR}" string and fails with "must be an absolute path".
+	// Other fields (channel config, prompts) already go through expandWithEnv;
+	// workspace_dir was the last hold-out.
+	if ws.WorkspaceDir != "" {
+		ws.WorkspaceDir = expandWithEnv(ws.WorkspaceDir, loadWorkspaceEnv(orgBaseDir, ws.FilesDir))
+	}
+
 	// Validate and convert workspace_dir to NULL if empty
 	var workspaceDir interface{}
 	if ws.WorkspaceDir != "" {
