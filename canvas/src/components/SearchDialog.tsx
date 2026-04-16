@@ -112,7 +112,7 @@ export function SearchDialog() {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleInputKeyDown}
             placeholder="Search workspaces..."
-            className="flex-1 bg-transparent text-sm text-zinc-100 placeholder-zinc-400 focus:outline-none"
+            className="flex-1 bg-transparent text-sm text-zinc-100 placeholder-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus:outline-none rounded"
           />
           <kbd className="text-[9px] text-zinc-400 bg-zinc-800/60 px-1.5 py-0.5 rounded border border-zinc-700/40">ESC</kbd>
         </div>
