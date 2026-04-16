@@ -14,8 +14,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
+	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
@@ -55,16 +58,32 @@ func (h *TranscriptHandler) Get(c *gin.Context) {
 		return
 	}
 
-	// No bearer minting needed — workspace /transcript trusts the internal
-	// Docker network (same model as POST / for A2A). Phase 30 remote work-
-	// spaces will need an auth story; tracked as follow-up.
+	// workspaceURL comes from agent_card which is attacker-writable via
+	// /registry/register — treat it as untrusted and validate before the
+	// outbound HTTP call to prevent SSRF (issue #272).
 	target, err := url.Parse(workspaceURL)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid workspace URL"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace URL"})
+		return
+	}
+	if err := validateWorkspaceURL(target); err != nil {
+		log.Printf("transcript: workspace %s URL rejected: %v", workspaceID, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "workspace URL not allowed"})
 		return
 	}
 	target.Path = "/transcript"
-	target.RawQuery = c.Request.URL.RawQuery
+
+	// Don't forward the raw query string — an attacker-controlled caller
+	// could smuggle params the upstream endpoint didn't intend to expose.
+	// Allowlist the two params the transcript endpoint actually uses.
+	q := url.Values{}
+	if since := c.Query("since"); since != "" {
+		q.Set("since", since)
+	}
+	if limit := c.Query("limit"); limit != "" {
+		q.Set("limit", limit)
+	}
+	target.RawQuery = q.Encode()
 
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -76,7 +95,11 @@ func (h *TranscriptHandler) Get(c *gin.Context) {
 
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("workspace unreachable: %v", err)})
+		// Log the real error server-side (includes the target URL), but
+		// don't leak it to the caller — that would reveal internal host
+		// names / IPs reachable from the platform.
+		log.Printf("transcript: workspace %s unreachable: %v", workspaceID, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "workspace unreachable"})
 		return
 	}
 	defer resp.Body.Close()
@@ -88,4 +111,59 @@ func (h *TranscriptHandler) Get(c *gin.Context) {
 		return
 	}
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), body)
+}
+
+// validateWorkspaceURL enforces that the agent_card URL is safe to
+// proxy to. agent_card is attacker-writable via /registry/register so
+// any workspace-token holder could otherwise point the URL at cloud
+// metadata (169.254.169.254), the Docker host, or other internal
+// services reachable from the platform container.
+//
+// Policy:
+//   - scheme must be http or https (no file://, gopher://, ftp://, etc.)
+//   - host must be present
+//   - block cloud metadata endpoints (IMDS, GCP, Azure)
+//   - block link-local IPs (169.254/16 IPv4, fe80::/10 IPv6)
+//   - loopback is allowed — local dev runs workspaces on 127.0.0.1
+//   - Docker internal hostnames (host.docker.internal, *.molecule-monorepo-net)
+//     are allowed; the whole threat model assumes the platform already
+//     trusts peers on that network
+func validateWorkspaceURL(u *url.URL) error {
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("unsupported scheme %q", u.Scheme)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("empty host")
+	}
+
+	// Hostname blocklist (pre-IP-parse — these are usually resolved by
+	// the HTTP stack, not by us).
+	lower := strings.ToLower(host)
+	for _, banned := range []string{
+		"metadata.google.internal",
+		"metadata.azure.com",
+		"metadata",
+	} {
+		if lower == banned {
+			return fmt.Errorf("metadata hostname blocked: %s", host)
+		}
+	}
+
+	// IP-literal checks.
+	if ip := net.ParseIP(host); ip != nil {
+		// IMDS / cloud metadata.
+		if ip.String() == "169.254.169.254" {
+			return fmt.Errorf("cloud metadata endpoint blocked")
+		}
+		// Link-local: IPv4 169.254.0.0/16, IPv6 fe80::/10.
+		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("link-local address blocked: %s", host)
+		}
+		// IPv6 unique local fd00::/8 — used by some IMDS implementations.
+		if ip.To4() == nil && len(ip) == net.IPv6len && ip[0] == 0xfd {
+			return fmt.Errorf("IPv6 unique-local address blocked: %s", host)
+		}
+	}
+	return nil
 }
