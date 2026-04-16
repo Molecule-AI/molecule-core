@@ -3,6 +3,31 @@ import type { WSMessage } from "./socket";
 import type { WorkspaceNodeData } from "./canvas";
 import { extractResponseText } from "@/components/tabs/chat/message-parser";
 
+// ---------------------------------------------------------------------------
+// Monotonically increasing counter used to assign grid positions.
+//
+// WHY NOT nodes.length?
+// Using `nodes.length` as the placement index breaks after any deletion:
+// handleCanvasEvent(WORKSPACE_REMOVED) shrinks the array, so the next
+// provisioned node reuses a lower index and collides in space with an
+// existing node.
+//
+//   Example (4-col grid, COL_SPACING=320):
+//   Provision A → idx 0 → (100, 100)
+//   Provision B → idx 1 → (420, 100)
+//   Provision C → idx 2 → (740, 100)
+//   Remove    A → nodes.length drops to 2
+//   Provision D → idx 2 → (740, 100)  ← exact collision with C 🚨
+//
+// A monotonic counter is immune to deletions: it only ever increases.
+// ---------------------------------------------------------------------------
+let _provisioningSequence = 0;
+
+/** Reset the sequence counter — exposed for test teardown only. */
+export function resetProvisioningSequence(): void {
+  _provisioningSequence = 0;
+}
+
 /**
  * Standalone event handler extracted from the canvas store.
  * Applies a single WebSocket event to the current node/edge state.
@@ -88,13 +113,15 @@ export function handleCanvasEvent(
           ),
         });
       } else {
-        // Spread new nodes in a grid so they don't stack at the viewport origin
+        // Spread new nodes in a grid so they don't stack at the viewport origin.
+        // Use the monotonic _provisioningSequence counter (not nodes.length) so
+        // deletions never cause two live nodes to share a grid slot.
         const GRID_COLS = 4;
         const COL_SPACING = 320;
         const ROW_SPACING = 160;
         const GRID_ORIGIN_X = 100;
         const GRID_ORIGIN_Y = 100;
-        const idx = nodes.length;
+        const idx = _provisioningSequence++;
         const x = GRID_ORIGIN_X + (idx % GRID_COLS) * COL_SPACING;
         const y = GRID_ORIGIN_Y + Math.floor(idx / GRID_COLS) * ROW_SPACING;
 
