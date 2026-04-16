@@ -107,6 +107,7 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 		Template      string `json:"template"`
 		ApplyTemplate bool   `json:"apply_template"` // force re-apply runtime-default template (e.g. after runtime change)
 		Reset         bool   `json:"reset"`          // #12: discard claude-sessions volume before restart
+		RebuildConfig bool   `json:"rebuild_config"` // #239: re-render config volume from org-template source (recovery path when volume was destroyed)
 	}
 	c.ShouldBindJSON(&body)
 
@@ -128,6 +129,17 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 		if _, err := os.Stat(candidatePath); err == nil {
 			templatePath = candidatePath
 			configLabel = template
+		}
+	}
+
+	// #239: rebuild_config=true — try org-templates as last-resort source so a
+	// workspace with a destroyed config volume can self-recover without admin
+	// intervention. Only fires when no other template was resolved above.
+	if templatePath == "" && body.RebuildConfig {
+		if p, label := resolveOrgTemplate(h.configsDir, wsName); p != "" {
+			templatePath = p
+			configLabel = label
+			log.Printf("Restart: rebuild_config — using org-template %s for %s (%s)", label, wsName, id)
 		}
 	}
 
