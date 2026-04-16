@@ -1,4 +1,11 @@
 name: CI
+# Self-hosted macOS arm64 runner hygiene (issue #191):
+# - GOPATH is scoped per run_id in e2e-api to prevent module-cache poisoning
+# - pip deps in python-lint install into an isolated per-run venv
+# - No production secrets (Fly API tokens, Neon URLs, Anthropic keys, Claude OAuth)
+#   should be stored in the runner's keychain or ~/.claude/ — dev credentials only.
+# - The runner machine must not have ANTHROPIC_API_KEY / FLY_API_TOKEN set as
+#   persistent env vars; those must come exclusively from GitHub Actions secrets.
 
 on:
   push:
@@ -94,13 +101,19 @@ jobs:
       PORT: "8080"
       PG_CONTAINER: molecule-ci-postgres
       REDIS_CONTAINER: molecule-ci-redis
+      # Scope Go module cache to this run_id so a poisoned cache from a
+      # previous run cannot influence this build (issue #191 recommendation 2).
+      # The cleanup step below removes it on completion/cancellation.
+      GOPATH: /tmp/ci-go-${{ github.run_id }}
+      GOMODCACHE: /tmp/ci-go-${{ github.run_id }}/pkg/mod
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
-          cache: true
-          cache-dependency-path: platform/go.sum
+          # cache: false — GOPATH is scoped to this run_id (see job-level env)
+          # so there's no shared path to cache between runs.
+          cache: false
       - name: Start Postgres (docker)
         run: |
           docker rm -f "$PG_CONTAINER" 2>/dev/null || true
@@ -175,11 +188,15 @@ jobs:
           if [ -f platform/platform.pid ]; then
             kill "$(cat platform/platform.pid)" 2>/dev/null || true
           fi
-      - name: Stop service containers
+      - name: Stop service containers and clean per-run Go cache
         if: always()
         run: |
           docker rm -f "$PG_CONTAINER" 2>/dev/null || true
           docker rm -f "$REDIS_CONTAINER" 2>/dev/null || true
+          # Remove the per-run Go module cache created by the scoped GOPATH above.
+          # This runs even on cancellation, preventing leftover cache dirs from
+          # accumulating on the persistent self-hosted runner (issue #191).
+          rm -rf "/tmp/ci-go-${{ github.run_id }}"
 
   shellcheck:
     name: Shellcheck (E2E scripts)
@@ -248,20 +265,28 @@ jobs:
     defaults:
       run:
         working-directory: workspace-template
+    env:
+      # Per-run virtualenv path (issue #191 recommendation 2): isolates pip deps
+      # from the persistent runner, preventing version bleed across CI runs.
+      VENV: /tmp/ci-venv-${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
       # setup-python@v5 cannot write to /Users/runner (GitHub-hosted path) on
       # the self-hosted macOS arm64 runner (user: hongming-claw) and also hits
       # EACCES on /usr/local/bin due to macOS SIP. Skip it — Homebrew installs
       # Python 3.11 at /opt/homebrew/opt/python@3.11 which is already on PATH.
-      - name: Verify Python 3.11 (Homebrew)
+      - name: Verify Python 3.11 (Homebrew) and create per-run venv
         run: |
           export PATH="/opt/homebrew/opt/python@3.11/bin:/opt/homebrew/bin:$PATH"
           python3.11 --version
           echo "/opt/homebrew/opt/python@3.11/bin" >> "$GITHUB_PATH"
           echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
-      - run: pip3.11 install -r requirements.txt pytest pytest-asyncio pytest-cov
-      - run: python3.11 -m pytest --tb=short -q --cov=. --cov-report=term-missing
+          # Create isolated venv — all subsequent pip installs go here, not
+          # into the global site-packages on the persistent macOS runner.
+          python3.11 -m venv "$VENV"
+          echo "$VENV/bin" >> "$GITHUB_PATH"
+      - run: pip install --no-cache-dir -r requirements.txt pytest pytest-asyncio pytest-cov
+      - run: python -m pytest --tb=short -q --cov=. --cov-report=term-missing
 
       # Lint first-party plugins. The validator checks each plugin
       # against the format it declares — currently agentskills.io for all
@@ -269,10 +294,13 @@ jobs:
       # under a sibling adapter (MCP, DeepAgents sub-agent, etc.).
       - name: Install molecule-plugin SDK
         working-directory: sdk/python
-        run: pip3.11 install -e .
+        run: pip install --no-cache-dir -e .
       - name: Lint first-party plugins
         working-directory: ${{ github.workspace }}
-        run: python3.11 -m molecule_plugin validate plugins/molecule-dev plugins/superpowers plugins/ecc
+        run: python -m molecule_plugin validate plugins/molecule-dev plugins/superpowers plugins/ecc
       - name: Run SDK tests
         working-directory: sdk/python
-        run: python3.11 -m pytest --tb=short -q
+        run: python -m pytest --tb=short -q
+      - name: Clean up per-run venv
+        if: always()
+        run: rm -rf "$VENV"
