@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useCallback, useRef, useEffect, type ChangeEvent } from 'react';
 import { RevealToggle } from './RevealToggle';
 
