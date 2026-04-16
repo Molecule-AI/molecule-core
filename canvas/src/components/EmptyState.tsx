@@ -79,8 +79,8 @@ export function EmptyState() {
   };
 
   return (
-    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[1]">
-      <div className="relative max-w-xl rounded-3xl border border-zinc-800/70 bg-zinc-950/80 backdrop-blur-xl px-8 py-8 text-center shadow-2xl shadow-black/40 pointer-events-auto">
+    <div className="absolute inset-0 flex items-start justify-center pointer-events-none z-[1] overflow-y-auto py-8">
+      <div className="relative max-w-2xl w-full rounded-3xl border border-zinc-800/70 bg-zinc-950/80 backdrop-blur-xl px-8 py-8 text-center shadow-2xl shadow-black/40 pointer-events-auto mx-4">
         <div className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-blue-500/50 to-transparent" />
 
         {/* Logo */}
@@ -107,7 +107,7 @@ export function EmptyState() {
         {loading ? (
           <div className="text-xs text-zinc-400 py-4">Loading templates...</div>
         ) : templates.length > 0 ? (
-          <div className="grid grid-cols-2 gap-2.5 mb-4 text-left max-h-[240px] overflow-y-auto">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-4 text-left">
             {templates.map((t) => {
               const tierColor = TIER_COLORS[t.tier] || TIER_COLORS[1];
               return (
