@@ -4,6 +4,7 @@ package channels
 // To add a new platform: implement ChannelAdapter, register here.
 var adapters = map[string]ChannelAdapter{
 	"telegram": &TelegramAdapter{},
+	"slack":    &SlackAdapter{},
 }
 
 // GetAdapter returns the adapter for a channel type.
