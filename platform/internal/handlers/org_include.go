@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -21,8 +22,14 @@ const maxIncludeDepth = 16
 // Semantics:
 //   - A scalar node tagged `!include` with a string value is replaced by
 //     the parsed content of the referenced file.
-//   - Paths are resolved relative to `baseDir` and must stay inside it
-//     (same traversal defense as resolveInsideRoot).
+//   - Paths resolve relative to the INCLUDING file's directory (natural
+//     sibling/cousin refs, matches C-include / Sass @import convention).
+//     When the including file is the top-level org.yaml, that's baseDir.
+//     When it's a nested team file, that's the team file's own dir.
+//   - Security: every resolved absolute path must stay inside `rootDir`
+//     (the original baseDir from the top-level call). This allows natural
+//     `../sibling-dir/file.yaml` refs while still blocking traversal
+//     outside the org template root.
 //   - Includes may be nested (a team file can !include a role file).
 //     Cycles are detected via a visited set keyed on absolute path;
 //     `maxIncludeDepth` caps total recursion depth as a belt-and-braces
@@ -39,7 +46,9 @@ func resolveYAMLIncludes(data []byte, baseDir string) ([]byte, error) {
 	}
 
 	visited := map[string]bool{}
-	if err := expandNode(&root, baseDir, visited, 0); err != nil {
+	// At the top-level call, the "including file's dir" and the "security
+	// root" are the same. They diverge as we descend into nested includes.
+	if err := expandNode(&root, baseDir, baseDir, visited, 0); err != nil {
 		return nil, err
 	}
 
@@ -52,9 +61,10 @@ func resolveYAMLIncludes(data []byte, baseDir string) ([]byte, error) {
 
 // expandNode walks the yaml.Node tree in-place and replaces any
 // `!include`-tagged scalar with the parsed content of the referenced
-// file. Compound nodes (document / mapping / sequence) recurse; alias
-// nodes are left alone (the yaml parser already resolves them pre-tag).
-func expandNode(n *yaml.Node, baseDir string, visited map[string]bool, depth int) error {
+// file. `currentDir` is the dir of the file currently being processed
+// (used for path resolution); `rootDir` is the original org base dir
+// (used to bound the security check).
+func expandNode(n *yaml.Node, currentDir, rootDir string, visited map[string]bool, depth int) error {
 	if n == nil {
 		return nil
 	}
@@ -63,11 +73,11 @@ func expandNode(n *yaml.Node, baseDir string, visited map[string]bool, depth int
 	}
 
 	if n.Kind == yaml.ScalarNode && n.Tag == "!include" {
-		return resolveIncludeScalar(n, baseDir, visited, depth)
+		return resolveIncludeScalar(n, currentDir, rootDir, visited, depth)
 	}
 
 	for _, child := range n.Content {
-		if err := expandNode(child, baseDir, visited, depth); err != nil {
+		if err := expandNode(child, currentDir, rootDir, visited, depth); err != nil {
 			return err
 		}
 	}
@@ -75,24 +85,39 @@ func expandNode(n *yaml.Node, baseDir string, visited map[string]bool, depth int
 }
 
 // resolveIncludeScalar replaces an `!include <path>` scalar with the
-// parsed content of the referenced file. The replacement happens by
-// mutating *n to take on the included file's root kind/content/tag.
-func resolveIncludeScalar(n *yaml.Node, baseDir string, visited map[string]bool, depth int) error {
+// parsed content of the referenced file.
+func resolveIncludeScalar(n *yaml.Node, currentDir, rootDir string, visited map[string]bool, depth int) error {
 	rel := n.Value
 	if rel == "" {
 		return fmt.Errorf("!include at line %d: empty path", n.Line)
 	}
-	if baseDir == "" {
+	if rootDir == "" {
 		return fmt.Errorf("!include %q at line %d requires a dir-based org template (no baseDir in inline-template mode)", rel, n.Line)
 	}
-	abs, err := resolveInsideRoot(baseDir, rel)
+
+	// Resolve relative to the including file's dir. Result must stay
+	// inside the original rootDir — sibling dirs (../foo/bar.yaml) are
+	// fine as long as they don't escape the template root.
+	abs := filepath.Clean(filepath.Join(currentDir, rel))
+	absRoot, err := filepath.Abs(rootDir)
 	if err != nil {
-		return fmt.Errorf("!include %q at line %d: %w", rel, n.Line, err)
+		return fmt.Errorf("!include %q at line %d: cannot abs rootDir: %w", rel, n.Line, err)
 	}
-	if visited[abs] {
+	absTarget, err := filepath.Abs(abs)
+	if err != nil {
+		return fmt.Errorf("!include %q at line %d: cannot abs target: %w", rel, n.Line, err)
+	}
+	// Ensure target is inside root. `filepath.Rel` returns "../..." if target
+	// is outside; we reject that.
+	rel2, err := filepath.Rel(absRoot, absTarget)
+	if err != nil || strings.HasPrefix(rel2, "..") || rel2 == ".." {
+		return fmt.Errorf("!include %q at line %d: path escapes root", rel, n.Line)
+	}
+
+	if visited[absTarget] {
 		return fmt.Errorf("!include cycle detected at %q (line %d)", rel, n.Line)
 	}
-	data, err := os.ReadFile(abs)
+	data, err := os.ReadFile(absTarget)
 	if err != nil {
 		return fmt.Errorf("!include %q at line %d: %w", rel, n.Line, err)
 	}
@@ -108,24 +133,19 @@ func resolveIncludeScalar(n *yaml.Node, baseDir string, visited map[string]bool,
 		root = root.Content[0]
 	}
 
-	// Mark visited for the whole descent through this file, then recurse
-	// so nested !includes inside the included file resolve too. Each file
-	// gets its own baseDir (the directory containing it) so paths like
-	// `!include role-a/initial.yaml` inside `teams/dev.yaml` resolve
-	// relative to the team file's directory.
-	visited[abs] = true
-	defer delete(visited, abs)
+	// Mark visited for the whole descent through this file, then recurse.
+	// Relative refs inside the included file resolve against THAT file's
+	// dir (subDir), but security stays bounded by the original rootDir.
+	visited[absTarget] = true
+	defer delete(visited, absTarget)
 
-	subDir := filepath.Dir(abs)
-	if err := expandNode(root, subDir, visited, depth+1); err != nil {
+	subDir := filepath.Dir(absTarget)
+	if err := expandNode(root, subDir, rootDir, visited, depth+1); err != nil {
 		return err
 	}
 
 	// Replace the !include scalar with the resolved content in-place.
 	*n = *root
-	// Clear the !include tag (root's Tag is whatever kind it actually is —
-	// !!map / !!seq / !!str — after unmarshal, which is correct).
-	// If somehow root.Tag is still !include (shouldn't happen), drop it.
 	if n.Tag == "!include" {
 		n.Tag = ""
 	}
