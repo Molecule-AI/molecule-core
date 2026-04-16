@@ -98,11 +98,21 @@ export function ChatTab({ workspaceId, data }: Props) {
   return (
     <div className="flex flex-col h-full">
       {/* Sub-tab bar — role="tablist" so screen readers expose tab context */}
-      <div role="tablist" className="flex border-b border-zinc-800/40 bg-zinc-900/30 px-2 shrink-0">
+      <div
+        role="tablist"
+        className="flex border-b border-zinc-800/40 bg-zinc-900/30 px-2 shrink-0"
+        onKeyDown={(e) => {
+          const tabs: ChatSubTab[] = ["my-chat", "agent-comms"];
+          const idx = tabs.indexOf(subTab);
+          if (e.key === "ArrowRight") { e.preventDefault(); setSubTab(tabs[(idx + 1) % tabs.length]); }
+          else if (e.key === "ArrowLeft") { e.preventDefault(); setSubTab(tabs[(idx - 1 + tabs.length) % tabs.length]); }
+        }}
+      >
         <button
           role="tab"
           aria-selected={subTab === "my-chat"}
           aria-controls="chat-panel-my-chat"
+          tabIndex={subTab === "my-chat" ? 0 : -1}
           onClick={() => setSubTab("my-chat")}
           className={`px-3 py-1.5 text-[10px] font-medium transition-colors ${
             subTab === "my-chat"
@@ -116,6 +126,7 @@ export function ChatTab({ workspaceId, data }: Props) {
           role="tab"
           aria-selected={subTab === "agent-comms"}
           aria-controls="chat-panel-agent-comms"
+          tabIndex={subTab === "agent-comms" ? 0 : -1}
           onClick={() => setSubTab("agent-comms")}
           className={`px-3 py-1.5 text-[10px] font-medium transition-colors ${
             subTab === "agent-comms"

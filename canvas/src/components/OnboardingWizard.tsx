@@ -138,7 +138,8 @@ export function OnboardingWizard() {
           </span>
           <button
             onClick={dismiss}
-            className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+            aria-label="Skip onboarding guide"
+            className="text-[10px] text-zinc-400 hover:text-zinc-200 transition-colors"
           >
             Skip guide
           </button>
