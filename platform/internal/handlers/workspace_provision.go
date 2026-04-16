@@ -83,6 +83,17 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 
 	pluginsPath, _ := filepath.Abs(filepath.Join(h.configsDir, "..", "plugins"))
 	awarenessNamespace := h.loadAwarenessNamespace(ctx, workspaceID)
+
+	// Per-agent git identity (Option 3 of agent-separation rollout).
+	// Sets GIT_AUTHOR_* / GIT_COMMITTER_* so commits from each workspace
+	// carry a distinct author in `git log` / `git blame` — instead of
+	// every agent appearing as whoever the shared PAT belongs to. PR +
+	// issue authorship is still tied to GITHUB_TOKEN (shared PAT); that
+	// gets solved by the GitHub App migration (Option 1, follow-up PR).
+	// Runs after secret loads so an operator can still override via a
+	// workspace_secret named GIT_AUTHOR_NAME if they want custom identity.
+	applyAgentGitIdentity(envVars, payload.Name)
+
 	cfg := h.buildProvisionerConfig(workspaceID, templatePath, configFiles, payload, envVars, pluginsPath, awarenessNamespace)
 	cfg.ResetClaudeSession = resetClaudeSession // #12
 
