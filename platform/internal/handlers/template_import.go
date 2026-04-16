@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -54,21 +55,21 @@ func generateDefaultConfig(name string, files map[string]string) string {
 		}
 	}
 
-	// Sanitize: emit the name as a YAML double-quoted scalar so any
-	// characters that would break out of the scalar (newline, backslash,
-	// double quote) are escaped instead of injecting new mapping keys.
-	// #221 attack surface: an attacker-controlled name like
-	// "x\nmodel: malicious" would otherwise be interpreted by yaml.Unmarshal
-	// as two separate keys. Double-quoting neutralises every known vector:
-	// \n / \r / \t / \" / \\ are all valid YAML escape sequences inside
-	// a double-quoted scalar.
-	escaped := strings.NewReplacer(
+	// yamlEscape escapes a string for use as a YAML double-quoted scalar.
+	// All five dangerous characters are neutralised: \\ / \" / \n / \r / \t.
+	// This mirrors the escaping applied to the name field (#221) and is
+	// extended here to skill names and prompt file names (#460): those values
+	// also derive from attacker-controlled body.Files keys, and an unquoted
+	// list item like "  - foo\nruntime: pwned\n" would inject a top-level key.
+	yamlEscape := strings.NewReplacer(
 		`\`, `\\`,
 		`"`, `\"`,
 		"\n", `\n`,
 		"\r", `\r`,
 		"\t", `\t`,
-	).Replace(name)
+	).Replace
+
+	escaped := yamlEscape(name)
 
 	var cfg strings.Builder
 	cfg.WriteString(`name: "` + escaped + `"` + "\n")
@@ -78,7 +79,7 @@ func generateDefaultConfig(name string, files map[string]string) string {
 	cfg.WriteString("\nprompt_files:\n")
 	if len(promptFiles) > 0 {
 		for _, f := range promptFiles {
-			cfg.WriteString("  - " + f + "\n")
+			cfg.WriteString(`  - "` + yamlEscape(f) + `"` + "\n")
 		}
 	} else {
 		cfg.WriteString("  - system-prompt.md\n")
@@ -86,7 +87,7 @@ func generateDefaultConfig(name string, files map[string]string) string {
 	cfg.WriteString("\nskills:\n")
 	if len(skillSet) > 0 {
 		for s := range skillSet {
-			cfg.WriteString("  - " + s + "\n")
+			cfg.WriteString(`  - "` + yamlEscape(s) + `"` + "\n")
 		}
 	} else {
 		cfg.WriteString("  []\n")
@@ -190,7 +191,8 @@ func (h *TemplatesHandler) ReplaceFiles(c *gin.Context) {
 	// Write via Docker CopyToContainer when container is running
 	if containerName := h.findContainer(ctx, workspaceID); containerName != "" {
 		if err := h.copyFilesToContainer(ctx, containerName, "/configs", body.Files); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to write files: %v", err)})
+			log.Printf("ReplaceFiles: copyFilesToContainer failed for %s: %v", workspaceID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write files to workspace"})
 			return
 		}
 
@@ -219,7 +221,8 @@ func (h *TemplatesHandler) ReplaceFiles(c *gin.Context) {
 		// Last resort: write to host-side template dir
 		destDir := h.resolveTemplateDir(wsName)
 		if destDir == "" {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to write files: %v", err)})
+			log.Printf("ReplaceFiles: writeViaEphemeral failed and no template dir for %s: %v", workspaceID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write files to workspace"})
 			return
 		}
 		os.MkdirAll(destDir, 0o755)
