@@ -12,6 +12,8 @@ on:
       # Only rebuild when something platform-relevant changes — saves GHA
       # minutes on docs-only / canvas-only / MCP-only PRs.
       - 'platform/**'
+      - 'canvas/**'
+      - 'manifest.json'
       - '.github/workflows/publish-platform-image.yml'
       # Templates now live in standalone repos — template changes no longer
       # trigger a platform rebuild. Use workflow_dispatch to manually rebuild
@@ -133,15 +135,15 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.description=Molecule AI tenant platform (one instance per org)
 
-      - name: Build & push to Fly registry
-        # Continues even if GHCR push failed — `if: always()` ensures the
-        # private control plane's tenant-image mirror lands regardless of
-        # any GHCR-side flakiness.
+      - name: Build & push tenant image to Fly registry
+        # Tenant image = Go platform + Canvas (Next.js) in one container.
+        # Uses Dockerfile.tenant which includes the canvas build + reverse proxy.
+        # Continues even if GHCR push failed.
         if: always()
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./platform/Dockerfile
+          file: ./platform/Dockerfile.tenant
           platforms: linux/amd64
           push: true
           tags: |
@@ -151,7 +153,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.description=Molecule AI tenant platform (one instance per org)
+            org.opencontainers.image.description=Molecule AI tenant platform + canvas (one instance per org)
 
       - name: Install flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
