@@ -105,15 +105,20 @@ func (m *Manager) Start(ctx context.Context) {
 // PausePollersForToken stops any pollers that share the given bot token,
 // then returns a resume function. Used during discovery to avoid Telegram's
 // "only one getUpdates at a time" 409 Conflict.
+//
+// #319: bot_token is stored encrypted in channel_config so we cannot match
+// with SQL `channel_config->>'bot_token' = $1` anymore. Load all enabled
+// channels, decrypt each, and compare the plaintext in Go. The cardinality
+// is small (typically <10 enabled channels per install) so the extra work
+// is negligible.
 func (m *Manager) PausePollersForToken(botToken string) func() {
 	if botToken == "" {
 		return func() {}
 	}
 
 	rows, err := db.DB.QueryContext(context.Background(), `
-		SELECT id FROM workspace_channels
-		WHERE enabled = true AND channel_config->>'bot_token' = $1
-	`, botToken)
+		SELECT id, channel_config FROM workspace_channels WHERE enabled = true
+	`)
 	if err != nil {
 		return func() {}
 	}
@@ -123,7 +128,19 @@ func (m *Manager) PausePollersForToken(botToken string) func() {
 	m.mu.Lock()
 	for rows.Next() {
 		var id string
-		if rows.Scan(&id) == nil {
+		var configJSON []byte
+		if err := rows.Scan(&id, &configJSON); err != nil {
+			continue
+		}
+		var config map[string]interface{}
+		if err := json.Unmarshal(configJSON, &config); err != nil {
+			continue
+		}
+		if err := DecryptSensitiveFields(config); err != nil {
+			log.Printf("Channels: pause-pollers decrypt error for %s: %v", truncID(id), err)
+			continue
+		}
+		if token, _ := config["bot_token"].(string); token == botToken {
 			if cancel, ok := m.pollers[id]; ok {
 				cancel()
 				delete(m.pollers, id)
@@ -182,6 +199,14 @@ func (m *Manager) Reload(ctx context.Context) {
 		}
 		json.Unmarshal(configJSON, &ch.Config)
 		json.Unmarshal(allowedJSON, &ch.AllowedUsers)
+		// #319: decrypt at the boundary between DB (ciphertext) and the
+		// in-memory config adapters consume. A decrypt failure logs and
+		// skips the channel — downstream getUpdates would fail anyway
+		// with a mangled token so fail-closed here is kinder to operators.
+		if err := DecryptSensitiveFields(ch.Config); err != nil {
+			log.Printf("Channels: reload decrypt error for %s: %v", truncID(ch.ID), err)
+			continue
+		}
 		desired[ch.ID] = ch
 	}
 
@@ -436,6 +461,11 @@ func (m *Manager) loadChannel(ctx context.Context, channelID string) (ChannelRow
 	}
 	json.Unmarshal(configJSON, &ch.Config)
 	json.Unmarshal(allowedJSON, &ch.AllowedUsers)
+	// #319: decrypt bot_token / webhook_secret — SendOutbound and adapter
+	// methods downstream read them as plaintext strings.
+	if err := DecryptSensitiveFields(ch.Config); err != nil {
+		return ch, fmt.Errorf("decrypt channel %s: %w", channelID, err)
+	}
 	return ch, nil
 }
 
