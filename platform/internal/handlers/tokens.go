@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -73,10 +74,24 @@ func (h *TokenHandler) List(c *gin.Context) {
 	})
 }
 
+// maxTokensPerWorkspace prevents unbounded token creation. 50 is generous —
+// most workspaces need 1-3 tokens (primary + rotation spare).
+const maxTokensPerWorkspace = 50
+
 // Create mints a new token for the workspace. The plaintext is returned
 // exactly once in the response — it cannot be recovered afterwards.
 func (h *TokenHandler) Create(c *gin.Context) {
 	workspaceID := c.Param("id")
+
+	// Rate limit: max active tokens per workspace
+	var count int
+	db.DB.QueryRowContext(c.Request.Context(),
+		`SELECT COUNT(*) FROM workspace_auth_tokens WHERE workspace_id = $1 AND revoked_at IS NULL`,
+		workspaceID).Scan(&count)
+	if count >= maxTokensPerWorkspace {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": fmt.Sprintf("maximum %d active tokens per workspace", maxTokensPerWorkspace)})
+		return
+	}
 
 	token, err := wsauth.IssueToken(c.Request.Context(), db.DB, workspaceID)
 	if err != nil {
