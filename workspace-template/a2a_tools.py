@@ -226,6 +226,7 @@ async def tool_commit_memory(content: str, scope: str = "LOCAL") -> str:
             resp = await client.post(
                 f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/memories",
                 json={"content": content, "scope": scope},
+                headers=_auth_headers_for_heartbeat(),
             )
             data = resp.json()
             if resp.status_code in (200, 201):
@@ -247,6 +248,7 @@ async def tool_recall_memory(query: str = "", scope: str = "") -> str:
             resp = await client.get(
                 f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/memories",
                 params=params,
+                headers=_auth_headers_for_heartbeat(),
             )
             data = resp.json()
             if isinstance(data, list):
