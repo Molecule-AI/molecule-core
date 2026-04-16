@@ -149,6 +149,44 @@ func TestResolveYAMLIncludes_InlineTemplateErrors(t *testing.T) {
 	}
 }
 
+func TestResolveYAMLIncludes_SiblingDirAccess(t *testing.T) {
+	// Phase 4 pattern: a team file at `teams/<x>.yaml` refers to a role
+	// file at `<role>/workspace.yaml` via `../<role>/workspace.yaml`.
+	// The ref escapes the team file's own dir but stays inside the org
+	// root — this must be allowed.
+	tmp := t.TempDir()
+	teamsDir := filepath.Join(tmp, "teams")
+	roleDir := filepath.Join(tmp, "my-role")
+	if err := os.MkdirAll(teamsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(roleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(roleDir, "workspace.yaml"), []byte("name: Cousin\ntier: 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamsDir, "parent.yaml"), []byte("name: Parent\nchildren:\n  - !include ../my-role/workspace.yaml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := []byte("workspaces:\n  - !include teams/parent.yaml\n")
+	out, err := resolveYAMLIncludes(src, tmp)
+	if err != nil {
+		t.Fatalf("sibling-dir !include should work: %v", err)
+	}
+	var tmpl OrgTemplate
+	if err := yaml.Unmarshal(out, &tmpl); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(tmpl.Workspaces) != 1 {
+		t.Fatalf("workspaces: %d", len(tmpl.Workspaces))
+	}
+	kids := tmpl.Workspaces[0].Children
+	if len(kids) != 1 || kids[0].Name != "Cousin" {
+		t.Fatalf("children: %+v", kids)
+	}
+}
+
 // Integration check: after Phase 3 split, the real molecule-dev/org.yaml
 // resolves cleanly via !include and unmarshal into OrgTemplate produces
 // the full workspace tree. Guards against split regressions landing on

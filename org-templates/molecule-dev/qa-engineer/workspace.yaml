@@ -1,0 +1,18 @@
+name: QA Engineer
+role: Testing, quality assurance, test automation
+tier: 3
+model: opus
+files_dir: qa-engineer
+            # QA reviews test coverage + runs llm-judge on whether test
+            # deliverables actually match acceptance criteria. Issue #133.
+            # #322: molecule-compliance — OA-01 prompt-injection detection
+            # (in detect mode, not block) catches adversarial test payloads
+            # before they slip into production. OA-03 excessive-agency caps
+            # prevent runaway test loops.
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge, molecule-compliance]
+schedules:
+  - name: Code quality audit (every 12h)
+    cron_expr: "0 6,18 * * *"
+    enabled: true
+    prompt_file: schedules/code-quality-audit-every-12h.md
+initial_prompt_file: initial-prompt.md
