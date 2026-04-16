@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/scheduler"
 )
 
@@ -267,6 +268,98 @@ func (h *ScheduleHandler) RunNow(c *gin.Context) {
 		"workspace_id": workspaceID,
 		"prompt":       prompt,
 	})
+}
+
+// scheduleHealthResponse is the read-only health view of a schedule.
+// It deliberately omits prompt and cron_expr so sensitive task content is
+// never exposed to peer workspaces — only execution-state fields needed to
+// detect silent cron failures are returned (issue #249).
+type scheduleHealthResponse struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Enabled    bool       `json:"enabled"`
+	LastRunAt  *time.Time `json:"last_run_at"`
+	NextRunAt  *time.Time `json:"next_run_at"`
+	RunCount   int        `json:"run_count"`
+	LastStatus string     `json:"last_status"`
+	LastError  string     `json:"last_error"`
+}
+
+// Health returns schedule health fields (last_run_at, last_status, run_count,
+// etc.) for all schedules belonging to a workspace.
+//
+// Unlike GET /workspaces/:id/schedules (which requires the workspace's own
+// bearer token), this endpoint is accessible to CanCommunicate peers — i.e.,
+// any workspace in the same org hierarchy — so peer agents can detect silent
+// cron failures without needing admin auth (issue #249).
+//
+// Auth rules (mirrors the A2A proxy pattern):
+//   - X-Workspace-ID header is required to identify the caller.
+//   - If the caller workspace has any live tokens, the Authorization: Bearer
+//     header must carry that caller's own valid token (lazy-bootstrap: legacy
+//     workspaces with no tokens are grandfathered through).
+//   - registry.CanCommunicate(callerID, workspaceID) must return true.
+//   - System callers (webhook:*, system:*, test:*) bypass token + access checks.
+//   - Self-calls (callerID == workspaceID) are always allowed.
+//
+// Prompt and cron_expr are intentionally absent from the response.
+func (h *ScheduleHandler) Health(c *gin.Context) {
+	workspaceID := c.Param("id")
+	callerID := c.GetHeader("X-Workspace-ID")
+	ctx := c.Request.Context()
+
+	// Caller identity is mandatory — anonymous reads are not permitted.
+	if callerID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "X-Workspace-ID header required"})
+		return
+	}
+
+	// Validate the caller's own bearer token (Phase 30.5 contract).
+	// Skip for system callers and self-calls, same as the A2A proxy.
+	if !isSystemCaller(callerID) && callerID != workspaceID {
+		if err := validateCallerToken(ctx, c, callerID); err != nil {
+			return // response already written with 401
+		}
+	}
+
+	// CanCommunicate gate — only peers in the org hierarchy may read health.
+	if callerID != workspaceID && !isSystemCaller(callerID) {
+		if !registry.CanCommunicate(callerID, workspaceID) {
+			log.Printf("ScheduleHealth: access denied %s → %s", callerID, workspaceID)
+			c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+			return
+		}
+	}
+
+	rows, err := db.DB.QueryContext(ctx, `
+		SELECT id, name, enabled, last_run_at, next_run_at, run_count, last_status, last_error
+		FROM workspace_schedules
+		WHERE workspace_id = $1
+		ORDER BY created_at ASC
+	`, workspaceID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query schedules"})
+		return
+	}
+	defer rows.Close()
+
+	schedules := make([]scheduleHealthResponse, 0)
+	for rows.Next() {
+		var s scheduleHealthResponse
+		if err := rows.Scan(
+			&s.ID, &s.Name, &s.Enabled, &s.LastRunAt, &s.NextRunAt,
+			&s.RunCount, &s.LastStatus, &s.LastError,
+		); err != nil {
+			log.Printf("ScheduleHealth: scan error: %v", err)
+			continue
+		}
+		schedules = append(schedules, s)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("ScheduleHealth: rows error: %v", err)
+	}
+
+	c.JSON(http.StatusOK, schedules)
 }
 
 // History returns recent runs for a schedule from activity_logs.

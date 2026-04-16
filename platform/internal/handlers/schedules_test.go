@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"bytes"
+	"database/sql"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -120,6 +122,265 @@ func TestList_IncludesSourceColumn(t *testing.T) {
 	if !strings.Contains(body, `"source":"runtime"`) {
 		t.Errorf(`response missing "source":"runtime": %s`, body)
 	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// ==================== Health — issue #249 ====================
+//
+// GET /workspaces/:id/schedules/health is accessible to CanCommunicate peers
+// without workspace bearer auth. The handler mirrors the A2A proxy's auth
+// pattern: X-Workspace-ID + caller token + CanCommunicate gate.
+
+const healthWorkspaceID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+const healthCallerID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+// healthCols is the column set returned by the Health SELECT.
+var healthCols = []string{"id", "name", "enabled", "last_run_at", "next_run_at", "run_count", "last_status", "last_error"}
+
+// TestScheduleHealth_MissingCallerID_Rejected verifies that requests without
+// X-Workspace-ID are rejected with 401 — anonymous peer reads are not allowed.
+func TestScheduleHealth_MissingCallerID_Rejected(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewScheduleHandler()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: healthWorkspaceID}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/"+healthWorkspaceID+"/schedules/health", nil)
+
+	handler.Health(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for missing caller, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestScheduleHealth_SelfCall_Allowed verifies that when callerID == workspaceID
+// (self-call) the request is allowed and health fields are returned without any
+// CanCommunicate DB lookups.
+func TestScheduleHealth_SelfCall_Allowed(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewScheduleHandler()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	// Self-call: no token check, no CanCommunicate queries.
+	// Expect only the health SELECT.
+	mock.ExpectQuery(`SELECT id, name, enabled, last_run_at, next_run_at, run_count, last_status, last_error\s+FROM workspace_schedules`).
+		WithArgs(healthWorkspaceID).
+		WillReturnRows(sqlmock.NewRows(healthCols).
+			AddRow("sched-1", "nightly", true, &now, &now, 42, "ok", ""))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: healthWorkspaceID}}
+	req := httptest.NewRequest("GET", "/workspaces/"+healthWorkspaceID+"/schedules/health", nil)
+	req.Header.Set("X-Workspace-ID", healthWorkspaceID) // self-call
+	c.Request = req
+
+	handler.Health(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for self-call, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp []scheduleHealthResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if len(resp) != 1 || resp[0].ID != "sched-1" || resp[0].RunCount != 42 {
+		t.Errorf("unexpected health response: %+v", resp)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// TestScheduleHealth_CanCommunicatePeer_LegacyNoToken verifies that a legacy
+// peer (no live tokens on file for the caller) is grandfathered through the
+// token check and can read health when CanCommunicate is satisfied.
+func TestScheduleHealth_CanCommunicatePeer_LegacyNoToken(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewScheduleHandler()
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	// 1. validateCallerToken: caller has zero live tokens → grandfather through.
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM workspace_auth_tokens`).
+		WithArgs(healthCallerID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	// 2. CanCommunicate: caller and target share the same parent (siblings → allowed).
+	mockCanCommunicate(mock, healthCallerID, healthWorkspaceID, true)
+
+	// 3. Health SELECT.
+	mock.ExpectQuery(`SELECT id, name, enabled, last_run_at, next_run_at, run_count, last_status, last_error\s+FROM workspace_schedules`).
+		WithArgs(healthWorkspaceID).
+		WillReturnRows(sqlmock.NewRows(healthCols).
+			AddRow("sched-2", "hourly", true, &now, &now, 7, "ok", ""))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: healthWorkspaceID}}
+	req := httptest.NewRequest("GET", "/workspaces/"+healthWorkspaceID+"/schedules/health", nil)
+	req.Header.Set("X-Workspace-ID", healthCallerID)
+	c.Request = req
+
+	handler.Health(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for peer with no tokens, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp []scheduleHealthResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if len(resp) != 1 || resp[0].RunCount != 7 {
+		t.Errorf("unexpected response: %+v", resp)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// TestScheduleHealth_AccessDenied_NonPeer verifies that a workspace which fails
+// CanCommunicate (different org branch) receives 403 — not 401 or 500.
+func TestScheduleHealth_AccessDenied_NonPeer(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewScheduleHandler()
+
+	// 1. validateCallerToken: no live tokens → grandfather.
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM workspace_auth_tokens`).
+		WithArgs(healthCallerID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	// 2. CanCommunicate: different parents → denied.
+	mockCanCommunicate(mock, healthCallerID, healthWorkspaceID, false)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: healthWorkspaceID}}
+	req := httptest.NewRequest("GET", "/workspaces/"+healthWorkspaceID+"/schedules/health", nil)
+	req.Header.Set("X-Workspace-ID", healthCallerID)
+	c.Request = req
+
+	handler.Health(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-peer, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// TestScheduleHealth_SystemCaller_Allowed verifies that system callers
+// (webhook:*, system:*, test:*) bypass token + CanCommunicate checks.
+func TestScheduleHealth_SystemCaller_Allowed(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewScheduleHandler()
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	// No token check, no CanCommunicate queries — just the health SELECT.
+	mock.ExpectQuery(`SELECT id, name, enabled, last_run_at, next_run_at, run_count, last_status, last_error\s+FROM workspace_schedules`).
+		WithArgs(healthWorkspaceID).
+		WillReturnRows(sqlmock.NewRows(healthCols).
+			AddRow("sched-3", "weekly", false, nil, &now, 0, "", ""))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: healthWorkspaceID}}
+	req := httptest.NewRequest("GET", "/workspaces/"+healthWorkspaceID+"/schedules/health", nil)
+	req.Header.Set("X-Workspace-ID", "system:monitor")
+	c.Request = req
+
+	handler.Health(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for system caller, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// TestScheduleHealth_NoPromptExposed verifies that the health response never
+// includes prompt or cron_expr — only execution-state fields are returned.
+func TestScheduleHealth_NoPromptExposed(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewScheduleHandler()
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	// No token check, no CanCommunicate queries for system caller.
+	mock.ExpectQuery(`SELECT id, name, enabled, last_run_at, next_run_at, run_count, last_status, last_error\s+FROM workspace_schedules`).
+		WithArgs(healthWorkspaceID).
+		WillReturnRows(sqlmock.NewRows(healthCols).
+			AddRow("sched-4", "daily", true, &now, &now, 3, "ok", ""))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: healthWorkspaceID}}
+	req := httptest.NewRequest("GET", "/workspaces/"+healthWorkspaceID+"/schedules/health", nil)
+	req.Header.Set("X-Workspace-ID", "system:test")
+	c.Request = req
+
+	handler.Health(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	rawBody := w.Body.String()
+	for _, forbidden := range []string{"prompt", "cron_expr", "timezone"} {
+		if strings.Contains(rawBody, forbidden) {
+			t.Errorf("health response must not contain %q field: %s", forbidden, rawBody)
+		}
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+// TestScheduleHealth_DBError_Returns500 verifies that a DB failure on the health
+// SELECT produces a 500, not a panic.
+func TestScheduleHealth_DBError_Returns500(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewScheduleHandler()
+
+	// No token check, no CanCommunicate queries for system caller.
+	mock.ExpectQuery(`SELECT id, name, enabled, last_run_at, next_run_at, run_count, last_status, last_error\s+FROM workspace_schedules`).
+		WithArgs(healthWorkspaceID).
+		WillReturnError(sql.ErrConnDone)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: healthWorkspaceID}}
+	req := httptest.NewRequest("GET", "/workspaces/"+healthWorkspaceID+"/schedules/health", nil)
+	req.Header.Set("X-Workspace-ID", "system:test")
+	c.Request = req
+
+	handler.Health(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on DB error, got %d: %s", w.Code, w.Body.String())
+	}
+
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
 	}
