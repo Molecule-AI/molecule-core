@@ -2,6 +2,8 @@
 
 Search platforms for relevant posts about renovation and Vancouver. Draft replies for approval, then publish approved replies.
 
+> **HARD RULE — NEVER FREESTYLE PUPPETEER.** When a reply escalates into publishing a new post (reel, story, video comment with attached media), delegate to the `social-publish` skill: `node org-templates/reno-stars/marketing-leader/skills/social-publish/scripts/<platform>-publish.cjs <media> "<caption>"`. Exit codes and lessons baked in: `org-templates/reno-stars/marketing-leader/skills/social-publish/SKILL.md`. For text-only comments (the common case), the existing per-platform comment flows in this skill still apply.
+
 ## HONESTY RULE (CRITICAL)
 All engagement replies must be truthful. Only reference real data from the website, database, or owner-provided information.
 - Do NOT guess prices, timelines, or project details. If you don't have real data, say "it varies" or "hard to say without seeing the space".
