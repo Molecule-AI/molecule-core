@@ -290,12 +290,15 @@ async def main():  # pragma: no cover
     from starlette.routing import Route
 
     async def _transcript_handler(request):
-        # No bearer check here — same model as POST / (A2A): the workspace's
-        # HTTP server only listens on the internal Docker network, and the
-        # platform's TranscriptHandler is the only intended caller. Phase 30
-        # remote workspaces will need a proper auth story (TODO #N) — likely
-        # the existing wsauth bearer, but with a callback to the platform to
-        # validate (since the workspace doesn't see all live tokens).
+        # Require workspace bearer token — the same token issued at registration
+        # and stored in /configs/.auth_token. Any container on molecule-monorepo-net
+        # could otherwise read the full session log. Closes #287.
+        from platform_auth import get_token
+        expected = get_token()
+        if expected:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header != f"Bearer {expected}":
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
         try:
             since = int(request.query_params.get("since", "0"))
             limit = int(request.query_params.get("limit", "100"))
