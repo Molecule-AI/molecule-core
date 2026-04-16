@@ -7,6 +7,8 @@ When responding to DMs or comments on behalf of Reno Stars, only state facts you
 
 > **READ FIRST**: `~/.claude/skills/social-media-post/SKILL.md` and memory `feedback_social_media_platforms.md` for all platform quirks. **Reddit is PAUSED until 2026-04-21** (see Reddit section below) — skip it entirely.
 >
+> **For any reply publish that triggers a full new post** (e.g. responding to a DM by publishing a fresh video): use the `social-publish` helpers — `node org-templates/reno-stars/marketing-leader/skills/social-publish/scripts/<platform>-publish.cjs`. See that skill's SKILL.md for exit codes. Never freestyle puppeteer for social publishing.
+>
 > **Telegram approval flow note**: when you receive an ambiguous short message ("reply all", "approve", "yes"), ALWAYS check `~/.openclaw/workspace/social/pending-replies.json` and the most recent log in `~/reno-star-business-intelligent/data/cron-logs/` BEFORE asking the user "what?". Telegram Bot API has no message history; the cron's outbound message lives only on disk. (Confirmed user frustration with this on 2026-04-07.)
 
 ## Config
