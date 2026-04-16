@@ -121,6 +121,66 @@ func TestFindTemplateByName_InvalidDir(t *testing.T) {
 	}
 }
 
+// ==================== resolveOrgTemplate ====================
+
+// TestResolveOrgTemplate_HitByDirName verifies the happy path: org-templates/<role>
+// dir exists with a normalized name match.
+func TestResolveOrgTemplate_HitByDirName(t *testing.T) {
+	configsDir := t.TempDir()
+	orgDir := filepath.Join(configsDir, "org-templates")
+	roleDir := filepath.Join(orgDir, "technical-researcher")
+	os.MkdirAll(roleDir, 0755)
+
+	path, label := resolveOrgTemplate(configsDir, "Technical Researcher")
+	if path != roleDir {
+		t.Errorf("expected path %q, got %q", roleDir, path)
+	}
+	if label != "org-templates/technical-researcher" {
+		t.Errorf("expected label %q, got %q", "org-templates/technical-researcher", label)
+	}
+}
+
+// TestResolveOrgTemplate_HitByConfigYAML verifies the config.yaml name-field
+// fallback works when the dir name doesn't match the workspace name directly.
+func TestResolveOrgTemplate_HitByConfigYAML(t *testing.T) {
+	configsDir := t.TempDir()
+	orgDir := filepath.Join(configsDir, "org-templates")
+	roleDir := filepath.Join(orgDir, "org-backend")
+	os.MkdirAll(roleDir, 0755)
+	os.WriteFile(filepath.Join(roleDir, "config.yaml"), []byte("name: Backend Engineer\n"), 0644)
+
+	path, label := resolveOrgTemplate(configsDir, "Backend Engineer")
+	if path != roleDir {
+		t.Errorf("expected path %q, got %q", roleDir, path)
+	}
+	if label != "org-templates/org-backend" {
+		t.Errorf("expected label %q, got %q", "org-templates/org-backend", label)
+	}
+}
+
+// TestResolveOrgTemplate_NoOrgTemplatesDir returns empty when the org-templates
+// directory does not exist.
+func TestResolveOrgTemplate_NoOrgTemplatesDir(t *testing.T) {
+	configsDir := t.TempDir() // no org-templates subdir created
+
+	path, label := resolveOrgTemplate(configsDir, "Technical Researcher")
+	if path != "" || label != "" {
+		t.Errorf("expected empty, got path=%q label=%q", path, label)
+	}
+}
+
+// TestResolveOrgTemplate_NoMatchInOrgTemplates returns empty when org-templates
+// exists but has no entry matching the workspace name.
+func TestResolveOrgTemplate_NoMatchInOrgTemplates(t *testing.T) {
+	configsDir := t.TempDir()
+	os.MkdirAll(filepath.Join(configsDir, "org-templates", "seo-agent"), 0755)
+
+	path, label := resolveOrgTemplate(configsDir, "Backend Engineer")
+	if path != "" || label != "" {
+		t.Errorf("expected empty, got path=%q label=%q", path, label)
+	}
+}
+
 // ==================== ensureDefaultConfig ====================
 
 func TestEnsureDefaultConfig_LangGraph(t *testing.T) {
