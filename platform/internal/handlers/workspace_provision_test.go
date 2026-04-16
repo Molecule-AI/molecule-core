@@ -1,13 +1,16 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/models"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
 	"gopkg.in/yaml.v3"
 )
 
@@ -592,6 +595,164 @@ func TestBuildProvisionerConfig_WorkspacePathFromEnv(t *testing.T) {
 	}
 	if cfg.AwarenessURL != "http://awareness:37800" {
 		t.Errorf("expected AwarenessURL from env, got %q", cfg.AwarenessURL)
+	}
+}
+
+// ==================== issueAndInjectToken (issue #418) ====================
+
+// TestIssueAndInjectToken_HappyPath verifies that on a normal (re)provision the
+// helper revokes existing tokens, issues a fresh one, and injects the plaintext
+// into cfg.ConfigFiles[".auth_token"].
+func TestIssueAndInjectToken_HappyPath(t *testing.T) {
+	mock := setupTestDB(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	// RevokeAllForWorkspace UPDATE (0 rows — no prior tokens, still succeeds)
+	mock.ExpectExec(`UPDATE workspace_auth_tokens SET revoked_at`).
+		WithArgs("ws-418-happy").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	// IssueToken INSERT
+	mock.ExpectExec(`INSERT INTO workspace_auth_tokens`).
+		WithArgs("ws-418-happy", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	cfg := provisioner.WorkspaceConfig{}
+	handler.issueAndInjectToken(context.Background(), "ws-418-happy", &cfg)
+
+	tok, ok := cfg.ConfigFiles[".auth_token"]
+	if !ok {
+		t.Fatal("expected .auth_token in ConfigFiles after injection")
+	}
+	if len(tok) == 0 {
+		t.Error("expected non-empty token bytes in ConfigFiles[.auth_token]")
+	}
+	// Plaintext should be a valid base64url-encoded string (43 chars for 32 random bytes)
+	if len(tok) != 43 {
+		t.Errorf("expected 43-char token, got %d chars: %q", len(tok), tok)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet SQL expectations: %v", err)
+	}
+}
+
+// TestIssueAndInjectToken_RotatesExistingToken verifies that when a workspace
+// already has a live token (the rebuild scenario), the helper revokes it before
+// issuing a fresh one so we never accumulate stale live tokens in the DB.
+func TestIssueAndInjectToken_RotatesExistingToken(t *testing.T) {
+	mock := setupTestDB(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	// RevokeAllForWorkspace: 1 existing token revoked
+	mock.ExpectExec(`UPDATE workspace_auth_tokens SET revoked_at`).
+		WithArgs("ws-418-rotate").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	// IssueToken INSERT for the new token
+	mock.ExpectExec(`INSERT INTO workspace_auth_tokens`).
+		WithArgs("ws-418-rotate", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	cfg := provisioner.WorkspaceConfig{
+		ConfigFiles: map[string][]byte{
+			"config.yaml": []byte("name: test\n"),
+		},
+	}
+	handler.issueAndInjectToken(context.Background(), "ws-418-rotate", &cfg)
+
+	// Existing config file must still be present
+	if _, ok := cfg.ConfigFiles["config.yaml"]; !ok {
+		t.Error("issueAndInjectToken must not remove existing ConfigFiles entries")
+	}
+
+	tok, ok := cfg.ConfigFiles[".auth_token"]
+	if !ok {
+		t.Fatal("expected .auth_token in ConfigFiles after rotation")
+	}
+	if len(tok) == 0 {
+		t.Error("expected non-empty rotated token")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet SQL expectations: %v", err)
+	}
+}
+
+// TestIssueAndInjectToken_RevokeFailSkipsInjection verifies that a DB error on
+// the revoke step causes the helper to skip injection entirely — we must never
+// issue a token that can't be delivered to the workspace, nor leave a second
+// live token that the old file might accidentally present.
+func TestIssueAndInjectToken_RevokeFailSkipsInjection(t *testing.T) {
+	mock := setupTestDB(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectExec(`UPDATE workspace_auth_tokens SET revoked_at`).
+		WithArgs("ws-418-revoke-fail").
+		WillReturnError(fmt.Errorf("db: connection lost"))
+
+	// No INSERT should follow
+	cfg := provisioner.WorkspaceConfig{}
+	handler.issueAndInjectToken(context.Background(), "ws-418-revoke-fail", &cfg)
+
+	if _, ok := cfg.ConfigFiles[".auth_token"]; ok {
+		t.Error("token must NOT be injected when revoke fails")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet SQL expectations: %v", err)
+	}
+}
+
+// TestIssueAndInjectToken_IssueFailSkipsInjection verifies that a DB error on
+// IssueToken also skips injection without panicking.
+func TestIssueAndInjectToken_IssueFailSkipsInjection(t *testing.T) {
+	mock := setupTestDB(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectExec(`UPDATE workspace_auth_tokens SET revoked_at`).
+		WithArgs("ws-418-issue-fail").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	mock.ExpectExec(`INSERT INTO workspace_auth_tokens`).
+		WithArgs("ws-418-issue-fail", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnError(fmt.Errorf("db: constraint violation"))
+
+	cfg := provisioner.WorkspaceConfig{}
+	handler.issueAndInjectToken(context.Background(), "ws-418-issue-fail", &cfg)
+
+	if _, ok := cfg.ConfigFiles[".auth_token"]; ok {
+		t.Error("token must NOT be injected when IssueToken fails")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet SQL expectations: %v", err)
+	}
+}
+
+// TestIssueAndInjectToken_NilConfigFilesAllocated verifies that a nil
+// ConfigFiles map is allocated before the token is written.
+func TestIssueAndInjectToken_NilConfigFilesAllocated(t *testing.T) {
+	mock := setupTestDB(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectExec(`UPDATE workspace_auth_tokens SET revoked_at`).
+		WithArgs("ws-418-nil-cfg").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	mock.ExpectExec(`INSERT INTO workspace_auth_tokens`).
+		WithArgs("ws-418-nil-cfg", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	cfg := provisioner.WorkspaceConfig{} // ConfigFiles intentionally nil
+	handler.issueAndInjectToken(context.Background(), "ws-418-nil-cfg", &cfg)
+
+	if cfg.ConfigFiles == nil {
+		t.Fatal("ConfigFiles must be allocated when nil before writing token")
+	}
+	if _, ok := cfg.ConfigFiles[".auth_token"]; !ok {
+		t.Error("expected .auth_token to be present after allocation")
 	}
 }
 
