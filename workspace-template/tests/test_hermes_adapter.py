@@ -48,22 +48,33 @@ class TestHermesShellLayout:
     def test_directory_exists(self):
         assert HERMES_DIR.is_dir(), "adapters/hermes/ directory is missing"
 
+    @pytest.mark.skip(
+        reason="Dockerfile moved to molecule-ai-workspace-template-hermes standalone repo"
+    )
     def test_dockerfile_present(self):
         assert (HERMES_DIR / "Dockerfile").is_file(), "Dockerfile missing from hermes shell"
 
     def test_init_py_present(self):
         assert (HERMES_DIR / "__init__.py").is_file(), "__init__.py missing from hermes shell"
 
+    @pytest.mark.skip(
+        reason="requirements.txt moved to molecule-ai-workspace-template-hermes standalone repo"
+    )
     def test_requirements_txt_present(self):
         assert (HERMES_DIR / "requirements.txt").is_file(), "requirements.txt missing"
 
 
 # ---------------------------------------------------------------------------
 # 2. requirements.txt — primary dependency contract
+# NOTE: requirements.txt has moved to the standalone template repo.
+# The source-of-truth checks below are now in that repo's own test suite.
 # ---------------------------------------------------------------------------
 
 class TestHermesRequirements:
 
+    @pytest.mark.skip(
+        reason="requirements.txt moved to molecule-ai-workspace-template-hermes standalone repo"
+    )
     def test_openai_version_pin(self):
         text = (HERMES_DIR / "requirements.txt").read_text()
         assert "openai>=1.0.0" in text, (
@@ -71,6 +82,9 @@ class TestHermesRequirements:
             "the Hermes adapter relies on the OpenAI-compat client for Nous Portal / OpenRouter."
         )
 
+    @pytest.mark.skip(
+        reason="requirements.txt moved to molecule-ai-workspace-template-hermes standalone repo"
+    )
     def test_no_heavy_framework_deps(self):
         """PR-1 shell must not introduce heavy deps that aren't committed to yet."""
         text = (HERMES_DIR / "requirements.txt").read_text().lower()
