@@ -3,8 +3,11 @@ package handlers
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/scheduler"
 )
 
 func TestOrgDefaults_InitialPrompt_YAMLParsing(t *testing.T) {
@@ -600,5 +603,50 @@ func TestPlugins_BackwardCompat(t *testing.T) {
 	want := []string{"a", "b", "c"}
 	if !eqStringSlice(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// ── TestOrgImport_ScheduleComputeError (#722 Bug 2) ───────────────────────────
+//
+// The org importer previously used `nextRun, _ := scheduler.ComputeNextRun(...)`,
+// discarding the error and passing time.Time{} (zero value) to the INSERT.
+// After fix #722 it surfaces the error and skips the INSERT via `continue`.
+//
+// This test verifies that the inputs an org.yaml schedule can supply (bad cron
+// expression, invalid timezone) DO cause ComputeNextRun to return a non-nil
+// error — confirming that the fix is meaningful and the skip path is reachable.
+
+func TestOrgImport_ScheduleComputeError(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		name     string
+		cronExpr string
+		tz       string
+	}{
+		{
+			name:     "invalid cron expression",
+			cronExpr: "not-a-cron-expr",
+			tz:       "UTC",
+		},
+		{
+			name:     "invalid timezone",
+			cronExpr: "0 9 * * 1",
+			tz:       "Not/A/Valid/Timezone",
+		},
+		{
+			name:     "both invalid",
+			cronExpr: "every monday",
+			tz:       "Moon/Far_Side",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := scheduler.ComputeNextRun(tc.cronExpr, tc.tz, now)
+			if err == nil {
+				t.Errorf("ComputeNextRun(%q, %q) returned nil error — "+
+					"org importer would silently insert zero next_run_at; #722 fix requires non-nil",
+					tc.cronExpr, tc.tz)
+			}
+		})
 	}
 }
