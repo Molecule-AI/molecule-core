@@ -199,6 +199,52 @@ func TestCSPCanvasRoutesGetPermissivePolicy(t *testing.T) {
 	}
 }
 
+// TestSecurityHeaders_614_NosniffOnSSEAndAPIEndpoints is the acceptance test for
+// issue #614 — verifies X-Content-Type-Options: nosniff and X-Frame-Options: DENY
+// are present on API and SSE paths. SecurityHeaders() was already wired globally
+// in router.go (issue #151), so this test pins that contract against regression.
+func TestSecurityHeaders_614_NosniffOnSSEAndAPIEndpoints(t *testing.T) {
+	r := gin.New()
+	r.Use(SecurityHeaders())
+
+	// Register a sample of high-value endpoints that #614 flagged.
+	r.GET("/workspaces/ws-1/events/stream", func(c *gin.Context) {
+		c.Header("Content-Type", "text/event-stream")
+		c.String(http.StatusOK, "data: ping\n\n")
+	})
+	r.GET("/settings/secrets", func(c *gin.Context) {
+		c.JSON(http.StatusOK, nil)
+	})
+	r.GET("/events/ws-1", func(c *gin.Context) {
+		c.JSON(http.StatusOK, nil)
+	})
+	r.GET("/orgs/org-1/plugins/allowlist", func(c *gin.Context) {
+		c.JSON(http.StatusOK, nil)
+	})
+
+	paths := []string{
+		"/workspaces/ws-1/events/stream",
+		"/settings/secrets",
+		"/events/ws-1",
+		"/orgs/org-1/plugins/allowlist",
+	}
+
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(http.MethodGet, path, nil)
+			r.ServeHTTP(w, req)
+
+			if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+				t.Errorf("#614 %s: X-Content-Type-Options = %q, want nosniff", path, got)
+			}
+			if got := w.Header().Get("X-Frame-Options"); got != "DENY" {
+				t.Errorf("#614 %s: X-Frame-Options = %q, want DENY", path, got)
+			}
+		})
+	}
+}
+
 // TestIsAPIPath unit-tests the path classifier directly.
 func TestIsAPIPath(t *testing.T) {
 	cases := []struct {
@@ -221,6 +267,8 @@ func TestIsAPIPath(t *testing.T) {
 		{"/ws", true},
 		{"/events", true},
 		{"/approvals", true},
+		{"/orgs", true},                          // #610 allowlist routes
+		{"/orgs/org-1/plugins/allowlist", true},
 		// Sub-paths
 		{"/workspaces/abc-123", true},
 		{"/workspaces/abc-123/state", true},
