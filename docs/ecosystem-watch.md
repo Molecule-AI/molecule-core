@@ -647,6 +647,21 @@ snapshots:
       audit ledger reference for governance canvas (#582). Integration
       opportunity — not a direct competitor.
     source_url: https://github.com/EvoMap/evolver/releases
+
+  - name: AI Hedge Fund
+    slug: ai-hedge-fund
+    date: "2026-04-17"
+    version: "n/a"
+    stars: "55.7k"
+    threat_level: low
+    notable_changes: >
+      +763 stars today (Apr 17 2026); reference multi-agent system with 19
+      specialized financial-analysis agents (portfolio manager, risk manager,
+      bear/bull analysts, sector specialists) collaborating on stock analysis
+      and trading signals; supports Ollama local LLMs and cloud providers;
+      high-visibility demand signal for domain-specific multi-agent
+      orchestration; not a competing platform — a reference implementation.
+    source_url: https://github.com/virattt/ai-hedge-fund
 ```
 
 ---
@@ -2535,6 +2550,26 @@ langgraph/crewai adapters.
 **Signals to react to:** EvoMap Hub paid-tier adoption → agentskills.io competitive signal. Docker container isolation added → escalate to MEDIUM.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 3,327 ⭐, +812 today, v1.67.1, 351 forks
+
+---
+
+### AI Hedge Fund — `virattt/ai-hedge-fund`
+
+**Pitch:** "An autonomous AI team of 19 specialized agents designed for financial analysis and trading signal generation."
+
+**Shape:** Python (MIT), ~55.7k ⭐, +763 stars on 2026-04-17. Reference implementation, not a framework. 19 hard-coded agent roles: portfolio manager, risk manager, bull/bear analysts, sector specialists (tech, healthcare, consumer, energy, financials). Each agent is a prompted LLM call with a defined scope; the portfolio manager orchestrates. Supports Ollama (local LLMs), OpenAI, Anthropic, and Google cloud providers via a `--llm` flag. No persistent state, no Docker isolation, no scheduling, no plugin system.
+
+**Overlap with us:** Demonstrates domain-specific multi-agent collaboration at scale: 19 agents with distinct roles, a coordinator, shared context. The role taxonomy (risk manager, specialist analysts, coordinator) maps cleanly onto our workspace hierarchy (PM + specialist worker workspaces). High star count signals strong enterprise demand for vertical-specific agent orchestration in finance — a key Molecule AI ICP.
+
+**Differentiation:** Not a platform. No workspace lifecycle, no A2A, no canvas, no governance, no multi-tenant. A demo/reference implementation that shows what customers will try to build on Molecule AI. The gap between this repo and a production system is exactly the gap Molecule AI fills.
+
+**Worth borrowing:** The role taxonomy is a compelling sales reference: "here's a 19-agent financial analysis team running on Molecule AI" is a concrete enterprise demo. Consider shipping an `ai-hedge-fund` org template that reproduces this architecture on Molecule AI's canvas with proper workspace isolation and A2A coordination.
+
+**Terminology collisions:** "Portfolio manager" = their coordinator agent; we'd map this to a PM workspace. "Analysts" = specialist worker workspaces.
+
+**Signals to react to:** If the repo adds a framework layer (reusable agent registry, scheduling, persistence) → escalate to MEDIUM. If finance-sector enterprises request a hedge-fund template → ship one.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 55,750 ⭐, +763 today, MIT
 
 ---
 
