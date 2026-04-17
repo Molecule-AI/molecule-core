@@ -292,6 +292,17 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		// WorkspaceAuth middleware (on wsAuth) binds the bearer to :id.
 		mtrh := handlers.NewMetricsHandler()
 		wsAuth.GET("/metrics", mtrh.GetMetrics)
+
+		// Cloudflare Artifacts demo integration (#595).
+		// All four routes require workspace-scoped bearer auth (wsAuth).
+		// CF credentials read from CF_ARTIFACTS_API_TOKEN / CF_ARTIFACTS_NAMESPACE;
+		// missing credentials return 503 so the handler still registers in
+		// every deployment — the demo is gated on env vars, not compilation.
+		arth := handlers.NewArtifactsHandler()
+		wsAuth.POST("/artifacts", arth.Create)
+		wsAuth.GET("/artifacts", arth.Get)
+		wsAuth.POST("/artifacts/fork", arth.Fork)
+		wsAuth.POST("/artifacts/token", arth.Token)
 	}
 
 	// Global secrets — /settings/secrets is the canonical path; /admin/secrets kept for backward compat.
