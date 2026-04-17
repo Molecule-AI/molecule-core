@@ -524,6 +524,46 @@ snapshots:
       50+ AI tools (Claude Code, Codex, OpenClaw, Cursor) via symlinks; reference
       design for cross-tool skill distribution; direct overlap with our plugins/.
     source_url: https://github.com/runkids/skillshare/releases
+
+  - name: Compound Engineering Plugin
+    slug: compound-engineering-plugin
+    date: "2026-04-17"
+    version: "v2.66.1"
+    stars: "14.5k"
+    threat_level: low
+    notable_changes: >
+      v2.66.1 (Apr 16 2026); TypeScript CLI distributes one plugin to 12 AI
+      runtimes simultaneously (Claude Code, Cursor, Codex, OpenClaw, Gemini,
+      Kiro, Windsurf, etc.); competing multi-runtime distribution mechanism
+      vs. our agentskills.io plugin portability strategy; 103 stars gained today.
+    source_url: https://github.com/EveryInc/compound-engineering-plugin/releases
+
+  - name: EDDI
+    slug: eddi
+    date: "2026-04-17"
+    version: "v6.0.1"
+    stars: "296"
+    threat_level: low
+    notable_changes: >
+      Show HN Apr 17 2026; config-driven multi-agent orchestration (Java/Quarkus)
+      with A2A, cron scheduling, Ed25519 cryptographic agent identity,
+      GDPR/HIPAA posture, HMAC-SHA256 immutable audit ledger, 12 LLM providers +
+      MCP; reference design for compliance-guardrails audit trail posture.
+    source_url: https://github.com/labsai/EDDI/releases
+
+  - name: Cloudflare Artifacts
+    slug: cloudflare-artifacts
+    date: "2026-04-17"
+    version: "beta"
+    stars: "N/A"
+    threat_level: low
+    notable_changes: >
+      Apr 16 2026 private beta; Git-compatible versioned workspace storage
+      for agents (programmatic repo create/fork/clone/diff, ~100KB Zig+WASM
+      Git engine) on Cloudflare Durable Objects; ArtifactFS driver open-sourced;
+      infrastructure watch — escalate to MEDIUM if Cloudflare Agents SDK
+      integrates Artifacts as a managed workspace-persistence layer.
+    source_url: https://blog.cloudflare.com/artifacts-git-for-agents-beta/
 ```
 
 ---
@@ -2252,3 +2292,57 @@ langgraph/crewai adapters.
 **Signals to react to:** If Skillshare adds a server-side shared registry (teams publish skills to a central endpoint) → direct overlap with our plugin registry governance gap that Archestra's MCP registry addresses. If it reaches 10k⭐ → signals the SKILL.md format is becoming a community standard; we should ensure full compatibility.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** ~1.5k ⭐, v0.19.2, April 14, 2026
+
+---
+
+### Compound Engineering Plugin — `EveryInc/compound-engineering-plugin`
+
+**Pitch:** "One plugin, 12 runtimes — a CLI that converts a single engineering workflow plugin (brainstorm → plan → work → review) into the correct format for Claude Code, Cursor, Codex, OpenClaw, Gemini CLI, Kiro, Windsurf, Factory Droid, Pi, GitHub Copilot, Qwen, and more simultaneously."
+
+**Shape:** TypeScript (MIT), ~14.5k ⭐, v2.66.1 April 16, 2026. 97 total releases — high-cadence active project. Core mechanism: single `plugin.yaml`-style source → CLI transpiles to each runtime's native config format on `compound install`.
+
+**Overlap with us:** Direct overlap with our plugin portability strategy and `agentskills.io` multi-runtime adapter pattern. We use per-runtime `adapters/<runtime>.py` files inside each plugin; Compound uses a CLI converter to generate runtime-native output from one source file. Both solve "write once, run on any agent runtime." If Compound's converter becomes the community standard distribution path, plugin authors may bypass the Molecule AI registry entirely and publish via Compound's 12-runtime CLI instead.
+
+**Differentiation:** Compound is a distribution/packaging tool, not an orchestration platform. No A2A, no workspace lifecycle, no cron, no canvas. Purely a plugin publishing mechanism.
+
+**Worth borrowing:** The `compound install <repo>` one-command UX — simpler than our `{"source":"github://org/repo"}` JSON body. Consider adding a `molecli plugin install <github-url>` shorthand that accepts the same GitHub URLs Compound uses.
+
+**Signals to react to:** If Compound adds a server-side plugin registry (publish once, discoverable by runtime) → direct threat to our `plugins/` registry as the canonical source. If the 12-runtime list adds `molecule-ai` → free inbound distribution channel; reach out to EveryInc.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ~14.5k ⭐, v2.66.1, April 16, 2026
+
+---
+
+### EDDI — `labsai/EDDI`
+
+**Pitch:** "Config-driven multi-agent orchestration middleware — intelligent routing between users, agents, and business systems where agent logic lives in JSON, not code."
+
+**Shape:** Java 25 + Quarkus (Apache 2.0), ~296 ⭐, v6.0.1, 44 releases. Ships as Docker Compose + Kubernetes manifests. First HN exposure April 17, 2026 (Show HN, early traction). Five enterprise-grade capabilities: Ed25519 cryptographic agent identity per agent, HMAC-SHA256 immutable audit ledger, GDPR/HIPAA-compliant infrastructure, secrets vault with envelope encryption, group conversations with 5 configurable discussion styles.
+
+**Overlap with us:** Hits five of six Molecule AI orchestration criteria — A2A, cron scheduling, persistent agent identity, self-hostable, model-agnostic (12 LLM providers + MCP). Only gap: no visual canvas. The immutable HMAC audit ledger and GDPR/HIPAA posture directly target the regulated-vertical ICP we sharpened in the #572/#582 market research.
+
+**Differentiation:** Config-only (JSON) — no graph UI, no org-chart canvas, no Docker workspace isolation per agent. Java stack limits the overlap community; 296 stars = low current traction. Not a near-term competitive threat.
+
+**Worth borrowing:** The HMAC-SHA256 immutable audit ledger design — every agent action is cryptographically chained so no event can be silently deleted. Relevant to the `compliance-guardrails` plugin spec (staged issue C) and enterprise procurement posture. Also: Ed25519 per-agent signing as a stronger identity mechanism than our current bearer token model.
+
+**Signals to react to:** If EDDI gains traction (>5k⭐) or ships a visual canvas → reassess threat level. If the HMAC audit ledger pattern gets cited by enterprise compliance auditors as a requirement → accelerate `compliance-guardrails` plugin and add cryptographic chaining to `activity_logs`.
+
+**Last reviewed:** 2026-04-17 (Show HN) · **Stars / activity:** ~296 ⭐, v6.0.1, Java/Quarkus
+
+---
+
+### Cloudflare Artifacts — `blog.cloudflare.com/artifacts-git-for-agents-beta`
+
+**Pitch:** "Git for agents — programmatic versioned storage built for agentic workflows: create repos, fork, clone, diff, and branch from code, with Durable Objects durability and ~100KB Zig+WASM Git engine."
+
+**Shape:** Cloudflare proprietary service (ArtifactFS driver open-sourced), private beta April 16, 2026 — public beta targeted early May 2026. Pricing: $0.15/1k ops (10k/month free), $0.50/GB-month (1 GB free). Not a framework — an infrastructure primitive.
+
+**Overlap with us:** Not an orchestration platform and does not compete with Molecule AI directly today. Relevant as a new workspace-persistence primitive: any competitor (Paperclip, Scion, VoltAgent) could wire Cloudflare Artifacts into their agent workspace layer to get Git-semantics workspace snapshots cheaper than our current Docker volume + CLAUDE.md prose approach. The fork/clone/diff semantics are a more principled snapshot model than our current `snapshot_id` pattern.
+
+**Differentiation:** Storage primitive only — no agent identity, no A2A, no scheduling, no canvas. Requires Cloudflare Workers; not self-hostable on arbitrary infra.
+
+**Worth borrowing:** The `fork()` → `work` → `diff()` → `merge()` lifecycle as a model for workspace snapshot/resume — cleaner than our current lossy prose injection into CLAUDE.md (#583). If ArtifactFS driver becomes usable standalone (non-Cloudflare backend), consider as a replacement for Docker volume snapshots.
+
+**Signals to react to:** If Cloudflare Agents SDK integrates Artifacts as a built-in workspace-persistence layer → escalate to MEDIUM; Cloudflare would then offer a managed Docker+Git workspace alternative to Molecule AI. If `snapshot_id` semantics become standard across the ecosystem → accelerate #583.
+
+**Last reviewed:** 2026-04-17 (private beta announcement) · **Stars / activity:** infrastructure service, ArtifactFS driver OSS
