@@ -254,9 +254,9 @@ func (h *RegistryHandler) Heartbeat(c *gin.Context) {
 	// refresh last_heartbeat_at on a tombstoned workspace (which would
 	// otherwise confuse the liveness monitor).
 	//
-	// monthly_spend: updated only when the agent reports a positive value
-	// (cumulative USD cents for the current month). Zero means "no update"
-	// — never write zero to avoid clearing a previously-reported spend.
+	// monthly_spend: updated when the agent reports a positive value (cumulative
+	// USD cents for the current month). Zero means "no update" — never write
+	// zero to avoid accidentally clearing a previously-reported spend value.
 	var err error
 	if payload.MonthlySpend > 0 {
 		_, err = db.DB.ExecContext(ctx, `

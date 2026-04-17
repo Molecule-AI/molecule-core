@@ -203,6 +203,33 @@ func (h *WorkspaceHandler) ProxyA2A(c *gin.Context) {
 	c.Data(status, "application/json", respBody)
 }
 
+// checkWorkspaceBudget returns a proxyA2AError with 402 when the workspace
+// has a budget_limit set and monthly_spend has reached or exceeded it.
+// DB errors are logged and treated as fail-open — a budget check failure
+// must not block legitimate A2A traffic.
+func (h *WorkspaceHandler) checkWorkspaceBudget(ctx context.Context, workspaceID string) *proxyA2AError {
+	var budgetLimit sql.NullInt64
+	var monthlySpend int64
+	err := db.DB.QueryRowContext(ctx,
+		`SELECT budget_limit, COALESCE(monthly_spend, 0) FROM workspaces WHERE id = $1`,
+		workspaceID,
+	).Scan(&budgetLimit, &monthlySpend)
+	if err != nil {
+		if err != sql.ErrNoRows {
+			log.Printf("ProxyA2A: budget check failed for %s: %v", workspaceID, err)
+		}
+		return nil // fail-open
+	}
+	if budgetLimit.Valid && monthlySpend >= budgetLimit.Int64 {
+		log.Printf("ProxyA2A: budget exceeded for %s (spend=%d limit=%d)", workspaceID, monthlySpend, budgetLimit.Int64)
+		return &proxyA2AError{
+			Status:   http.StatusPaymentRequired,
+			Response: gin.H{"error": "workspace budget limit exceeded"},
+		}
+	}
+	return nil
+}
+
 func (h *WorkspaceHandler) proxyA2ARequest(ctx context.Context, workspaceID string, body []byte, callerID string, logActivity bool) (int, []byte, *proxyA2AError) {
 	// Access control: workspace-to-workspace requests must pass CanCommunicate check.
 	// Canvas requests (callerID == "") and system callers (webhook:*, system:*, test:*)
@@ -215,6 +242,14 @@ func (h *WorkspaceHandler) proxyA2ARequest(ctx context.Context, workspaceID stri
 				Response: gin.H{"error": "access denied: workspaces cannot communicate per hierarchy rules"},
 			}
 		}
+	}
+
+	// Budget enforcement: reject A2A calls when the workspace has exceeded its
+	// monthly spend ceiling. Checked after access control so unauthorized calls
+	// are rejected first (403 > 429 in the denial hierarchy). Fail-open on DB
+	// errors so a budget check failure never blocks legitimate traffic.
+	if proxyErr := h.checkWorkspaceBudget(ctx, workspaceID); proxyErr != nil {
+		return 0, nil, proxyErr
 	}
 
 	agentURL, proxyErr := h.resolveAgentURL(ctx, workspaceID)
@@ -251,6 +286,12 @@ func (h *WorkspaceHandler) proxyA2ARequest(ctx context.Context, workspaceID stri
 	if logActivity {
 		h.logA2ASuccess(ctx, workspaceID, callerID, body, respBody, a2aMethod, resp.StatusCode, durationMs)
 	}
+
+	// Track LLM token usage for cost transparency (#593).
+	// Fires in a detached goroutine so token accounting never adds latency
+	// to the critical A2A path.
+	go extractAndUpsertTokenUsage(context.WithoutCancel(ctx), workspaceID, respBody)
+
 	return resp.StatusCode, respBody, nil
 }
 
@@ -577,3 +618,65 @@ func validateCallerToken(ctx context.Context, c *gin.Context, callerID string) e
 // token" branch so the handler-level guard can detect it without string
 // matching (the wsauth errors are typed for the invalid case).
 var errInvalidCallerToken = errors.New("missing caller auth token")
+
+// extractAndUpsertTokenUsage parses LLM usage from a raw A2A response body
+// and persists it via upsertTokenUsage. Safe to call in a goroutine — logs
+// errors but never panics. ctx must already be detached from the request.
+func extractAndUpsertTokenUsage(ctx context.Context, workspaceID string, respBody []byte) {
+	in, out := parseUsageFromA2AResponse(respBody)
+	if in > 0 || out > 0 {
+		upsertTokenUsage(ctx, workspaceID, in, out)
+	}
+}
+
+// parseUsageFromA2AResponse extracts input_tokens / output_tokens from an A2A
+// JSON-RPC response. Inspects two locations in order of preference:
+//  1. result.usage — the JSON-RPC 2.0 result envelope from workspace agents.
+//  2. usage — top-level, for non-JSON-RPC or direct Anthropic-shaped payloads.
+//
+// Returns (0, 0) when no recognisable usage data is found.
+func parseUsageFromA2AResponse(body []byte) (inputTokens, outputTokens int64) {
+	if len(body) == 0 {
+		return 0, 0
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(body, &top); err != nil {
+		return 0, 0
+	}
+
+	// 1. result.usage (JSON-RPC 2.0 wrapper produced by workspace agents).
+	if rawResult, ok := top["result"]; ok {
+		var result map[string]json.RawMessage
+		if err := json.Unmarshal(rawResult, &result); err == nil {
+			if in, out, ok := readUsageMap(result); ok {
+				return in, out
+			}
+		}
+	}
+
+	// 2. Fallback: top-level usage (direct Anthropic or non-JSON-RPC response).
+	if in, out, ok := readUsageMap(top); ok {
+		return in, out
+	}
+	return 0, 0
+}
+
+// readUsageMap extracts input_tokens / output_tokens from the "usage" key of m.
+// Returns (0, 0, false) when the key is absent or contains no non-zero values.
+func readUsageMap(m map[string]json.RawMessage) (inputTokens, outputTokens int64, ok bool) {
+	rawUsage, has := m["usage"]
+	if !has {
+		return 0, 0, false
+	}
+	var usage struct {
+		InputTokens  int64 `json:"input_tokens"`
+		OutputTokens int64 `json:"output_tokens"`
+	}
+	if err := json.Unmarshal(rawUsage, &usage); err != nil {
+		return 0, 0, false
+	}
+	if usage.InputTokens == 0 && usage.OutputTokens == 0 {
+		return 0, 0, false
+	}
+	return usage.InputTokens, usage.OutputTokens, true
+}

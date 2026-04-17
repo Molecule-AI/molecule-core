@@ -719,6 +719,33 @@ describe("misc state setters", () => {
   });
 });
 
+// ---------- hydrationError (#554) ----------
+
+describe("hydrationError", () => {
+  it("initial value is null", () => {
+    expect(useCanvasStore.getState().hydrationError).toBeNull();
+  });
+
+  it("setHydrationError stores an error message", () => {
+    useCanvasStore.getState().setHydrationError("Network timeout");
+    expect(useCanvasStore.getState().hydrationError).toBe("Network timeout");
+  });
+
+  it("setHydrationError(null) clears the error", () => {
+    useCanvasStore.getState().setHydrationError("Some error");
+    useCanvasStore.getState().setHydrationError(null);
+    expect(useCanvasStore.getState().hydrationError).toBeNull();
+  });
+
+  it("setHydrationError does not affect other state", () => {
+    useCanvasStore.getState().hydrate([makeWS({ id: "ws-x", name: "X" })]);
+    useCanvasStore.getState().setHydrationError("oops");
+    // Nodes should still be intact
+    expect(useCanvasStore.getState().nodes).toHaveLength(1);
+    expect(useCanvasStore.getState().nodes[0].id).toBe("ws-x");
+  });
+});
+
 // ---------- ACTIVITY_LOGGED event ----------
 
 describe("ACTIVITY_LOGGED event", () => {

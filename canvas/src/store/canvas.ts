@@ -29,6 +29,10 @@ export interface WorkspaceNodeData extends Record<string, unknown> {
   currentTask: string;
   runtime: string;
   needsRestart: boolean;
+  /** USD spend ceiling set by the user; null = unlimited. Added by issue #541. */
+  budgetLimit: number | null;
+  /** Cumulative USD spend. Present when the platform tracks spend (issue #541). */
+  budgetUsed?: number | null;
 }
 
 export type PanelTab = "details" | "skills" | "chat" | "terminal" | "config" | "schedule" | "channels" | "files" | "memory" | "traces" | "events" | "activity";
@@ -73,6 +77,9 @@ interface CanvasState {
   /** WebSocket connection status — drives the live indicator in the Toolbar. */
   wsStatus: "connected" | "connecting" | "disconnected";
   setWsStatus: (status: "connected" | "connecting" | "disconnected") => void;
+  /** Hydration error message — set when initial canvas load fails. Null when no error. */
+  hydrationError: string | null;
+  setHydrationError: (error: string | null) => void;
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -84,6 +91,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   contextMenu: null,
   wsStatus: "connecting",
   setWsStatus: (status) => set({ wsStatus: status }),
+  hydrationError: null,
+  setHydrationError: (error) => set({ hydrationError: error }),
 
   viewport: { x: 0, y: 0, zoom: 1 },
 

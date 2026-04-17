@@ -48,6 +48,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // EnvMutator is implemented by plugins that want to inject env vars
@@ -62,6 +63,34 @@ import (
 type EnvMutator interface {
 	Name() string
 	MutateEnv(ctx context.Context, workspaceID string, env map[string]string) error
+}
+
+// TokenProvider is an optional interface that EnvMutator implementations
+// may also satisfy. When a mutator implements TokenProvider the platform
+// can serve GET /admin/github-installation-token, allowing long-running
+// workspaces to fetch a fresh GitHub token without restarting.
+//
+// # Why a separate interface?
+//
+// EnvMutator.MutateEnv is called once at provision time and writes into
+// an env map. Calling it again just to read the current token would be
+// semantically wrong and potentially unsafe (the env map is a live
+// workspace struct). TokenProvider cleanly separates "what do I inject
+// at boot?" from "what is the live token right now?".
+//
+// # Plugin contract
+//
+// Token must return the current valid token and the time at which it
+// will expire. If the plugin's internal cache is past its refresh
+// threshold it must block until a new token is obtained before
+// returning. Token should never return an expired token — callers rely
+// on this guarantee and do not do their own expiry check.
+//
+// Returning a non-nil error causes the HTTP handler to respond 500 and
+// log "[github] token refresh failed: <err>". The workspace will retry
+// on its next credential-helper invocation.
+type TokenProvider interface {
+	Token(ctx context.Context) (token string, expiresAt time.Time, err error)
 }
 
 // Registry holds the ordered list of EnvMutator instances the
@@ -110,6 +139,26 @@ func (r *Registry) Names() []string {
 		names[i] = m.Name()
 	}
 	return names
+}
+
+// FirstTokenProvider returns the first registered mutator that also
+// implements TokenProvider, or nil if none do. Used to back the
+// GET /admin/github-installation-token endpoint so long-running
+// workspaces can refresh their GITHUB_TOKEN without a container restart.
+//
+// A nil registry returns nil (no provider configured).
+func (r *Registry) FirstTokenProvider() TokenProvider {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, m := range r.mutators {
+		if tp, ok := m.(TokenProvider); ok {
+			return tp
+		}
+	}
+	return nil
 }
 
 // Run calls every registered mutator in order. The first one to return

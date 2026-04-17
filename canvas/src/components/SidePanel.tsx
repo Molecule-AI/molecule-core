@@ -173,7 +173,7 @@ export function SidePanel() {
           else if (e.key === "End") { e.preventDefault(); next = TABS.length - 1; }
           if (next !== null) {
             setPanelTab(TABS[next].id);
-            requestAnimationFrame(() => { document.getElementById(`tab-${TABS[next!].id}`)?.focus(); });
+            requestAnimationFrame(() => { const el = document.getElementById(`tab-${TABS[next!].id}`); el?.focus(); el?.scrollIntoView({ block: "nearest", inline: "nearest" }); });
           }
         }}
       >

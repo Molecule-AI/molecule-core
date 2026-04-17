@@ -6,6 +6,24 @@ import React from "react";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// vi.mock is hoisted to module top level by Vitest regardless of where it appears
+// in the source. Placing it here explicitly matches that runtime behaviour and
+// silences the "not at top level" warning (closes #632).
+vi.mock("../../../store/canvas", () => ({
+  useCanvasStore: Object.assign(
+    vi.fn(() => null),
+    {
+      getState: () => ({
+        selectedNodeId: null,
+        nodes: [],
+        contextMenu: null,
+        closeContextMenu: vi.fn(),
+        selectNode: vi.fn(),
+      }),
+    }
+  ),
+}));
+
 afterEach(() => cleanup());
 
 // ─── Z key handler unit tests (no React needed) ─────────────────────────────
@@ -25,22 +43,6 @@ describe("Z key → molecule:zoom-to-team", () => {
   });
 
   it("does NOT fire when no node is selected", () => {
-    // Simulate store: no selection
-    vi.mock("../../../store/canvas", () => ({
-      useCanvasStore: Object.assign(
-        vi.fn(() => null),
-        {
-          getState: () => ({
-            selectedNodeId: null,
-            nodes: [],
-            contextMenu: null,
-            closeContextMenu: vi.fn(),
-            selectNode: vi.fn(),
-          }),
-        }
-      ),
-    }));
-
     fireEvent.keyDown(window, { key: "Z" });
     expect(dispatchedEvents).toHaveLength(0);
   });
