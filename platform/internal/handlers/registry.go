@@ -235,6 +235,20 @@ func (h *RegistryHandler) Heartbeat(c *gin.Context) {
 	var prevTask string
 	_ = db.DB.QueryRowContext(ctx, `SELECT COALESCE(current_task, '') FROM workspaces WHERE id = $1`, payload.WorkspaceID).Scan(&prevTask)
 
+	// #615: Clamp monthly_spend to a safe range before any DB write.
+	// A malicious or buggy agent could report math.MaxInt64, causing
+	// NUMERIC overflow or incorrect budget-enforcement comparisons.
+	// Negatives are meaningless (spend is always ≥ 0); the upper cap of
+	// $10 billion in cents is an intentionally astronomical value that no
+	// legitimate workspace will ever reach.
+	const maxMonthlySpend = int64(1_000_000_000_000) // $10B in cents
+	if payload.MonthlySpend < 0 {
+		payload.MonthlySpend = 0
+	}
+	if payload.MonthlySpend > maxMonthlySpend {
+		payload.MonthlySpend = maxMonthlySpend
+	}
+
 	// Update heartbeat columns. #73 guard: exclude 'removed' rows so a
 	// late heartbeat from a container that's being torn down doesn't
 	// refresh last_heartbeat_at on a tombstoned workspace (which would
