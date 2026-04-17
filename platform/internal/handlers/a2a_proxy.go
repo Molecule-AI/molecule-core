@@ -203,7 +203,7 @@ func (h *WorkspaceHandler) ProxyA2A(c *gin.Context) {
 	c.Data(status, "application/json", respBody)
 }
 
-// checkWorkspaceBudget returns a proxyA2AError with 429 when the workspace
+// checkWorkspaceBudget returns a proxyA2AError with 402 when the workspace
 // has a budget_limit set and monthly_spend has reached or exceeded it.
 // DB errors are logged and treated as fail-open — a budget check failure
 // must not block legitimate A2A traffic.
