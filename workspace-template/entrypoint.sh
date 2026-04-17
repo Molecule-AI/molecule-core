@@ -70,7 +70,7 @@ echo "Runtime: $RUNTIME"
 # unreachable.
 #
 # Idempotent — safe to re-run on restart.
-HELPER_SCRIPT="/workspace-template/scripts/molecule-git-token-helper.sh"
+HELPER_SCRIPT="/app/scripts/molecule-git-token-helper.sh"
 if [ -f "${HELPER_SCRIPT}" ]; then
     git config --global \
         "credential.https://github.com.helper" \
