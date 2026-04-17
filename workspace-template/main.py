@@ -16,6 +16,7 @@ from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard, AgentCapabilities, AgentSkill
 
 from adapters import get_adapter, AdapterConfig
+from agents_md import generate_agents_md
 from config import load_config
 from heartbeat import HeartbeatLoop
 from preflight import run_preflight, render_preflight_report
@@ -64,6 +65,13 @@ async def main():  # pragma: no cover
     port = config.a2a.port
     preflight = run_preflight(config, config_path)
     render_preflight_report(preflight)
+
+    # 1a. Generate AGENTS.md so peer agents and discovery tools can see this
+    # workspace's identity, role, endpoint, and capabilities immediately.
+    try:
+        generate_agents_md(config_path, "/workspace/AGENTS.md")
+    except Exception as _agents_md_err:  # pragma: no cover
+        print(f"Warning: AGENTS.md generation failed (non-fatal): {_agents_md_err}")
     if not preflight.ok:
         raise SystemExit(1)
     if awareness_config:
