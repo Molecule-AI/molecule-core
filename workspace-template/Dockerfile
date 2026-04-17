@@ -49,6 +49,13 @@ RUN ln -s /app/a2a_cli.py /usr/local/bin/a2a && chmod +x /app/a2a_cli.py /app/a2
 COPY scripts/gh-wrapper.sh /usr/local/bin/gh
 RUN chmod +x /usr/local/bin/gh
 
+# Copy the git credential helper so entrypoint.sh can register it at boot.
+# molecule-git-token-helper.sh fetches a fresh GitHub App installation token
+# from the platform on every git push/fetch, preventing stale-token failures
+# after the ~60 min GitHub App token TTL (issue #613 / #547).
+COPY scripts/molecule-git-token-helper.sh ./scripts/
+RUN chmod +x ./scripts/molecule-git-token-helper.sh
+
 # Dirs and permissions
 RUN mkdir -p /workspace /plugins /home/agent/.claude /home/agent/.config /home/agent/.local && \
     chown -R agent:agent /app /home/agent /workspace
