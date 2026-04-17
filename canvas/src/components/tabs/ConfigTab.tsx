@@ -267,6 +267,48 @@ export function ConfigTab({ workspaceId }: Props) {
             <TagList label="Required Env Vars" values={config.runtime_config?.required_env || []} onChange={(v) => updateNested("runtime_config" as keyof ConfigData, "required_env", v)} placeholder="e.g. CLAUDE_CODE_OAUTH_TOKEN" />
           </Section>
 
+          {/* Claude Settings — shown for claude-code runtime or claude/anthropic model names */}
+          {(config.runtime === "claude-code" ||
+            (config.runtime_config?.model || config.model || "").toLowerCase().includes("claude") ||
+            (config.runtime_config?.model || config.model || "").toLowerCase().includes("anthropic")) && (
+            <Section title="Claude Settings" defaultOpen={false}>
+              <div>
+                <label className="text-[10px] text-zinc-500 block mb-1">
+                  Effort
+                  <span className="ml-1 text-zinc-600">(output_config.effort — Opus 4.7+)</span>
+                </label>
+                <select
+                  value={config.effort || ""}
+                  onChange={(e) => update("effort", e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
+                  data-testid="effort-select"
+                >
+                  <option value="">— unset (model default) —</option>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                  <option value="xhigh">xhigh (extended thinking)</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] text-zinc-500 block mb-1">
+                  Task Budget (tokens)
+                  <span className="ml-1 text-zinc-600">(output_config.task_budget.total — 0 = unset)</span>
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1000}
+                  value={config.task_budget ?? 0}
+                  onChange={(e) => update("task_budget", parseInt(e.target.value, 10) || 0)}
+                  placeholder="0"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-blue-500 font-mono"
+                  data-testid="task-budget-input"
+                />
+              </div>
+            </Section>
+          )}
+
           <Section title="Skills & Tools" defaultOpen={false}>
             <TagList label="Skills" values={config.skills || []} onChange={(v) => update("skills", v)} placeholder="e.g. code-review" />
             <TagList label="Tools" values={config.tools || []} onChange={(v) => update("tools", v)} placeholder="e.g. web_search, filesystem" />
