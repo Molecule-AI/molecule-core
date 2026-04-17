@@ -1,4 +1,4 @@
-"""MeDo builtin tools — Baidu MeDo no-code AI platform integration.
+"""MeDo tools — Baidu MeDo no-code AI platform integration.
 
 MeDo (摩搭, moda.baidu.com) is Baidu's no-code AI application builder used in
 the Molecule AI hackathon integration (May 2026).  Three core operations:
