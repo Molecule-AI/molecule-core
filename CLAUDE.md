@@ -266,12 +266,27 @@ All five E2E scripts share `tests/e2e/_lib.sh` + `tests/e2e/_extract_token.py` h
 The MCP server now lives at **github.com/Molecule-AI/molecule-mcp-server** and is published as `@molecule-ai/mcp-server` on npm. Install: `npx @molecule-ai/mcp-server`. 87 tools for managing Molecule AI from any MCP client. Configured in `.mcp.json`. Env: `MOLECULE_URL` (default http://localhost:8080).
 
 ### CI Pipeline
-GitHub Actions (`.github/workflows/ci.yml`) runs on push to main and PRs:
+GitHub Actions (`.github/workflows/ci.yml`) runs on push to main and PRs.
+**Path-filtered:** each job only runs when its relevant files change (via
+`dorny/paths-filter`). Docs-only PRs (`docs/**`, `*.md`) skip all jobs,
+saving ~15 min of runner time. The path filters are:
+
+| Job | Triggers on |
+|-----|-------------|
+| **platform-build** | `platform/**` |
+| **canvas-build** | `canvas/**` |
+| **python-lint** | `workspace-template/**` |
+| **shellcheck** | `tests/e2e/**`, `scripts/**` |
+| **e2e-api** | `platform/**`, `tests/e2e/**` |
+
+All jobs also trigger on `.github/workflows/ci.yml` changes (self-test).
+
+Job details:
 - **platform-build**: Go build, vet, `go test -race` with coverage profiling (25% baseline threshold; `setup-go` uses module cache)
 - **canvas-build**: npm build, `vitest run` (no `--passWithNoTests` -- tests must exist and pass)
 - **python-lint**: `pytest --cov=. --cov-report=term-missing` (workspace-template tests; SDK + MCP now in standalone repos)
-- **e2e-api** (added 2026-04-13): spins up Postgres + Redis service containers, runs platform migrations via `docker exec`, then executes `tests/e2e/test_api.sh` against a locally-built binary (62/62 must pass)
-- **shellcheck** (added 2026-04-13): lints every `tests/e2e/*.sh` via the shellcheck marketplace action
+- **e2e-api** (`.github/workflows/e2e-api.yml`): spins up Postgres + Redis service containers, runs platform migrations via `docker exec`, then executes `tests/e2e/test_api.sh` against a locally-built binary (62/62 must pass)
+- **shellcheck**: lints every `tests/e2e/*.sh` via shellcheck on the self-hosted runner
 - **publish-platform-image** (`.github/workflows/publish-platform-image.yml`): on push to main touching `platform/**`, builds `platform/Dockerfile` (clones templates + plugins from GitHub via `manifest.json` at build time) and pushes to `ghcr.io/molecule-ai/platform:latest` + `:sha-<short>`. Tenant image uses `platform/Dockerfile.tenant` (combined Go + Canvas). Manual re-trigger via `workflow_dispatch`.
 
 **Standalone repo CI** — all 33 plugin + template repos call reusable workflows from `Molecule-AI/molecule-ci`:
