@@ -81,6 +81,9 @@ func (s *SlackAdapter) sendBotMessage(ctx context.Context, config map[string]int
 	username, _ := config["username"].(string)
 	iconEmoji, _ := config["icon_emoji"].(string)
 
+	// Convert Markdown → Slack mrkdwn before sending
+	text = markdownToMrkdwn(text)
+
 	// Split long messages at newline boundaries
 	chunks := slackSplitMessage(text, 3000)
 	for _, chunk := range chunks {
@@ -150,6 +153,73 @@ func (s *SlackAdapter) sendWebhookMessage(ctx context.Context, config map[string
 		return fmt.Errorf("slack: webhook returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return nil
+}
+
+// markdownToMrkdwn converts standard Markdown to Slack's mrkdwn format.
+// Agents output standard MD (Claude Code default); Slack renders mrkdwn.
+//
+//	MD **bold** → mrkdwn *bold*
+//	MD __italic__ or *italic* (standalone) → mrkdwn _italic_
+//	MD ### heading → mrkdwn *heading* (bold, no heading syntax in Slack)
+//	MD [text](url) → mrkdwn <url|text>
+//	MD --- → mrkdwn ———
+//	MD > quote → mrkdwn > quote (same, works as-is)
+//	MD `code` → mrkdwn `code` (same)
+//	MD ```block``` → mrkdwn ```block``` (same)
+func markdownToMrkdwn(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Headings: ### Text → *Text*
+		if strings.HasPrefix(trimmed, "#") {
+			heading := strings.TrimLeft(trimmed, "# ")
+			if heading != "" {
+				lines[i] = "*" + heading + "*"
+				continue
+			}
+		}
+
+		// Horizontal rules
+		if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+			lines[i] = "———"
+			continue
+		}
+
+		// Links: [text](url) → <url|text>
+		for {
+			start := strings.Index(lines[i], "[")
+			if start < 0 {
+				break
+			}
+			mid := strings.Index(lines[i][start:], "](")
+			if mid < 0 {
+				break
+			}
+			mid += start
+			end := strings.Index(lines[i][mid+2:], ")")
+			if end < 0 {
+				break
+			}
+			end += mid + 2
+			linkText := lines[i][start+1 : mid]
+			url := lines[i][mid+2 : end]
+			lines[i] = lines[i][:start] + "<" + url + "|" + linkText + ">" + lines[i][end+1:]
+		}
+
+		// Bold: **text** → *text* (Slack bold is single asterisk)
+		for strings.Contains(lines[i], "**") {
+			first := strings.Index(lines[i], "**")
+			second := strings.Index(lines[i][first+2:], "**")
+			if second < 0 {
+				break
+			}
+			second += first + 2
+			inner := lines[i][first+2 : second]
+			lines[i] = lines[i][:first] + "*" + inner + "*" + lines[i][second+2:]
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func slackSplitMessage(text string, maxLen int) []string {
