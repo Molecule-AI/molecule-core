@@ -2172,19 +2172,26 @@ langgraph/crewai adapters.
 
 **Pitch:** "Knowledge Engine for AI Agent Memory in 6 lines of code — hybrid graph + vector search, runs locally, multimodal."
 
-**Shape:** Python library (MIT), ~15.8k ⭐, v1.0.1.dev1 April 15, 2026. Four-operation API: `cognify` (ingest + graph-build), `search` (auto-routes to vector or graph), `prune` (delete), `cognee.config` (backend selection). Backends: local (SQLite + Qdrant), Cognee Cloud, Modal, Fly.io, Railway. Enterprise tier adds cross-agent knowledge sharing with tenant isolation and OTEL tracing.
+**Shape:** Python library (Apache 2.0), ~15.8k ⭐, v1.0.1.dev1 April 15, 2026. Six-stage ingest pipeline (`cognify`): classify → permissions → chunk → LLM entity/relationship extraction → LLM summarise → embed into vector + commit graph edges. 14 retrieval modes from top-k cosine up to `GRAPH_COMPLETION` (vector → graph traversal → structured context). Default backends are file-local, zero-config: LanceDB (vectors), KuzuDB (graph), SQLite (metadata). Production upgrade path: Postgres + pgvector or Neo4j via pip extras. Enterprise tier adds cross-agent knowledge sharing with tenant isolation and OTEL tracing.
 
 **Overlap with us:** Directly addresses the same gap our `agent_memories` table targets — persistent, queryable agent knowledge across sessions. Ships a `claude-code-plugin` for session memory injection (same use case as `claude-mem`'s 56k⭐ demand signal). Native integration with Hermes Agent. The hybrid graph+vector approach (knowledge graph for relationships, vector for semantic recall) is materially more sophisticated than our current key-value `agent_memories` model.
 
 **Differentiation:** Pure memory library — no workspace lifecycle, no agent orchestration, no A2A, no canvas. Intended to be embedded into any agent framework, including Molecule AI workspaces, not to replace them.
 
-**Worth borrowing:** The four-operation memory API (`remember` / `recall` / `forget` / `improve`) is a clean contract worth adopting in our `agent_memories` API surface. The tenant-isolated cross-agent knowledge graph model (agents share a knowledge base scoped to their org) maps well to our workspace hierarchy. Consider a `molecule-cognee` plugin that wires Cognee as the memory backend for any workspace.
+**Integration path (TR eval 2026-04-17):** **Augment, not replace** the existing key-value `agent_memories` path.
+- `cognify` fires 2–5 LLM calls per ingest — must be **async/batched** (on session flush), not inline per-turn.
+- `cognee_search (GRAPH_COMPLETION)` latency ~200–500 ms — acceptable for explicit semantic queries, not per-turn default.
+- Existing key-value path stays as primary per-turn read (10–50 ms).
+- MVP deployment: `pip install cognee` + `LLM_API_KEY` (already supplied as `ANTHROPIC_API_KEY`) + `/configs/cognee/` volume mount. **Zero new containers.**
+- Build estimate for `molecule-cognee` plugin: **~3 days** (async ingest wrapper + search skill + plugin.yaml/rules/CI). Recommended sequence: **after #573 (mcp-connector) and #574 (code-sandbox)** land.
+
+**Worth borrowing:** The four-operation memory API (`remember` / `recall` / `forget` / `improve`) is a clean contract worth adopting in our `agent_memories` API surface. The tenant-isolated cross-agent knowledge graph model (agents share a knowledge base scoped to their org) maps well to our workspace hierarchy.
 
 **Terminology collisions:** "cognify" — their ingest verb; we'd call this "index" or "ingest". "prune" — their delete; we use `DELETE /workspaces/:id/memories/:id`.
 
-**Signals to react to:** If Cognee ships a first-class MCP server (not just OpenClaw plugin) → immediately relevant as a drop-in memory backend for any MCP-capable Molecule AI workspace. If 56k⭐ `claude-mem` users migrate to Cognee for graph-based recall → validates the gap and urgency.
+**Signals to react to:** If Cognee ships a first-class MCP server → immediately relevant as a drop-in memory backend for any MCP-capable workspace. If 56k⭐ `claude-mem` users migrate to Cognee for graph-based recall → validates gap and urgency.
 
-**Last reviewed:** 2026-04-17 · **Stars / activity:** ~15.8k ⭐, v1.0.1.dev1, April 15, 2026
+**Last reviewed:** 2026-04-17 (TR integration eval) · **Stars / activity:** ~15.8k ⭐, v1.0.1.dev1, April 15, 2026
 
 ---
 
