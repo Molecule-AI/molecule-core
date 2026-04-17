@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { StatusDot } from "../StatusDot";
+import { BudgetSection } from "./BudgetSection";
 import { WorkspaceUsage } from "../WorkspaceUsage";
 
 interface Props {
@@ -60,7 +61,11 @@ export function DetailsTab({ workspaceId, data }: Props) {
     setSaving(true);
     setSaveError(null);
     try {
-      await api.patch(`/workspaces/${workspaceId}`, { name, role: role || null, tier });
+      await api.patch(`/workspaces/${workspaceId}`, {
+        name,
+        role: role || null,
+        tier,
+      });
       updateNodeData(workspaceId, { name, role: role || "", tier });
       setEditing(false);
     } catch (e) {
@@ -146,7 +151,13 @@ export function DetailsTab({ workspaceId, data }: Props) {
                 {saving ? "Saving..." : "Save"}
               </button>
               <button
-                onClick={() => { setEditing(false); setSaveError(null); setName(data.name); setRole(data.role || ""); setTier(data.tier); }}
+                onClick={() => {
+                  setEditing(false);
+                  setSaveError(null);
+                  setName(data.name);
+                  setRole(data.role || "");
+                  setTier(data.tier);
+                }}
                 className="px-3 py-1 bg-zinc-700 hover:bg-zinc-600 text-xs rounded text-zinc-300"
               >
                 Cancel
@@ -191,7 +202,10 @@ export function DetailsTab({ workspaceId, data }: Props) {
         )}
       </Section>
 
-      {/* Token usage + spend (scaffold — wired to GET /workspaces/:id/metrics once #593 lands) */}
+      {/* Budget — dedicated section with live usage stats (#541) */}
+      <BudgetSection workspaceId={workspaceId} />
+
+      {/* Token usage + spend — wired to GET /workspaces/:id/metrics (#592) */}
       <WorkspaceUsage workspaceId={workspaceId} />
 
       {/* Agent Card / Skills */}

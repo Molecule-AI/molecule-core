@@ -161,3 +161,72 @@ describe("CreateWorkspaceDialog — accessibility", () => {
     await waitFor(() => expect(t3.getAttribute("aria-checked")).toBe("true"));
   });
 });
+
+// ── WCAG 2.1 SC 1.3.1 — Programmatic label association (Issue #558) ──────────
+//
+// Every <input> rendered by the InputField helper must have a matching <label>
+// via htmlFor/id so screen readers announce the field name, not just the
+// placeholder.  useId() in InputField generates stable unique IDs per render.
+
+describe("CreateWorkspaceDialog — WCAG SC 1.3.1 label/input association", () => {
+  it("Name input has a <label> whose htmlFor matches the input id", async () => {
+    await openDialog();
+    const nameInput = screen.getByPlaceholderText("e.g. SEO Agent") as HTMLInputElement;
+    expect(nameInput.id).toBeTruthy();
+    const label = document.querySelector(`label[for="${nameInput.id}"]`);
+    expect(label).toBeTruthy();
+    expect(label?.textContent).toContain("Name");
+  });
+
+  it("Role input has a <label> whose htmlFor matches the input id", async () => {
+    await openDialog();
+    const roleInput = screen.getByPlaceholderText("e.g. SEO Specialist") as HTMLInputElement;
+    expect(roleInput.id).toBeTruthy();
+    const label = document.querySelector(`label[for="${roleInput.id}"]`);
+    expect(label).toBeTruthy();
+    expect(label?.textContent).toContain("Role");
+  });
+
+  it("Budget limit input has a <label> whose htmlFor matches the input id", async () => {
+    await openDialog();
+    const budgetInput = screen.getByPlaceholderText("e.g. 100") as HTMLInputElement;
+    expect(budgetInput.id).toBeTruthy();
+    const label = document.querySelector(`label[for="${budgetInput.id}"]`);
+    expect(label).toBeTruthy();
+    expect(label?.textContent).toContain("Budget limit");
+  });
+
+  it("Template input has a <label> whose htmlFor matches the input id", async () => {
+    await openDialog();
+    const templateInput = screen.getByPlaceholderText(
+      "e.g. seo-agent (from workspace-configs-templates/)"
+    ) as HTMLInputElement;
+    expect(templateInput.id).toBeTruthy();
+    const label = document.querySelector(`label[for="${templateInput.id}"]`);
+    expect(label).toBeTruthy();
+    expect(label?.textContent).toContain("Template");
+  });
+
+  it("each InputField generates a distinct id (no id collisions)", async () => {
+    await openDialog();
+    const inputs = [
+      screen.getByPlaceholderText("e.g. SEO Agent"),
+      screen.getByPlaceholderText("e.g. SEO Specialist"),
+      screen.getByPlaceholderText("e.g. 100"),
+      screen.getByPlaceholderText("e.g. seo-agent (from workspace-configs-templates/)"),
+    ] as HTMLInputElement[];
+
+    const ids = inputs.map((i) => i.id).filter(Boolean);
+    const unique = new Set(ids);
+    expect(unique.size).toBe(ids.length); // no duplicates
+    expect(ids.length).toBe(4);
+  });
+
+  it("Name label text contains the required asterisk indicator", async () => {
+    await openDialog();
+    const nameInput = screen.getByPlaceholderText("e.g. SEO Agent") as HTMLInputElement;
+    const label = document.querySelector(`label[for="${nameInput.id}"]`);
+    // aria-hidden asterisk * is present for visual required indicator
+    expect(label?.querySelector("[aria-hidden='true']")?.textContent).toBe("*");
+  });
+});

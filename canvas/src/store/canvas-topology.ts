@@ -142,6 +142,8 @@ export function buildNodesAndEdges(
         currentTask: ws.current_task || "",
         runtime: ws.runtime || "",
         needsRestart: false,
+        budgetLimit: ws.budget_limit ?? null,
+        budgetUsed: ws.budget_used ?? null,
       },
       // Hide child nodes from canvas — they render inside the parent WorkspaceNode
       hidden: !!ws.parent_id,
