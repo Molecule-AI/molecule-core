@@ -192,7 +192,7 @@ func TestOrgDefaults_Model_FallbackClaudeCode(t *testing.T) {
 		if runtime == "claude-code" {
 			model = "sonnet"
 		} else {
-			model = "anthropic:claude-sonnet-4-6"
+			model = "anthropic:claude-opus-4-7"
 		}
 	}
 	if model != "sonnet" {
@@ -214,11 +214,11 @@ func TestOrgDefaults_Model_FallbackDeepAgents(t *testing.T) {
 		if runtime == "claude-code" {
 			model = "sonnet"
 		} else {
-			model = "anthropic:claude-sonnet-4-6"
+			model = "anthropic:claude-opus-4-7"
 		}
 	}
-	if model != "anthropic:claude-sonnet-4-6" {
-		t.Errorf("deepagents with empty model should get 'anthropic:claude-sonnet-4-6', got %q", model)
+	if model != "anthropic:claude-opus-4-7" {
+		t.Errorf("deepagents with empty model should get 'anthropic:claude-opus-4-7', got %q", model)
 	}
 }
 
@@ -230,11 +230,11 @@ func TestOrgDefaults_Model_FallbackLangGraph(t *testing.T) {
 		if runtime == "claude-code" {
 			model = "sonnet"
 		} else {
-			model = "anthropic:claude-sonnet-4-6"
+			model = "anthropic:claude-opus-4-7"
 		}
 	}
-	if model != "anthropic:claude-sonnet-4-6" {
-		t.Errorf("langgraph with empty model should get 'anthropic:claude-sonnet-4-6', got %q", model)
+	if model != "anthropic:claude-opus-4-7" {
+		t.Errorf("langgraph with empty model should get 'anthropic:claude-opus-4-7', got %q", model)
 	}
 }
 
