@@ -80,10 +80,10 @@ func TestAdminTestToken_HappyPath_TokenValidates(t *testing.T) {
 		WithArgs("ws-1").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ws-1"))
 
-	// Capture the hash inserted by IssueToken so we can replay it on Validate.
-	var capturedHash []byte
+	// #684: IssueAdminToken inserts with NULL workspace_id, so only hash + prefix
+	// are positional args. token_type = 'admin' is a literal in the SQL.
 	mock.ExpectExec("INSERT INTO workspace_auth_tokens").
-		WithArgs("ws-1", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	h := NewAdminTestTokenHandler()
@@ -111,20 +111,16 @@ func TestAdminTestToken_HappyPath_TokenValidates(t *testing.T) {
 		t.Errorf("token looks too short: %d chars", len(resp.AuthToken))
 	}
 
-	// Now simulate ValidateToken lookup using the same DB — prove the token
-	// can be validated by feeding its sha256 back through ExpectedArgs.
-	// (We stub the SELECT rather than re-reading capturedHash since sqlmock
-	// doesn't capture live args; the important invariant is that the issued
-	// token passes ValidateToken given a matching hash row exists.)
-	_ = capturedHash
-	mock.ExpectQuery("SELECT id, workspace_id\\s+FROM workspace_auth_tokens").
+	// Prove the issued admin token passes ValidateAnyToken (AdminAuth path).
+	// Stub the SELECT so sqlmock returns a matching row with token_type='admin'.
+	mock.ExpectQuery("SELECT id.*FROM workspace_auth_tokens.*token_type = 'admin'").
 		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("tok-1", "ws-1"))
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-1"))
 	mock.ExpectExec("UPDATE workspace_auth_tokens SET last_used_at").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	if err := wsauth.ValidateToken(c.Request.Context(), db.DB, "ws-1", resp.AuthToken); err != nil {
-		t.Errorf("issued token failed to validate: %v", err)
+	if err := wsauth.ValidateAnyToken(c.Request.Context(), db.DB, resp.AuthToken); err != nil {
+		t.Errorf("issued admin token failed ValidateAnyToken: %v", err)
 	}
 }
 
