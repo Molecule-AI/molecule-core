@@ -90,7 +90,7 @@ func (d *DiscordAdapter) SendMessage(ctx context.Context, config map[string]inte
 			// would propagate that token into logs and error responses (#659).
 			return fmt.Errorf("discord: HTTP request failed")
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
 
 		// Discord returns 204 No Content on success.
