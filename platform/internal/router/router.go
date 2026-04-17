@@ -303,6 +303,14 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		wsAuth.GET("/artifacts", arth.Get)
 		wsAuth.POST("/artifacts/fork", arth.Fork)
 		wsAuth.POST("/artifacts/token", arth.Token)
+
+		// Temporal workflow checkpoints — step-level persistence for resumable
+		// workflows (#788, parent #583). WorkspaceAuth on wsAuth ensures each
+		// workspace can only read/write its own checkpoints.
+		cpth := handlers.NewCheckpointsHandler(db.DB)
+		wsAuth.POST("/checkpoints", cpth.Upsert)
+		wsAuth.GET("/checkpoints/:wfid", cpth.List)
+		wsAuth.DELETE("/checkpoints/:wfid", cpth.Delete)
 	}
 
 	// Global secrets — /settings/secrets is the canonical path; /admin/secrets kept for backward compat.
