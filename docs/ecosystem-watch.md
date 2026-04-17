@@ -2700,3 +2700,43 @@ langgraph/crewai adapters.
 **Signals to react to:** pydantic-ai surpasses LangGraph in GitHub stars → prioritize `molecule-ai-workspace-template-pydantic-ai` (GH #721). A2A version confirmed compatible with our a2a-sdk==0.3.25 → validate zero-shim interop. pydantic-ai ships a Molecule adapter → zero-effort integration.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** ~16.4k★, Python, Apache-2.0, active
+
+---
+
+### goose (AAIF) — `aaif-goose/goose`
+
+**Pitch:** "An open source, extensible AI agent that goes beyond code suggestions — install, execute, edit, and test with any LLM."
+
+**Shape:** Rust, Apache-2.0, ~5k★ (moved Apr 2026 from `block/goose` to Agentic AI Foundation / Linux Foundation). Desktop app (macOS, Linux, Windows) + CLI + embeddable API. 15+ LLM providers: Anthropic, OpenAI, Google, Ollama, Azure, Bedrock, OpenRouter. Single-agent, local-machine focus. Extensible via "extensions" (MCP-compatible tool plugins). Bundled with an `AGENTS.md` agent-description standard, now donated to AAIF alongside MCP.
+
+**Overlap with us:** (1) Both are general-purpose AI agent execution environments with plugin/extension ecosystems. (2) MCP tool support — goose extensions map to our MCP connector. (3) **AGENTS.md** — Block donated this agent-description standard to the Linux Foundation's AAIF alongside MCP; if it gains traction, workspace templates should include a generated `AGENTS.md` for discoverability. (4) Goose's embedding API could make it a `molecule-ai-workspace-template-goose` candidate.
+
+**Differentiation:** Goose is single-agent, local-machine execution. No multi-agent coordination, no org hierarchy, no visual canvas, no A2A protocol, no Docker workspace isolation, no scheduling. Molecule is the orchestration platform layer goose lacks.
+
+**Worth borrowing:** `AGENTS.md` agent-description standard — a human+machine readable file describing an agent's capabilities, limitations, and invocation contract. Aligns with our `config.yaml` philosophy and could become an AAIF interop requirement. Multi-provider Rust runtime (performance reference for future Go workspace provisioner work).
+
+**Terminology collisions:** "extensions" (goose) ≈ "plugins" (Molecule). "recipes" (goose) = reusable workflow scripts ≈ our org template `initial_prompt` patterns.
+
+**Signals to react to:** AGENTS.md becomes an AAIF / industry standard → add auto-generated `AGENTS.md` to workspace-template build (see GH issue filed). Goose embedding API matures → evaluate `molecule-ai-workspace-template-goose`. Goose ships A2A → could register as a Molecule workspace peer.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ~5k★ (aaif-goose fork, Apr 2026), Rust, Apache-2.0, Linux Foundation / AAIF
+
+---
+
+### GitHub Awesome Copilot — `github/awesome-copilot`
+
+**Pitch:** Community-curated marketplace of GitHub Copilot agents, skills, instructions, plugins, hooks, and agentic workflows — installable via `copilot plugin install <name>@awesome-copilot`.
+
+**Shape:** Python (69%) + TypeScript (5%) + Markdown, MIT, 30.2k★, 1,600+ commits, actively maintained by GitHub. Six artifact types: **agents** (MCP-connected Copilot extensions), **instructions** (file-pattern scoped rules), **skills** (self-contained instruction + asset bundles), **plugins** (curated agent+skill bundles), **hooks** (session-triggered automations), **agentic workflows** (AI GitHub Actions written in Markdown). Pre-registered as default install source in Copilot CLI and VS Code.
+
+**Overlap with us:** Direct structural parallel to our plugin+skill ecosystem. "Skills" = our `.claude/skills/`; "Plugins" = our `plugins/`; "Hooks" = our `.claude/settings.json` hooks; "Agents" = our workspace roles. The named community registry pattern (`@awesome-copilot`) mirrors what a `@molecule-ai` plugin registry would look like. Agentic Workflows (AI GitHub Actions in Markdown) = our cron/schedule workflow plugins.
+
+**Differentiation:** Awesome-Copilot is a curated list for a single agent (Copilot), not an orchestration platform. No inter-agent comms, no canvas, no A2A, no Docker isolation, no hierarchy. Molecule provides the multi-agent coordination layer this ecosystem lacks.
+
+**Worth borrowing:** Named community registry as default install source — `copilot plugin install name@awesome-copilot` pattern is a UX model for `molecule plugin install name@molecule-hub`. Hooks-as-first-class-artifacts pattern validates our `settings.json` hook approach. The six-type taxonomy (agents / instructions / skills / plugins / hooks / workflows) is a clean conceptual frame.
+
+**Terminology collisions:** **HIGH RISK.** "Skills", "Plugins", "Agents", "Hooks" — every term overlaps with Molecule's vocabulary. If Molecule publishes to both ecosystems, users will conflate them. Recommend explicit disambiguation note in `docs/glossary.md`.
+
+**Signals to react to:** GitHub publishes a formal plugin schema spec → evaluate cross-compatibility with our `plugin.yaml` format. Awesome-Copilot plugin format adopted by other tools → position Molecule plugins as cross-compatible. Copilot adds MCP server support → Molecule's `@molecule-ai/mcp-server` becomes directly installable as a Copilot plugin.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 30,211★, Python/TS, MIT, GitHub-maintained, 1,600+ commits
