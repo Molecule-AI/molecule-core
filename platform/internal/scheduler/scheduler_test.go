@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -9,6 +10,9 @@ import (
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 )
+
+// errDBDown is a sentinel error used by tests to simulate a DB connection failure.
+var errDBDown = sql.ErrConnDone
 
 // setupTestDB replaces the global db.DB with a sqlmock and returns the mock
 // handle. The real DB is restored (by closing the mock conn) via t.Cleanup.
@@ -234,6 +238,142 @@ func TestRecordSkipped_writesSkippedStatus(t *testing.T) {
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// ── successProxy ─────────────────────────────────────────────────────────────
+
+// successProxy is a test double whose ProxyA2ARequest always returns HTTP 200
+// with no error, simulating a healthy A2A round-trip.
+type successProxy struct{}
+
+func (p *successProxy) ProxyA2ARequest(
+	_ context.Context, _ string, _ []byte, _ string, _ bool,
+) (int, []byte, error) {
+	return 200, []byte(`{"ok":true}`), nil
+}
+
+// ── TestFireSchedule_ComputeNextRunError (#722 Bug 1) ─────────────────────────
+//
+// When ComputeNextRun fails (bad cron expression), fireSchedule must NOT write
+// NULL to next_run_at — it must use COALESCE so the existing DB value is kept.
+// Proof: the UPDATE ExecContext must still be called (schedule not abandoned)
+// and sqlmock satisfies all expectations (no unexpected SQL).
+
+func TestFireSchedule_ComputeNextRunError(t *testing.T) {
+	mock := setupTestDB(t)
+
+	sched := scheduleRow{
+		ID:          "11111111-dead-beef-0000-000000000001",
+		WorkspaceID: "22222222-dead-beef-0000-000000000002",
+		Name:        "bad-cron-job",
+		CronExpr:    "not-a-valid-cron", // guaranteed to fail ComputeNextRun
+		Timezone:    "UTC",
+		Prompt:      "do something",
+	}
+
+	// active_tasks check → 0 (workspace is idle; proceed to fire)
+	mock.ExpectQuery(`SELECT COALESCE`).
+		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(0))
+
+	// UPDATE must fire — COALESCE($2, next_run_at) keeps existing value when $2 is nil.
+	// AnyArg for $2 because it will be nil (ComputeNextRun failed).
+	mock.ExpectExec(`UPDATE workspace_schedules`).
+		WithArgs(sched.ID, sqlmock.AnyArg(), "ok", "").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// activity_logs INSERT always fires
+	mock.ExpectExec(`INSERT INTO activity_logs`).
+		WithArgs(sched.WorkspaceID, sqlmock.AnyArg(), sqlmock.AnyArg(), "ok", "").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s := New(&successProxy{}, nil)
+	s.fireSchedule(context.Background(), sched)
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet DB expectations — schedule update was skipped or next_run_at not preserved: %v", err)
+	}
+}
+
+// ── TestRecordSkipped_ComputeNextRunError (#722 Bug 1 — skipped path) ─────────
+//
+// Same invariant as TestFireSchedule_ComputeNextRunError but for the
+// recordSkipped path: a bad cron expression must not NULL out next_run_at.
+
+func TestRecordSkipped_ComputeNextRunError(t *testing.T) {
+	mock := setupTestDB(t)
+
+	sched := scheduleRow{
+		ID:          "33333333-dead-beef-0000-000000000003",
+		WorkspaceID: "44444444-dead-beef-0000-000000000004",
+		Name:        "bad-cron-skip",
+		CronExpr:    "not-a-valid-cron",
+		Timezone:    "UTC",
+		Prompt:      "skipped task",
+	}
+
+	mock.ExpectExec(`UPDATE workspace_schedules`).
+		WithArgs(sched.ID, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO activity_logs`).
+		WithArgs(sched.WorkspaceID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s := New(nil, nil)
+	s.recordSkipped(context.Background(), sched, 2)
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet DB expectations: %v", err)
+	}
+}
+
+// ── TestRepairNullNextRunAt_RepairsRows (#722 Bug 3) ──────────────────────────
+//
+// repairNullNextRunAt must SELECT enabled schedules with NULL next_run_at,
+// compute the next fire time, and UPDATE each row.
+
+func TestRepairNullNextRunAt_RepairsRows(t *testing.T) {
+	mock := setupTestDB(t)
+
+	// Two schedules whose next_run_at is NULL and whose cron exprs are valid.
+	mock.ExpectQuery(`SELECT id, cron_expr, timezone`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "cron_expr", "timezone"}).
+			AddRow("sched-repair-01", "0 * * * *", "UTC").
+			AddRow("sched-repair-02", "30 9 * * 1", "America/New_York"))
+
+	// Expect one UPDATE per repaired row.
+	mock.ExpectExec(`UPDATE workspace_schedules`).
+		WithArgs("sched-repair-01", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE workspace_schedules`).
+		WithArgs("sched-repair-02", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s := New(nil, nil)
+	s.repairNullNextRunAt(context.Background())
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet DB expectations: %v", err)
+	}
+}
+
+// ── TestRepairNullNextRunAt_DBError_NoPanic (#722 Bug 3) ──────────────────────
+//
+// A DB error from the SELECT must be logged but must not panic — the scheduler
+// startup should proceed normally.
+
+func TestRepairNullNextRunAt_DBError_NoPanic(t *testing.T) {
+	mock := setupTestDB(t)
+
+	mock.ExpectQuery(`SELECT id, cron_expr, timezone`).
+		WillReturnError(errDBDown)
+
+	s := New(nil, nil)
+	// Must not panic:
+	s.repairNullNextRunAt(context.Background())
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet DB expectations: %v", err)
 	}
 }
 
