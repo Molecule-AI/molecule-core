@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS audit_events (
     risk_flag            BOOLEAN     NOT NULL DEFAULT false,
     prev_hmac            TEXT,                   -- HMAC of prior row for this agent_id
     hmac                 TEXT        NOT NULL,   -- HMAC of this row's canonical JSON
-    workspace_id         TEXT        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    workspace_id         UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     CONSTRAINT audit_events_pkey PRIMARY KEY (id)
 );
 

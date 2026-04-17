@@ -23,12 +23,13 @@ import (
 // testAuditKey derives the same PBKDF2 key as getAuditHMACKey() using a fixed
 // test salt, so we can generate expected HMACs in tests without relying on the
 // module-level cached key (which may have been set by a previous test run).
+// NOTE: iterations must stay in sync with auditPBKDF2Iterations in audit.go.
 func testAuditKey(t *testing.T, salt string) []byte {
 	t.Helper()
 	return pbkdf2.Key(
 		[]byte(salt),
 		[]byte("molecule-audit-ledger-v1"),
-		100_000,
+		210_000,
 		32,
 		sha256.New,
 	)
@@ -475,6 +476,67 @@ func TestAuditQuery_LimitCap(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock: %v", err)
+	}
+}
+
+// TestAuditQuery_PaginatedOffsetReturnsNullChainValid verifies that when
+// offset > 0 the handler cannot verify a partial chain and returns null.
+func TestAuditQuery_PaginatedOffsetReturnsNullChainValid(t *testing.T) {
+	const testSalt = "test-salt-paginated"
+	resetAuditKeyCache()
+	t.Setenv("AUDIT_LEDGER_SALT", testSalt)
+	defer resetAuditKeyCache()
+
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	key := testAuditKey(t, testSalt)
+	ts := time.Date(2026, 4, 17, 12, 0, 0, 0, time.UTC)
+
+	ev := auditEventRow{
+		ID: "e1", Timestamp: ts, AgentID: "agent-1", SessionID: "sess-1",
+		Operation: "task_start", WorkspaceID: "ws-7",
+	}
+	ev.HMAC = makeAuditHMAC(t, key, &ev)
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM audit_events`).
+		WithArgs("ws-7").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(10))
+
+	mock.ExpectQuery(`SELECT id, timestamp, agent_id`).
+		WithArgs("ws-7", 100, 50).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "timestamp", "agent_id", "session_id", "operation",
+			"input_hash", "output_hash", "model_used",
+			"human_oversight_flag", "risk_flag", "prev_hmac", "hmac", "workspace_id",
+		}).AddRow(
+			ev.ID, ev.Timestamp, ev.AgentID, ev.SessionID, ev.Operation,
+			nil, nil, nil,
+			ev.HumanOversightFlag, ev.RiskFlag, nil, ev.HMAC, ev.WorkspaceID,
+		))
+
+	h := NewAuditHandler()
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-7"}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/ws-7/audit?offset=50", nil)
+
+	h.Query(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	// chain_valid must be null when offset > 0 — partial view cannot verify chain
+	if v, present := resp["chain_valid"]; present && v != nil {
+		t.Errorf("chain_valid should be null for paginated response (offset>0), got %v", v)
+	}
+
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("sqlmock: %v", err)
 	}
