@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,6 +12,12 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
 	"github.com/gin-gonic/gin"
 )
+
+// globalMemoryDelimiter is the non-instructable prefix prepended to every
+// GLOBAL-scope memory value returned to MCP clients. Prevents stored content
+// from being parsed as LLM instructions in the agent's context window (#767).
+// Format: [MEMORY id=<uuid> scope=GLOBAL from=<workspace_id>]: <value>
+const globalMemoryDelimiter = "[MEMORY id=%s scope=GLOBAL from=%s]: %s"
 
 // defaultMemoryNamespace is used when a caller omits the field on POST or
 // when querying for memories written before migration 017. Matches the
@@ -79,6 +88,26 @@ func (h *MemoriesHandler) Commit(c *gin.Context) {
 		log.Printf("Commit memory error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store memory"})
 		return
+	}
+
+	// #767 Audit: write a GLOBAL memory audit log entry for forensic replay.
+	// Records a SHA-256 hash of the content — never plaintext — so the audit
+	// trail can prove what was written without leaking sensitive values.
+	// Failure is non-fatal: a logging error must not roll back a successful write.
+	if body.Scope == "GLOBAL" {
+		sum := sha256.Sum256([]byte(body.Content))
+		auditBody, _ := json.Marshal(map[string]string{
+			"memory_id":      memoryID,
+			"namespace":      namespace,
+			"content_sha256": hex.EncodeToString(sum[:]),
+		})
+		summary := "GLOBAL memory written: id=" + memoryID + " namespace=" + namespace
+		if _, auditErr := db.DB.ExecContext(ctx, `
+			INSERT INTO activity_logs (workspace_id, activity_type, source_id, summary, request_body, status)
+			VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+		`, workspaceID, "memory_write_global", workspaceID, summary, string(auditBody), "ok"); auditErr != nil {
+			log.Printf("Commit: GLOBAL memory audit log failed for %s/%s: %v", workspaceID, memoryID, auditErr)
+		}
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"id": memoryID, "scope": body.Scope, "namespace": namespace})
@@ -209,6 +238,14 @@ func (h *MemoriesHandler) Search(c *gin.Context) {
 			if !registry.CanCommunicate(workspaceID, wsID) {
 				continue // Skip memories from workspaces we can't reach
 			}
+		}
+
+		// #767: wrap GLOBAL-scope content with a non-instructable delimiter so
+		// MCP tool outputs cannot be hijacked by stored prompt-injection payloads.
+		// The raw content in the DB is unchanged — only the value returned to
+		// callers is wrapped.
+		if memScope == "GLOBAL" {
+			content = fmt.Sprintf(globalMemoryDelimiter, id, wsID, content)
 		}
 
 		memories = append(memories, map[string]interface{}{
