@@ -256,8 +256,9 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
         {/* Degraded error preview */}
         {data.status === "degraded" && data.lastSampleError && (
           <div
-            className="text-[10px] text-amber-300/60 truncate mt-1 bg-amber-950/20 px-1.5 py-0.5 rounded border border-amber-800/20"
-            title={data.lastSampleError}
+            role="status"
+            className="text-[10px] text-amber-400 truncate mt-1 bg-amber-950/20 px-1.5 py-0.5 rounded border border-amber-800/20"
+            aria-label={`Error: ${data.lastSampleError}`}
           >
             {data.lastSampleError}
           </div>
