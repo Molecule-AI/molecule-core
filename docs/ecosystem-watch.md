@@ -2835,3 +2835,43 @@ langgraph/crewai adapters.
 **Signals to react to:** mcp-agent ships A2A support → potential `molecule-ai-workspace-template-mcp-agent` adapter. `mcp-eval` adopted broadly → integrate into our MCP server CI (#747). mcp-agent hits 15k★ → assess as competitive threat to workspace-template.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 7,454★, Python, Apache-2.0, Jan 2026
+
+---
+
+### BeeAI ACP — `i-am-bee/acp`
+
+**Pitch:** "Open protocol for communication between AI agents, applications, and humans — REST/OpenAPI-based with Python and TypeScript SDKs."
+
+**Shape:** Python + TypeScript SDKs, Apache-2.0, IBM BeeAI project. OpenAPI spec defines REST endpoints for agent task dispatch, status streaming, and cancellation. HTTP/REST transport — any language with an HTTP client can speak ACP. Designed for multi-runtime, polyglot agent ecosystems.
+
+**Overlap with us:** Direct overlap with our A2A protocol — both define how agents communicate with each other. ACP = REST/HTTP; A2A = JSON-RPC 2.0. Both now governed by foundations (ACP under BeeAI/IBM; A2A under AAIF/Linux Foundation). If ACP gains enterprise traction via IBM's distribution, Molecule workspaces may need to bridge or support both protocols. OpenAPI spec means auto-generated client SDKs in any language — lower barrier than our current A2A SDK.
+
+**Differentiation:** ACP has no concept of org hierarchy, workspace lifecycle, or canvas. REST vs JSON-RPC is a transport difference, not a capability gap. Molecule's A2A is AAIF-governed (Linux Foundation + Anthropic + Google + Microsoft co-signatories) — stronger governance coalition.
+
+**Worth borrowing:** OpenAPI-first protocol design → generates client SDKs automatically. Streaming task status via REST SSE is cleaner than polling. Consider exposing Molecule's A2A via an ACP compatibility shim for IBM enterprise accounts.
+
+**Terminology collisions:** "tasks" — both use task as the primary coordination unit. "agents" — identical overlap. "runs" (ACP run lifecycle) ≈ our workspace active_task.
+
+**Signals to react to:** ACP adopted by a major enterprise vendor (SAP, Salesforce, IBM Watson) → Molecule needs ACP bridge. ACP merges with A2A under AAIF → de-duplication milestone. GitHub Copilot CLI ships ACP support (already in preview Jan 2026) → ACP is a GitHub-distribution channel.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ⚠️ ARCHIVED Aug 27, 2025 — IBM contributed to AAIF/A2A working group; no active development. A2A won the protocol consolidation. No action needed.
+
+---
+
+### Claw Code — `ultraworkers/claw-code`
+
+**Pitch:** Clean-room Python + Rust rewrite of the Claude Code agentic architecture — fastest GitHub repository to 100k stars in history.
+
+**Shape:** Rust (73%) + Python (27%), 100k★+, 72.6k forks within days of launch. Python handles agent orchestration, command parsing, LLM integration. Rust implements performance-critical runtime paths with a full-native target in progress. Created by @sigridjineth (WSJ: processed 25B+ Claude Code tokens). Not affiliated with or endorsed by Anthropic.
+
+**Overlap with us:** Direct architectural reference for `molecule-ai-workspace-template-claude-code`. The Rust runtime path (memory safety, performance) is relevant to workspace container design. Python orchestration layer mirrors our workspace-template structure. 100k★ + 72.6k forks = the largest community validation of the Claude Code architecture pattern.
+
+**Differentiation:** Single-agent coding tool. No multi-agent orchestration, no A2A protocol, no org hierarchy, no canvas, no scheduling, no Docker workspace isolation. Molecule is the governance + orchestration platform layer above it.
+
+**Worth borrowing:** Rust runtime for performance-critical tool execution — reference if we ever build a performance-optimized workspace template. Clean-room architecture docs clarify Claude Code's task breakdown, tool chaining, and context management at depth unavailable in Anthropic's official docs.
+
+**Terminology collisions:** None beyond standard "agent" ambiguity.
+
+**Signals to react to:** Claw Code ships A2A support → evaluate `molecule-ai-workspace-template-claw-code`. Anthropic legal action → monitor for project discontinuation risk. Claw Code's Python SDK becomes pip-installable → simplifies potential workspace template adapter.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 100k+★, Rust+Python, 72.6k forks, fastest-growing repo in GitHub history
