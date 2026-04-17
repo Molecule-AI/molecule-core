@@ -473,6 +473,30 @@ snapshots:
       v0.17.2 (Apr 10 2026); AMD-backed local agent framework hardware-locked
       to Ryzen AI 300+ NPU; MCP support; not general-purpose.
     source_url: https://github.com/amd/gaia/releases
+
+  - name: Cognee
+    slug: cognee
+    date: "2026-04-17"
+    version: "v1.0.1.dev1"
+    stars: "15.8k"
+    threat_level: low
+    notable_changes: >
+      Hybrid graph+vector knowledge engine for agent memory; claude-code plugin
+      + Hermes Agent native integration; cross-agent knowledge sharing with
+      tenant isolation; reference design for closing our agent_memories gap.
+    source_url: https://github.com/topoteretes/cognee/releases
+
+  - name: Archestra
+    slug: archestra
+    date: "2026-04-17"
+    version: "platform-v1.2.15"
+    stars: "3.6k"
+    threat_level: low
+    notable_changes: >
+      Enterprise MCP registry + dual-LLM security gateway (Apr 16 2026);
+      centralized MCP server governance, Kubernetes-native, AGPL-3.0;
+      reference design for our plugin registry governance story.
+    source_url: https://github.com/archestra-ai/archestra/releases
 ```
 
 ---
@@ -2114,3 +2138,43 @@ consider shipping an official Molecule AI VoltAgent runtime adapter alongside ou
 langgraph/crewai adapters.
 
 **Last reviewed:** 2026-04-16 · **Stars / activity:** ~8.2k ⭐, 668 releases, latest April 11, 2026
+
+---
+
+### Cognee — `topoteretes/cognee`
+
+**Pitch:** "Knowledge Engine for AI Agent Memory in 6 lines of code — hybrid graph + vector search, runs locally, multimodal."
+
+**Shape:** Python library (MIT), ~15.8k ⭐, v1.0.1.dev1 April 15, 2026. Four-operation API: `cognify` (ingest + graph-build), `search` (auto-routes to vector or graph), `prune` (delete), `cognee.config` (backend selection). Backends: local (SQLite + Qdrant), Cognee Cloud, Modal, Fly.io, Railway. Enterprise tier adds cross-agent knowledge sharing with tenant isolation and OTEL tracing.
+
+**Overlap with us:** Directly addresses the same gap our `agent_memories` table targets — persistent, queryable agent knowledge across sessions. Ships a `claude-code-plugin` for session memory injection (same use case as `claude-mem`'s 56k⭐ demand signal). Native integration with Hermes Agent. The hybrid graph+vector approach (knowledge graph for relationships, vector for semantic recall) is materially more sophisticated than our current key-value `agent_memories` model.
+
+**Differentiation:** Pure memory library — no workspace lifecycle, no agent orchestration, no A2A, no canvas. Intended to be embedded into any agent framework, including Molecule AI workspaces, not to replace them.
+
+**Worth borrowing:** The four-operation memory API (`remember` / `recall` / `forget` / `improve`) is a clean contract worth adopting in our `agent_memories` API surface. The tenant-isolated cross-agent knowledge graph model (agents share a knowledge base scoped to their org) maps well to our workspace hierarchy. Consider a `molecule-cognee` plugin that wires Cognee as the memory backend for any workspace.
+
+**Terminology collisions:** "cognify" — their ingest verb; we'd call this "index" or "ingest". "prune" — their delete; we use `DELETE /workspaces/:id/memories/:id`.
+
+**Signals to react to:** If Cognee ships a first-class MCP server (not just OpenClaw plugin) → immediately relevant as a drop-in memory backend for any MCP-capable Molecule AI workspace. If 56k⭐ `claude-mem` users migrate to Cognee for graph-based recall → validates the gap and urgency.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ~15.8k ⭐, v1.0.1.dev1, April 15, 2026
+
+---
+
+### Archestra — `archestra-ai/archestra`
+
+**Pitch:** "End the MCP chaos — a self-hosted enterprise platform for governing, securing, and monitoring your organization's MCP servers."
+
+**Shape:** TypeScript (AGPL-3.0), ~3.6k ⭐, platform v1.2.15 April 16, 2026. Kubernetes-native. Two main surfaces: (1) **MCP Registry** — private, shared MCP server catalog for teams; OAuth + API key management; governance controls on which teams can access which tools. (2) **Security Gateway** — dual-LLM architecture where a security sub-agent intercepts tool responses to block prompt injection and data exfiltration before results reach the primary agent. Also: per-team cost monitoring, ChatGPT-style chat UI with private prompt registry, Terraform provider + Helm chart.
+
+**Overlap with us:** Our `plugins/` registry and per-workspace plugin install system serve a similar "shared tools across an agent org" purpose. Archestra's MCP governance story (who can call which tools, cost per team, audit trail) is a more formal version of what our `POST /workspaces/:id/plugins` API provides informally. The dual-LLM security gateway pattern is novel and directly applicable to our A2A proxy hardening.
+
+**Differentiation:** Archestra governs MCP servers, not agent workspaces — it has no multi-agent orchestration, no workspace lifecycle, no A2A protocol, no canvas. It's an MCP-specific control plane, not an agent orchestration platform. Could complement Molecule AI rather than replace it.
+
+**Worth borrowing:** Dual-LLM security gateway pattern — intercept tool responses with a fast security model before they reach the primary agent. Apply to our A2A proxy (`a2a_proxy.go`) for tool-response sanitisation. Per-team MCP cost attribution model — maps naturally to our workspace tier billing.
+
+**Terminology collisions:** "orchestrator" — Archestra means "MCP server lifecycle manager"; we mean "multi-agent coordinator". Both use the word for very different things.
+
+**Signals to react to:** If Archestra adds agent-to-agent coordination on top of its MCP gateway → overlap with our platform increases significantly. If enterprise procurement teams start requiring an MCP governance audit trail → our plugin install API needs a formal audit log surface (issue backlog candidate).
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ~3.6k ⭐, platform v1.2.15, April 16, 2026
