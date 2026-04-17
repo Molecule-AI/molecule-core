@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"database/sql"
 	"log"
 	"net/http"
@@ -64,20 +65,31 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 // AdminAuth returns a Gin middleware for global/admin routes (e.g.
 // /settings/secrets, /admin/secrets) that have no per-workspace scope.
 //
-// Same lazy-bootstrap contract as WorkspaceAuth: if no live token exists
-// anywhere on the platform (fresh install / pre-Phase-30 upgrade), requests
-// are let through so existing deployments keep working. Once any workspace
-// has a live token every request to these routes MUST present a valid bearer
-// token — no Origin-based bypass. (#623)
+// # Credential tier (evaluated in order)
 //
-// Any valid workspace bearer token is accepted — the route is not scoped to
-// a specific workspace so we only verify the token is live and unrevoked.
+//  1. Lazy-bootstrap fail-open: if no live workspace token exists anywhere on
+//     the platform (fresh install / pre-Phase-30 upgrade), every request passes
+//     through so existing deployments keep working.
+//
+//  2. ADMIN_TOKEN env var (recommended, closes #684): when set, the bearer
+//     MUST equal this value exactly (constant-time comparison). Workspace
+//     bearer tokens are intentionally rejected even if valid — a compromised
+//     workspace agent must not be able to read global secrets, steal GitHub App
+//     installation tokens, or enumerate pending approvals across the platform.
+//     Set ADMIN_TOKEN to a strong random secret (e.g. openssl rand -base64 32).
+//
+//  3. Fallback — workspace token (deprecated, backward-compat): when
+//     ADMIN_TOKEN is not set and workspace tokens do exist globally, any valid
+//     workspace bearer token is still accepted. This preserves existing
+//     behaviour for deployments that have not yet configured ADMIN_TOKEN, but
+//     it leaves the blast-radius isolation gap described in #684 open. Set
+//     ADMIN_TOKEN to eliminate this fallback.
 //
 // NOTE: canvasOriginAllowed / isSameOriginCanvas are intentionally NOT called
 // here.  The Origin header is trivially forgeable by any container on the
 // Docker network; using it as an auth bypass would let an attacker reach
 // /settings/secrets, /bundles/import, /events, etc. without a bearer token.
-// Those short-circuits belong ONLY in CanvasOrBearer (cosmetic routes).
+// Those short-circuits belong ONLY in CanvasOrBearer (cosmetic routes). (#623)
 func AdminAuth(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
@@ -88,18 +100,34 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "auth check failed"})
 			return
 		}
-		if hasLive {
-			// Bearer token is the ONLY accepted credential for admin routes.
-			tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
-			if tok != "" {
-				if err := wsauth.ValidateAnyToken(ctx, database, tok); err != nil {
-					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
-					return
-				}
-				c.Next()
+		if !hasLive {
+			// Tier 1: fail-open on fresh install / pre-Phase-30 upgrade.
+			c.Next()
+			return
+		}
+
+		// Bearer token is the ONLY accepted credential for admin routes.
+		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
+		if tok == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "admin auth required"})
+			return
+		}
+
+		// Tier 2 (#684 fix): dedicated ADMIN_TOKEN — workspace bearer tokens
+		// must not grant access to admin routes.
+		if adminSecret := os.Getenv("ADMIN_TOKEN"); adminSecret != "" {
+			if subtle.ConstantTimeCompare([]byte(tok), []byte(adminSecret)) != 1 {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
 				return
 			}
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "admin auth required"})
+			c.Next()
+			return
+		}
+
+		// Tier 3 (deprecated): ADMIN_TOKEN not configured — fall back to any
+		// valid workspace token. Operators should set ADMIN_TOKEN to close #684.
+		if err := wsauth.ValidateAnyToken(ctx, database, tok); err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
 			return
 		}
 		c.Next()
