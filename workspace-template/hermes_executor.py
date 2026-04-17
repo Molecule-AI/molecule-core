@@ -21,6 +21,37 @@ OTEL activity span so operators can inspect the thinking trace in Langfuse
 A2A reply — doing so would contaminate the agent's next-turn context with
 the model's internal scratchpad.
 
+Native tools (#497)
+-------------------
+Tool definitions are passed via the OpenAI-native ``tools`` parameter instead
+of injecting them as text into the system prompt.  Each entry must follow the
+standard OpenAI function-calling schema::
+
+    {
+        "type": "function",
+        "function": {
+            "name": "...",
+            "description": "...",
+            "parameters": {        # JSON Schema object
+                "type": "object",
+                "properties": {...},
+                "required": [...]
+            }
+        }
+    }
+
+**Empty list rule:** when ``tools`` is ``None`` or ``[]``, the ``tools``
+parameter is **omitted** from the API call entirely.  Sending ``tools=[]``
+to some OpenAI-compat providers causes a 400 / unexpected behaviour; omitting
+the key is always safe and signals "no tool use."
+
+**Tool-call response handling:** when the model returns
+``choice.message.tool_calls`` with no text content (``finish_reason`` is
+``"tool_calls"``), the executor serialises the tool-call list as a JSON string
+and enqueues that as the A2A reply.  This keeps the executor thin (single API
+call per turn, no ReAct loop) while surfacing function-call intent to the
+caller in a structured, parseable format.
+
 Hermes 3 / unknown models
 --------------------------
 No ``extra_body`` is sent.  The response is processed identically to any
@@ -126,6 +157,7 @@ class HermesA2AExecutor(AgentExecutor):
     - System prompt injected as the first ``messages[]`` entry.
     - Hermes 4 reasoning enabled via ``extra_body`` when supported.
     - Reasoning trace logged to OTEL span — never echoed in the reply.
+    - Tool definitions passed via native ``tools`` parameter when supplied.
 
     Parameters
     ----------
@@ -142,6 +174,12 @@ class HermesA2AExecutor(AgentExecutor):
     heartbeat:
         Optional ``HeartbeatLoop`` instance used to surface the current
         task description in the platform UI.
+    tools:
+        Optional list of OpenAI-format tool definitions to pass via the
+        native ``tools`` parameter.  Each entry must have ``"type"`` and
+        ``"function"`` keys matching the OpenAI function-calling schema.
+        ``None`` or ``[]`` → the ``tools`` key is **omitted** from the API
+        call entirely (never sent as ``tools=[]``).
     _client:
         Inject a pre-built ``AsyncOpenAI`` (or compatible mock) — for
         testing only.  When provided, ``base_url`` and ``api_key`` are
@@ -155,12 +193,16 @@ class HermesA2AExecutor(AgentExecutor):
         base_url: str | None = None,
         api_key: str | None = None,
         heartbeat: "HeartbeatLoop | None" = None,
+        tools: list[dict] | None = None,
         _client: Any = None,
     ) -> None:
         self.model = model
         self.system_prompt = system_prompt
         self._heartbeat = heartbeat
         self._provider = ProviderConfig(model)
+        # Empty list and None are treated identically: no tools → omit the
+        # parameter from the API call rather than sending tools=[].
+        self._tools: list[dict] = list(tools) if tools else []
 
         if _client is not None:
             # Test injection path — skip real AsyncOpenAI construction so
@@ -245,10 +287,15 @@ class HermesA2AExecutor(AgentExecutor):
         Sequence:
         1. Extract user text from A2A message parts.
         2. Build ``messages[]`` (optional system + user).
-        3. Call OpenAI-compat API; include ``extra_body`` for Hermes 4.
+        3. Call OpenAI-compat API; include ``extra_body`` for Hermes 4 and
+           ``tools`` when tool definitions are configured.
         4. Extract and log reasoning trace — does NOT appear in the reply.
-        5. Enqueue a final ``Message`` with the content text.
+        5a. If the model returned text content, enqueue it as the reply.
+        5b. If the model returned tool calls with no text (``finish_reason``
+            ``"tool_calls"``), serialise the calls as JSON and enqueue that.
         """
+        import json
+
         from shared_runtime import extract_message_text
 
         user_input = extract_message_text(context)
@@ -268,12 +315,18 @@ class HermesA2AExecutor(AgentExecutor):
         if self._provider.reasoning_supported:
             extra_body = {"reasoning": {"enabled": True}}
 
+        # Build call kwargs — omit ``tools`` entirely when the list is empty
+        # so providers that reject tools=[] don't get a 400.
+        create_kwargs: dict = {
+            "model": self.model,
+            "messages": messages,
+            "extra_body": extra_body,
+        }
+        if self._tools:
+            create_kwargs["tools"] = self._tools
+
         try:
-            response = await self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                extra_body=extra_body,
-            )
+            response = await self._client.chat.completions.create(**create_kwargs)
 
             choice = response.choices[0]
             content: str = choice.message.content or ""
@@ -296,6 +349,37 @@ class HermesA2AExecutor(AgentExecutor):
                 )
                 # Log to OTEL — intentionally omitted from the A2A reply.
                 self._log_reasoning(context, reasoning, reasoning_details)
+
+            # Handle tool-call response: when the model returns tool calls
+            # with no text content, serialise the calls as JSON so the caller
+            # receives structured, parseable output.  This keeps the executor
+            # thin (single API call per turn) while not silently discarding
+            # function-call intent.
+            if not content:
+                tool_calls = getattr(choice.message, "tool_calls", None)
+                if tool_calls:
+                    serialised = json.dumps([
+                        {
+                            "id": getattr(tc, "id", ""),
+                            "type": getattr(tc, "type", "function"),
+                            "function": {
+                                "name": getattr(
+                                    getattr(tc, "function", None), "name", ""
+                                ),
+                                "arguments": getattr(
+                                    getattr(tc, "function", None), "arguments", "{}"
+                                ),
+                            },
+                        }
+                        for tc in tool_calls
+                    ])
+                    logger.info(
+                        "hermes_executor: tool_calls response [model=%s n=%d]",
+                        self.model,
+                        len(tool_calls),
+                    )
+                    await event_queue.enqueue_event(new_agent_text_message(serialised))
+                    return
 
             final_text = content.strip() or "(no response generated)"
             await event_queue.enqueue_event(new_agent_text_message(final_text))
