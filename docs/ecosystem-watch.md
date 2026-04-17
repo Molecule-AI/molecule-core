@@ -2613,3 +2613,23 @@ langgraph/crewai adapters.
 **Signals to react to:** CF adds A2A support → escalate to HIGH, evaluate CF Workers as a Molecule workspace runtime target. CF bundles Agents + Artifacts + AI Gateway into a single platform pricing tier → direct positioning threat. Reaches 20k★ → publish a CF Workers org template.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 4,776★, v0.11.2 Apr 2026, TypeScript
+
+---
+
+### cognee — `topoteretes/cognee`
+
+**Pitch:** "Knowledge Engine for AI Agent Memory in 6 lines of code — remember, recall, forget, improve."
+
+**Shape:** Python (87%) + TypeScript (13%), Apache-2.0, v1.0.1.dev1 (Apr 2026), 16.1k★, 6,700+ commits. Hybrid memory architecture: vector search (semantic retrieval) + graph database (entity relationships) + session cache (fast, syncs to graph in background). Four-verb API: `remember`, `recall`, `forget`, `improve`. MCP-compatible (ships a Claude Code plugin + OpenClaw plugin). Native Hermes Agent integration.
+
+**Overlap with us:** (1) `agent_memories` — Molecule's HMA scoped memory (Redis + Postgres) vs. cognee's vector+graph hybrid with auto-routing; cognee is a richer retrieval layer. (2) Hermes workspace template — cognee ships native Hermes Agent support, suggesting direct drop-in compatibility with `molecule-ai-workspace-template-hermes`. (3) MCP plugin — cognee exposes memory as MCP tools, consumable via our `mcp-connector` (#573). Tracked for evaluation in GH #717.
+
+**Differentiation:** cognee is a memory library, not an orchestration platform — no visual canvas, no org hierarchy, no A2A, no scheduling. It augments agent memory; Molecule provides the agent runtime.
+
+**Worth borrowing:** The `remember`/`recall`/`forget`/`improve` verb API as a higher-level abstraction over `GET/POST /workspaces/:id/memories`. Graph-backed relationship tracking (entities, not just key-value) for richer agent knowledge graphs.
+
+**Terminology collisions:** "memory" — same word, different layers (cognee: content/semantic store; Molecule: workspace KV memory). "recall" — cognee verb vs. our memory search.
+
+**Signals to react to:** cognee v1.0.0 stable ships → evaluate as Hermes workspace dep. cognee adds A2A protocol → escalate to MEDIUM.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 16,096★, v1.0.1.dev1 Apr 2026, active (6.7k commits)
