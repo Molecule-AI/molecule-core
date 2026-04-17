@@ -1,8 +1,10 @@
 # Hermes Multi-Provider Dispatch: Native Anthropic, Gemini, and Multi-Turn History
 
-Hermes is Molecule AI's inference router. Out of the box it proxies every model through an OpenAI-compatible shim — which works fine for plain text but silently strips Anthropic's `tool_use` blocks, vision content, and Gemini's `parts`-based message structure.
+Hermes is Molecule AI's inference router. Out of the box it proxies every model through an OpenAI-compatible shim. That works for plain text, but the shim does format translation on every round-trip — and it gets the Gemini message format wrong (Gemini expects `role: "model"` and a `parts: [{text}]` wrapper; the shim passes `role: "assistant"` and a flat string). It also flattens multi-turn conversations into a single user blob, losing role attribution across turns.
 
-Phases 2a–2c wired three native dispatch paths keyed on `auth_scheme`. This tutorial shows you how to unlock them, and why you should.
+Phases 2a–2c wire three native dispatch paths keyed on `auth_scheme`. This tutorial shows you how to unlock them.
+
+> **Phase 2d scope note:** Tool calling, vision content blocks, system instructions, and streaming on the native paths are scoped for Phase 2d and are **not yet shipped**. This tutorial covers what is merged today: correct native dispatch + multi-turn history continuity.
 
 ## What you'll need
 
@@ -59,7 +61,6 @@ curl -s -X PUT $MOLECULE_API/settings/secrets \
   -d '{"key":"GEMINI_API_KEY","value":"YOUR-GEMINI-KEY"}' | jq .
 
 # 5. Create a Hermes workspace — Gemini native dispatch
-#    We override the global ANTHROPIC_API_KEY at workspace scope so Gemini wins
 GEMINI_WS=$(curl -s -X POST $MOLECULE_API/workspaces \
   -H "Content-Type: application/json" \
   -d '{
@@ -112,11 +113,11 @@ curl -s -X POST $MOLECULE_API/workspaces/$ANTHROPIC_WS/a2a \
 
 ## Expected output
 
-**Step 7 (Anthropic workspace):** The agent confirms it is calling the Anthropic Messages API. Internally Hermes executed `_do_anthropic_native`, not the OpenAI shim. Tool-use blocks, vision content, and extended thinking all survive in round-trips.
+**Step 7 (Anthropic workspace):** The agent confirms it is calling the Anthropic Messages API natively. Hermes executed `_do_anthropic_native` — no OpenAI-compat translation layer.
 
-**Step 8 (Gemini workspace):** The agent confirms Google `generateContent`. Hermes called `_do_gemini_native`, which uses `role: "model"` (not `"assistant"`) and the `parts: [{text: ...}]` wrapper that the native SDK requires. The OpenAI-compat translation that previously stripped these is bypassed.
+**Step 8 (Gemini workspace):** The agent confirms Google `generateContent`. Hermes called `_do_gemini_native`, which passes `role: "model"` (not `"assistant"`) and the `parts: [{text: ...}]` wrapper the native SDK requires. The compat-shim translation that produced incorrect message format is bypassed.
 
-**Step 10 (multi-turn, Phase 2c):** Returns `"Alice"`. Before Phase 2c, history was flattened into a single user blob — the model could still figure out context but lost role attribution and instruction-following across turns. Phase 2c passes turns as turns: OpenAI uses `{role, content}`, Anthropic uses the same wire shape for text, Gemini uses `{role: "model", parts: [{text}]}`.
+**Step 10 (multi-turn, Phase 2c):** Returns `"Alice"`. Before Phase 2c, history was flattened into a single user blob — the model could recover the gist but lost clean role attribution. Phase 2c passes turns as turns: OpenAI uses `{role, content}`, Anthropic uses the same wire shape for text-only, Gemini uses `{role: "model", parts: [{text}]}`.
 
 ## How dispatch works under the hood
 
@@ -131,11 +132,11 @@ else:  # "openai" + unknown (forward-compat fallback)
     return await self._do_openai_compat(user_message, history)
 ```
 
-Fail-loud semantics: if the `anthropic` package isn't installed, `_do_anthropic_native` raises a clear `RuntimeError` before any inference attempt. Same for `google-genai`. Silent fallback to the compat shim would mask fidelity loss — Molecule AI chooses loud failure.
+Fail-loud semantics: if the `anthropic` package isn't installed, `_do_anthropic_native` raises a clear `RuntimeError` before any inference attempt. Same for `google-genai`. Silent fallback to the compat shim would mask format errors — Molecule AI chooses loud failure.
 
 ## Building a multi-provider team
 
-The real win surfaces in a mixed-provider agent team. Your orchestrator can fan tasks to an Anthropic specialist (best at tool-calling) and a Gemini specialist (best at long-context) simultaneously, then synthesize:
+The real win surfaces in a mixed-provider agent team. Your orchestrator can fan tasks to an Anthropic worker and a Gemini worker simultaneously, each receiving properly formatted messages through their native API paths:
 
 ```bash
 # Fan out from the orchestrator — both fire in parallel
@@ -144,22 +145,32 @@ curl -s -X POST $MOLECULE_API/workspaces/$ORCH_ID/a2a \
   -d "{
     \"jsonrpc\":\"2.0\",\"id\":\"fan-1\",\"method\":\"message/send\",
     \"params\":{\"message\":{\"role\":\"user\",\"parts\":[{\"kind\":\"text\",
-    \"text\":\"delegate_task_async $ANTHROPIC_WS 'Draft tool-calling schema for a calendar booking agent' AND delegate_task_async $GEMINI_WS 'Summarise the last 30 days of support tickets'\"}]}}
+    \"text\":\"delegate_task_async $ANTHROPIC_WS 'Draft release notes for v2.1' AND delegate_task_async $GEMINI_WS 'Summarise the last 30 days of support tickets'\"}]}}
   }" | jq .
 ```
 
-Both workers use their native inference paths. No LiteLLM proxy layer. No format translation taxes. The orchestrator gets results back through the same A2A protocol regardless of which underlying model powered each task.
+Both workers use their native inference paths. No LiteLLM proxy layer. No format translation on every request. The orchestrator gets results back through the same A2A protocol regardless of which underlying model powered each task.
 
-## Comparison: Hermes native vs the compat shim
+## Capability comparison: Hermes native vs the compat shim
+
+What is shipping today (Phases 2a + 2b + 2c — all merged to main):
 
 | Capability | OpenAI-compat shim | Anthropic native | Gemini native |
 |---|---|---|---|
-| Plain text | ✅ | ✅ | ✅ |
-| `tool_use` / `tool_result` blocks | ❌ stripped | ✅ | ✅ |
-| Vision content | ❌ stripped | ✅ | ✅ |
-| Multi-turn history | ⚠️ flattened blob | ✅ role-attributed | ✅ `model` role + parts |
-| Extended thinking | ❌ | ✅ (Phase 2d) | — |
-| Streaming | ❌ (Phase 2d) | ❌ (Phase 2d) | ❌ (Phase 2d) |
+| Plain text (single-turn) | ✅ | ✅ | ✅ |
+| Multi-turn history | ⚠️ flattened into one user blob | ✅ role-attributed turns | ✅ `role: "model"` + `parts` wrapper |
+| Correct Gemini message format | ❌ wrong role + missing parts wrapper | — | ✅ |
+| No compat-shim translation overhead | ❌ every request translated | ✅ | ✅ |
+
+What is on the roadmap for Phase 2d (not yet shipped):
+
+| Capability | Anthropic native | Gemini native |
+|---|---|---|
+| `tool_use` / `tool_result` blocks | 📋 Phase 2d | 📋 Phase 2d |
+| Vision content blocks | 📋 Phase 2d | 📋 Phase 2d |
+| System instructions (`system=`) | 📋 Phase 2d | 📋 Phase 2d (`system_instruction=`) |
+| Extended thinking | 📋 Phase 2d | — |
+| Streaming | 📋 Phase 2d | 📋 Phase 2d |
 
 **Why Molecule AI vs Letta / AG2 / n8n:** Those frameworks handle multi-LLM at the application layer — you write different agent classes per provider. Molecule AI handles it at the infrastructure layer. Your workspace configs change; your orchestration code doesn't. Swap a Gemini worker for an Anthropic worker by changing one secret. No code redeploy.
 
