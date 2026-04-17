@@ -2535,3 +2535,21 @@ langgraph/crewai adapters.
 **Signals to react to:** EvoMap Hub paid-tier adoption → agentskills.io competitive signal. Docker container isolation added → escalate to MEDIUM.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 3,327 ⭐, +812 today, v1.67.1, 351 forks
+
+---
+
+### Strix — `usestrix/strix`
+
+**Pitch:** "Open-source AI hackers to find and fix your app's vulnerabilities."
+
+**Shape:** Python (91.6%), Apache-2.0, 24.1k ⭐, available on PyPI as `strix-agent`. CLI-first autonomous security testing platform built on a **graph of agents** architecture: specialized agents coordinate in parallel across attack vectors (injection, SSRF, XSS, IDOR, auth bypass, and more), validate findings with real proof-of-concepts rather than static analysis flags, and emit actionable remediation reports. Toolkit includes HTTP proxy, browser automation, terminal environments, and a Python runtime harness. Supports CI/CD pipeline integration.
+
+**Overlap with us:** (1) Multi-agent graph architecture is conceptually aligned — parallel specialist agents, dynamic coordination, result aggregation. Not an orchestration framework, but a production signal that autonomous multi-agent pipelines are proven in security verticals. (2) CI/CD integration pattern mirrors how Molecule AI workspaces are embedded in dev pipelines. (3) The auto-remediation + structured reporting loop is a demand signal for audit-trail and human-oversight patterns — directly adjacent to the `molecule-audit-ledger` work (GH #594) and our EU AI Act compliance posture.
+
+**Differentiation:** Domain-locked (security only), no visual canvas, no org hierarchy, no scheduling, no A2A interoperability. Not a competing platform — a vertical application on top of agent primitives similar to what a Molecule AI org template could deliver.
+
+**Worth borrowing:** Proof-of-concept validation pattern (agents confirm exploits rather than flag suspects) as a model for grounding agent outputs with verifiable artifacts. Their `--ci` mode integration pattern is worth referencing for the playwright-mcp plugin CI workflow.
+
+**Signals to react to:** If Strix ships an agent SDK / plugin API → they become a platform player, escalate to MEDIUM. If enterprise security teams start asking about Molecule AI + Strix integration → document a reference org template.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 24,100 ⭐, +202 today, PyPI `strix-agent`
