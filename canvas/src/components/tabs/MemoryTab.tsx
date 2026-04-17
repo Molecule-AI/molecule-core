@@ -219,7 +219,7 @@ export function MemoryTab({ workspaceId }: Props) {
               Refresh
             </button>
             <button
-              onClick={() => setShowAdd(!showAdd)}
+              onClick={() => { setShowAdd(!showAdd); if (!showAdd) setShowAdvanced(true); }}
               className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-white"
             >
               + Add
