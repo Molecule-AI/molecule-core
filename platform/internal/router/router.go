@@ -256,6 +256,12 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		// (mirrors the /workspaces/:id/a2a pattern). Issue #249.
 		r.GET("/workspaces/:id/schedules/health", schedh.Health)
 
+		// Budget — per-workspace spend ceiling and current usage (#541).
+		// GET returns the current state; PATCH sets or clears the ceiling.
+		budgeth := handlers.NewBudgetHandler()
+		wsAuth.GET("/budget", budgeth.GetBudget)
+		wsAuth.PATCH("/budget", budgeth.PatchBudget)
+
 		// Token management (user-facing create/list/revoke)
 		tokh := handlers.NewTokenHandler()
 		wsAuth.GET("/tokens", tokh.List)
