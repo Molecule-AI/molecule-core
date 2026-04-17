@@ -118,6 +118,10 @@ export interface WorkspaceData {
   x: number;
   y: number;
   collapsed: boolean;
+  /** USD spend ceiling set by the user; null = unlimited. Added by issue #541. */
+  budget_limit: number | null;
+  /** Cumulative USD spend for this workspace. Present when the platform tracks spend. */
+  budget_used?: number | null;
 }
 
 let socket: ReconnectingSocket | null = null;
