@@ -417,7 +417,7 @@ func (h *WorkspaceHandler) ensureDefaultConfig(workspaceID string, payload model
 		if runtime == "claude-code" {
 			model = "sonnet"
 		} else {
-			model = "anthropic:claude-sonnet-4-6"
+			model = "anthropic:claude-opus-4-7"
 		}
 	}
 
