@@ -433,12 +433,12 @@ function MemoryEntryRow({
                 ? "text-blue-500"
                 : entry.similarity_score >= 0.5
                 ? "text-zinc-400"
-                : "text-zinc-600",
+                : "text-zinc-400 italic",
             ].join(" ")}
             title={`Similarity: ${(entry.similarity_score * 100).toFixed(1)}%`}
             data-testid="similarity-badge"
           >
-            {Math.round(entry.similarity_score * 100)}%
+            {entry.similarity_score < 0.5 ? "~" : ""}{Math.round(entry.similarity_score * 100)}%
           </span>
         )}
         <span className="text-[9px] text-zinc-600 shrink-0">
