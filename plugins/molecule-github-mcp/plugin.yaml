@@ -1,0 +1,16 @@
+name: molecule-github-mcp
+version: 0.1.0
+description: >
+  Wraps the official GitHub MCP server (@modelcontextprotocol/server-github),
+  giving agents access to GitHub tools (issues, PRs, code search, etc.)
+  via the MCP protocol over stdio.
+author: Molecule AI
+tags: [github, mcp, tools]
+runtimes: [claude-code, langgraph, hermes, deepagents]
+
+mcp_servers:
+  - name: github
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env:
+      GITHUB_TOKEN: "${GITHUB_TOKEN}"

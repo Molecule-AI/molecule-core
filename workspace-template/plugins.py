@@ -38,6 +38,7 @@ class PluginManifest:
     prompt_fragments: list[str] = field(default_factory=list)
     adapters: dict = field(default_factory=dict)
     runtimes: list[str] = field(default_factory=list)  # declared supported runtimes
+    mcp_servers: list[dict] = field(default_factory=list)  # MCP server declarations (#573)
 
 
 @dataclass
@@ -78,6 +79,7 @@ def load_plugin_manifest(plugin_path: str) -> PluginManifest:
             prompt_fragments=raw.get("prompt_fragments", []),
             adapters=raw.get("adapters", {}),
             runtimes=raw.get("runtimes", []),
+            mcp_servers=raw.get("mcp_servers", []),
         )
     except Exception as e:
         logger.warning("Failed to parse plugin manifest %s: %s", manifest_file, e)

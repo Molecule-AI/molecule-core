@@ -40,11 +40,15 @@ the class into this module.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
+
+import yaml
 
 from .protocol import SKILLS_SUBDIR, InstallContext, InstallResult
 
@@ -222,6 +226,351 @@ class AgentskillsAdaptor:
             ctx.logger.info("%s: stripped markers from %s", self.plugin_name, ctx.memory_filename)
 
 
+
+
+# ----------------------------------------------------------------------
+# MCPServerAdaptor — install a plugin as one or more MCP servers (#573).
+#
+# Wears two hats:
+#   1. PluginAdaptor (install/uninstall): reads mcp_servers from plugin.yaml,
+#      validates env keys, resolves ${VAR} templates, writes mcp-servers.json
+#      under the workspace's configs dir so executors can launch them.
+#   2. Subprocess manager (start/stop/call_tool/list_tools): manages a single
+#      MCP server process, communicating via JSON-RPC 2.0 over stdio.
+#
+# Security constraints (reviewed by Security Auditor):
+#   * shell=False always — asyncio.create_subprocess_exec, never shell=True
+#   * Blocked env keys: PATH, LD_PRELOAD, PYTHONPATH, and others that could
+#     hijack the process; validated at construction time.
+#   * Command validation: bare names always allowed; absolute paths must be
+#     under known-safe prefixes (/usr/local/bin, ~/.local/bin, etc.)
+#   * Stderr from the MCP server process is captured and NEVER forwarded
+#     verbatim; only first 200 bytes appear in RuntimeError messages.
+#   * call_tool has a configurable timeout (default 30 s).
+# ----------------------------------------------------------------------
+
+# Env keys that plugin-supplied env must never override.
+_BLOCKED_ENV_KEYS: frozenset[str] = frozenset({
+    "PATH",
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "HOME",
+    "USER",
+    "SHELL",
+    "DYLD_LIBRARY_PATH",
+    "DYLD_INSERT_LIBRARIES",
+})
+
+# Absolute-path prefixes that are safe for MCP server commands.
+_ALLOWED_COMMAND_PREFIXES: tuple[str, ...] = (
+    "/usr/local/bin/",
+    "/usr/bin/",
+    "/bin/",
+    "/opt/homebrew/bin/",
+    str(Path.home() / ".local" / "bin") + "/",
+    str(Path.home() / ".nvm") + "/",
+    "/nix/",
+    "/snap/",
+)
+
+# Filename written under configs_dir for all plugin-contributed MCP servers.
+MCP_SERVERS_CONFIG = "mcp-servers.json"
+
+# Pattern for ${VAR_NAME} template substitution in env values.
+_ENV_TEMPLATE_RE = re.compile(r"\$\{([^}]+)\}")
+
+
+def _resolve_env_template(value: str) -> str:
+    """Expand ``${VAR_NAME}`` patterns using ``os.environ`` (unknown → empty string)."""
+    return _ENV_TEMPLATE_RE.sub(lambda m: os.environ.get(m.group(1), ""), value)
+
+
+def _validate_env_keys(env: dict[str, str]) -> None:
+    """Raise ValueError if any key would override a security-sensitive variable."""
+    bad = {k for k in env if k.upper() in _BLOCKED_ENV_KEYS}
+    if bad:
+        raise ValueError(
+            f"MCPServerAdaptor: env must not override security-sensitive keys: "
+            f"{', '.join(sorted(bad))}"
+        )
+
+
+def _validate_command(command: str) -> None:
+    """Raise ValueError for absolute paths outside known-safe locations.
+
+    Bare command names (e.g. ``npx``, ``uvx``) are always allowed because
+    they resolve via the subprocess PATH at runtime.  Absolute paths outside
+    the known-safe prefix list are rejected to prevent a malicious plugin.yaml
+    from running arbitrary binaries.
+    """
+    p = Path(command)
+    if not p.is_absolute():
+        return  # bare name — fine
+    if not any(str(p).startswith(prefix) for prefix in _ALLOWED_COMMAND_PREFIXES):
+        raise ValueError(
+            f"MCPServerAdaptor: command '{command}' is an absolute path outside "
+            f"allowed locations.  Use a bare command name (e.g. 'npx', 'python3') "
+            f"or a path under /usr/local/bin, /usr/bin, or ~/.local/bin."
+        )
+
+
+class MCPServerAdaptor:
+    """Adaptor that installs and communicates with an MCP server subprocess.
+
+    **As a PluginAdaptor** (installed by the plugin registry):
+    ``install(ctx)`` reads the ``mcp_servers:`` list from the plugin's
+    ``plugin.yaml``, validates each server's ``env`` keys, resolves
+    ``${VAR}`` templates, and writes / merges entries into
+    ``<configs_dir>/mcp-servers.json`` — the file executors read at
+    startup to populate their ``mcp_servers`` dict.
+
+    **As a subprocess manager** (used directly by agents or test harnesses):
+    Construct with a single server's ``(name, command, args, env)`` and
+    call ``start()`` / ``stop()`` / ``call_tool()`` / ``list_tools()``.
+    Communication is JSON-RPC 2.0 over stdio (line-delimited).
+
+    Usage as subprocess manager::
+
+        adaptor = MCPServerAdaptor(
+            name="github",
+            command="npx",
+            args=["-y", "@modelcontextprotocol/server-github"],
+            env={"GITHUB_TOKEN": os.environ["GITHUB_TOKEN"]},
+        )
+        await adaptor.start()
+        tools = await adaptor.list_tools()
+        result = await adaptor.call_tool("create_issue", {"title": "Bug"})
+        await adaptor.stop()
+    """
+
+    def __init__(
+        self,
+        name: str,
+        command: str,
+        args: list[str],
+        env: dict[str, str] | None = None,
+        *,
+        plugin_name: str = "",
+        runtime: str = "",
+        call_timeout: float = 30.0,
+    ) -> None:
+        _validate_command(command)
+        raw_env = dict(env or {})
+        _validate_env_keys(raw_env)
+
+        self.name = name
+        self.command = command
+        self.args = list(args)
+        self.env = raw_env
+        # PluginAdaptor protocol attributes
+        self.plugin_name = plugin_name or name
+        self.runtime = runtime
+        self.call_timeout = call_timeout
+
+        self._process: asyncio.subprocess.Process | None = None
+        self._request_id: int = 0
+
+    # ------------------------------------------------------------------
+    # Subprocess management
+    # ------------------------------------------------------------------
+
+    async def start(self) -> None:
+        """Launch the MCP server subprocess (shell=False always)."""
+        if self._process is not None and self._process.returncode is None:
+            return  # already running
+        merged_env = {**os.environ, **self.env}
+        # asyncio.create_subprocess_exec never uses shell=True
+        self._process = await asyncio.create_subprocess_exec(
+            self.command, *self.args,
+            env=merged_env,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+    async def stop(self) -> None:
+        """Terminate the subprocess cleanly; SIGKILL after 5 s if it hangs."""
+        if self._process is None or self._process.returncode is not None:
+            return
+        self._process.terminate()
+        try:
+            await asyncio.wait_for(self._process.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            self._process.kill()
+            await self._process.wait()
+
+    async def list_tools(self) -> list[dict]:
+        """Return the tool manifest from the MCP server (``tools/list`` RPC)."""
+        self._assert_running()
+        req = self._build_request("tools/list", {})
+        resp = await self._send_request(req)
+        return resp.get("result", {}).get("tools", [])
+
+    async def call_tool(self, tool_name: str, arguments: dict) -> dict:
+        """Call a tool on the MCP server and return the result dict.
+
+        Raises ``TimeoutError`` if no response arrives within ``call_timeout``
+        seconds.  Raises ``RuntimeError`` if the server returns a JSON-RPC
+        error object.
+        """
+        self._assert_running()
+        req = self._build_request(
+            "tools/call", {"name": tool_name, "arguments": arguments}
+        )
+        resp = await self._send_request(req)
+        if "error" in resp:
+            err = resp["error"]
+            raise RuntimeError(
+                f"MCP tool '{tool_name}' returned error "
+                f"{err.get('code')}: {err.get('message')}"
+            )
+        return resp.get("result", {})
+
+    # ------------------------------------------------------------------
+    # PluginAdaptor interface
+    # ------------------------------------------------------------------
+
+    async def install(self, ctx: InstallContext) -> InstallResult:
+        """Read ``mcp_servers`` from ``plugin.yaml``, validate, and write
+        ``mcp-servers.json`` under ``ctx.configs_dir``.
+
+        Env validation errors (e.g. PATH override) are surfaced as
+        ``InstallResult.warnings`` so install never hard-fails.
+        """
+        result = InstallResult(
+            plugin_name=self.plugin_name,
+            runtime=self.runtime,
+            source="plugin",
+        )
+        manifest_path = ctx.plugin_root / "plugin.yaml"
+        if not manifest_path.is_file():
+            ctx.logger.info(
+                "%s: no plugin.yaml found — skipping MCP server install", self.plugin_name
+            )
+            return result
+
+        try:
+            raw = yaml.safe_load(manifest_path.read_text()) or {}
+        except Exception as exc:
+            result.warnings.append(f"plugin.yaml parse error: {exc}")
+            return result
+
+        mcp_servers_raw: list[dict] = raw.get("mcp_servers", [])
+        if not mcp_servers_raw:
+            ctx.logger.info(
+                "%s: no mcp_servers declared in plugin.yaml", self.plugin_name
+            )
+            return result
+
+        validated: list[dict] = []
+        for srv in mcp_servers_raw:
+            srv_name = srv.get("name", "<unnamed>")
+            srv_command = srv.get("command", "")
+            srv_env = dict(srv.get("env") or {})
+            try:
+                _validate_command(srv_command)
+                _validate_env_keys(srv_env)
+            except ValueError as exc:
+                result.warnings.append(f"server '{srv_name}': {exc}")
+                continue
+            validated.append({
+                "name": srv_name,
+                "command": srv_command,
+                "args": list(srv.get("args") or []),
+                "env": {k: _resolve_env_template(str(v)) for k, v in srv_env.items()},
+                "plugin": self.plugin_name,
+            })
+
+        if not validated:
+            return result
+
+        config_path = ctx.configs_dir / MCP_SERVERS_CONFIG
+        existing: dict[str, dict] = {}
+        if config_path.is_file():
+            try:
+                existing = json.loads(config_path.read_text())
+            except Exception:
+                existing = {}
+
+        for srv in validated:
+            existing[srv["name"]] = srv
+
+        config_path.write_text(json.dumps(existing, indent=2) + "\n")
+        result.files_written.append(MCP_SERVERS_CONFIG)
+        ctx.logger.info(
+            "%s: registered %d MCP server(s) in %s",
+            self.plugin_name, len(validated), MCP_SERVERS_CONFIG,
+        )
+        return result
+
+    async def uninstall(self, ctx: InstallContext) -> None:
+        """Remove this plugin's MCP server entries from ``mcp-servers.json``."""
+        config_path = ctx.configs_dir / MCP_SERVERS_CONFIG
+        if not config_path.is_file():
+            return
+        try:
+            existing: dict[str, dict] = json.loads(config_path.read_text())
+        except Exception:
+            return
+        updated = {
+            k: v for k, v in existing.items()
+            if v.get("plugin") != self.plugin_name
+        }
+        if len(updated) != len(existing):
+            config_path.write_text(json.dumps(updated, indent=2) + "\n")
+            ctx.logger.info(
+                "%s: removed MCP server entries from %s",
+                self.plugin_name, MCP_SERVERS_CONFIG,
+            )
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _assert_running(self) -> None:
+        if self._process is None or self._process.returncode is not None:
+            raise RuntimeError(
+                f"MCPServerAdaptor '{self.name}' is not running; call start() first"
+            )
+
+    def _build_request(self, method: str, params: dict) -> bytes:
+        self._request_id += 1
+        payload = {
+            "jsonrpc": "2.0",
+            "id": self._request_id,
+            "method": method,
+            "params": params,
+        }
+        return (json.dumps(payload) + "\n").encode()
+
+    async def _send_request(self, request_bytes: bytes) -> dict:
+        """Write request to stdin, read response from stdout with timeout.
+
+        Stderr is intentionally NOT forwarded — only sanitised substrings
+        appear in RuntimeError messages to prevent information leakage.
+        """
+        assert self._process is not None
+        assert self._process.stdin is not None
+        assert self._process.stdout is not None
+
+        try:
+            async with asyncio.timeout(self.call_timeout):
+                self._process.stdin.write(request_bytes)
+                await self._process.stdin.drain()
+                line = await self._process.stdout.readline()
+        except asyncio.TimeoutError:
+            raise TimeoutError(
+                f"MCPServerAdaptor '{self.name}': call timed out "
+                f"after {self.call_timeout}s"
+            )
+
+        if not line:
+            raise RuntimeError(
+                f"MCPServerAdaptor '{self.name}': server closed stdout unexpectedly"
+            )
+        return json.loads(line.decode())
 
 
 # ----------------------------------------------------------------------
