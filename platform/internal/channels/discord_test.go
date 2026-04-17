@@ -287,6 +287,34 @@ func TestSplitMessage_LongMessage(t *testing.T) {
 	}
 }
 
+// TestDiscordAdapter_SendMessage_ErrorDoesNotLeakToken verifies that when the
+// HTTP call to the Discord webhook fails (e.g. DNS error), the returned error
+// message does NOT contain the webhook URL — which embeds the Discord token.
+// Regression test for the MEDIUM security finding in PR #659.
+func TestDiscordAdapter_SendMessage_ErrorDoesNotLeakToken(t *testing.T) {
+	a := &DiscordAdapter{}
+	// Use a valid-looking webhook URL with a fake token so we can check it
+	// doesn't appear in the error string.
+	fakeToken := "SUPER_SECRET_DISCORD_TOKEN_12345"
+	webhookURL := discordWebhookPrefix + "123456789/" + fakeToken
+
+	// Point at an unroutable address to force a dial error.
+	err := a.SendMessage(
+		context.Background(),
+		map[string]interface{}{"webhook_url": webhookURL},
+		"ignored",
+		"hello",
+	)
+
+	if err == nil {
+		// In some environments the request might actually succeed; that's fine.
+		t.Skip("request unexpectedly succeeded — skipping token-leak check")
+	}
+	if strings.Contains(err.Error(), fakeToken) {
+		t.Errorf("error message leaks Discord webhook token: %q", err.Error())
+	}
+}
+
 func TestSplitMessage_SplitsAtNewline(t *testing.T) {
 	// Build a message where a newline falls within the split window.
 	line1 := strings.Repeat("a", 1500) + "\n"
