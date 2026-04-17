@@ -113,3 +113,56 @@ func TestSlackAdapter_DisplayName(t *testing.T) {
 		t.Errorf("expected 'Slack', got %q", a.DisplayName())
 	}
 }
+
+func TestMarkdownToMrkdwn_Bold(t *testing.T) {
+	got := markdownToMrkdwn("This is **bold** text")
+	if got != "This is *bold* text" {
+		t.Errorf("expected *bold*, got %q", got)
+	}
+}
+
+func TestMarkdownToMrkdwn_Heading(t *testing.T) {
+	got := markdownToMrkdwn("### Security Findings")
+	if got != "*Security Findings*" {
+		t.Errorf("expected *Security Findings*, got %q", got)
+	}
+}
+
+func TestMarkdownToMrkdwn_Link(t *testing.T) {
+	got := markdownToMrkdwn("See [PR #800](https://github.com/org/repo/pull/800)")
+	if got != "See <https://github.com/org/repo/pull/800|PR #800>" {
+		t.Errorf("expected Slack link, got %q", got)
+	}
+}
+
+func TestMarkdownToMrkdwn_HorizontalRule(t *testing.T) {
+	got := markdownToMrkdwn("above\n---\nbelow")
+	if got != "above\n———\nbelow" {
+		t.Errorf("expected ———, got %q", got)
+	}
+}
+
+func TestMarkdownToMrkdwn_CodeBlockUntouched(t *testing.T) {
+	input := "```go\nfunc main() {}\n```"
+	got := markdownToMrkdwn(input)
+	if got != input {
+		t.Errorf("code block should be untouched, got %q", got)
+	}
+}
+
+func TestMarkdownToMrkdwn_Mixed(t *testing.T) {
+	input := "## Summary\n\n**3 PRs** merged. See [details](https://example.com).\n\n---\n\nDone."
+	got := markdownToMrkdwn(input)
+	if !strings.Contains(got, "*Summary*") {
+		t.Error("heading not converted")
+	}
+	if !strings.Contains(got, "*3 PRs*") {
+		t.Error("bold not converted")
+	}
+	if !strings.Contains(got, "<https://example.com|details>") {
+		t.Error("link not converted")
+	}
+	if !strings.Contains(got, "———") {
+		t.Error("hr not converted")
+	}
+}
