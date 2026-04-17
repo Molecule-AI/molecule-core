@@ -1512,6 +1512,22 @@ builders; Molecule AI users are developers building agent companies.
 
 ---
 
+### Anthropic Managed Agents — `api.anthropic.com` *(commercial, public beta)*
+
+**Pitch:** "Run managed agent sessions with built-in sandboxing, checkpointing, credential management, and end-to-end tracing — without managing infrastructure."
+
+**Shape:** Anthropic-hosted API, public beta since April 8, 2026 (`managed-agents-2026-04-01` beta header required). Bundles: agent loop + tool execution, sandboxed container per session, state persistence (conversation-history checkpointing per session), credential management + scoped permissions, end-to-end tracing. Pricing: standard API token cost + **$0.08/session-hour** active runtime (idle = zero cost). SSE stream endpoint (`GET /v1/sessions/{id}/stream`) for real-time event delivery. `user.tool_confirmation` SSE event supports async tool approval/denial from the application layer.
+
+**Overlap with us:** Idle-zero billing addresses the same problem as GH #711 (workspace hibernation). Per-session sandboxing overlaps E2B (#574). Session-level conversation checkpointing partially overlaps Temporal durable execution (#583).
+
+**Differentiation:** Session checkpointing ≠ Temporal — Managed Agents checkpoints conversation history; Temporal handles cross-workspace workflow orchestration, retry sagas, and distributed state. Our Docker workspace model is richer: persistent identity, multi-agent A2A, org hierarchy, RBAC, visual canvas, model-agnosticism. RBAC passthrough requires an async out-of-band sidecar (our `check_permission` gates run inside the workspace process; Managed Agents loop runs server-side). Cost neutral at ~2 active hrs/day (~$0.16/day vs ~$0.10–0.17/day Fly.io shared-1x); more expensive for high-throughput workspaces (8+ active hrs/day). API surface explicitly unstable ("behaviors may be refined between releases" — Anthropic docs).
+
+**Signals to react to:** GA announcement → re-evaluate `ClaudeManagedAgentsExecutor` adapter spike (GH #742 closed: WATCH-FOR-GA). Multiagent coordination + memory research-preview features exit waitlist → evaluate whether built-in multi-agent replaces our A2A layer or complements it. `tool_confirmation` API stabilizes → simplifies our RBAC passthrough sidecar design. Price drop below $0.05/session-hour → re-run cost model for high-traffic workspaces.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** Anthropic cloud API, public beta (Apr 8 2026). **Verdict: WATCH-FOR-GA** (GH #742 closed). Adapter estimated ~150–200 LOC, non-trivial async session model, RBAC interception requires architectural work.
+
+---
+
 ### Microsoft Agent Framework — `microsoft/agent-framework`
 
 **Pitch:** "A framework for building, orchestrating and deploying AI agents and multi-agent workflows with support for Python and .NET."
@@ -2872,9 +2888,9 @@ langgraph/crewai adapters.
 
 **Terminology collisions:** "agents" (identical), "tools" (identical), "CodeAgent" ≈ our workspace-template code execution runner.
 
-**Signals to react to:** smolagents ships A2A support → evaluate `molecule-ai-workspace-template-smolagents` adapter (GH #792). Hugging Face positions smolagents as the default agent runtime in their platform → Molecule needs a smolagents bridge or loses HF-ecosystem developers. smolagents reaches 40k★ → competitive threat to workspace-template mind-share.
+**Signals to react to:** smolagents reaches 30k★ (on current trajectory: ~4–6 weeks from 2026-04-17) → re-evaluate `molecule-ai-workspace-template-smolagents` (GH #792 closed: WATCH). Hugging Face officially designates smolagents as the default/recommended agent runtime for HF Spaces or their platform → elevate to ADOPT immediately. A2A shim is already confirmed feasible at ~120–160 LOC (below 200 LOC threshold; `fastapi-agents` SmolagentsAgent adapter validates the integration pattern). Docker-in-Docker gotcha: use `executor_type="local"` (AST-sandboxed) or `executor_type="e2b"` inside our workspace containers — DinD requires `--privileged`.
 
-**Last reviewed:** 2026-04-17 · **Stars / activity:** 26,500★, Python, Apache-2.0, active Hugging Face development. GH #792 filed for adapter evaluation.
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 26,500★, Python, Apache-2.0, active Hugging Face development. **Verdict: WATCH** (2/3 criteria pass — shim LOC ✅, no lock-in ✅, stars ❌). GH #792 closed.
 
 ---
 
