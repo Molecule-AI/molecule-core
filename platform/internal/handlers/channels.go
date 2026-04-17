@@ -1,12 +1,17 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/subtle"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -410,6 +415,22 @@ func (h *ChannelHandler) Webhook(c *gin.Context) {
 		return
 	}
 
+	// Discord: verify Ed25519 signature BEFORE the body is consumed by ParseWebhook.
+	// The app_public_key is the Discord application's public key (not a secret —
+	// it's a PUBLIC key and therefore stored in plaintext in channel_config).
+	// We look it up from the DB (first enabled Discord channel with the field set)
+	// and fall back to the DISCORD_APP_PUBLIC_KEY env var for self-hosted setups
+	// that prefer global configuration. Fail closed: no key configured → 401.
+	// verifyDiscordSignature restores r.Body after reading so ParseWebhook below
+	// can still read the payload.
+	if channelType == "discord" {
+		pubKey := discordPublicKey(ctx)
+		if pubKey == "" || !verifyDiscordSignature(c.Request, pubKey) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid signature"})
+			return
+		}
+	}
+
 	// For webhooks, we need to find the channel by type and match by chat_id in the message
 	// Parse the webhook first to get the chat_id
 	msg, err := adapter.ParseWebhook(c, nil)
@@ -488,4 +509,70 @@ func (h *ChannelHandler) Webhook(c *gin.Context) {
 	}()
 
 	c.JSON(http.StatusOK, gin.H{"status": "accepted"})
+}
+
+// discordPublicKey returns the Ed25519 public key to use for Discord request
+// signature verification. It queries the DB for the first enabled Discord
+// channel whose config contains a non-empty app_public_key (stored in
+// plaintext — it is a PUBLIC key and is not in the sensitiveFields list),
+// then falls back to the DISCORD_APP_PUBLIC_KEY environment variable.
+//
+// Returns "" when no key is configured, which causes the caller to reject
+// the incoming request with 401 (fail-closed behaviour).
+func discordPublicKey(ctx context.Context) string {
+	var pubKey string
+	row := db.DB.QueryRowContext(ctx, `
+		SELECT COALESCE(channel_config->>'app_public_key', '')
+		FROM workspace_channels
+		WHERE channel_type = 'discord' AND enabled = true
+		  AND channel_config->>'app_public_key' IS NOT NULL
+		  AND channel_config->>'app_public_key' != ''
+		LIMIT 1
+	`)
+	_ = row.Scan(&pubKey)
+	if pubKey != "" {
+		return pubKey
+	}
+	return os.Getenv("DISCORD_APP_PUBLIC_KEY")
+}
+
+// verifyDiscordSignature verifies a Discord Interactions request using the
+// Ed25519 signature scheme described in Discord's Interactions documentation.
+// Discord signs the concatenation of the X-Signature-Timestamp header and the
+// raw request body with the application's private key; we verify with the
+// public key stored in channel_config or DISCORD_APP_PUBLIC_KEY.
+//
+// The function reads r.Body in full and then replaces it with a bytes.Reader
+// over the same bytes so that subsequent callers (adapter.ParseWebhook) can
+// still read the body.
+//
+// Returns false when any required header is missing, when pubKeyHex cannot
+// be hex-decoded to a 32-byte Ed25519 public key, when the signature header
+// cannot be decoded, or when the Ed25519 verification itself fails.
+func verifyDiscordSignature(r *http.Request, pubKeyHex string) bool {
+	sig := r.Header.Get("X-Signature-Ed25519")
+	ts := r.Header.Get("X-Signature-Timestamp")
+	if sig == "" || ts == "" || pubKeyHex == "" {
+		return false
+	}
+
+	pubKeyBytes, err := hex.DecodeString(pubKeyHex)
+	if err != nil || len(pubKeyBytes) != ed25519.PublicKeySize {
+		return false
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return false
+	}
+	// Restore body so adapter.ParseWebhook can read it.
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
+	sigBytes, err := hex.DecodeString(sig)
+	if err != nil {
+		return false
+	}
+
+	msg := append([]byte(ts), body...)
+	return ed25519.Verify(pubKeyBytes, msg, sigBytes)
 }
