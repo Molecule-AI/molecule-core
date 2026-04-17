@@ -125,5 +125,7 @@ org-templates/**/.auth-token
 # Cloned-via-manifest dirs — populated locally by scripts/clone-manifest.sh,
 # tracked in their own standalone repos. Never commit to core.
 /org-templates/
-/plugins/
+/plugins/*
+# Exception: molecule-medo lives here until it gets its own standalone repo.
+!/plugins/molecule-medo/
 /workspace-configs-templates/

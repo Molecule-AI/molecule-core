@@ -1,16 +1,11 @@
-"""Tests for workspace-template/builtin_tools/medo.py.
+"""Tests for plugins/molecule-medo/skills/medo-tools/scripts/medo.py.
 
 All tests exercise the mock backend (no MEDO_API_KEY required).
 
-NOTE: conftest.py mocks builtin_tools with __path__=[] and mocks
-langchain_core.tools.tool as a no-op (lambda f: f) so adapters can be
-imported without heavy deps.  Consequence: direct package import of
-builtin_tools.medo is blocked (empty __path__ prevents filesystem
-lookup), and @tool returns the raw async function rather than a LangChain
-StructuredTool — so .ainvoke() is unavailable.
-
-Fix: load medo.py via importlib (bypasses the mock package root) and
-call functions directly, not via .ainvoke().
+NOTE: @tool is a LangChain decorator that returns a StructuredTool rather than
+the raw async function.  conftest.py mocks langchain_core.tools.tool as an
+identity decorator so that calling the functions directly (without .ainvoke())
+works in tests — matching the original test approach.
 """
 
 import importlib.util
@@ -19,14 +14,15 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-_MEDO_PATH = ROOT / "builtin_tools" / "medo.py"
+# plugin root: plugins/molecule-medo/
+_PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+_MEDO_PATH = _PLUGIN_ROOT / "skills" / "medo-tools" / "scripts" / "medo.py"
 
 
 def _load_medo():
-    spec = importlib.util.spec_from_file_location("builtin_tools.medo", _MEDO_PATH)
+    spec = importlib.util.spec_from_file_location("medo_plugin_tools", _MEDO_PATH)
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["builtin_tools.medo"] = mod  # register before exec to handle self-refs
+    sys.modules["medo_plugin_tools"] = mod  # register before exec to handle self-refs
     spec.loader.exec_module(mod)
     return mod
 
