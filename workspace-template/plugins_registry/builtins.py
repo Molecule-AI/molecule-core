@@ -315,11 +315,28 @@ def _rewrite_hook_paths(fragment: dict, claude_dir: Path) -> dict:
 
 
 def _deep_merge_hooks(existing: dict, fragment: dict) -> dict:
+    """Deep-merge fragment hooks into existing settings.
+
+    Deduplicates by command string: if a hook command is already registered
+    for a given event (regardless of matcher), it is not appended again.
+    This makes plugin installs and reinstalls idempotent.
+    """
     out = dict(existing)
     out.setdefault("hooks", {})
     for event, handlers in fragment.get("hooks", {}).items():
         out["hooks"].setdefault(event, [])
-        out["hooks"][event].extend(handlers)
+        # Build a set of all command strings already registered for this event.
+        existing_cmds: set[str] = {
+            h.get("command", "")
+            for handler in out["hooks"][event]
+            for h in handler.get("hooks", [])
+        }
+        for handler in handlers:
+            new_cmds = {h.get("command", "") for h in handler.get("hooks", [])}
+            # Only append if none of the new commands are already present.
+            if not new_cmds.issubset(existing_cmds):
+                out["hooks"][event].append(handler)
+                existing_cmds |= new_cmds
     for key, val in fragment.items():
         if key == "hooks":
             continue
