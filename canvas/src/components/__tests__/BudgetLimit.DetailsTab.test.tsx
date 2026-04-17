@@ -44,6 +44,15 @@ vi.mock("../tabs/BudgetSection", () => ({
   ),
 }));
 
+// Mock WorkspaceUsage — it has its own test suite (WorkspaceUsage.test.tsx).
+// Without this mock its internal api.get call races against the shared mock
+// and crashes when the return is not a valid WorkspaceMetrics object.
+vi.mock("../WorkspaceUsage", () => ({
+  WorkspaceUsage: ({ workspaceId }: { workspaceId: string }) => (
+    <div data-testid="workspace-usage-stub" data-ws={workspaceId} />
+  ),
+}));
+
 import { api } from "@/lib/api";
 import { DetailsTab } from "../tabs/DetailsTab";
 
