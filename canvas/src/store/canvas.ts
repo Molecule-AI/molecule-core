@@ -29,6 +29,10 @@ export interface WorkspaceNodeData extends Record<string, unknown> {
   currentTask: string;
   runtime: string;
   needsRestart: boolean;
+  /** USD spend ceiling set by the user; null = unlimited. Added by issue #541. */
+  budgetLimit: number | null;
+  /** Cumulative USD spend. Present when the platform tracks spend (issue #541). */
+  budgetUsed?: number | null;
 }
 
 export type PanelTab = "details" | "skills" | "chat" | "terminal" | "config" | "schedule" | "channels" | "files" | "memory" | "traces" | "events" | "activity";
