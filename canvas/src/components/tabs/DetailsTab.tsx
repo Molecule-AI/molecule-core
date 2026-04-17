@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { StatusDot } from "../StatusDot";
+import { WorkspaceUsage } from "../WorkspaceUsage";
 
 interface Props {
   workspaceId: string;
@@ -189,6 +190,9 @@ export function DetailsTab({ workspaceId, data }: Props) {
           </div>
         )}
       </Section>
+
+      {/* Token usage + spend (scaffold — wired to GET /workspaces/:id/metrics once #593 lands) */}
+      <WorkspaceUsage workspaceId={workspaceId} />
 
       {/* Agent Card / Skills */}
       {skills.length > 0 && (
