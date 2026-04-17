@@ -28,9 +28,11 @@ func TestWorkspaceCreate_WithParentID(t *testing.T) {
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
 	parentID := "parent-ws-123"
+	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO workspaces").
 		WithArgs(sqlmock.AnyArg(), "Child Agent", nil, 1, "langgraph", sqlmock.AnyArg(), &parentID, nil, "none").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 	mock.ExpectExec("INSERT INTO canvas_layouts").
 		WithArgs(sqlmock.AnyArg(), float64(0), float64(0)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -61,9 +63,11 @@ func TestWorkspaceCreate_ExplicitClaudeCodeRuntime(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
+	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO workspaces").
 		WithArgs(sqlmock.AnyArg(), "CC Agent", nil, 2, "claude-code", sqlmock.AnyArg(), (*string)(nil), nil, "none").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 	mock.ExpectExec("INSERT INTO canvas_layouts").
 		WithArgs(sqlmock.AnyArg(), float64(10), float64(20)).
 		WillReturnResult(sqlmock.NewResult(0, 1))

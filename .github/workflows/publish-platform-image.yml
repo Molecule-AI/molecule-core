@@ -1,39 +1,25 @@
 name: publish-platform-image
 
-# Builds and pushes the tenant-platform Docker image to GHCR whenever a
-# commit lands on main. The private molecule-controlplane provisioner sets
-# TENANT_IMAGE=ghcr.io/molecule-ai/platform:<tag> to spawn tenant Fly
-# Machines from this image. See molecule-controlplane README for the pairing.
+# Builds and pushes the platform Docker images to GHCR whenever a commit
+# lands on main. EC2 tenant instances pull the tenant image from GHCR.
 
 on:
   push:
     branches: [main]
     paths:
-      # Only rebuild when something platform-relevant changes — saves GHA
-      # minutes on docs-only / canvas-only / MCP-only PRs.
       - 'platform/**'
       - 'canvas/**'
       - 'manifest.json'
       - '.github/workflows/publish-platform-image.yml'
-      # Templates now live in standalone repos — template changes no longer
-      # trigger a platform rebuild. Use workflow_dispatch to manually rebuild
-      # if a template repo update needs to be baked into the image.
-  # Manual trigger for re-publishing a tag after a non-platform merge.
   workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write   # required to push to ghcr.io/${{ github.repository_owner }}/*
+  packages: write
 
 env:
-  # GHCR accepts mixed-case, but most tooling lowercases — keep us consistent.
   IMAGE_NAME: ghcr.io/molecule-ai/platform
-  # Fly registry mirror — tenant machines provisioned by the private
-  # `molecule-controlplane` pull from here (private GHCR image can't be
-  # pulled by Fly machines without auth plumbing we don't want to add).
-  # Fly auto-authenticates same-org machines against registry.fly.io, so
-  # mirroring keeps GHCR private while tenants still boot.
-  FLY_IMAGE_NAME: registry.fly.io/molecule-tenant
+  TENANT_IMAGE_NAME: ghcr.io/molecule-ai/platform-tenant
 
 jobs:
   build-and-push:
@@ -42,83 +28,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure registry auth (write auths map; do NOT call docker login)
-        # `docker login` on macOS unconditionally writes credentials to the
-        # osxkeychain credential helper, even when DOCKER_CONFIG/config.json
-        # declares `credsStore: ""` and even when invoked with `--config`.
-        # Verified locally 2026-04-16 — after a successful login, Docker
-        # rewrites the same config file to:
-        #     { "auths": { "ghcr.io": {} }, "credsStore": "osxkeychain" }
-        # i.e. the auth lives in the Keychain, not the config file. The
-        # Mac mini runner is a launchd user agent with a locked Keychain,
-        # so storage fails with `User interaction is not allowed (-25308)`.
-        #
-        # Six prior PRs (#273, #319, #322, #341, #484, #486) all kept calling
-        # `docker login` and tried to coerce credsStore — none worked.
-        # The only reliable fix is to skip `docker login` entirely and write
-        # the auth strings directly. `docker/build-push-action@v5` and the
-        # daemon honor the `auths` map for push without needing login.
-        #
-        # Fly registry username MUST be literal "x" (verified 2026-04-15) —
-        # any other value returns 401. FLY_API_TOKEN lives in GitHub Actions
-        # secrets AND in `fly secrets` on molecule-cp; see
-        # docs/runbooks/saas-secrets.md before rotating.
+      - name: Configure GHCR auth
         shell: bash
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FLY_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
           set -eu
           mkdir -p "${RUNNER_TEMP}/docker-config"
           GHCR_AUTH=$(printf '%s:%s' "${GHCR_USER}" "${GHCR_TOKEN}" | base64)
-          FLY_AUTH=$(printf '%s:%s' 'x' "${FLY_TOKEN}" | base64)
           umask 077
-          cat > "${RUNNER_TEMP}/docker-config/config.json" <<JSON
-          {
-            "auths": {
-              "ghcr.io":         { "auth": "${GHCR_AUTH}" },
-              "registry.fly.io": { "auth": "${FLY_AUTH}" }
-            }
-          }
-          JSON
+          printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "${GHCR_AUTH}" > "${RUNNER_TEMP}/docker-config/config.json"
           echo "DOCKER_CONFIG=${RUNNER_TEMP}/docker-config" >> "${GITHUB_ENV}"
-          # Diagnostics that don't leak the tokens.
-          echo "=== docker ==="
-          command -v docker || echo "(docker not in PATH)"
-          docker --version 2>&1 || true
-          ls -la /usr/local/bin/docker /opt/homebrew/bin/docker 2>&1 || true
-          echo "=== auths registries (no values) ==="
-          grep -o '"[a-zA-Z0-9.-]*\.io"' "${RUNNER_TEMP}/docker-config/config.json" || true
 
       - name: Set up QEMU
-        # Required on the Apple-silicon self-hosted runner — Fly tenant machines
-        # pull linux/amd64, and buildx needs binfmt handlers in Docker Desktop's
-        # VM to emulate amd64 during the build.
         uses: docker/setup-qemu-action@v3
         with:
           platforms: linux/amd64
 
       - name: Set up Docker Buildx
-        # Buildx enables cache-from/cache-to via GHA cache and multi-arch
-        # builds without local docker daemon wrangling.
         uses: docker/setup-buildx-action@v3
 
       - name: Compute tags
         id: tags
-        # Emit two tags per build: `latest` (floating, always the main tip)
-        # and the short commit SHA (immutable, pin-friendly). Control plane
-        # can deploy `latest` today and pin to :sha in Phase H hardening.
         run: |
           echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-      - name: Build & push to GHCR
-        # Split from the Fly mirror so a registry.fly.io outage doesn't block
-        # GHCR (or vice versa) — each registry's failure mode is isolated.
-        # GHA cache is shared because both steps re-use the same Dockerfile
-        # context + build args.
-        # Explicit linux/amd64 target: the runner is Apple-silicon (arm64),
-        # but Fly tenant machines are amd64. QEMU handles the emulation.
+      - name: Build & push platform image to GHCR
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -133,13 +69,9 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.description=Molecule AI tenant platform (one instance per org)
+            org.opencontainers.image.description=Molecule AI platform (Go API server)
 
-      - name: Build & push tenant image to Fly registry
-        # Tenant image = Go platform + Canvas (Next.js) in one container.
-        # Uses Dockerfile.tenant which includes the canvas build + reverse proxy.
-        # Continues even if GHCR push failed.
-        if: always()
+      - name: Build & push tenant image to GHCR
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -147,31 +79,11 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.FLY_IMAGE_NAME }}:latest
-            ${{ env.FLY_IMAGE_NAME }}:sha-${{ steps.tags.outputs.sha }}
+            ${{ env.TENANT_IMAGE_NAME }}:latest
+            ${{ env.TENANT_IMAGE_NAME }}:sha-${{ steps.tags.outputs.sha }}
           cache-from: type=gha
+          cache-to: type=gha,mode=max
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.description=Molecule AI tenant platform + canvas (one instance per org)
-
-      - name: Install flyctl
-        uses: superfly/flyctl-actions/setup-flyctl@master
-
-      - name: Deploy to Fly tenant machines
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: |
-          MACHINES=$(flyctl machines list -a molecule-tenant --json | jq -r '.[] | select(.state == "started" or .state == "stopped") | .id')
-          if [ -z "$MACHINES" ]; then
-            echo "No tenant machines found — skipping deploy (control plane provisions on demand)"
-            exit 0
-          fi
-          for id in $MACHINES; do
-            echo "Updating machine $id to sha-${{ steps.tags.outputs.sha }}..."
-            flyctl machines update "$id" \
-              --image "${{ env.FLY_IMAGE_NAME }}:sha-${{ steps.tags.outputs.sha }}" \
-              -a molecule-tenant \
-              --yes
-          done
-          echo "All tenant machines updated to sha-${{ steps.tags.outputs.sha }}"
+            org.opencontainers.image.description=Molecule AI tenant platform + canvas (one EC2 instance per org)

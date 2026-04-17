@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/crypto"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/middleware"
@@ -57,6 +58,14 @@ func (h *WorkspaceHandler) SetCPProvisioner(cp *provisioner.CPProvisioner) {
 // provisions — only invoke during single-threaded init.
 func (h *WorkspaceHandler) SetEnvMutators(r *provisionhook.Registry) {
 	h.envMutators = r
+}
+
+// TokenRegistry returns the provisionhook.Registry so the router can
+// wire the GET /admin/github-installation-token handler without coupling
+// to WorkspaceHandler's internals. Returns nil when no plugin has been
+// registered (dev / self-hosted deployments without a GitHub App).
+func (h *WorkspaceHandler) TokenRegistry() *provisionhook.Registry {
+	return h.envMutators
 }
 
 // Create handles POST /workspaces
@@ -129,13 +138,55 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Insert workspace with runtime persisted in DB
-	_, err := db.DB.ExecContext(ctx, `
+	// Begin a transaction so the workspace row and any initial secrets are
+	// committed atomically.  A secret-encrypt or DB error rolls back the
+	// workspace insert so we never leave a workspace row with missing secrets.
+	tx, txErr := db.DB.BeginTx(ctx, nil)
+	if txErr != nil {
+		log.Printf("Create workspace: begin tx error: %v", txErr)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create workspace"})
+		return
+	}
+
+	// Insert workspace with runtime persisted in DB (inside transaction)
+	_, err := tx.ExecContext(ctx, `
 		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access)
 		VALUES ($1, $2, $3, $4, $5, $6, 'provisioning', $7, $8, $9)
 	`, id, payload.Name, role, payload.Tier, payload.Runtime, awarenessNamespace, payload.ParentID, workspaceDir, workspaceAccess)
 	if err != nil {
+		tx.Rollback() //nolint:errcheck
 		log.Printf("Create workspace error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create workspace"})
+		return
+	}
+
+	// Persist initial secrets from the create payload (inside same transaction).
+	// nil/empty map is a no-op.  Any failure rolls back the workspace insert
+	// so we never have a workspace row without its intended secrets.
+	for k, v := range payload.Secrets {
+		encrypted, encErr := crypto.Encrypt([]byte(v))
+		if encErr != nil {
+			tx.Rollback() //nolint:errcheck
+			log.Printf("Create workspace %s: failed to encrypt secret %q: %v", id, k, encErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encrypt secret: " + k})
+			return
+		}
+		version := crypto.CurrentEncryptionVersion()
+		if _, dbErr := tx.ExecContext(ctx, `
+			INSERT INTO workspace_secrets (workspace_id, key, encrypted_value, encryption_version)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (workspace_id, key) DO UPDATE
+				SET encrypted_value = $3, encryption_version = $4, updated_at = now()
+		`, id, k, encrypted, version); dbErr != nil {
+			tx.Rollback() //nolint:errcheck
+			log.Printf("Create workspace %s: failed to persist secret %q: %v", id, k, dbErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save secret: " + k})
+			return
+		}
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		log.Printf("Create workspace %s: transaction commit failed: %v", id, commitErr)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create workspace"})
 		return
 	}

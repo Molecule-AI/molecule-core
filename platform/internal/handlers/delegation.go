@@ -54,6 +54,13 @@ func (h *DelegationHandler) Delegate(c *gin.Context) {
 		return // response already written
 	}
 
+	// #548 — prevent self-delegation: a workspace delegating to itself
+	// acquires _run_lock twice on the same mutex, deadlocking permanently.
+	if sourceID == body.TargetID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "self-delegation not permitted"})
+		return
+	}
+
 	// #124 — idempotency. If the caller supplies an idempotency_key, return
 	// the existing delegation when (workspace_id, idempotency_key) already
 	// exists and is not in a failed terminal state.

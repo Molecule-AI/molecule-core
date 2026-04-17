@@ -248,10 +248,16 @@ func TestWorkspaceCreate(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", "/tmp/configs")
 
+	// Expect transaction begin for atomic workspace+secrets creation
+	mock.ExpectBegin()
+
 	// Expect workspace INSERT (uuid is dynamic, use AnyArg for id, runtime, awareness_namespace)
 	mock.ExpectExec("INSERT INTO workspaces").
 		WithArgs(sqlmock.AnyArg(), "Test Agent", nil, 1, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Expect transaction commit (no secrets in this payload)
+	mock.ExpectCommit()
 
 	// Expect canvas_layouts INSERT
 	mock.ExpectExec("INSERT INTO canvas_layouts").

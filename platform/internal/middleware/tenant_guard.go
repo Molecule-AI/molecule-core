@@ -81,6 +81,13 @@ func TenantGuardWithOrgID(configuredOrgID string) gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		// Tertiary: same-origin Canvas requests on tenant EC2 instances where
+		// Caddy serves Canvas (:3000) and API (:8080) under the same domain.
+		// CANVAS_PROXY_URL is set → Referer/Origin matches Host → trusted.
+		if isSameOriginCanvas(c) {
+			c.Next()
+			return
+		}
 		// 404 not 403 — existence of this tenant must not be inferable by
 		// probing other orgs' machines.
 		c.AbortWithStatus(404)

@@ -37,6 +37,452 @@ about where our differentiation actually is.
 
 ---
 
+## Competitor Snapshot
+
+> **Machine-readable index for PMM cron diffing.** One YAML entry per competitor —
+> the cron diffs this block to detect version bumps, threat escalations, and new
+> `notable_changes`, then updates `docs/marketing/competitors.md`.
+>
+> **Maintenance rule:** whenever you update a narrative entry below, also bump the
+> corresponding `date`, `version`, and `notable_changes` fields here.
+>
+> Fields: `name` · `slug` · `date` (last reviewed) · `version` · `stars` ·
+> `threat_level` (high / medium / low) · `notable_changes` (≤ 2 sentences) · `source_url`
+
+```yaml
+# competitor-snapshot
+# Generated: 2026-04-17 | Maintainer: Research Lead
+# PMM cron reads this block, diffs vs. previous commit, updates docs/marketing/competitors.md.
+# Update date + version + notable_changes whenever a competitor ships something significant.
+
+snapshots:
+
+  # ── HIGH THREAT ────────────────────────────────────────────────────────────────────
+  # Direct substitutes or major market-erosion risk for Molecule AI.
+
+  - name: Paperclip
+    slug: paperclip
+    date: "2026-04-17"
+    version: "v2026.416.0"
+    stars: "54.8k"
+    threat_level: medium
+    notable_changes: >
+      Downgraded HIGH → MEDIUM (2026-04-17, deep-dive #571): no A2A protocol,
+      no visual canvas, no org-chart UI on roadmap. Blocker dependencies are
+      single-process task-graph DAG, not inter-agent coordination. Execution
+      policies are budget ceilings, not tool restrictions. Only capability gap
+      vs Molecule AI is per-workspace budget limits (tracked #541). Brand/
+      framing threat ("zero-human companies") but not a technical substitute.
+      v2026.416.0 (Apr 16) ships chat threads + execution policies.
+    source_url: https://github.com/paperclipai/paperclip/releases
+
+  - name: OpenAI Agents SDK
+    slug: openai-agents-sdk
+    date: "2026-04-17"
+    version: "v0.14.1"
+    stars: "14k"
+    threat_level: high
+    notable_changes: >
+      v0.14.1 (Apr 15 2026) patches tracing export on top of v0.14.0's
+      SandboxAgent beta — persistent isolated workspaces, snapshot/resume,
+      and sandbox memory directly competing with our workspace lifecycle model.
+    source_url: https://github.com/openai/openai-agents-python/releases
+
+  - name: CrewAI
+    slug: crewai
+    date: "2026-04-17"
+    version: "v1.14.1"
+    stars: "48k"
+    threat_level: high
+    notable_changes: >
+      v1.14.1 (Apr 8 2026) adds async checkpoint TUI browser; 1.4B agentic
+      automations logged, 60% Fortune 500 adoption, and $18M Insight-led round
+      make CrewAI Enterprise the dominant multi-agent framework in our target
+      enterprise segment.
+    source_url: https://github.com/crewAIInc/crewAI/releases
+
+  - name: Google ADK
+    slug: google-adk
+    date: "2026-04-17"
+    version: "v1.30.0"
+    stars: "19k"
+    threat_level: high
+    notable_changes: >
+      v1.30.0 (Apr 13 2026) adds Auth Provider support to the agent registry,
+      Parameter Manager integration, and Gemma 4 model support; v2.0.0a3
+      pre-release introduces a graph-based execution engine.
+    source_url: https://github.com/google/adk-python/releases
+
+  - name: Microsoft Agent Framework
+    slug: microsoft-agent-framework
+    date: "2026-04-17"
+    version: "python-1.0.1"
+    stars: "9.5k"
+    threat_level: high
+    notable_changes: >
+      v1.0 GA (Apr 7 2026): multi-agent orchestration (sequential, concurrent,
+      group-chat, handoff, magnetic patterns), native A2A+MCP, OpenTelemetry,
+      pause/resume durability, HITL approvals. AG-UI protocol for SSE-streaming
+      agent events to frontends — direct competitor to our WebSocket canvas.
+      Process Framework GA planned Q2 2026. Molecule gap: AG-UI SSE endpoint,
+      tool governance registry, cost transparency per workspace.
+    source_url: https://github.com/microsoft/agent-framework/releases
+
+  # ── MEDIUM THREAT ──────────────────────────────────────────────────────────────────
+  # Significant overlap in adjacent space; no direct substitution risk today.
+
+  - name: Dify
+    slug: dify
+    date: "2026-04-17"
+    version: "v1.13.3"
+    stars: "60k"
+    threat_level: medium
+    notable_changes: >
+      Latest stable is v1.13.3 (Mar 27 2026); v1.14.0 RC adds Human Input
+      node (HITL); raised $30M Pre-A (Mar 2026, $180M valuation) with
+      280 enterprise deployments — no-code positioning targets business users,
+      not our developer audience.
+    source_url: https://github.com/langgenius/dify/releases
+
+  - name: LangGraph
+    slug: langgraph
+    date: "2026-04-17"
+    version: "v1.1.6"
+    stars: "29k"
+    threat_level: medium
+    notable_changes: >
+      langgraph-cli v0.4.22 (Apr 16 2026) adds deploy source tracking;
+      core v1.1.6 (Apr 10 2026) ships LangGraph 2.0 declarative guardrail nodes;
+      LangGraph Cloud hosted execution competes with our scheduler.
+    source_url: https://github.com/langchain-ai/langgraph/releases
+
+  - name: VoltAgent
+    slug: voltagent
+    date: "2026-04-17"
+    version: "server-elysia@2.0.7"
+    stars: "8.2k"
+    threat_level: medium
+    notable_changes: >
+      @voltagent/server-elysia v2.0.7 (Apr 11 2026) fixes A2A agent card
+      endpoints to advertise correct absolute URLs; VoltOps Console is the
+      closest Canvas analogue in the TypeScript ecosystem.
+    source_url: https://github.com/VoltAgent/voltagent/releases
+
+  - name: n8n
+    slug: n8n
+    date: "2026-04-17"
+    version: "v2.17.2"
+    stars: "50k"
+    threat_level: medium
+    notable_changes: >
+      v2.17.2 (Apr 16 2026) improves AI Gateway credentials endpoint;
+      n8n 2.0 (Dec 2025) added enterprise-grade AI Agent nodes, RBAC, SSO,
+      and 400+ channel integrations — direct overlap with our workspace_channels.
+    source_url: https://github.com/n8n-io/n8n/releases
+
+  - name: Claude Code Routines
+    slug: claude-code-routines
+    date: "2026-04-17"
+    version: "cloud-feature"
+    stars: "n/a"
+    threat_level: medium
+    notable_changes: >
+      Launched Apr 14 2026 (research preview): Anthropic-hosted cron + GitHub-
+      event-triggered Claude Code sessions running on Anthropic cloud; competes
+      with our workspace_schedules; single-model, no org canvas.
+    source_url: https://code.claude.com/docs/en/routines
+
+  - name: Scion
+    slug: scion
+    date: "2026-04-17"
+    version: "active"
+    stars: "early"
+    threat_level: medium
+    notable_changes: >
+      Launched Apr 8 2026 — GCP experimental container-per-agent harness for
+      Claude Code/Gemini CLI with parallel isolated workspaces and markdown
+      workflow definitions; escalation risk to HIGH if productized by Google.
+    source_url: https://github.com/GoogleCloudPlatform/scion
+
+  - name: Multica
+    slug: multica
+    date: "2026-04-17"
+    version: "active-36-releases"
+    stars: "12.8k"
+    threat_level: medium
+    notable_changes: >
+      Positioned as open-source Claude Managed Agents alternative (Apr 2026);
+      local daemon + central backend with pgvector semantic skill compounding;
+      +1,503 stars/day at launch — no A2A or org canvas but similar architecture.
+    source_url: https://github.com/multica-ai/multica/releases
+
+  - name: Cline
+    slug: cline
+    date: "2026-04-17"
+    version: "active"
+    stars: "44k"
+    threat_level: medium
+    notable_changes: >
+      VS Code Claude Code extension with 44k ⭐ and MCP support; primary user
+      overlap with our Claude Code workspace — developers who outgrow Cline's
+      single-session model are our conversion path.
+    source_url: https://github.com/cline/cline/releases
+
+  - name: ClawRun
+    slug: clawrun
+    date: "2026-04-17"
+    version: "active-45-releases"
+    stars: "84"
+    threat_level: medium
+    notable_changes: >
+      Closest architectural match tracked — sandbox/heartbeat/snapshot-resume/
+      channels/cost-tracking feature parity with us; 84 ⭐ but 45 releases
+      shows active shipping; adding A2A would make this a direct lightweight
+      competitor.
+    source_url: https://github.com/clawrun-sh/clawrun/releases
+
+  - name: Gemini CLI
+    slug: gemini-cli
+    date: "2026-04-17"
+    version: "v0.38.1"
+    stars: "101k"
+    threat_level: medium
+    notable_changes: >
+      v0.38.1 (Apr 15 2026) is a cherry-pick stability patch; 1M-token context
+      + MCP support; runtime candidate for our workspace adapter — elevated to
+      MEDIUM because it forms a full agent stack with Google ADK + adk-web.
+    source_url: https://github.com/google-gemini/gemini-cli/releases
+
+  # ── LOW THREAT ─────────────────────────────────────────────────────────────────────
+  # Tools, infra layers, single-agent tools, or products we use — not substitutes.
+
+  - name: Hermes Agent
+    slug: hermes-agent
+    date: "2026-04-17"
+    version: "v0.10.0"
+    stars: "61k"
+    threat_level: low
+    notable_changes: >
+      v0.10.0 (Apr 16 2026) launches Tool Gateway giving paid Portal subscribers
+      built-in web search, image generation, TTS, and browser automation; no
+      multi-agent or org hierarchy — personal AI shape, not platform competitor.
+    source_url: https://github.com/NousResearch/hermes-agent/releases
+
+  - name: gstack
+    slug: gstack
+    date: "2026-04-17"
+    version: "active"
+    stars: "70k"
+    threat_level: low
+    notable_changes: >
+      Viral Claude Code skills bundle with 70k ⭐; sequential single-session
+      persona-switching — no persistent infra, Docker isolation, or A2A protocol;
+      differentiation holds unless multi-session execution is added.
+    source_url: https://github.com/garrytan/gstack
+
+  - name: Flowise
+    slug: flowise
+    date: "2026-04-17"
+    version: "flowise@3.1.2"
+    stars: "30k"
+    threat_level: low
+    notable_changes: >
+      v3.1.2 (Apr 14 2026) delivers security hardening (CORS abuse, credential
+      leaks, unauthorized access); acquired by Workday (Aug 2025) — repositioned
+      for HR/finance enterprise, narrowing its developer-team market.
+    source_url: https://github.com/FlowiseAI/Flowise/releases
+
+  - name: OpenHands
+    slug: openhands
+    date: "2026-04-17"
+    version: "v1.6.0"
+    stars: "47k"
+    threat_level: low
+    notable_changes: >
+      v1.6.0 (Mar 30 2026) adds hook support and /clear command preserving
+      sandbox runtime; jumped to v1.x series (was v0.39.0); SWE-Bench top
+      open-source rank — single-agent software engineer, not a platform.
+    source_url: https://github.com/All-Hands-AI/OpenHands/releases
+
+  - name: Temporal
+    slug: temporal
+    date: "2026-04-17"
+    version: "v1.30.4"
+    stars: "13k"
+    threat_level: low
+    notable_changes: >
+      v1.30.4 (Apr 10 2026) patches CVE-2026-5724 MEDIUM authorization
+      vulnerability; $300M Series D (Feb 2026, $5B valuation); we integrate
+      Temporal as infra via workspace-template/builtin_tools/temporal_workflow.py.
+    source_url: https://github.com/temporalio/temporal/releases
+
+  - name: Chrome DevTools MCP
+    slug: chrome-devtools-mcp
+    date: "2026-04-17"
+    version: "active"
+    stars: "35.5k"
+    threat_level: low
+    notable_changes: >
+      Official ChromeDevTools org MCP server with 23 browser-control tools;
+      replaces our bespoke Puppeteer CDP plugin — we adopt it as of issue #540.
+    source_url: https://github.com/ChromeDevTools/chrome-devtools-mcp
+
+  - name: Composio
+    slug: composio
+    date: "2026-04-17"
+    version: "active"
+    stars: "18k"
+    threat_level: low
+    notable_changes: >
+      250+ tool integrations with managed auth; potential skill-pack dependency
+      for workspace channel integrations rather than a competing platform.
+    source_url: https://github.com/composio-dev/composio/releases
+
+  - name: AgentScope
+    slug: agentscope
+    date: "2026-04-17"
+    version: "v1.0.18"
+    stars: "23.8k"
+    threat_level: low
+    notable_changes: >
+      v1.0.18 (Mar 26 2026) from Alibaba/ModelScope with MsgHub typed routing
+      and OpenTelemetry; MCP integration; no deployment layer — framework only.
+    source_url: https://github.com/modelscope/agentscope/releases
+
+  - name: Skills CLI
+    slug: skills-cli
+    date: "2026-04-17"
+    version: "active"
+    stars: "14.2k"
+    threat_level: low
+    notable_changes: >
+      Vercel-backed canonical agentskills.io install CLI covering 45+ agents
+      including our Claude Code workspace; aligning plugins/ manifest to the
+      agentskills.io spec gives us free distribution through this channel.
+    source_url: https://github.com/vercel-labs/skills
+
+  - name: Archon
+    slug: archon
+    date: "2026-04-17"
+    version: "v0.3.6"
+    stars: "18.1k"
+    threat_level: low
+    notable_changes: >
+      v0.3.6 active; YAML-DAG coding workflow with mixed AI/deterministic nodes
+      and human approval gates; reference design for our workspace delivery
+      pipelines — no multi-agent coordination.
+    source_url: https://github.com/coleam00/Archon/releases
+
+  - name: Tencent AI-Infra-Guard
+    slug: tencent-ai-infra-guard
+    date: "2026-04-17"
+    version: "v4.1.3"
+    stars: "3.5k"
+    threat_level: low
+    notable_changes: >
+      v4.1.3 (Apr 9 2026); red team platform scanning MCP server and skills
+      surfaces — use as security compliance checklist for our MCP server and
+      plugin registry hardening; not a runtime competitor.
+    source_url: https://github.com/Tencent/AI-Infra-Guard/releases
+
+  - name: Holaboss
+    slug: holaboss
+    date: "2026-04-17"
+    version: "active"
+    stars: "1.7k"
+    threat_level: low
+    notable_changes: >
+      Desktop "AI employee" with filesystem-as-memory and compaction boundaries;
+      single-agent, no A2A — primary concern is terminology collisions
+      (workspace / MEMORY.md / SKILL.md / agentskills.io).
+    source_url: https://github.com/holaboss-ai/holaboss-ai
+
+  - name: claude-mem
+    slug: claude-mem
+    date: "2026-04-17"
+    version: "active"
+    stars: "56k"
+    threat_level: low
+    notable_changes: >
+      SQLite FTS5 + Chroma hybrid cross-session memory with lifecycle hooks;
+      56k ⭐ signals strong demand for the gap we need to close in agent_memories
+      — adopt PostToolUse + SessionEnd observation pipeline.
+    source_url: https://github.com/thedotmack/claude-mem
+
+  - name: Plannotator
+    slug: plannotator
+    date: "2026-04-17"
+    version: "v0.17.10"
+    stars: "4.3k"
+    threat_level: low
+    notable_changes: >
+      v0.17.10 (Apr 13 2026); HITL plan annotation UX with structured feedback
+      types (delete/insert/replace/comment); reference design for improving our
+      approvals API response schema.
+    source_url: https://github.com/backnotprop/plannotator/releases
+
+  - name: open-multi-agent
+    slug: open-multi-agent
+    date: "2026-04-17"
+    version: "v1.1.0"
+    stars: "5.7k"
+    threat_level: low
+    notable_changes: >
+      v1.1.0 (Apr 1 2026); TypeScript multi-agent with runtime goal-to-DAG
+      decomposition in 3 deps; ephemeral per-run — no persistent identity,
+      no canvas, no scheduling.
+    source_url: https://github.com/JackChen-me/open-multi-agent/releases
+
+  - name: Open Agents (Vercel)
+    slug: open-agents-vercel
+    date: "2026-04-17"
+    version: "active"
+    stars: "2.2k"
+    threat_level: low
+    notable_changes: >
+      +1,020 stars in one day (Apr 15 2026); Vercel Labs reference app for
+      background coding agents with snapshot-based VM resumption; no multi-
+      agent coordination — reference template, not a platform.
+    source_url: https://github.com/vercel-labs/open-agents
+
+  - name: GenericAgent
+    slug: generic-agent
+    date: "2026-04-17"
+    version: "v1.0"
+    stars: "2.1k"
+    threat_level: low
+    notable_changes: >
+      v1.0 (Jan 16 2026); self-evolving skill tree with four-tier memory
+      hierarchy (L0 rules → L4 session archives); single-agent, no A2A —
+      memory taxonomy worth borrowing for agent_memories scopes.
+    source_url: https://github.com/lsdefine/GenericAgent/releases
+
+  - name: OpenSRE
+    slug: opensre
+    date: "2026-04-17"
+    version: "active"
+    stars: "900"
+    threat_level: low
+    notable_changes: >
+      AI SRE toolkit with 40+ observability integrations (Grafana/Datadog/
+      K8s/AWS/GCP/PagerDuty); potential DevOps workspace skill-pack source
+      rather than a competing platform.
+    source_url: https://github.com/Tracer-Cloud/opensre
+
+  - name: AMD GAIA
+    slug: amd-gaia
+    date: "2026-04-17"
+    version: "v0.17.2"
+    stars: "1.2k"
+    threat_level: low
+    notable_changes: >
+      v0.17.2 (Apr 10 2026); AMD-backed local agent framework hardware-locked
+      to Ryzen AI 300+ NPU; MCP support; not general-purpose.
+    source_url: https://github.com/amd/gaia/releases
+```
+
+---
+
 ## Entries
 
 ### Holaboss — `holaboss-ai/holaboss-ai`
@@ -870,9 +1316,9 @@ builders; Molecule AI users are developers building agent companies.
 
 **Terminology collisions:** "middleware" — their processing pipeline hook; undefined in our platform. "graph" — their workflow DAG vs our live org chart (same word, different semantics).
 
-**Signals to react to:** If AF 1.0 achieves enterprise adoption → update our autogen adapter to target `microsoft/agent-framework`. If AF Labs RL ships stable → evaluate for dynamic PM routing based on workspace performance history.
+**Signals to react to:** AF 1.0 GA shipped April 7 with AG-UI (SSE protocol for streaming agent events to frontends). AG-UI is a direct competitor to our WebSocket canvas events — if AG-UI becomes a standard, we need an AG-UI-compatible SSE endpoint to attract MAF users. Process Framework GA in Q2 2026 will add visual workflow design — evaluate overlap with our Canvas. Google's private Tool Registry (Vertex AI) sets an enterprise expectation for tool governance that we should match with per-org curated plugin registries.
 
-**Last reviewed:** 2026-04-15 · **Stars / activity:** ~9.5k ⭐, April 2026 .NET release, official AutoGen successor
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ~9.5k ⭐, v1.0 GA April 7 2026, AG-UI protocol announced
 
 ---
 
@@ -1203,21 +1649,474 @@ Complementary by design.
 **Last reviewed:** 2026-04-16 · **Stars / activity:** ~35.5k ⭐, ChromeDevTools org, Apache-2.0
 
 ---
+
+### LangGraph — `langchain-ai/langgraph`
+
+**Pitch:** "Build resilient language agents as graphs — stateful, multi-actor
+applications with fine-grained control over agent flow."
+
+**Shape:** Python + JavaScript/TypeScript library (MIT), ~29k ⭐, v1.1.6 released
+April 10 2026. Part of the LangChain ecosystem. Agents are modelled as directed
+graphs: nodes are callables (LLM calls, tool calls, conditional branches), edges are
+routing rules, and a persistent **state schema** carries data between nodes.
+Checkpointing (memory persistence across turns) is built in via a pluggable
+`Checkpointer` interface (in-memory, SQLite, Postgres, Redis). Multi-agent
+compositions via subgraph nodes. LangGraph Cloud offers hosted execution backed by
+LangSmith observability. LangGraph 2.0 GA shipped February 2026, adding declarative
+guardrail nodes (content filtering, rate limiting, audit logging as config).
+
+**Overlap with us:** Molecule AI ships a `langgraph` runtime adapter
+(`molecule-ai-workspace-template-langgraph`) — this is us *on top of* LangGraph.
+Their graph model (nodes, edges, state) is structurally analogous to our workspace
+hierarchy (workspaces, A2A calls, shared context). Their `Checkpointer` is the
+lower-level equivalent of our `agent_memories` table. LangGraph Cloud's hosted
+execution competes directly with our scheduler + workspace lifecycle.
+
+**Differentiation:** LangGraph is a framework for *building* the logic of one agent
+or pipeline; Molecule AI is a platform for *deploying and coordinating* long-lived
+agents as an org. LangGraph has no concept of Docker workspace isolation, org-chart
+hierarchy, inter-agent A2A protocol, channel integrations, visual canvas, or cron
+scheduling. Our langgraph adapter *runs on top of* LangGraph — they're layered, not
+competing, for most use cases. The gap is LangGraph Cloud vs our hosted platform.
+
+**Worth borrowing:**
+- **Declarative guardrail nodes** (v2.0) — content filtering and audit logging as
+  first-class graph nodes rather than custom code. Map to our `approvals` table:
+  add declarative gate types (content-filter, rate-limit) in workspace config.
+- **Subgraph composition** — composing multi-agent pipelines by nesting graphs.
+  Our workspace parent/child hierarchy is the operational equivalent; study for
+  dynamic sub-workspace spawning UX.
+- **Checkpointer interface** — the pluggable backend design (SQLite → Postgres →
+  Redis hot path) is the right abstraction for our `agent_memories` persistence layer.
+
+**Terminology collisions:**
+- "state" — LangGraph: the typed dict carried between graph nodes; ours: workspace
+  status (online/offline/degraded). No user confusion but docs should disambiguate.
+- "node" — LangGraph: a callable in the agent graph; our canvas: a workspace tile.
+  Same word, very different level of abstraction.
+- "graph" — LangGraph: the directed workflow graph; our canvas: the live org chart.
+  Marketing copy should distinguish "workflow graph" (LangGraph) vs "org chart" (us).
+
+**Signals to react to:**
+- If LangGraph Cloud adds persistent agent identity (long-lived named agents beyond
+  per-session checkpoints) → direct hosted-platform competition; accelerate our
+  LangGraph adapter differentiation.
+- If LangGraph 2.0 guardrail nodes become the standard compliance primitive for AI
+  pipelines → expose an equivalent gate type in `workspace-template/` adapters.
+- If LangSmith + LangGraph Cloud bundle as an all-in-one enterprise platform → we
+  need to position our model-agnostic, self-hostable story more aggressively against
+  LangChain lock-in.
+
+**Last reviewed:** 2026-04-16 · **Stars / activity:** ~29k ⭐, v1.1.6 April 10 2026, very active
+
+---
+
+### CrewAI — `crewAIInc/crewAI`
+
+**Pitch:** "Framework for orchestrating role-playing, autonomous AI agents — by
+fostering collaborative intelligence, CrewAI empowers agents to work together
+seamlessly, tackling complex tasks."
+
+**Shape:** Python library (MIT), ~48k ⭐, v1.14.2 released April 8 2026. Agents are
+defined by `role`, `goal`, and `backstory` fields and assembled into a `Crew` with
+`Process.sequential` (fixed order) or `Process.hierarchical` (manager agent
+delegates) execution. `Flow` (event-driven stateful pipelines, shipped 2024-Q4)
+enables complex conditional branching beyond linear crew execution. Model-agnostic:
+OpenAI, Anthropic, Gemini, Mistral, Bedrock, Ollama, and any LiteLLM-compatible
+endpoint. Tools are Python callables or MCP integrations. CrewAI Enterprise is the
+commercial SaaS offering.
+
+**Overlap with us:** Molecule AI ships a `crewai` runtime adapter
+(`molecule-ai-workspace-template-crewai`) — our workspaces *run* CrewAI crews.
+The Crew role model (`role` + `goal` + `backstory`) is our system-prompt-encoded
+persona convention made explicit and typed. `Process.hierarchical` with a manager
+agent mirrors our PM → Dev Lead → Engineer delegation chain. Flow's event-driven
+branching is analogous to our `workspace_schedules` trigger model.
+
+**Differentiation:** CrewAI is an in-process Python framework; Molecule AI is the
+operational platform. CrewAI agents are ephemeral per crew run — no Docker isolation,
+no persistent identity across restarts, no org-chart canvas, no A2A between
+independently deployed agents, no cron scheduling, no channel integrations. A
+Molecule AI CrewAI workspace *persists* across sessions, holds a role in a larger org,
+and coordinates via our A2A protocol — capabilities CrewAI alone does not provide.
+
+**Worth borrowing:**
+- **Typed role schema** — `{role, goal, backstory}` as first-class typed fields
+  (not free-text system prompt). Our `config.yaml` `role:` is a single string; adopting
+  a richer `{role, goal, backstory}` triplet would improve agent persona consistency
+  across restarts and be CrewAI-compatible.
+- **`Flow` event-driven pipelines** — conditional state-machine branching triggered by
+  events. Applicable to our `workspace_schedules` — replace cron-only triggers with
+  an event graph: "when PR merged → trigger QA workspace → on pass → trigger deploy."
+- **Tool decorator pattern** — `@tool` with docstring-as-schema is simpler than our
+  MCP tool config approach for workspace-local tools.
+
+**Terminology collisions:**
+- "crew" — their multi-agent team; our team is a set of workspaces in an org
+  hierarchy. Marketing copy should use "workspace org" not "crew" to stay distinct.
+- "agent" — their ephemeral in-process Python object; our long-lived Docker workspace.
+- "task" — their atomic unit of work assigned to an agent; our `current_task`
+  heartbeat field. Same word, different scope.
+
+**Signals to react to:**
+- If CrewAI ships persistent agent state between crew runs → closes primary gap with
+  our workspace model; ~48k ⭐ means it would land with significant reach.
+- If CrewAI Enterprise adds visual org-chart canvas or A2A-style inter-crew
+  communication → direct platform competitor.
+- If the 2026 State of Agentic AI survey (65% of orgs using agents) accelerates
+  CrewAI Enterprise sales → their enterprise positioning competes directly with ours;
+  update ICP messaging.
+
+**Last reviewed:** 2026-04-16 · **Stars / activity:** ~48k ⭐, v1.14.2 April 8 2026, very active
+
+---
+
+### Temporal — `temporalio/temporal`
+
+**Pitch:** "The durable execution platform — write code that runs reliably even in
+the face of failures, timeouts, and restarts."
+
+**Shape:** Go server + SDKs for Go, Java, TypeScript, Python, .NET, PHP (MIT),
+~13k ⭐ server repo. Workflow logic is deterministic code that Temporal replays from
+event history after failures — no explicit retry/checkpoint code. `Activities` are
+the fallible steps; `Signals` allow external input mid-workflow; `Queries` expose
+read-only workflow state. Temporal Cloud is the managed SaaS; self-hosted runs on
+K8s or Docker. Raised $300M Series D at $5B valuation February 2026, with AI driving
+demand for durable execution. v1.30.4 released April 10 2026.
+
+**Overlap with us:** Molecule AI already integrates Temporal via
+`workspace-template/builtin_tools/temporal_workflow.py`. The `infra/scripts/setup.sh`
+starts a local Temporal server (`:7233` gRPC + `:8233` Web UI). Any Molecule AI
+workspace that needs bulletproof long-running or retryable work delegates to Temporal.
+Temporal's Worker Versioning (GA March 2026) solves the same code-deploy-during-live-
+workflow problem our restart-context message handles ad hoc.
+
+**Differentiation:** Temporal is infrastructure — a durable execution engine with no
+concept of agent identity, LLM calls, memory, org hierarchy, canvas, channels, or A2A.
+It is the *substrate* beneath agents that need guaranteed execution; we are the
+*platform* that decides when to call Temporal vs handle work in the workspace itself.
+We are Temporal consumers, not competitors. The distinction for users: use Temporal
+when you need workflow history replay and multi-step retry guarantees; use Molecule AI
+scheduling for lighter cron-triggered agent prompts.
+
+**Worth borrowing:**
+- **Worker Versioning** (GA March 2026) — pin live workflows to a specific code
+  version so deploys don't corrupt in-flight runs. Analogous problem to our
+  workspace restart-context; worth evaluating as the underlying mechanism for
+  zero-downtime workspace deploys.
+- **Workflow Update operation** — synchronous request/response pattern for live
+  workflows (e.g., human approves mid-workflow). Cleaner than our current
+  `approvals` polling; evaluate for HITL in long Temporal-backed workspace tasks.
+- **Upgrade-on-Continue-as-New** (Public Preview March 2026) — pinned workflows can
+  opt into a newer code version at a clean continuation boundary. Pattern applicable
+  to our workspace versioning strategy.
+
+**Terminology collisions:**
+- "workflow" — Temporal: a deterministic, replay-safe code function; ours: informal
+  delegation chain term. In our docs, "Temporal workflow" should always be qualified
+  to avoid confusion with "workflow" in general product copy.
+- "worker" — Temporal: a process that polls the server and executes workflow/activity
+  code; ours: not a first-class term (workspaces fill this role).
+- "activity" — Temporal: a fallible, retryable step in a workflow; ours: `activity_logs`
+  table (A2A traffic logs). Different concepts sharing a word.
+
+**Signals to react to:**
+- If Temporal Cloud adds native LLM-aware primitives (e.g., LLM call as a first-class
+  activity with token tracking, model fallback, prompt versioning) → Temporal becomes
+  an agent platform, not just an infra layer; reassess our `temporal_workflow.py`
+  integration depth.
+- If the $300M Series D accelerates enterprise sales motion → more enterprises will
+  arrive with Temporal already deployed; strengthen our Temporal integration story as
+  a first-class enterprise deployment pattern.
+- If Upgrade-on-Continue-as-New becomes stable → adopt for workspace blue/green
+  deploy pattern (no workspace downtime during code updates).
+
+**Last reviewed:** 2026-04-16 · **Stars / activity:** ~13k ⭐ (server); $5B valuation, $300M Series D Feb 2026; v1.30.4 April 10 2026
+
+---
+
+### Dify — `langgenius/dify`
+
+**Pitch:** "Production-ready platform for agentic workflow development — the leading
+open-source LLM app development platform."
+
+**Shape:** Python backend + React frontend (MIT), ~60k ⭐, v1.14.0 released February
+2026. Visual drag-drop workflow canvas where LLM calls, RAG retrievers, code
+executors, HTTP nodes, and agent loops are wired as a graph. Ships a full app
+deployment stack: API server, web UI widget, and Slack/Telegram/WhatsApp channel
+integrations. RAG pipeline with knowledge base management (file upload → chunk →
+embed → retrieve). Supports 50+ LLM providers. Dify Cloud is the managed SaaS;
+self-hosted via Docker Compose. Raised $30M Pre-A round led by HSG, March 2026.
+
+**Overlap with us:** Both have a visual canvas for connecting AI work. Both support
+channel integrations (Slack / Telegram / WhatsApp). Both run LLM-backed agents and
+expose a REST API for external trigger. Dify's `Human Input` node (v1.14.0) is the
+same pattern as our `approvals` table — pause workflow, wait for human input, resume.
+Their knowledge base (RAG) is the equivalent of what our Research Lead workspace does
+via tool calls to external retrieval services. Dify Cloud competes with our SaaS
+control plane for teams that want a hosted no-code LLM app platform.
+
+**Differentiation:** Dify targets **no-code and low-code builders** — the UX is
+workflow configuration, not code. No persistent agent identity across workflow runs,
+no multi-agent org hierarchy (agents in Dify are single workflow nodes, not
+first-class citizens), no A2A protocol between independently deployed agents, no
+Docker container isolation per agent. Molecule AI targets developers who write
+`config.yaml` and system prompts; Dify targets product managers and ops teams who
+want to deploy LLM apps without engineering. The ~60k ⭐ signal shows massive
+no-code demand that our current product does not address.
+
+**Worth borrowing:**
+- **Human Input node** — native human-in-the-loop as a workflow node type, not a
+  separate approvals API. Map to our `approvals` table: expose a "wait for human"
+  node in a future visual workspace config editor.
+- **Summary Index** (v1.14.0) — AI-generated summaries per document chunk in the
+  RAG knowledge base significantly improve retrieval precision. Applicable to our
+  Research Lead workspace's document retrieval; evaluate for our MCP memory backend.
+- **Knowledge base management UI** — file upload → chunk → embed → retrieval test
+  in a single interface. Reference design for our future `agent_memories` admin UI.
+- **Channel trigger UX** — same as n8n: three-click channel connect. Our channel
+  setup is more manual; Dify is a second data point that this is the target UX.
+
+**Terminology collisions:**
+- "workflow" — Dify: the visual graph of LLM+tool nodes that defines an app; ours:
+  informal delegation chain. In competitive positioning copy, distinguish "no-code
+  workflow builder" (Dify) vs "multi-agent org" (us).
+- "agent" — Dify: a single ReAct loop node inside a workflow; ours: a long-lived
+  Docker workspace with an assigned role. Different scope and persistence model.
+- "knowledge base" — Dify: an indexed file collection for RAG; ours: not a
+  first-class term (workspace agents manage their own retrieval).
+
+**Signals to react to:**
+- If Dify ships persistent agent identity (agents that remember state across workflow
+  runs, not just within one) → closes the primary product gap; ~60k ⭐ + no-code
+  accessibility is a formidable combination.
+- If Dify adds multi-agent coordination (agents that spawn and coordinate sub-agents
+  as org peers, not just nested workflow nodes) → direct overlap with our multi-
+  workspace hierarchy.
+- If the $30M Pre-A closes more enterprise deals → Dify moves up-market; watch for
+  enterprise canvas and RBAC features that would narrow our enterprise differentiation.
+
+**Last reviewed:** 2026-04-16 · **Stars / activity:** ~60k ⭐, v1.14.0 Feb 2026; $30M Pre-A Mar 2026
+
+---
+
+### Flowise — `FlowiseAI/Flowise`
+
+**Pitch:** "Build AI Agents, Visually — drag-drop UI to build LLM flows and agent
+pipelines using LangChain and LlamaIndex components."
+
+**Shape:** Node.js + React (MIT repo; post-Workday acquisition terms TBD), ~30k ⭐,
+flowise@3.1.0 released March 16 2026. Drag-drop visual node editor where LangChain
+chains, LlamaIndex query engines, vector stores, tools, and agents are wired as a
+flow graph. Each flow is exported as a JSON config; the Flowise server exposes a
+REST API and a chat widget embed. **Agentflow** (shipped 2024) adds multi-agent
+composition: a Supervisor agent routes tasks to Worker agents within a single Flowise
+flow. **Acquired by Workday** (announced August 2025) — Flowise is now part of
+Workday's AI platform, bringing agent-building capability to Workday customers.
+Security: three chained CVEs (CVE-2025-59528, CVE-2025-8943, CVE-2025-26319) enabling
+unauthenticated RCE via Custom MCP Node were patched in v3.0.6 (exploit confirmed
+April 7 2026).
+
+**Overlap with us:** Both are drag-drop visual builders for AI agent workflows. Both
+support LangChain components under the hood. Flowise's Agentflow (Supervisor + Worker
+agents) mirrors our PM → engineer hierarchy, but within a single visual flow rather
+than independently deployed Docker workspaces. Flowise's REST API per flow is
+structurally similar to our `POST /workspaces/:id/a2a` endpoint — both let external
+systems trigger an agent and get a response. Channel integrations overlap with our
+`workspace_channels`.
+
+**Differentiation:** Flowise is a **no-code single-server app builder** — agents are
+stateless flow executions, not long-lived Docker workspaces with persistent memory,
+schedules, and org identity. Post-Workday acquisition, Flowise targets Workday
+enterprise customers (HR, finance, ops) rather than developer-first teams building AI
+companies. No persistent agent memory between flow runs, no A2A protocol between
+independently deployed agents, no cron scheduling, no org-chart canvas. The Workday
+acquisition actually *narrows* Flowise's addressable market to Workday-centric
+enterprises — which opens space for Molecule AI as the developer-first alternative.
+
+**Worth borrowing:**
+- **Agentflow Supervisor/Worker pattern** — the Supervisor agent dynamically routes
+  tasks to Workers based on their capabilities, with results aggregated back. More
+  flexible than our static PM → Lead delegation; study for dynamic routing in the PM
+  workspace's `delegate_task`.
+- **Flow-as-JSON export/import** — each Flowise flow is a portable JSON blob that
+  can be versioned, shared, and re-imported. Our workspace `config.yaml` is close;
+  adding a full workflow export (config + memory schema + skill list) as a bundle
+  would enable the same portability.
+- **Chat widget embed** — single-line script tag embeds a Flowise agent as a chat
+  widget on any webpage. Our `workspace_channels` is closer to outbound messaging;
+  a widget embed for inbound is a UX gap worth closing for developer adoption.
+
+**Terminology collisions:**
+- "flow" — Flowise: a visual JSON graph of LangChain nodes; ours: not a first-class
+  term. Avoid "flow" in our visual canvas docs to prevent confusion with Flowise-
+  trained users.
+- "node" — Flowise: a LangChain component tile in the flow canvas; our canvas: a
+  workspace tile. Same word, same visual metaphor, different semantics.
+- "supervisor" / "worker" — Flowise Agentflow roles; our PM / engineer hierarchy is
+  the same concept with different names. Our marketing should own "PM + engineer"
+  framing to stay distinct.
+
+**Signals to react to:**
+- If Workday opens Flowise APIs to non-Workday enterprise customers → Flowise
+  re-enters the general market with Workday distribution; update competitive messaging.
+- If the CVE chain (RCE via Custom MCP Node) causes enterprise churn → opportunity
+  to position Molecule AI's Docker-isolated workspaces as the security-first
+  alternative for self-hosted agent deployments.
+- If Flowise ships persistent agent memory or cross-flow A2A → closes primary gap;
+  monitor quarterly given Workday engineering resources.
+
+**Last reviewed:** 2026-04-16 · **Stars / activity:** ~30k ⭐, flowise@3.1.0 March 16 2026; acquired by Workday Aug 2025
+
+---
 ## Candidates to add (backlog)
 
 Short-list of projects to write up next time someone has an hour:
 
-- **LangGraph** (`langchain-ai/langgraph`) — we already support it as a
-  runtime; worth a full entry for how their graph model compares to our
-  workspace hierarchy.
-- **AutoGen** (`microsoft/autogen`) — ditto, we adapt it.
-- **CrewAI** (`crewaiinc/crewai`) — ditto.
-- **DeepAgents** (`langchain-ai/deepagents`) — ditto; particularly their
+- **AutoGen** (`microsoft/autogen`) — Microsoft's original repo; now superseded by
+  Microsoft Agent Framework (tracked above) and AG2 community fork (tracked above).
+  Entry should clarify which adapter target is canonical.
+- **DeepAgents** (`langchain-ai/deepagents`) — we adapt it; particularly their
   sub-agent feature that collides with our "skills" word.
 - **OpenClaw** — check if this is still live post-Hermes rebrand; our
   adapter may need renaming.
 - **Moltiverse / Moltbook** (`molti-verse.com`) — "social network for AI
   agents." Not a competitor; orthogonal ecosystem but worth tracking in
   case we want agent-to-agent discovery beyond a single org.
-- **Temporal** (`temporalio/temporal`) — we already integrate; entry
-  should cover when to lean on Temporal vs our in-house scheduling.
+
+---
+
+### OpenAI Agents SDK — Sandbox Agents — `openai/openai-agents-python`
+
+**Pitch:** "A lightweight, powerful framework for multi-agent workflows — now with
+persistent isolated sandbox workspaces, snapshot/resume, and sandbox memory."
+
+**Shape:** Python (MIT), ~14k ⭐ (110 stars today), v0.14.0 released April 15, 2026.
+New beta surface: `SandboxAgent` backed by a `Manifest` (file tree, Git repo,
+mounts) and a `SandboxRunConfig` that targets a pluggable execution backend.
+Local: `UnixLocalSandboxClient`; containerised: `DockerSandboxClient`; hosted via
+optional extras for Blaxel, Cloudflare, Daytona, E2B, Modal, Runloop, and Vercel.
+**Sandbox memory** lets future runs inherit lessons from prior runs with progressive
+disclosure and configurable isolation boundaries. Existing SDK primitives (Agents,
+Handoffs, Guardrails, Tracing) are unchanged.
+
+**Overlap with us:** `SandboxAgent` + hosted backends directly competes with our
+workspace lifecycle model — a persistent isolated execution environment, snapshot
+and resume, durable memory. The multi-backend strategy (Docker, Modal, Vercel, E2B)
+mirrors our Docker workspace + cloud-provider abstraction goal. Sandbox memory is
+the same cross-session memory gap we address via `agent_memories`.
+
+**Differentiation:** Still a framework, not a platform — no visual canvas, no
+org-chart hierarchy, no A2A between independently deployed sandboxes (handoffs are
+in-process), no cron scheduling, no channel integrations. OpenAI-provider-optimised
+in practice. Our differentiators: multi-agent org hierarchy with A2A, model-agnostic,
+self-hostable, persistent agent identity beyond a single SDK process.
+
+**Worth borrowing:** `SandboxRunConfig` backend abstraction — decouple workspace
+execution from provider (Docker / Modal / Vercel) using a single config object.
+Directly applicable to our workspace provisioner. Sandbox memory progressive
+disclosure (summaries first, full context on demand) matches the retrieval strategy
+in claude-mem; adopt for `agent_memories` query API.
+
+**Terminology collisions:** "sandbox" — theirs: an isolated execution backend; ours:
+not a first-class term (we use "workspace" / "container"). "memory" — same word,
+same intent; our `agent_memories` and their sandbox memory are functionally equivalent.
+
+**Signals to react to:** If OpenAI adds inter-sandbox A2A (sandboxes delegating to
+each other across process boundaries) → direct platform feature parity; accelerate
+our A2A documentation and SDK ergonomics. If hosted backends gain TypeScript support
+(announced as roadmap) → Vercel + TS stack competes for our TypeScript-native users.
+
+**Last reviewed:** 2026-04-16 · **Stars / activity:** ~14k ⭐, v0.14.0 April 15, 2026, OpenAI-maintained
+
+---
+
+### Tencent AI-Infra-Guard — `Tencent/AI-Infra-Guard`
+
+**Pitch:** "A full-stack AI Red Teaming platform securing AI ecosystems via Agent
+Scan, Skills Scan, MCP scan, AI Infra scan, and LLM jailbreak evaluation."
+
+**Shape:** Python + Go (Apache-2.0), ~3.5k ⭐, v4.1.3 released April 9, 2026.
+Tencent Zhuque Lab. Six scanning surfaces: ClawScan (open-source code security),
+Agent Scan (runtime agent behaviour audit), Skills Scan (verifying installed agent
+skills), MCP Server scan (tool-surface vulnerability detection), AI infrastructure
+CVE matching (1000+ CVEs across 57+ AI components including crewai, kubeai,
+lobehub), and LLM jailbreak evaluation. Ships a web UI, REST API, Docker deployment,
+and integration with ClawHub agent marketplace.
+
+**Overlap with us:** Our plugin/skills registry and MCP server are exactly the
+surfaces AI-Infra-Guard scans. The Skills Scan module validates installed agent
+skill packs — the same artefacts our `plugins/` directory ships. MCP Server scan
+targets the same `@molecule-ai/mcp-server` surface our platform exposes. If
+enterprise customers adopt AI-Infra-Guard for compliance audits, our plugin manifests
+and MCP tool definitions need to be compatible with its scanner.
+
+**Differentiation:** A security tooling product, not an agent framework or platform.
+No agent runtime, no orchestration, no canvas, no memory. Molecule AI builds and
+runs agents; AI-Infra-Guard audits them and their supply chain.
+
+**Worth borrowing:** MCP Server scan vulnerability categories — use as a checklist
+for hardening our own MCP server (`@molecule-ai/mcp-server`) before an enterprise
+security review. Skills Scan concept — add a `plugin validate` sub-command to
+`molecli` that runs the same checks locally before installing a plugin.
+
+**Terminology collisions:** "agent scan" — their runtime audit process; not a term
+we use. "skills scan" — their validation of installed skill packs; same artefact,
+different word ("plugin audit" in our vocabulary).
+
+**Signals to react to:** If AI-Infra-Guard publishes a formal MCP tool-surface
+security spec → treat as a compliance baseline for our MCP server hardening. If
+Tencent integrates this into enterprise procurement checklists → our plugin and MCP
+docs need an explicit security posture section to pass audits.
+
+**Last reviewed:** 2026-04-16 · **Stars / activity:** ~3.5k ⭐, v4.1.3 April 9, 2026, Tencent Zhuque Lab
+
+---
+
+### VoltAgent — `VoltAgent/voltagent`
+
+**Pitch:** "The open-source TypeScript AI agent framework with a built-in
+observability and deployment console — build agents once, run and monitor them
+everywhere."
+
+**Shape:** TypeScript (MIT), ~8.2k ⭐, 668 releases, latest April 11, 2026.
+Two-layer design: `@voltagent/core` framework (typed agent definitions, tool
+registry, multi-agent supervisor/sub-agent coordination, memory, RAG, voice,
+guardrails) + **VoltOps Console** (hosted or self-hosted web UI for observability,
+deployment automation, and agent lifecycle management). MCP client support connects
+any MCP server as a tool source. Provider-agnostic: OpenAI, Anthropic, Google,
+Ollama, and any OpenAI-compatible endpoint. Ships `@voltagent/server-elysia` for
+Bun-native HTTP serving of agents.
+
+**Overlap with us:** VoltOps Console is the closest analogue to our Canvas we've
+tracked in the TypeScript ecosystem — both provide a web UI for managing and
+monitoring long-lived agents. The supervisor/sub-agent coordination model mirrors
+our PM → engineer delegation. MCP support means workspace skills install into
+VoltAgent as easily as ours. `@voltagent/server-elysia` pattern (agent as an HTTP
+server) is analogous to our A2A endpoint per workspace.
+
+**Differentiation:** No Docker workspace isolation, no persistent agent identity
+across server restarts, no A2A protocol between independently deployed agents, no
+cron scheduling, no channel integrations. VoltOps Console focuses on observability
+and deployment automation; our Canvas is the live visual org chart with drag-drop
+topology control. Molecule AI targets multi-agent companies; VoltAgent targets
+individual TypeScript developers building production agents.
+
+**Worth borrowing:** VoltOps observability schema — trace views, agent state
+inspection, and deployment automation as a single UI surface. Reference design for
+merging our Canvas agent-inspection panel with Langfuse traces into a unified
+observability tab. `@voltagent/core` typed agent definition API (role, memory,
+tools, guardrails as typed config) — cleaner than our YAML-then-system-prompt
+pipeline; evaluate for a future typed workspace config schema.
+
+**Terminology collisions:** "console" — VoltOps Console: their monitoring + deploy
+UI; our `molecli`: a TUI dashboard. Both are "consoles" for watching agents.
+"supervisor" — their orchestrating agent tier; our PM workspace plays the same role.
+
+**Signals to react to:** If VoltOps Console adds visual org-chart topology (not just
+list view) → direct Canvas competitor in the TypeScript ecosystem. If
+`@voltagent/core` multi-agent API becomes idiomatic for TS agent developers →
+consider shipping an official Molecule AI VoltAgent runtime adapter alongside our
+langgraph/crewai adapters.
+
+**Last reviewed:** 2026-04-16 · **Stars / activity:** ~8.2k ⭐, 668 releases, latest April 11, 2026

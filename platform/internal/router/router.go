@@ -279,6 +279,11 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		wsAuth.PUT("/secrets", sech.Set)
 		wsAuth.DELETE("/secrets/:key", sech.Delete)
 		wsAuth.GET("/model", sech.GetModel)
+
+		// Token usage metrics — cost transparency (#593).
+		// WorkspaceAuth middleware (on wsAuth) binds the bearer to :id.
+		mtrh := handlers.NewMetricsHandler()
+		wsAuth.GET("/metrics", mtrh.GetMetrics)
 	}
 
 	// Global secrets — /settings/secrets is the canonical path; /admin/secrets kept for backward compat.
@@ -297,11 +302,24 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	}
 
 	// Admin — test token minting (issue #6). Hidden in production via TestTokensEnabled().
-	// Registered at root (not inside AdminAuth) because it is itself the bootstrap for
-	// acquiring a token, and it's gated on MOLECULE_ENV / MOLECULE_ENABLE_TEST_TOKENS.
+	// AdminAuth is a second defence-in-depth layer: on a fresh install with no tokens yet,
+	// AdminAuth is fail-open (HasAnyLiveTokenGlobal == 0), so the bootstrap still works.
+	// Once any token exists, callers must present a valid bearer — unauthenticated workspace-
+	// UUID enumeration is blocked even on non-production instances.
 	{
 		tokh := handlers.NewAdminTestTokenHandler()
-		r.GET("/admin/workspaces/:id/test-token", tokh.GetTestToken)
+		r.GET("/admin/workspaces/:id/test-token", middleware.AdminAuth(db.DB), tokh.GetTestToken)
+	}
+
+	// Admin — GitHub App installation token refresh (issue #547).
+	// Long-running workspaces (>60 min) use this endpoint to refresh
+	// GH_TOKEN without restarting. Returns the current installation token
+	// from the github-app-auth plugin's in-process cache (which proactively
+	// refreshes 5 min before expiry). 404 when no GitHub App is configured
+	// (dev / self-hosted without GITHUB_APP_ID).
+	{
+		ghTokH := handlers.NewGitHubTokenHandler(wh.TokenRegistry())
+		r.GET("/admin/github-installation-token", middleware.AdminAuth(db.DB), ghTokH.GetInstallationToken)
 	}
 
 	// Terminal — shares Docker client with provisioner
@@ -390,6 +408,16 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// depth keeps the route behind AdminAuth regardless.
 	r.POST("/org/import", middleware.AdminAuth(db.DB), orgh.Import)
 
+	// Org plugin allowlist — tool governance (#591).
+	// Both endpoints are admin-gated: reading the allowlist reveals approved
+	// tooling policy; writing it enforces org-level install governance.
+	{
+		allowlistAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		aplh := handlers.NewOrgPluginAllowlistHandler()
+		allowlistAdmin.GET("/orgs/:id/plugins/allowlist", aplh.GetAllowlist)
+		allowlistAdmin.PUT("/orgs/:id/plugins/allowlist", aplh.PutAllowlist)
+	}
+
 	// Channels (social integrations — Telegram, Slack, Discord, etc.)
 	chh := handlers.NewChannelHandler(channelMgr)
 	r.GET("/channels/adapters", chh.ListAdapters)
@@ -407,6 +435,11 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// platform-operator helper, not a per-workspace route.
 	r.POST("/channels/discover", middleware.AdminAuth(db.DB), chh.Discover)
 	r.POST("/webhooks/:type", chh.Webhook)
+
+	// SSE — AG-UI compatible event stream per workspace (#590).
+	// WorkspaceAuth middleware (on wsAuth) binds the bearer token to :id.
+	sseh := handlers.NewSSEHandler(broadcaster)
+	wsAuth.GET("/events/stream", sseh.StreamEvents)
 
 	// WebSocket
 	sh := handlers.NewSocketHandler(hub)

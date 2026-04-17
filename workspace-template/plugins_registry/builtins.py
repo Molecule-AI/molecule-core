@@ -319,9 +319,25 @@ def _deep_merge_hooks(existing: dict, fragment: dict) -> dict:
     out.setdefault("hooks", {})
     for event, handlers in fragment.get("hooks", {}).items():
         out["hooks"].setdefault(event, [])
-        out["hooks"][event].extend(handlers)
-    for key, val in fragment.items():
-        if key == "hooks":
+        # Build a set of already-present handler fingerprints so that
+        # re-installing the same plugin fragment does not append duplicates.
+        # Key: (matcher, frozenset-of-commands) — same logic the issue spec
+        # describes. Two handlers are considered identical when they watch the
+        # same matcher pattern and invoke exactly the same set of commands.
+        seen: set[tuple[str, frozenset[str]]] = {
+            (h.get("matcher", ""), frozenset(c.get("command", "") for c in h.get("hooks", [])))
+            for h in out["hooks"][event]
+        }
+        for handler in handlers:
+            hkey = (
+                handler.get("matcher", ""),
+                frozenset(c.get("command", "") for c in handler.get("hooks", [])),
+            )
+            if hkey not in seen:
+                seen.add(hkey)
+                out["hooks"][event].append(handler)
+    for top_key, val in fragment.items():
+        if top_key == "hooks":
             continue
-        out.setdefault(key, val)
+        out.setdefault(top_key, val)
     return out

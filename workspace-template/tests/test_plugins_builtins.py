@@ -7,6 +7,7 @@ Covers:
   - Empty rules directory doesn't write an empty block
   - README.md / CHANGELOG.md are skipped at the root (not treated as fragments)
   - Uninstall is safe on a plugin that was never installed
+  - _deep_merge_hooks deduplication (issue #566)
 """
 
 from __future__ import annotations
@@ -393,3 +394,90 @@ async def test_setup_sh_absent_no_warning(tmp_path: Path):
     result = await AgentskillsAdaptor("p", "claude_code").install(_make_ctx(configs, plugin))
 
     assert result.warnings == []
+
+
+# ---------------------------------------------------------------------------
+# _deep_merge_hooks deduplication — issue #566
+# ---------------------------------------------------------------------------
+
+from plugins_registry.builtins import _deep_merge_hooks  # noqa: E402
+
+
+def _make_fragment(event: str, matcher: str, command: str) -> dict:
+    """Build a minimal settings-fragment dict for one hook handler."""
+    return {
+        "hooks": {
+            event: [
+                {
+                    "matcher": matcher,
+                    "hooks": [{"type": "command", "command": command}],
+                }
+            ]
+        }
+    }
+
+
+def test_deep_merge_hooks_first_install_adds_handler():
+    """Merging into an empty dict adds the handler exactly once."""
+    result = _deep_merge_hooks({}, _make_fragment("PreToolUse", "Bash", "/hooks/lint.sh"))
+    handlers = result["hooks"]["PreToolUse"]
+    assert len(handlers) == 1
+    assert handlers[0]["matcher"] == "Bash"
+
+
+def test_deep_merge_hooks_dedup_on_reinstall():
+    """Merging the same fragment twice must not duplicate the handler."""
+    fragment = _make_fragment("PreToolUse", "Bash", "/hooks/lint.sh")
+    once = _deep_merge_hooks({}, fragment)
+    twice = _deep_merge_hooks(once, fragment)
+    assert len(twice["hooks"]["PreToolUse"]) == 1, (
+        "Re-installing the same fragment must not append a duplicate handler"
+    )
+
+
+def test_deep_merge_hooks_dedup_three_reinstalls():
+    """Issue #566 reported 3–4× duplication — verify three installs still yield one entry."""
+    fragment = _make_fragment("PostToolUse", "Write", "/hooks/format.sh")
+    state = {}
+    for _ in range(3):
+        state = _deep_merge_hooks(state, fragment)
+    assert len(state["hooks"]["PostToolUse"]) == 1
+
+
+def test_deep_merge_hooks_different_matchers_both_kept():
+    """Two handlers with different matchers must co-exist — dedup must not over-filter."""
+    state = _deep_merge_hooks({}, _make_fragment("PreToolUse", "Bash", "/hooks/lint.sh"))
+    state = _deep_merge_hooks(state, _make_fragment("PreToolUse", "Edit", "/hooks/lint.sh"))
+    assert len(state["hooks"]["PreToolUse"]) == 2
+
+
+def test_deep_merge_hooks_different_commands_both_kept():
+    """Same matcher but different commands → both handlers must be kept."""
+    state = _deep_merge_hooks({}, _make_fragment("PreToolUse", "Bash", "/hooks/lint.sh"))
+    state = _deep_merge_hooks(state, _make_fragment("PreToolUse", "Bash", "/hooks/security.sh"))
+    assert len(state["hooks"]["PreToolUse"]) == 2
+
+
+def test_deep_merge_hooks_existing_user_hooks_preserved():
+    """Existing hooks in settings.json that don't match the fragment must survive."""
+    existing = {
+        "hooks": {
+            "PreToolUse": [
+                {"matcher": "Bash", "hooks": [{"type": "command", "command": "/user/custom.sh"}]}
+            ]
+        }
+    }
+    fragment = _make_fragment("PreToolUse", "Edit", "/hooks/lint.sh")
+    result = _deep_merge_hooks(existing, fragment)
+    matchers = {h["matcher"] for h in result["hooks"]["PreToolUse"]}
+    assert matchers == {"Bash", "Edit"}
+
+
+def test_deep_merge_hooks_top_level_keys_merged():
+    """Non-hook top-level keys in the fragment are merged into the output."""
+    existing = {"someKey": "old"}
+    fragment = {"someKey": "new", "anotherKey": "value", "hooks": {}}
+    result = _deep_merge_hooks(existing, fragment)
+    # setdefault semantics: existing keys win, new keys are added
+    assert result["someKey"] == "old"
+    assert result["anotherKey"] == "value"
