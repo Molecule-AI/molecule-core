@@ -272,6 +272,20 @@ snapshots:
       MEDIUM because it forms a full agent stack with Google ADK + adk-web.
     source_url: https://github.com/google-gemini/gemini-cli/releases
 
+  - name: opencode
+    slug: opencode
+    date: "2026-04-17"
+    version: "v1.4.7"
+    stars: "145k"
+    threat_level: medium
+    notable_changes: >
+      v1.4.7 (Apr 16 2026); 145k★ open-source provider-agnostic coding agent
+      (Claude/OpenAI/Google/local); build+plan dual-mode; no A2A, no multi-agent.
+      Largest open-source coding agent by stars; users outgrowing single-agent
+      model are direct Molecule conversion path. Evaluate as workspace template
+      adapter (GH #720). Escalate to HIGH if A2A or multi-agent coordination added.
+    source_url: https://github.com/anomalyco/opencode/releases
+
   - name: Qwen3.6-35B-A3B
     slug: qwen3-6-agentic
     date: "2026-04-17"
@@ -393,6 +407,19 @@ snapshots:
       including our Claude Code workspace; aligning plugins/ manifest to the
       agentskills.io spec gives us free distribution through this channel.
     source_url: https://github.com/vercel-labs/skills
+
+  - name: pydantic-ai
+    slug: pydantic-ai
+    date: "2026-04-17"
+    version: "active"
+    stars: "16.4k"
+    threat_level: low
+    notable_changes: >
+      Python agent framework with native A2A + MCP + HITL; type-safe structured
+      output via Pydantic validation; FastAPI-like DX. Potential workspace template
+      adapter target (GH #721) — A2A native means zero-shim Molecule peer if
+      a2a-sdk version compatible. Reference: Pydantic Evals for agent quality gates.
+    source_url: https://github.com/pydantic/pydantic-ai/releases
 
   - name: Archon
     slug: archon
@@ -2633,3 +2660,43 @@ langgraph/crewai adapters.
 **Signals to react to:** cognee v1.0.0 stable ships → evaluate as Hermes workspace dep. cognee adds A2A protocol → escalate to MEDIUM.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 16,096★, v1.0.1.dev1 Apr 2026, active (6.7k commits)
+
+---
+
+### opencode — `anomalyco/opencode`
+
+**Pitch:** "The open source coding agent."
+
+**Shape:** TypeScript/MDX, MIT-licensed, CLI + desktop app (beta). 145k★, v1.4.7 (Apr 16 2026), 763 releases — heavily shipped. Provider-agnostic: Claude, OpenAI, Google, local models with no vendor coupling. Two built-in agent modes switchable at runtime: **build** (full read/write/execute access) and **plan** (read-only analysis). Client/server architecture with LSP integration for live diagnostics.
+
+**Overlap with us:** Directly competes with `molecule-ai-workspace-template-claude-code` as the tool developers reach for when they want autonomous full-codebase coding. At 145k★ it is 3× larger than Cline (our prior single-agent coding comparison point). Users who outgrow opencode's single-agent model — needing multi-agent coordination, org hierarchy, or persistent scheduled work — are our conversion path.
+
+**Differentiation:** No A2A protocol, no multi-agent coordination, no visual canvas, no org hierarchy, no scheduling, no Docker workspace isolation. Pure single-agent coding tool. Molecule provides the *platform* layer opencode lacks.
+
+**Worth borrowing:** Build/plan mode toggle — a read-only analysis mode before executing is a safety pattern for workspace config. Provider-agnostic runtime model selection aligns with our multi-runtime workspace architecture.
+
+**Terminology collisions:** "agent" — they call the two modes "agents" (build/plan); we call the container+config unit a "workspace". Risk of developer confusion between "Molecule workspace" and "opencode agent".
+
+**Signals to react to:** opencode ships an MCP server → plug in via `mcp-connector` (#573). opencode ships a REST/WebSocket API → evaluate as `molecule-ai-workspace-template-opencode` (GH #720). opencode adds A2A → could become a direct workspace peer. Hits 200k★ → publish positioning blog: Molecule as the org layer over opencode.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 145k★, v1.4.7 Apr 16 2026, TypeScript, 763 releases
+
+---
+
+### pydantic-ai — `pydantic/pydantic-ai`
+
+**Pitch:** "AI Agent Framework, the Pydantic way — build production-grade agents with type safety."
+
+**Shape:** Python, Apache-2.0, ~16.4k★. Brings Pydantic's validation philosophy to agents: type-safe structured output, dependency injection, Pydantic model validation throughout the tool layer. Ships native A2A protocol support, MCP client, HITL approval gates, durable execution across transient failures, graph-based workflows, Logfire observability, and Pydantic Evals systematic evaluation. Multi-model (OpenAI, Anthropic, Gemini, DeepSeek, Grok, Cohere, Mistral, 15+ others). Supports declarative YAML/JSON agent definitions.
+
+**Overlap with us:** (1) **A2A protocol** — pydantic-ai agents speak native A2A, making them potential first-class Molecule workspace peers with zero shim; (2) **MCP client** — native MCP consumption; could use our `@molecule-ai/mcp-server` toolset directly; (3) **HITL approvals** — tool approval gates overlap our `approvals` API; (4) **adapter candidate** — same adapter-target profile as LangGraph but with native A2A. Filed as GH #721.
+
+**Differentiation:** Library, not platform. No visual canvas, no org hierarchy, no Docker workspace isolation, no scheduling/cron, no registry. Molecule provides the runtime + orchestration + governance layer; pydantic-ai provides the agent logic inside a workspace.
+
+**Worth borrowing:** Dependency injection for agent tools — clean testability pattern vs. our current tool registration. Pydantic Evals framework as reference design for systematic agent quality gates. YAML-defined agents aligns with our `config.yaml` declarative philosophy.
+
+**Terminology collisions:** "agent" — pydantic-ai's `Agent` is a Python class; ours is a Docker workspace. "tools" — pydantic-ai tools ≈ our `builtin_tools`/plugins.
+
+**Signals to react to:** pydantic-ai surpasses LangGraph in GitHub stars → prioritize `molecule-ai-workspace-template-pydantic-ai` (GH #721). A2A version confirmed compatible with our a2a-sdk==0.3.25 → validate zero-shim interop. pydantic-ai ships a Molecule adapter → zero-effort integration.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ~16.4k★, Python, Apache-2.0, active
