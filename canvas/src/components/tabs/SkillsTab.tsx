@@ -232,7 +232,7 @@ export function SkillsTab({ data }: Props) {
               <div className="flex items-center gap-1.5">
                 <input
                   type="text"
-                  aria-label="Install plugin from source URL"
+                  aria-label="Install from source URL"
                   value={customSource}
                   onChange={(e) => setCustomSource(e.target.value)}
                   onKeyDown={(e) => {

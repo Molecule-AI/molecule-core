@@ -115,7 +115,7 @@ describe("SkillsTab — aria-label on bare source input (WCAG 1.3.1)", () => {
     mockApiGet.mockResolvedValue([]);
   });
 
-  it('install source input has aria-label="Install plugin from source URL"', async () => {
+  it('install source input has aria-label="Install from source URL"', async () => {
     render(<SkillsTab data={makeSkillsData() as never} />);
 
     // The source input is inside the registry section (showRegistry=false initially).
@@ -124,10 +124,10 @@ describe("SkillsTab — aria-label on bare source input (WCAG 1.3.1)", () => {
     fireEvent.click(installBtn);
 
     const input = screen.getByRole("textbox", {
-      name: /install plugin from source url/i,
+      name: /install from source url/i,
     });
     expect(input).toBeDefined();
-    expect(input.getAttribute("aria-label")).toBe("Install plugin from source URL");
+    expect(input.getAttribute("aria-label")).toBe("Install from source URL");
   });
 
   it("install source input is a text input (not hidden)", async () => {
@@ -137,7 +137,7 @@ describe("SkillsTab — aria-label on bare source input (WCAG 1.3.1)", () => {
     fireEvent.click(installBtn);
 
     const input = screen.getByRole("textbox", {
-      name: /install plugin from source url/i,
+      name: /install from source url/i,
     });
     expect(input.tagName.toLowerCase()).toBe("input");
     expect((input as HTMLInputElement).type).toBe("text");
