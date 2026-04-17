@@ -6,23 +6,33 @@ Provides two tools that proxy requests to ``https://mcp.context7.com/mcp``:
 
 Security controls
 -----------------
-C1 — Response scrubbing
-    Any ``ctx7_*`` token that leaks from the Context7 API response into the
-    agent's context is replaced with ``[REDACTED]`` before the result is
-    returned.  The full ``_SECRET_PATTERNS`` list from ``builtin_tools.memory``
-    is re-used here so the two lists stay in sync.
+C1 — Response scrubbing (two layers, applied in order)
+    Layer 1 — *injection scrub*: HTML-injection tags (``<script>``, ``<iframe>``,
+    ``<object>``, ``<embed>``, ``<form>``, ``<input>``) and prompt-injection role
+    markers (lines starting with ``SYSTEM:``, ``HUMAN:``, ``ASSISTANT:``,
+    ``[INST]``, ``<|im_start|>``) are removed from API responses before the
+    result is returned to the agent.  Replaced with
+    ``[content removed by security wrapper]``.
 
-C4 — Query validation
-    Queries longer than ``_MAX_QUERY_LEN`` (200 chars) are rejected up-front
-    with a ``ToolError``.  Queries that *themselves* contain secret-like
-    patterns (e.g. an API key accidentally pasted by the LLM) are rejected so
-    they are never forwarded to ``mcp.context7.com``.
+    Layer 2 — *secret scrub*: Any ``ctx7_*`` token or other known-secret
+    pattern that leaks from the Context7 API response is replaced with
+    ``[REDACTED]``.  The ``_SECRET_PATTERNS`` list mirrors
+    ``builtin_tools/security.py`` so both the storage layer and the network
+    layer cover the same formats.
 
-C5 — Session call counter
-    ``CONTEXT7_MAX_CALLS_PER_SESSION`` (default 50) caps the total number of
-    API calls made by this module in the lifetime of the Python process.  A
-    ``ToolError`` is raised when the counter would be exceeded so runaway LLM
-    loops cannot drain quota unnoticed.
+C4 — Query length cap
+    Topics longer than ``_MAX_QUERY_LEN`` (500 chars) are truncated before
+    being forwarded to context7.com.  A ``WARNING`` log line is emitted when
+    truncation occurs.  Queries that *themselves* contain secret-like patterns
+    (e.g. an API key accidentally pasted by the LLM) are rejected with a
+    ``ToolError`` so secrets never reach the external API.
+
+C5 — Per-workspace session call limit
+    A per-workspace call counter (keyed on ``WORKSPACE_ID``) caps total
+    context7 API calls at ``CONTEXT7_MAX_CALLS_PER_SESSION`` (default 20)
+    for the lifetime of the Python process.  After the cap is reached the
+    tool returns an error: restart the workspace container to reset the
+    counter.
 
 Mock backend
 ------------
@@ -31,11 +41,13 @@ response — safe for CI and local development.
 
 Environment variables
 ---------------------
-``CONTEXT7_API_KEY``              — Required for live calls.  Set as a *workspace*
-                                    secret (never global — see README.md §Key Management).
-``CONTEXT7_MAX_CALLS_PER_SESSION`` — int, default ``50``.
-``CONTEXT7_BASE_URL``             — override endpoint; defaults to
-                                    ``https://mcp.context7.com/mcp``.
+``CONTEXT7_API_KEY``               — Required for live calls.  Set as a *workspace*
+                                     secret (never global — see README.md §Key Management).
+``CONTEXT7_MAX_CALLS_PER_SESSION`` — int, default ``20``.
+``CONTEXT7_BASE_URL``              — override endpoint; defaults to
+                                     ``https://mcp.context7.com/mcp``.
+``WORKSPACE_ID``                   — injected by the platform; used to key
+                                     the per-workspace call counter.
 """
 
 from __future__ import annotations
@@ -58,59 +70,118 @@ logger = logging.getLogger(__name__)
 _BASE_URL: str = os.environ.get(
     "CONTEXT7_BASE_URL", "https://mcp.context7.com/mcp"
 )
-_MAX_QUERY_LEN: int = 200
-_DEFAULT_MAX_CALLS: int = 50
 
-# Re-declare the same patterns used in builtin_tools/memory.py (#834) so that
-# both the storage layer AND the network layer scrub the same secret formats.
-# Keep the two lists in sync whenever a new pattern is added to either file.
+# C4: maximum topic length before truncation.
+_MAX_QUERY_LEN: int = 500
+
+# C5: default per-workspace call cap.
+_DEFAULT_MAX_CALLS: int = 20
+
+# Replacement sentinel for removed injection content (C1 layer 1).
+_REMOVED_MARKER: str = "[content removed by security wrapper]"
+
+# ---------------------------------------------------------------------------
+# C1 — Injection scrubbing patterns (layer 1: HTML + prompt-injection)
+# ---------------------------------------------------------------------------
+
+# <script> blocks — match across newlines so multi-line scripts are caught.
+_SCRIPT_RE: re.Pattern = re.compile(
+    r"<script[^>]*>.*?</script>", re.IGNORECASE | re.DOTALL
+)
+
+# Dangerous HTML tags whose opening tag alone is sufficient to warrant removal.
+# We remove the opening tag; the closing tag (e.g. </iframe>) is harmless text.
+_DANGEROUS_TAG_RE: re.Pattern = re.compile(
+    r"<(?:iframe|object|embed|form|input)(?:\s[^>]*)?>",
+    re.IGNORECASE,
+)
+
+# Prompt-injection role markers: lines that start with these tokens could
+# trick the agent into treating external doc content as system instructions.
+#
+# Two sub-patterns:
+#   1. Role keywords (SYSTEM/HUMAN/ASSISTANT/[INST]) must be followed by a
+#      space or colon separator before their content.
+#   2. ChatML <|im_start|> is immediately followed by the role name with no
+#      separator, so it only requires one or more subsequent characters.
+_PROMPT_INJECTION_RE: re.Pattern = re.compile(
+    r"^(?:(?:SYSTEM|HUMAN|ASSISTANT|\[INST\])[ :].+|<\|im_start\|>.+)$",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+# ---------------------------------------------------------------------------
+# C1 — Secret scrubbing patterns (layer 2: credential tokens)
+#
+# Re-declares the same patterns from builtin_tools/security.py (#834) so that
+# both the storage layer AND the network layer scrub the same formats.
+# Keep in sync when adding new patterns to either file.
+# ---------------------------------------------------------------------------
+
 _SECRET_PATTERNS: list[re.Pattern] = [
-    re.compile(r'ctx7_[A-Za-z0-9_\-]{8,}'),
-    re.compile(r'sk-[A-Za-z0-9]{20,}'),
-    re.compile(r'ghp_[A-Za-z0-9]{36,}'),
-    re.compile(r'Bearer [A-Za-z0-9\-._~+/]{20,}'),
-    re.compile(r'[A-Z_]{5,}_API_KEY=[A-Za-z0-9+/]{10,}'),
+    re.compile(r"ctx7_[A-Za-z0-9_\-]{8,}"),
+    re.compile(r"sk-[A-Za-z0-9]{20,}"),
+    re.compile(r"ghp_[A-Za-z0-9]{36,}"),
+    re.compile(r"Bearer [A-Za-z0-9\-._~+/]{20,}"),
+    re.compile(r"[A-Z_]{5,}_API_KEY=[A-Za-z0-9+/]{10,}"),
 ]
 
 # ---------------------------------------------------------------------------
-# Session call counter (C5)
+# C5 — Per-workspace session call counter
 # ---------------------------------------------------------------------------
 
 _counter_lock = threading.Lock()
-_session_call_count: int = 0
+# Dict keyed on workspace ID (WORKSPACE_ID env var, or "default" in tests).
+_session_counters: dict[str, int] = {}
+
+
+def _workspace_key() -> str:
+    """Return the counter key for the current workspace."""
+    return os.environ.get("WORKSPACE_ID", "default")
 
 
 def _max_calls() -> int:
     """Return the configured per-session call cap."""
     try:
-        return int(os.environ.get("CONTEXT7_MAX_CALLS_PER_SESSION", _DEFAULT_MAX_CALLS))
+        return int(
+            os.environ.get("CONTEXT7_MAX_CALLS_PER_SESSION", _DEFAULT_MAX_CALLS)
+        )
     except (ValueError, TypeError):
         return _DEFAULT_MAX_CALLS
 
 
 def _increment_and_check() -> None:
-    """Increment the call counter.  Raise ``ToolError`` if the cap is exceeded.
+    """Increment the per-workspace counter and raise if the cap is exceeded (C5).
 
-    Thread-safe — uses a module-level lock so concurrent async tasks
-    (if any) cannot race past the cap.
+    Thread-safe — uses a module-level lock so concurrent async tasks cannot
+    race past the cap.
+
+    Raises:
+        ToolError: when the call count for this workspace exceeds the cap.
     """
-    global _session_call_count
+    key = _workspace_key()
     with _counter_lock:
-        _session_call_count += 1
-        current = _session_call_count
+        _session_counters[key] = _session_counters.get(key, 0) + 1
+        current = _session_counters[key]
     cap = _max_calls()
     if current > cap:
         raise ToolError(
-            f"Context7 session call limit reached ({cap}). "
-            f"Increase CONTEXT7_MAX_CALLS_PER_SESSION or start a new session."
+            f"context7 session call limit reached ({cap}/session)"
+            " \u2014 restart workspace to reset"
         )
 
 
-def _reset_counter() -> None:
-    """Reset the session counter — exposed for tests only."""
-    global _session_call_count
+def _reset_counter(workspace_key: str | None = None) -> None:
+    """Reset session counter(s) — exposed for tests only.
+
+    Args:
+        workspace_key: If given, reset only that workspace's counter.
+                       If ``None``, reset all counters.
+    """
     with _counter_lock:
-        _session_call_count = 0
+        if workspace_key is not None:
+            _session_counters.pop(workspace_key, None)
+        else:
+            _session_counters.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -126,27 +197,80 @@ class ToolError(Exception):
     """
 
 
-def _scrub_response(text: str) -> str:
-    """Replace secret-like tokens in an API response with ``[REDACTED]`` (C1)."""
-    for pattern in _SECRET_PATTERNS:
-        text = pattern.sub('[REDACTED]', text)
+def _scrub_injection(text: str) -> str:
+    """Strip HTML-injection and prompt-injection markers from *text* (C1 layer 1).
+
+    Patterns removed (replaced with ``[content removed by security wrapper]``):
+    - ``<script>`` blocks (including content, DOTALL)
+    - Opening tags for: ``<iframe>``, ``<object>``, ``<embed>``, ``<form>``,
+      ``<input>``
+    - Lines beginning with ``SYSTEM:``, ``HUMAN:``, ``ASSISTANT:``,
+      ``[INST]``, ``<|im_start|>``
+
+    Args:
+        text: Raw string from the Context7 API response.
+
+    Returns:
+        Sanitised copy of *text*.  If nothing matched, the original string is
+        returned unchanged.
+    """
+    text = _SCRIPT_RE.sub(_REMOVED_MARKER, text)
+    text = _DANGEROUS_TAG_RE.sub(_REMOVED_MARKER, text)
+    text = _PROMPT_INJECTION_RE.sub(_REMOVED_MARKER, text)
     return text
 
 
-def _validate_query(query: str) -> None:
-    """Reject queries that are too long or contain secrets (C4).
+def _scrub_response(text: str) -> str:
+    """Replace secret-like tokens in an API response with ``[REDACTED]`` (C1 layer 2)."""
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub("[REDACTED]", text)
+    return text
+
+
+def _sanitize_result(text: str) -> str:
+    """Apply the full two-layer C1 sanitisation pipeline to a tool result.
+
+    Order: injection scrub first (removes structure), then secret scrub
+    (replaces credential tokens in what remains).
+    """
+    return _scrub_response(_scrub_injection(text))
+
+
+def _cap_query(query: str) -> str:
+    """Truncate *query* to ``_MAX_QUERY_LEN`` chars if necessary (C4).
+
+    Logs a WARNING when truncation occurs so operators can see that a query
+    was shortened without surfacing an error to the agent.
 
     Args:
-        query: The raw query string supplied by the LLM.
+        query: The raw topic string supplied by the LLM.
 
-    Raises:
-        ToolError: if the query exceeds the length cap or matches a secret pattern.
+    Returns:
+        ``query`` unchanged if ``len(query) <= _MAX_QUERY_LEN``, otherwise
+        ``query[:_MAX_QUERY_LEN]``.
     """
     if len(query) > _MAX_QUERY_LEN:
-        raise ToolError(
-            f"Query too long ({len(query)} chars > {_MAX_QUERY_LEN} cap). "
-            "Shorten the query before calling query_docs."
+        logger.warning(
+            "context7: query truncated from %d to %d chars (C4 query cap)",
+            len(query),
+            _MAX_QUERY_LEN,
         )
+        return query[:_MAX_QUERY_LEN]
+    return query
+
+
+def _validate_query(query: str) -> None:
+    """Reject queries that contain secret-like patterns (C4 secret guard).
+
+    Length enforcement is handled separately by ``_cap_query`` (truncation).
+    This function only inspects the *content* of the query.
+
+    Args:
+        query: The (possibly already truncated) query string.
+
+    Raises:
+        ToolError: if the query matches a known secret pattern.
+    """
     for pattern in _SECRET_PATTERNS:
         if pattern.search(query):
             raise ToolError(
@@ -214,7 +338,6 @@ async def _live_resolve(library_name: str, api_key: str) -> dict[str, Any]:
         resp.raise_for_status()
         data = resp.json()
 
-    # Normalise the JSON-RPC response envelope.
     result = data.get("result") or {}
     content_blocks = result.get("content") or []
     text = " ".join(
@@ -298,9 +421,15 @@ async def resolve_library_id(library_name: str) -> dict[str, Any]:
 
     try:
         result = await _live_resolve(library_name.strip(), key)
-        result["library_id"] = _scrub_response(result.get("library_id", ""))
-        logger.info("context7: resolve_library_id(%r) → %s", library_name, result.get("library_id"))
+        result["library_id"] = _sanitize_result(result.get("library_id", ""))
+        logger.info(
+            "context7: resolve_library_id(%r) → %s",
+            library_name,
+            result.get("library_id"),
+        )
         return result
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("context7: resolve_library_id failed")
         return {"error": str(exc)}
@@ -319,7 +448,7 @@ async def query_docs(
                     (e.g. ``"/facebook/react"``).
         topic: Optional topic to focus the documentation fetch (e.g.
                ``"hooks"``, ``"routing"``, ``"dependency injection"``).
-               Maximum 200 characters.
+               Truncated to 500 characters if longer (C4).
         tokens: Approximate token budget for the returned content (default 5000).
 
     Returns:
@@ -327,13 +456,14 @@ async def query_docs(
         ``tokens_used``, and optionally ``mock: True``.
 
     Raises:
-        ToolError: on query validation failure or session rate-limit breach.
+        ToolError: on query secret-check failure or session rate-limit breach.
     """
     if not library_id or not library_id.strip():
         return {"error": "library_id is required"}
 
-    # Validate topic (C4) — library_id is an internal identifier, not user input.
+    # C4 — apply length cap then secret check (library_id is internal, not capped).
     if topic:
+        topic = _cap_query(topic)
         try:
             _validate_query(topic)
         except ToolError as exc:
@@ -348,13 +478,17 @@ async def query_docs(
 
     try:
         result = await _live_query(library_id.strip(), topic, tokens, key)
-        # Scrub any ctx7_* tokens that leaked into the response (C1).
-        result["content"] = _scrub_response(result.get("content", ""))
+        # C1 — apply full two-layer sanitisation to the response content.
+        result["content"] = _sanitize_result(result.get("content", ""))
         logger.info(
             "context7: query_docs(library_id=%r, topic=%r) → %d chars",
-            library_id, topic, len(result["content"]),
+            library_id,
+            topic,
+            len(result["content"]),
         )
         return result
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("context7: query_docs failed")
         return {"error": str(exc)}
