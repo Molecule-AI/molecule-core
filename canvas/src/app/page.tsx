@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Canvas } from "@/components/Canvas";
 import { Legend } from "@/components/Legend";
 import { CommunicationOverlay } from "@/components/CommunicationOverlay";
+import { Spinner } from "@/components/Spinner";
 import { connectSocket, disconnectSocket } from "@/store/socket";
 import { useCanvasStore } from "@/store/canvas";
 import { api } from "@/lib/api";
@@ -12,6 +13,7 @@ import type { WorkspaceData } from "@/store/socket";
 export default function Home() {
   const hydrationError = useCanvasStore((s) => s.hydrationError);
   const setHydrationError = useCanvasStore((s) => s.setHydrationError);
+  const [hydrating, setHydrating] = useState(true);
 
   useEffect(() => {
     connectSocket();
@@ -31,12 +33,25 @@ export default function Home() {
       useCanvasStore.getState().setHydrationError(
         err instanceof Error && err.message ? err.message : "Failed to load canvas"
       );
+    }).finally(() => {
+      setHydrating(false);
     });
 
     return () => {
       disconnectSocket();
     };
   }, []);
+
+  if (hydrating) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-zinc-950">
+        <div className="flex flex-col items-center gap-3">
+          <Spinner size="lg" />
+          <span className="text-xs text-zinc-500">Loading canvas...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
