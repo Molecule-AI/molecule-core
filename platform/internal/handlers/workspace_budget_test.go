@@ -34,10 +34,11 @@ var wsColumns = []string{
 	"budget_limit", "monthly_spend",
 }
 
-// ==================== GET — budget_limit serialisation ====================
+// ==================== GET — financial fields stripped from open endpoint ====================
 
-// TestWorkspaceBudget_Get_NilLimit verifies that budget_limit is null in the
-// JSON response when the DB column IS NULL (no ceiling configured).
+// TestWorkspaceBudget_Get_NilLimit verifies that budget_limit and monthly_spend
+// are NOT present in GET /workspaces/:id. The endpoint is on the open router —
+// any caller with a valid UUID must not read billing data. (#611 Security Auditor)
 func TestWorkspaceBudget_Get_NilLimit(t *testing.T) {
 	mock := setupTestDB(t)
 	setupTestRedis(t)
@@ -66,19 +67,21 @@ func TestWorkspaceBudget_Get_NilLimit(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
-	if resp["budget_limit"] != nil {
-		t.Errorf("expected budget_limit=nil, got %v", resp["budget_limit"])
+	// #611: financial fields must NOT appear on the open GET endpoint.
+	if _, present := resp["budget_limit"]; present {
+		t.Errorf("budget_limit must not appear in open GET /workspaces/:id response")
 	}
-	if resp["monthly_spend"] != float64(0) {
-		t.Errorf("expected monthly_spend=0, got %v", resp["monthly_spend"])
+	if _, present := resp["monthly_spend"]; present {
+		t.Errorf("monthly_spend must not appear in open GET /workspaces/:id response")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("sqlmock expectations not met: %v", err)
 	}
 }
 
-// TestWorkspaceBudget_Get_WithLimit verifies that a non-NULL budget_limit is
-// returned as the correct integer value (USD cents) in the response.
+// TestWorkspaceBudget_Get_WithLimit verifies that budget_limit and monthly_spend
+// are stripped from the open GET /workspaces/:id even when the DB has non-zero
+// values. Financial reads go through the AdminAuth-gated budget endpoint. (#611)
 func TestWorkspaceBudget_Get_WithLimit(t *testing.T) {
 	mock := setupTestDB(t)
 	setupTestRedis(t)
@@ -91,8 +94,8 @@ func TestWorkspaceBudget_Get_WithLimit(t *testing.T) {
 				[]byte(`{}`), "http://localhost:9002",
 				nil, 0, 0.0, "", 0, "", "langgraph", "",
 				0.0, 0.0, false,
-				int64(500),  // budget_limit = $5.00
-				int64(123))) // monthly_spend = $1.23
+				int64(500),  // budget_limit = $5.00 in DB
+				int64(123))) // monthly_spend = $1.23 in DB
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -107,11 +110,17 @@ func TestWorkspaceBudget_Get_WithLimit(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
-	if resp["budget_limit"] != float64(500) {
-		t.Errorf("expected budget_limit=500, got %v", resp["budget_limit"])
+	// #611: financial fields must NOT appear on the open GET endpoint even when
+	// the DB has non-zero values — they're stripped before c.JSON().
+	if _, present := resp["budget_limit"]; present {
+		t.Errorf("budget_limit must not appear in open GET /workspaces/:id response (got %v)", resp["budget_limit"])
 	}
-	if resp["monthly_spend"] != float64(123) {
-		t.Errorf("expected monthly_spend=123, got %v", resp["monthly_spend"])
+	if _, present := resp["monthly_spend"]; present {
+		t.Errorf("monthly_spend must not appear in open GET /workspaces/:id response (got %v)", resp["monthly_spend"])
+	}
+	// Confirm non-financial fields are still present.
+	if resp["name"] != "Capped Agent" {
+		t.Errorf("expected name 'Capped Agent', got %v", resp["name"])
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("sqlmock expectations not met: %v", err)
@@ -163,23 +172,21 @@ func TestWorkspaceBudget_Create_WithLimit(t *testing.T) {
 	}
 }
 
-// ==================== PATCH — update budget_limit ====================
+// ==================== PATCH — budget_limit silently ignored on general update ====================
 
 // TestWorkspaceBudget_Update_SetLimit verifies that PATCH /workspaces/:id with
-// budget_limit=500 issues an UPDATE workspaces SET budget_limit = 500.
+// budget_limit=500 does NOT issue any DB write for budget_limit. The only write
+// path is the AdminAuth-gated PATCH /workspaces/:id/budget endpoint. (#611)
 func TestWorkspaceBudget_Update_SetLimit(t *testing.T) {
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
 
-	// Existence probe
+	// Only the existence probe fires; no UPDATE for budget_limit.
 	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
 		WithArgs("ws-upd-budget").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	// budget_limit UPDATE
-	mock.ExpectExec("UPDATE workspaces SET budget_limit").
-		WithArgs("ws-upd-budget", int64(500)).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	// No ExpectExec for budget_limit — sqlmock will fail if one is issued.
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -192,25 +199,24 @@ func TestWorkspaceBudget_Update_SetLimit(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+	// If a budget_limit UPDATE was issued, sqlmock would have an unexpected call.
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("sqlmock expectations not met: %v", err)
+		t.Errorf("unexpected DB activity — budget_limit must not be written via general Update: %v", err)
 	}
 }
 
 // TestWorkspaceBudget_Update_ClearLimit verifies that PATCH /workspaces/:id
-// with budget_limit=null issues an UPDATE with NULL, clearing the ceiling.
+// with budget_limit=null does NOT issue any DB write for budget_limit. (#611)
 func TestWorkspaceBudget_Update_ClearLimit(t *testing.T) {
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
 
+	// Only the existence probe fires; no UPDATE for budget_limit.
 	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
 		WithArgs("ws-clear-budget").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	// NULL clears the budget ceiling
-	mock.ExpectExec("UPDATE workspaces SET budget_limit").
-		WithArgs("ws-clear-budget", nil).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	// No ExpectExec — a budget_limit write here would re-open the vulnerability.
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -224,7 +230,7 @@ func TestWorkspaceBudget_Update_ClearLimit(t *testing.T) {
 		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("sqlmock expectations not met: %v", err)
+		t.Errorf("unexpected DB activity — budget_limit must not be written via general Update: %v", err)
 	}
 }
 

@@ -860,3 +860,132 @@ func TestWorkspaceUpdate_SensitiveField_NoTokensYet_FailOpen(t *testing.T) {
 		t.Errorf("bootstrap fail-open: got %d, want 200 (%s)", w.Code, w.Body.String())
 	}
 }
+
+// ==================== #611 Security Auditor regressions ====================
+
+// TestWorkspaceGet_FinancialFieldsStripped verifies that GET /workspaces/:id
+// does NOT expose budget_limit or monthly_spend. The endpoint is on the open
+// router — any caller with a UUID would otherwise read billing data. (#611 Fix 2)
+func TestWorkspaceGet_FinancialFieldsStripped(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	columns := []string{
+		"id", "name", "role", "tier", "status", "agent_card", "url",
+		"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
+		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
+		"budget_limit", "monthly_spend",
+	}
+	// Populate with non-zero financial values to confirm they are stripped.
+	mock.ExpectQuery("SELECT w.id, w.name").
+		WithArgs("ws-fin-1").
+		WillReturnRows(sqlmock.NewRows(columns).
+			AddRow("ws-fin-1", "Finance Test", "worker", 1, "online", []byte(`{}`),
+				"http://localhost:9001", nil, 0, 0.0, "", 0, "", "langgraph",
+				"", 0.0, 0.0, false,
+				int64(50000), int64(12500))) // budget_limit=500 USD, spend=125 USD
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-fin-1"}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/ws-fin-1", nil)
+
+	handler.Get(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if _, present := resp["budget_limit"]; present {
+		t.Errorf("budget_limit must not appear in GET /workspaces/:id response (got %v)", resp["budget_limit"])
+	}
+	if _, present := resp["monthly_spend"]; present {
+		t.Errorf("monthly_spend must not appear in GET /workspaces/:id response (got %v)", resp["monthly_spend"])
+	}
+	// Sanity-check that normal fields are still present.
+	if resp["name"] != "Finance Test" {
+		t.Errorf("expected name 'Finance Test', got %v", resp["name"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestWorkspaceUpdate_BudgetLimitIgnored verifies that including budget_limit
+// in a PATCH /workspaces/:id body does NOT trigger a DB write. The only write
+// path for budget_limit is PATCH /workspaces/:id/budget (AdminAuth-gated).
+// Any workspace bearer must not be able to self-clear its spending ceiling.
+// (#611 Fix 1)
+func TestWorkspaceUpdate_BudgetLimitIgnored(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	// Only the existence probe fires — no UPDATE for budget_limit.
+	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
+		WithArgs("ws-budget-test").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	// name update is the only expected write
+	mock.ExpectExec("UPDATE workspaces SET name").
+		WithArgs("ws-budget-test", "Safe Name").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-budget-test"}}
+	// Send budget_limit alongside an innocuous field.
+	body := `{"name":"Safe Name","budget_limit":null}`
+	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-budget-test",
+		bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Update(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// sqlmock will fail if any unexpected DB call was made (e.g. for budget_limit).
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unexpected DB call — budget_limit must not be written via Update: %v", err)
+	}
+}
+
+// TestWorkspaceUpdate_BudgetLimitOnly_Ignored verifies that a body containing
+// ONLY budget_limit results in no DB writes at all (besides the existence probe).
+func TestWorkspaceUpdate_BudgetLimitOnly_Ignored(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
+		WithArgs("ws-budget-only").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	// No UPDATE expected — budget_limit must be silently skipped.
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-budget-only"}}
+	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-budget-only",
+		bytes.NewBufferString(`{"budget_limit":999999}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Update(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unexpected DB call for budget_limit: %v", err)
+	}
+}
