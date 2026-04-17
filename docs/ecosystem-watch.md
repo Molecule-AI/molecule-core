@@ -2775,3 +2775,43 @@ langgraph/crewai adapters.
 **Signals to react to:** GitHub publishes a formal plugin schema spec → evaluate cross-compatibility with our `plugin.yaml` format. Awesome-Copilot plugin format adopted by other tools → position Molecule plugins as cross-compatible. Copilot adds MCP server support → Molecule's `@molecule-ai/mcp-server` becomes directly installable as a Copilot plugin.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 30,211★, Python/TS, MIT, GitHub-maintained, 1,600+ commits
+
+---
+
+### Mastra — `mastra-ai/mastra`
+
+**Pitch:** "Build production AI features in TypeScript — agents, workflows, memory, RAG, evals, and voice in one framework."
+
+**Shape:** TypeScript, Apache-2.0, 22k★, v1.0 Jan 2026. From the Gatsby/GatsbyJS founders (YC). 1.8M monthly downloads by Feb 2026; 300k+ weekly at v1.0 launch. Multi-provider (Claude, OpenAI, Gemini, etc.). Core primitives: `Agent` (tool-using LLM loop), `Workflow` (step DAG with retry/parallel/conditional), `Memory` (vector + semantic retrieval), `RAG` (document ingestion + retrieval), evals, Langfuse/OpenTelemetry observability, and a voice pipeline. MCP client built-in. TypeScript-first.
+
+**Overlap with us:** TypeScript-native agent framework that competes for the same developer mindshare as pydantic-ai (Python side). MCP client support maps to our `mcp-connector` (#573). Workflow engine (durable step DAG) is a TypeScript analog to our Temporal integration. Potential `molecule-ai-workspace-template-mastra` adapter candidate.
+
+**Differentiation:** TypeScript only (no Python). No A2A protocol, no multi-agent org hierarchy, no visual canvas, no Docker workspace isolation, no cron scheduling. Molecule provides the multi-agent orchestration + governance layer; Mastra provides agent logic inside a single workspace.
+
+**Worth borrowing:** Evals built-in from v1.0 — not bolted on. "Steps" workflow primitive with structured retry + parallel branches is a cleaner abstraction than raw LangGraph graphs. Voice pipeline as first-class primitive.
+
+**Terminology collisions:** "workflows" (Mastra step DAGs) ≈ our LangGraph-based workflows. "integrations" ≈ our plugins. "agents" ≈ our workspaces.
+
+**Signals to react to:** Mastra ships A2A protocol → prioritize `molecule-ai-workspace-template-mastra`. Mastra adds multi-agent coordination → escalate threat level. Mastra hits 30k★ → competitive positioning blog needed.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 22k★, TypeScript, Apache-2.0, YC, v1.0 Jan 2026, 1.8M monthly downloads
+
+---
+
+### SAFE-MCP — `safe-agentic-framework/safe-mcp`
+
+**Pitch:** "An ATT&CK-style threat framework for documenting and mitigating adversary tactics, techniques, and procedures in MCP-based AI agent systems."
+
+**Shape:** Markdown + Python, MIT. Adopted by Linux Foundation + OpenID Foundation (Apr 2026). 14 tactical categories, 80+ documented attack techniques using SAFE-T#### IDs (mirrors MITRE ATT&CK structure): initial access, tool poisoning, prompt injection via MCP responses, data exfiltration, privilege escalation, persistence. Ships threat modeling guides, developer quickstarts, and per-technique mitigations.
+
+**Overlap with us:** Our `@molecule-ai/mcp-server` (87 tools) and MCP connector (#573) are directly in scope. Our plugin install pathway (fetch + stage + exec) is a SAFE-T1102 "supply-chain" attack surface. Our workspace bearer-token auth, `PLUGIN_INSTALL_MAX_DIR_BYTES` safeguard, and HMAC audit ledger (#594) map to documented SAFE-MCP mitigations. No runtime overlap — purely a reference/compliance framework.
+
+**Differentiation:** Not a product — a security threat taxonomy. Pure reference material; no code runtime, no competition.
+
+**Worth borrowing:** Run SAFE-MCP threat model against `@molecule-ai/mcp-server` before v1.0 customer launch (see GH #747). SAFE-T1102 (tool poisoning) and supply-chain techniques are most applicable to our plugin install flow.
+
+**Terminology collisions:** None — uses its own SAFE-T#### namespace distinct from ours.
+
+**Signals to react to:** Enterprise customers ask for SAFE-MCP compliance attestation → generate self-assessment doc. SAFE-MCP ships an automated scanner → add to MCP server CI. SAFE-MCP v2.0 adds A2A threat model → extend audit to our A2A proxy.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** early-stage (LF/OpenID adopted Apr 2026), MIT, foundation-governed
