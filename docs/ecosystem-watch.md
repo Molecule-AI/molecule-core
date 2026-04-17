@@ -2553,3 +2553,43 @@ langgraph/crewai adapters.
 **Signals to react to:** If Strix ships an agent SDK / plugin API → they become a platform player, escalate to MEDIUM. If enterprise security teams start asking about Molecule AI + Strix integration → document a reference org template.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 24,100 ⭐, +202 today, PyPI `strix-agent`
+
+---
+
+### Anthropic Agent Skills — `anthropics/skills`
+
+**Pitch:** "A cross-platform open standard for portable AI agent skills — declare a skill as `SKILL.md` (YAML frontmatter + Markdown body) and it installs anywhere the standard is adopted."
+
+**Shape:** Filesystem standard (not a framework), 119k★ on GitHub (trending #1 today), 26+ platform adopters including Cursor, OpenAI Codex, GitHub Copilot, and Gemini CLI. A skill is a `SKILL.md` file with YAML frontmatter (name, description, author, version, tools, compatibility) and Markdown body (instructions). Skills install to `.agents/skills/` or `.claude/skills/`. Anthropic also operates a proprietary REST API track (`/v1/skills`, beta header `skills-2025-10-02`) for org-internal skill upload/management; confirmed pre-built skills: pptx, xlsx, docx, pdf. Partner directory (Atlassian, Figma, Canva, Cloudflare, Sentry, Ramp live; Stripe/Notion/Zapier unconfirmed) is invitation-only with no programmatic import API.
+
+**Overlap with us:** Molecule AI already uses `SKILL.md` natively — every `configs/plugins/*/skills/*/SKILL.md` is a compliant Agent Skill (confirmed by TR spike 2026-04-17, GH #677). Zero schema chasm. GH #676 (molecule-agent-skills-bridge) will allow Molecule workspaces to install skills from the Anthropic API track and export custom skills to the org registry.
+
+**Differentiation:** Agent Skills is a portability standard, not a competing orchestration platform. Skills are stateless capability definitions; Molecule AI provides the runtime, lifecycle, governance, and org hierarchy. Compliance with the standard strengthens Molecule's positioning — it joins a 26-platform ecosystem rather than standing outside it.
+
+**Worth borrowing:** SKILL.md as the canonical external representation of a Molecule skill (already adopted). The `/v1/skills` beta API for distributing skills to partner Claude deployments (org-internal, pending #676). Schema delta to publish: `version`/`author`/`tags` → `metadata` map; `runtimes` → `compatibility` — one-pass transform.
+
+**Terminology collisions:** "skill" — Anthropic: a SKILL.md capability unit; Molecule: same (no collision). "connector" — claude.com/connectors: Anthropic's Web UI for partner skills; Molecule: channel integrations (Slack, Telegram) — distinct contexts, no collision risk.
+
+**Signals to react to:** `/v1/skills` API GA (beta header dropped) → ship #676 immediately. New partners added to claude.com/connectors → update #676 supported-partners list. Cross-platform open registry (invitation-only → public) → revisit #676 reverse-export scope.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 119,323★, GitHub trending Python #1 today, 26+ platform adopters
+
+---
+
+### Microsoft APM — `microsoft/apm`
+
+**Pitch:** "The open-source dependency manager for AI agents — declare agent packages (skills, plugins, MCP servers, prompts, hooks) in a single `apm.yml` and get reproducible setups across teams."
+
+**Shape:** Python (95%), open-source, v0.8.11 (Apr 6 2026), 1.8k★. CLI distributed as native binaries (macOS/Linux/Windows) + pip. Manages "instructions, skills, prompts, agents, hooks, plugins, MCP servers" via a unified `apm.yml` manifest. Key features: transitive dependency resolution, multi-source installs (GitHub/GitLab/Bitbucket/Azure DevOps/any git host), content-security scanning (`apm audit` blocks hidden-Unicode and compromised packages), marketplace with governance via `apm-policy.yaml`, GitHub Action for CI/CD. Built on open standards: AGENTS.md and agentskills.io specification.
+
+**Overlap with us:** Molecule AI's plugin system (`plugins/` registry, `plugin.yaml` per plugin, `/workspaces/:id/plugins` API) solves the same problem: reproducible, declarative agent capability composition. An `apm.yml` that installs Molecule plugins would be a natural extension of both systems. If apm gains enough adoption to become the de facto way enterprise teams declare agent dependencies, Molecule plugin authors will expect apm.yml compatibility. See GH #694 for evaluation tracking.
+
+**Differentiation:** apm is a dependency manager, not an orchestration platform. No visual canvas, no agent lifecycle management, no A2A protocol, no scheduling. It is infrastructure for composing agents, not running them. Molecule AI is the runtime; apm could theoretically become the package manager for Molecule plugins rather than a competitor.
+
+**Worth borrowing:** `apm audit` content-security model for plugin installs — Molecule's plugin install endpoint has no equivalent hidden-Unicode / compromised-package scanning (relevant to GH #675 molecule-security-scan). The `apm-policy.yaml` governance pattern is a lightweight analog to what molecule-governance (#674) needs for policy-as-code enforcement. CI GitHub Action for validating plugin manifests in PRs.
+
+**Terminology collisions:** "plugin" — both use it for capability units; apm's scope is broader (includes skills, prompts, hooks). "package" — apm's primary noun; Molecule calls the same thing a plugin.
+
+**Signals to react to:** apm ships a `molecule-ai` source scheme or native Molecule plugin support → strong ecosystem validation, document compatibility immediately. Microsoft positions apm as "npm for agents" in Agent Framework docs → evaluate making `plugin.yaml` apm-compatible. apm reaches 10k★ → evaluate publishing Molecule plugins to the apm marketplace.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 1,766★, v0.8.11 Apr 6 2026, GitHub trending Python today
