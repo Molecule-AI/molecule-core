@@ -734,6 +734,21 @@ snapshots:
       CDP. Plugin proposal queued (molecule-midscene — pending GH_TOKEN).
     source_url: https://github.com/web-infra-dev/midscene
 
+  - name: Entire CLI
+    slug: entire-cli
+    date: "2026-04-17"
+    version: "active"
+    stars: "4k"
+    threat_level: low
+    notable_changes: >
+      4k★, Go, MIT; GitHub Trending Apr 17 2026. Git hook middleware that
+      captures AI agent sessions (Claude Code, Cursor, Codex, Gemini, Copilot
+      CLI, OpenCode, Factory AI Droid) as indexed checkpoints on a separate
+      entire/checkpoints/v1 branch — transcripts, file diffs, token usage, tool
+      calls per commit. Reference design for our audit trail / activity_logs
+      schema enrichment. No MCP or A2A integration.
+    source_url: https://github.com/entireio/cli
+
 ---
 
 ## Entries
@@ -3016,3 +3031,23 @@ langgraph/crewai adapters.
 **Signals to react to:** MCP server API stabilizes → file `molecule-midscene` plugin proposal. Midscene hits 30k★ → evaluate replacing CDP plugin as default. Midscene ships A2A → tighter integration path.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 12.7k★, TypeScript, MIT, GitHub Trending Apr 17 2026. **Plugin proposal queued** (molecule-midscene — pending GH_TOKEN rotation).
+
+---
+
+### Entire — `entireio/cli`
+
+**Pitch:** "Hooks into your Git workflow to capture AI agent sessions as searchable records — indexed alongside commits, showing how code was written."
+
+**Shape:** Go, MIT, 4k★, GitHub Trending Apr 17 2026. CLI + git hooks. Installs per-agent hooks for Claude Code, Cursor, Codex, Gemini, OpenCode, Copilot CLI, Factory AI Droid. Records session transcripts, file modifications, token usage, and tool calls on a separate `entire/checkpoints/v1` branch — no main-branch pollution. Checkpoints are save points at each git commit; supports rewind and resume. `curl -fsSL https://entire.io/install.sh | bash`. No MCP or A2A integration.
+
+**Overlap with us:** Direct design overlap with `molecule-audit-trail` plugin (PostToolUse hook → `audit.jsonl`) and `activity_logs` DB. The git-branch-as-audit-log pattern is a cleaner alternative to our gitignored JSONL approach — provider-agnostic, durable, diff-able. Token + tool call metadata per commit = richer granularity than our current `activity_logs` schema captures.
+
+**Differentiation:** Developer-facing CLI, not a platform. No workspace lifecycle, no A2A, no org hierarchy, no scheduling. Molecule provides the multi-tenant governance layer; Entire is a personal audit trail for individual dev sessions.
+
+**Worth borrowing:** `entire/checkpoints/v1` git branch pattern for lightweight, provider-agnostic session audit. Per-commit token + tool metadata as the target granularity for `activity_logs` schema v2.
+
+**Terminology collisions:** "checkpoints" ≈ our workspace snapshot concept (GH #711).
+
+**Signals to react to:** Entire ships MCP server → evaluate `molecule-audit-trail` upgrade. Entire adds multi-workspace / org-level aggregation → escalate to MEDIUM threat.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 4k★, Go, MIT, GitHub Trending Apr 17 2026
