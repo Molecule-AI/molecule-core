@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { StatusDot } from "../StatusDot";
+import { BudgetSection } from "./BudgetSection";
 import { WorkspaceUsage } from "../WorkspaceUsage";
 
 interface Props {
@@ -24,9 +25,6 @@ export function DetailsTab({ workspaceId, data }: Props) {
   const [name, setName] = useState(data.name);
   const [role, setRole] = useState(data.role || "");
   const [tier, setTier] = useState(data.tier);
-  const [budgetLimit, setBudgetLimit] = useState(
-    data.budgetLimit != null ? String(data.budgetLimit) : ""
-  );
   const [peers, setPeers] = useState<PeerData[]>([]);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -43,8 +41,7 @@ export function DetailsTab({ workspaceId, data }: Props) {
     setName(data.name);
     setRole(data.role || "");
     setTier(data.tier);
-    setBudgetLimit(data.budgetLimit != null ? String(data.budgetLimit) : "");
-  }, [data.name, data.role, data.tier, data.budgetLimit]);
+  }, [data.name, data.role, data.tier]);
 
   const loadPeers = useCallback(async () => {
     setPeersError(null);
@@ -63,17 +60,13 @@ export function DetailsTab({ workspaceId, data }: Props) {
   const handleSave = async () => {
     setSaving(true);
     setSaveError(null);
-    const parsedBudget = budgetLimit.trim()
-      ? parseFloat(budgetLimit)
-      : null;
     try {
       await api.patch(`/workspaces/${workspaceId}`, {
         name,
         role: role || null,
         tier,
-        budget_limit: parsedBudget,
       });
-      updateNodeData(workspaceId, { name, role: role || "", tier, budgetLimit: parsedBudget });
+      updateNodeData(workspaceId, { name, role: role || "", tier });
       setEditing(false);
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "Failed to save");
@@ -107,10 +100,6 @@ export function DetailsTab({ workspaceId, data }: Props) {
   };
 
   const isRestartable = data.status === "offline" || data.status === "failed" || data.status === "degraded";
-  const budgetExceeded =
-    data.budgetLimit != null &&
-    data.budgetUsed != null &&
-    data.budgetUsed > data.budgetLimit;
 
   const agentCard = data.agentCard;
   const skills = getSkills(agentCard);
@@ -148,18 +137,6 @@ export function DetailsTab({ workspaceId, data }: Props) {
                 <option value={4}>Tier 4 — VM</option>
               </select>
             </Field>
-            <Field label="Budget limit (USD)">
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={budgetLimit}
-                onChange={(e) => setBudgetLimit(e.target.value)}
-                placeholder="Leave blank for unlimited"
-                className="w-full bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20"
-              />
-              <p className="mt-0.5 text-xs text-zinc-500">Leave blank for unlimited</p>
-            </Field>
             {saveError && (
               <div className="px-3 py-1.5 bg-red-900/30 border border-red-800 rounded text-xs text-red-400">
                 {saveError}
@@ -180,7 +157,6 @@ export function DetailsTab({ workspaceId, data }: Props) {
                   setName(data.name);
                   setRole(data.role || "");
                   setTier(data.tier);
-                  setBudgetLimit(data.budgetLimit != null ? String(data.budgetLimit) : "");
                 }}
                 className="px-3 py-1 bg-zinc-700 hover:bg-zinc-600 text-xs rounded text-zinc-300"
               >
@@ -190,29 +166,9 @@ export function DetailsTab({ workspaceId, data }: Props) {
           </div>
         ) : (
           <div className="space-y-1.5">
-            {budgetExceeded && (
-              <div
-                role="status"
-                aria-label="Budget limit exceeded"
-                data-testid="budget-exceeded-badge"
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-950/50 border border-red-800/50 text-red-400 text-[11px] font-medium"
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                  <path d="M6 1L11 10H1L6 1Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-                  <path d="M6 5v2.5M6 9h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
-                Budget limit exceeded
-              </div>
-            )}
             <Row label="Name" value={data.name} />
             <Row label="Role" value={data.role || "—"} />
             <Row label="Tier" value={`T${data.tier}`} />
-            <Row label="Budget limit" value={
-              data.budgetLimit != null ? `$${data.budgetLimit.toFixed(2)}` : "Unlimited"
-            } />
-            {data.budgetUsed != null && (
-              <Row label="Budget used" value={`$${data.budgetUsed.toFixed(2)}`} />
-            )}
             <Row label="Status" value={data.status} />
             <Row label="URL" value={data.url || "—"} mono />
             <Row label="Parent" value={data.parentId || "root"} mono />
@@ -246,7 +202,10 @@ export function DetailsTab({ workspaceId, data }: Props) {
         )}
       </Section>
 
-      {/* Token usage + spend (scaffold — wired to GET /workspaces/:id/metrics once #593 lands) */}
+      {/* Budget — dedicated section with live usage stats (#541) */}
+      <BudgetSection workspaceId={workspaceId} />
+
+      {/* Token usage + spend — wired to GET /workspaces/:id/metrics (#592) */}
       <WorkspaceUsage workspaceId={workspaceId} />
 
       {/* Agent Card / Skills */}
