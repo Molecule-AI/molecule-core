@@ -201,7 +201,7 @@ class WorkspaceConfig:
     without reading the full system prompt. Falls back to description when empty."""
     version: str = "1.0.0"
     tier: int = 1
-    model: str = "anthropic:claude-sonnet-4-6"
+    model: str = "anthropic:claude-opus-4-7"
     runtime: str = "langgraph"  # langgraph | claude-code | codex | ollama | custom
     runtime_config: RuntimeConfig = field(default_factory=RuntimeConfig)
     initial_prompt: str = ""
@@ -255,7 +255,7 @@ def load_config(config_path: Optional[str] = None) -> WorkspaceConfig:
         raw = yaml.safe_load(f) or {}
 
     # Override model from env if provided
-    model = os.environ.get("MODEL_PROVIDER", raw.get("model", "anthropic:claude-sonnet-4-6"))
+    model = os.environ.get("MODEL_PROVIDER", raw.get("model", "anthropic:claude-opus-4-7"))
 
     runtime = raw.get("runtime", "langgraph")
     runtime_raw = raw.get("runtime_config", {})
