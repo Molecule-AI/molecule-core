@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 /**
- * Tests for the budget_limit field in DetailsTab (issue #541).
- * Covers: display in read view, editing + PATCH, exceeded badge,
- * null/unlimited states, and cancel-revert.
+ * DetailsTab integration tests for issue #541.
+ *
+ * Budget-specific logic (stats, progress bar, PATCH /budget, 402 handling) is
+ * fully covered by BudgetSection.test.tsx — this file focuses on:
+ *   1. BudgetSection being mounted inside DetailsTab
+ *   2. The workspace edit form (name / role / tier) no longer carrying
+ *      budget_limit — that concern lives in BudgetSection now
+ *   3. PATCH /workspaces/:id body integrity (no accidental budget_limit leak)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
@@ -30,6 +35,15 @@ vi.mock("@/store/canvas", () => ({
 
 vi.mock("../StatusDot", () => ({ StatusDot: () => null }));
 
+// Mock BudgetSection — it has its own test suite (BudgetSection.test.tsx).
+// Without this mock its internal api.get would fire against the shared mock
+// and cause type errors when the return is not a valid BudgetData object.
+vi.mock("../tabs/BudgetSection", () => ({
+  BudgetSection: ({ workspaceId }: { workspaceId: string }) => (
+    <div data-testid="budget-section-stub" data-ws={workspaceId} />
+  ),
+}));
+
 import { api } from "@/lib/api";
 import { DetailsTab } from "../tabs/DetailsTab";
 
@@ -37,7 +51,7 @@ const mockPatch = vi.mocked(api.patch);
 const mockGet = vi.mocked(api.get);
 const mockUpdateNodeData = vi.fn();
 
-// ── Base workspace data ────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeData(overrides: Record<string, unknown> = {}) {
   return {
@@ -73,195 +87,135 @@ afterEach(() => {
   cleanup();
 });
 
-// ── Read view ─────────────────────────────────────────────────────────────────
+async function openEdit() {
+  const editBtn = screen.getAllByRole("button").find((b) => b.textContent === "Edit");
+  fireEvent.click(editBtn!);
+  await waitFor(() =>
+    expect(screen.getAllByRole("button").some((b) => b.textContent === "Save")).toBe(true)
+  );
+}
 
-describe("DetailsTab — budget_limit read view", () => {
-  it("shows 'Unlimited' when budgetLimit is null", () => {
-    render(<DetailsTab workspaceId="ws-1" data={makeData({ budgetLimit: null })} />);
-    expect(screen.getByText("Unlimited")).toBeTruthy();
-  });
+// ── BudgetSection mounting ────────────────────────────────────────────────────
 
-  it("shows formatted dollar amount when budgetLimit is set", () => {
-    render(<DetailsTab workspaceId="ws-1" data={makeData({ budgetLimit: 100 })} />);
-    expect(screen.getByText("$100.00")).toBeTruthy();
-  });
-
-  it("shows budget used row when budgetUsed is present", () => {
-    render(
-      <DetailsTab
-        workspaceId="ws-1"
-        data={makeData({ budgetLimit: 100, budgetUsed: 42.5 })}
-      />
-    );
-    expect(screen.getByText("$42.50")).toBeTruthy();
-  });
-
-  it("does NOT show budget used row when budgetUsed is null", () => {
-    render(
-      <DetailsTab
-        workspaceId="ws-1"
-        data={makeData({ budgetLimit: 100, budgetUsed: null })}
-      />
-    );
-    // "Budget used" label should not appear
-    expect(screen.queryByText("Budget used")).toBeNull();
+describe("DetailsTab — BudgetSection integration", () => {
+  it("renders BudgetSection with the correct workspaceId", () => {
+    render(<DetailsTab workspaceId="ws-42" data={makeData()} />);
+    const stub = screen.getByTestId("budget-section-stub");
+    expect(stub).toBeTruthy();
+    expect(stub.getAttribute("data-ws")).toBe("ws-42");
   });
 });
 
-// ── Budget exceeded badge ─────────────────────────────────────────────────────
+// ── Workspace edit form (no budget_limit) ──────────────────────────────────────
 
-describe("DetailsTab — budget exceeded badge", () => {
-  it("shows exceeded badge when budgetUsed > budgetLimit", () => {
-    render(
-      <DetailsTab
-        workspaceId="ws-1"
-        data={makeData({ budgetLimit: 50, budgetUsed: 75 })}
-      />
-    );
-    expect(screen.getByTestId("budget-exceeded-badge")).toBeTruthy();
-    expect(screen.getByText("Budget limit exceeded")).toBeTruthy();
-  });
-
-  it("does NOT show exceeded badge when budgetUsed equals budgetLimit", () => {
-    render(
-      <DetailsTab
-        workspaceId="ws-1"
-        data={makeData({ budgetLimit: 100, budgetUsed: 100 })}
-      />
-    );
-    expect(screen.queryByTestId("budget-exceeded-badge")).toBeNull();
-  });
-
-  it("does NOT show exceeded badge when budgetUsed < budgetLimit", () => {
-    render(
-      <DetailsTab
-        workspaceId="ws-1"
-        data={makeData({ budgetLimit: 200, budgetUsed: 50 })}
-      />
-    );
-    expect(screen.queryByTestId("budget-exceeded-badge")).toBeNull();
-  });
-
-  it("does NOT show exceeded badge when budgetLimit is null (unlimited)", () => {
-    render(
-      <DetailsTab
-        workspaceId="ws-1"
-        data={makeData({ budgetLimit: null, budgetUsed: 999 })}
-      />
-    );
-    expect(screen.queryByTestId("budget-exceeded-badge")).toBeNull();
-  });
-
-  it("does NOT show exceeded badge when budgetUsed is null", () => {
-    render(
-      <DetailsTab
-        workspaceId="ws-1"
-        data={makeData({ budgetLimit: 50, budgetUsed: null })}
-      />
-    );
-    expect(screen.queryByTestId("budget-exceeded-badge")).toBeNull();
-  });
-
-  it("exceeded badge has role='status' for accessible announcement", () => {
-    render(
-      <DetailsTab
-        workspaceId="ws-1"
-        data={makeData({ budgetLimit: 10, budgetUsed: 20 })}
-      />
-    );
-    const badge = screen.getByTestId("budget-exceeded-badge");
-    expect(badge.getAttribute("role")).toBe("status");
-  });
-});
-
-// ── Edit + PATCH ──────────────────────────────────────────────────────────────
-
-describe("DetailsTab — budget_limit editing", () => {
-  async function openEdit() {
-    const editBtn = screen.getAllByRole("button").find((b) => b.textContent === "Edit");
-    fireEvent.click(editBtn!);
-    await waitFor(() => expect(screen.getByPlaceholderText("Leave blank for unlimited")).toBeTruthy());
-  }
-
-  it("shows budget_limit input with placeholder 'Leave blank for unlimited' when editing", async () => {
-    render(<DetailsTab workspaceId="ws-1" data={makeData({ budgetLimit: null })} />);
+describe("DetailsTab — workspace edit form does not include budget_limit", () => {
+  it("does NOT show a 'Budget limit (USD)' input in the edit form", async () => {
+    render(<DetailsTab workspaceId="ws-1" data={makeData()} />);
     await openEdit();
-    const input = screen.getByPlaceholderText("Leave blank for unlimited") as HTMLInputElement;
-    expect(input).toBeTruthy();
-    expect(input.value).toBe("");
+    // Budget limit (USD) was the old inline field label — must be absent now
+    expect(screen.queryByPlaceholderText("Leave blank for unlimited")).toBeNull();
+    expect(screen.queryByText("Budget limit (USD)")).toBeNull();
   });
 
-  it("pre-fills input with existing budgetLimit value", async () => {
-    render(<DetailsTab workspaceId="ws-1" data={makeData({ budgetLimit: 150 })} />);
+  it("PATCH /workspaces/:id body does NOT include budget_limit", async () => {
+    render(<DetailsTab workspaceId="ws-1" data={makeData({ name: "My Agent" })} />);
     await openEdit();
-    const input = screen.getByPlaceholderText("Leave blank for unlimited") as HTMLInputElement;
-    expect(input.value).toBe("150");
-  });
-
-  it("sends budget_limit as a number in PATCH body", async () => {
-    render(<DetailsTab workspaceId="ws-1" data={makeData({ budgetLimit: null })} />);
-    await openEdit();
-
-    fireEvent.change(screen.getByPlaceholderText("Leave blank for unlimited"), {
-      target: { value: "300" },
-    });
 
     const saveBtn = screen.getAllByRole("button").find((b) => b.textContent === "Save");
     fireEvent.click(saveBtn!);
 
     await waitFor(() => expect(mockPatch).toHaveBeenCalled());
     const body = mockPatch.mock.calls[0][1] as Record<string, unknown>;
-    expect(body.budget_limit).toBe(300);
+    expect(Object.prototype.hasOwnProperty.call(body, "budget_limit")).toBe(false);
   });
 
-  it("sends budget_limit as null when field is cleared", async () => {
-    render(<DetailsTab workspaceId="ws-1" data={makeData({ budgetLimit: 100 })} />);
+  it("PATCH /workspaces/:id body includes name, role, and tier", async () => {
+    render(
+      <DetailsTab
+        workspaceId="ws-1"
+        data={makeData({ name: "Alpha", role: "Writer", tier: 2 })}
+      />
+    );
     await openEdit();
-
-    fireEvent.change(screen.getByPlaceholderText("Leave blank for unlimited"), {
-      target: { value: "" },
-    });
 
     const saveBtn = screen.getAllByRole("button").find((b) => b.textContent === "Save");
     fireEvent.click(saveBtn!);
 
     await waitFor(() => expect(mockPatch).toHaveBeenCalled());
     const body = mockPatch.mock.calls[0][1] as Record<string, unknown>;
-    expect(body.budget_limit).toBeNull();
+    expect(body.name).toBe("Alpha");
+    expect(body.role).toBe("Writer");
+    expect(body.tier).toBe(2);
   });
 
-  it("calls updateNodeData with the new budgetLimit on successful save", async () => {
-    render(<DetailsTab workspaceId="ws-1" data={makeData({ budgetLimit: null })} />);
+  it("Cancel reverts name, role, tier without touching budget state", async () => {
+    render(
+      <DetailsTab
+        workspaceId="ws-1"
+        data={makeData({ name: "Original", role: "Dev" })}
+      />
+    );
     await openEdit();
 
-    fireEvent.change(screen.getByPlaceholderText("Leave blank for unlimited"), {
-      target: { value: "500" },
-    });
+    // Modify name
+    fireEvent.change(
+      screen.getAllByRole("textbox").find((i) => (i as HTMLInputElement).value === "Original")!,
+      { target: { value: "Modified" } }
+    );
+
+    const cancelBtn = screen.getAllByRole("button").find((b) => b.textContent === "Cancel");
+    fireEvent.click(cancelBtn!);
+
+    // Should be back in read view — no Save button visible
+    expect(screen.queryAllByRole("button").some((b) => b.textContent === "Save")).toBe(false);
+    // Workspace info unchanged in read view
+    expect(screen.getByText("Original")).toBeTruthy();
+  });
+
+  it("updateNodeData is called with name/role/tier but NOT budgetLimit on save", async () => {
+    render(
+      <DetailsTab
+        workspaceId="ws-1"
+        data={makeData({ name: "Bot", role: "Analyst", tier: 1 })}
+      />
+    );
+    await openEdit();
 
     const saveBtn = screen.getAllByRole("button").find((b) => b.textContent === "Save");
     fireEvent.click(saveBtn!);
 
     await waitFor(() => expect(mockUpdateNodeData).toHaveBeenCalled());
     const updateArgs = mockUpdateNodeData.mock.calls[0][1] as Record<string, unknown>;
-    expect(updateArgs.budgetLimit).toBe(500);
+    expect(updateArgs.name).toBe("Bot");
+    expect(updateArgs.role).toBe("Analyst");
+    expect(updateArgs.tier).toBe(1);
+    expect(Object.prototype.hasOwnProperty.call(updateArgs, "budgetLimit")).toBe(false);
+  });
+});
+
+// ── budget-exceeded-badge removed from DetailsTab ────────────────────────────
+
+describe("DetailsTab — no inline budget-exceeded-badge", () => {
+  it("does NOT render budget-exceeded-badge even when budgetUsed > budgetLimit (BudgetSection owns that)", () => {
+    render(
+      <DetailsTab
+        workspaceId="ws-1"
+        data={makeData({ budgetLimit: 10, budgetUsed: 99 })}
+      />
+    );
+    // The old inline badge is gone — BudgetSection.tsx owns the exceeded state
+    expect(screen.queryByTestId("budget-exceeded-badge")).toBeNull();
   });
 
-  it("restores original budgetLimit when Cancel is clicked", async () => {
-    render(<DetailsTab workspaceId="ws-1" data={makeData({ budgetLimit: 75 })} />);
-    await openEdit();
-
-    // Change the value
-    fireEvent.change(screen.getByPlaceholderText("Leave blank for unlimited"), {
-      target: { value: "9999" },
-    });
-
-    // Cancel
-    const cancelBtn = screen.getAllByRole("button").find((b) => b.textContent === "Cancel");
-    fireEvent.click(cancelBtn!);
-
-    // Re-enter edit mode — should show original value
-    await openEdit();
-    const input = screen.getByPlaceholderText("Leave blank for unlimited") as HTMLInputElement;
-    expect(input.value).toBe("75");
+  it("does NOT render inline Budget limit row in read view", () => {
+    render(
+      <DetailsTab
+        workspaceId="ws-1"
+        data={makeData({ budgetLimit: 100 })}
+      />
+    );
+    // "$100.00" and "Unlimited" are rendered by BudgetSection now
+    expect(screen.queryByText("$100.00")).toBeNull();
+    expect(screen.queryByText("Unlimited")).toBeNull();
   });
 });
