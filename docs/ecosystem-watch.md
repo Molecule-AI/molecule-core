@@ -120,9 +120,12 @@ snapshots:
     stars: "9.5k"
     threat_level: high
     notable_changes: >
-      python-1.0.1 (Apr 10 2026) ships FileCheckpointStorage security hardening;
-      v1.0 GA is the official AutoGen successor with SOC 2/HIPAA compliance,
-      .NET + Python support, and a Process Framework GA planned for Q2 2026.
+      v1.0 GA (Apr 7 2026): multi-agent orchestration (sequential, concurrent,
+      group-chat, handoff, magnetic patterns), native A2A+MCP, OpenTelemetry,
+      pause/resume durability, HITL approvals. AG-UI protocol for SSE-streaming
+      agent events to frontends — direct competitor to our WebSocket canvas.
+      Process Framework GA planned Q2 2026. Molecule gap: AG-UI SSE endpoint,
+      tool governance registry, cost transparency per workspace.
     source_url: https://github.com/microsoft/agent-framework/releases
 
   # ── MEDIUM THREAT ──────────────────────────────────────────────────────────────────
@@ -1313,9 +1316,9 @@ builders; Molecule AI users are developers building agent companies.
 
 **Terminology collisions:** "middleware" — their processing pipeline hook; undefined in our platform. "graph" — their workflow DAG vs our live org chart (same word, different semantics).
 
-**Signals to react to:** If AF 1.0 achieves enterprise adoption → update our autogen adapter to target `microsoft/agent-framework`. If AF Labs RL ships stable → evaluate for dynamic PM routing based on workspace performance history.
+**Signals to react to:** AF 1.0 GA shipped April 7 with AG-UI (SSE protocol for streaming agent events to frontends). AG-UI is a direct competitor to our WebSocket canvas events — if AG-UI becomes a standard, we need an AG-UI-compatible SSE endpoint to attract MAF users. Process Framework GA in Q2 2026 will add visual workflow design — evaluate overlap with our Canvas. Google's private Tool Registry (Vertex AI) sets an enterprise expectation for tool governance that we should match with per-org curated plugin registries.
 
-**Last reviewed:** 2026-04-15 · **Stars / activity:** ~9.5k ⭐, April 2026 .NET release, official AutoGen successor
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ~9.5k ⭐, v1.0 GA April 7 2026, AG-UI protocol announced
 
 ---
 
