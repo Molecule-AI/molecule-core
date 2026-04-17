@@ -239,18 +239,40 @@ func (h *RegistryHandler) Heartbeat(c *gin.Context) {
 	// late heartbeat from a container that's being torn down doesn't
 	// refresh last_heartbeat_at on a tombstoned workspace (which would
 	// otherwise confuse the liveness monitor).
-	_, err := db.DB.ExecContext(ctx, `
-		UPDATE workspaces SET
-			last_heartbeat_at = now(),
-			last_error_rate   = $2,
-			last_sample_error = $3,
-			active_tasks      = $4,
-			uptime_seconds    = $5,
-			current_task      = $6,
-			updated_at        = now()
-		WHERE id = $1 AND status != 'removed'
-	`, payload.WorkspaceID, payload.ErrorRate, payload.SampleError,
-		payload.ActiveTasks, payload.UptimeSeconds, payload.CurrentTask)
+	//
+	// monthly_spend: updated when the agent reports a positive value (cumulative
+	// USD cents for the current month). Zero means "no update" — never write
+	// zero to avoid accidentally clearing a previously-reported spend value.
+	var err error
+	if payload.MonthlySpend > 0 {
+		_, err = db.DB.ExecContext(ctx, `
+			UPDATE workspaces SET
+				last_heartbeat_at = now(),
+				last_error_rate   = $2,
+				last_sample_error = $3,
+				active_tasks      = $4,
+				uptime_seconds    = $5,
+				current_task      = $6,
+				monthly_spend     = $7,
+				updated_at        = now()
+			WHERE id = $1 AND status != 'removed'
+		`, payload.WorkspaceID, payload.ErrorRate, payload.SampleError,
+			payload.ActiveTasks, payload.UptimeSeconds, payload.CurrentTask,
+			payload.MonthlySpend)
+	} else {
+		_, err = db.DB.ExecContext(ctx, `
+			UPDATE workspaces SET
+				last_heartbeat_at = now(),
+				last_error_rate   = $2,
+				last_sample_error = $3,
+				active_tasks      = $4,
+				uptime_seconds    = $5,
+				current_task      = $6,
+				updated_at        = now()
+			WHERE id = $1 AND status != 'removed'
+		`, payload.WorkspaceID, payload.ErrorRate, payload.SampleError,
+			payload.ActiveTasks, payload.UptimeSeconds, payload.CurrentTask)
+	}
 	if err != nil {
 		log.Printf("Heartbeat update error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update"})

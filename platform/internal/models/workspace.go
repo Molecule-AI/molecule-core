@@ -44,6 +44,11 @@ type HeartbeatPayload struct {
 	ActiveTasks   int     `json:"active_tasks"`
 	UptimeSeconds int     `json:"uptime_seconds"`
 	CurrentTask   string  `json:"current_task"`
+	// MonthlySpend is the agent's self-reported accumulated LLM API spend for
+	// the current month, in USD cents. Zero means "no update" — the platform
+	// only writes to monthly_spend when this field is > 0. Agents should
+	// report their cumulative spend each heartbeat (not the delta).
+	MonthlySpend int64 `json:"monthly_spend"`
 }
 
 type UpdateCardPayload struct {
@@ -63,6 +68,9 @@ type CreateWorkspacePayload struct {
 	WorkspaceDir    string  `json:"workspace_dir"`    // host path to mount as /workspace (empty = isolated volume)
 	WorkspaceAccess string  `json:"workspace_access"` // "none" (default), "read_only", or "read_write" — see #65
 	ParentID        *string `json:"parent_id"`
+	// BudgetLimit is the optional monthly spend ceiling in USD cents.
+	// NULL (omitted) means no limit. budget_limit=500 means $5.00/month.
+	BudgetLimit *int64 `json:"budget_limit"`
 	// Secrets is an optional map of key→plaintext-value pairs to persist as
 	// workspace secrets at creation time.  Stored encrypted (same path as
 	// POST /workspaces/:id/secrets).  Nil/empty map is a no-op.
