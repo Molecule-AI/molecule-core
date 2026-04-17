@@ -2888,9 +2888,11 @@ langgraph/crewai adapters.
 
 **Terminology collisions:** "agents" (identical), "tools" (identical), "CodeAgent" ≈ our workspace-template code execution runner.
 
-**Signals to react to:** smolagents reaches 30k★ (on current trajectory: ~4–6 weeks from 2026-04-17) → re-evaluate `molecule-ai-workspace-template-smolagents` (GH #792 closed: WATCH). Hugging Face officially designates smolagents as the default/recommended agent runtime for HF Spaces or their platform → elevate to ADOPT immediately. A2A shim is already confirmed feasible at ~120–160 LOC (below 200 LOC threshold; `fastapi-agents` SmolagentsAgent adapter validates the integration pattern). Docker-in-Docker gotcha: use `executor_type="local"` (AST-sandboxed) or `executor_type="e2b"` inside our workspace containers — DinD requires `--privileged`.
+**Signals to react to:** Monitor HF Hub publish progress (template in active development). If SmolAgents ships native A2A → shim becomes zero-LOC, elevate template priority. If HuggingFace officially designates smolagents as the default agent runtime for HF Spaces → distribution advantage increases, fast-track release. Docker-in-Docker gotcha: default must be `executor_type="local"` (AST-sandboxed); `DockerExecutor` requires `--privileged` and must never be the default.
 
-**Last reviewed:** 2026-04-17 · **Stars / activity:** 26,500★, Python, Apache-2.0, active Hugging Face development. **Verdict: WATCH** (2/3 criteria pass — shim LOC ✅, no lock-in ✅, stars ❌). GH #792 closed.
+**Threshold override note:** BUILD authorized at 26,688★ (below 30k criterion). Rationale: HuggingFace corporate backing, zero-cost `Tool.from_langchain` integration path (~145 LOC A2A shim — `fastapi-agents` SmolagentsAgent validates pattern), and ~60-day trajectory to 30k. Waiting risked a community fork defining the integration pattern before us.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 26,688★, Python, Apache-2.0, active Hugging Face development. **Verdict: BUILD** (threshold override — GH #792 closed, Dev Lead issue filed). Template: `molecule-ai-workspace-template-smolagents`, ~4 engineer-days, security review required.
 
 ---
 
