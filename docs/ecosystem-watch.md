@@ -85,6 +85,20 @@ snapshots:
       and sandbox memory directly competing with our workspace lifecycle model.
     source_url: https://github.com/openai/openai-agents-python/releases
 
+  - name: OpenAI Codex Agent
+    slug: openai-codex-agent
+    date: "2026-04-17"
+    version: "2026-04-17-launch"
+    stars: "N/A"
+    threat_level: high
+    notable_changes: >
+      Relaunched Apr 17 2026 as a full autonomous agent product (HN #2, 769 pts):
+      parallel subagent orchestration, cross-session project memory, autonomous
+      self-wake scheduling, macOS computer control, inline image generation —
+      distinct threat surface from openai-agents-sdk; directly overlaps our
+      workspace lifecycle, agent_memories, and workspace_schedules.
+    source_url: https://openai.com/index/codex-for-almost-everything/
+
   - name: CrewAI
     slug: crewai
     date: "2026-04-17"
@@ -251,6 +265,20 @@ snapshots:
       + MCP support; runtime candidate for our workspace adapter — elevated to
       MEDIUM because it forms a full agent stack with Google ADK + adk-web.
     source_url: https://github.com/google-gemini/gemini-cli/releases
+
+  - name: Qwen3.6-35B-A3B
+    slug: qwen3-6-agentic
+    date: "2026-04-17"
+    version: "3.6-35B-A3B"
+    stars: "N/A"
+    threat_level: medium
+    notable_changes: >
+      Launched Apr 17 2026 (HN #1, 984 pts): open-weight MoE model (35B total,
+      3B active/token) purpose-built for agentic coding loops; frictionless
+      self-hosted adoption commoditizes the model layer for multi-agent stacks;
+      erodes API-cost moat for cloud-dependent competitors; watch VoltAgent +
+      Paperclip BYO-model builds for first-mover Qwen3.6 integration.
+    source_url: https://qwen.ai/blog?id=qwen3.6-35b-a3b
 
   # ── LOW THREAT ─────────────────────────────────────────────────────────────────────
   # Tools, infra layers, single-agent tools, or products we use — not substitutes.
@@ -597,6 +625,22 @@ snapshots:
       Escalate to MEDIUM if Agents SDK integrates all four primitives into
       one-click multi-agent deployment.
     source_url: https://blog.cloudflare.com/ai-platform/
+
+  - name: EvoMap Evolver
+    slug: evomap-evolver
+    date: "2026-04-17"
+    version: "v1.67.1"
+    stars: "3.3k"
+    threat_level: low
+    notable_changes: >
+      v1.67.1 (Apr 17 2026, +812 stars today); GEP-powered A2A-native agent
+      self-evolution engine (JavaScript/GPL-3.0); worker nodes advertise
+      capability domains on A2A Hub, heartbeat every 6 min, compatible with
+      our A2A protocol; SKILL.md + networked Skill Store natively align with
+      agentskills.io; immutable EvolutionEvent JSONL is the closest open-source
+      audit ledger reference for governance canvas (#582). Integration
+      opportunity — not a direct competitor.
+    source_url: https://github.com/EvoMap/evolver/releases
 ```
 
 ---
@@ -2427,3 +2471,61 @@ langgraph/crewai adapters.
 **Signals to react to:** If Cloudflare Agents SDK integrates all four primitives (Workers AI + Durable Objects + Artifacts + AI Search) into a one-click multi-agent deployment → escalate to MEDIUM; would offer a competing managed workspace alternative at Cloudflare global scale. Watch for per-agent billing or workspace lifecycle management announcements.
 
 **Last reviewed:** 2026-04-17 (Agents Week 2026, HN 248pts) · **Stars / activity:** infrastructure service, no public GitHub repo
+
+---
+
+### OpenAI Codex Agent — `openai.com/codex-for-almost-everything`
+
+**Pitch:** "Codex is an autonomous AI agent — runs parallel subagents, remembers your projects across sessions, controls your desktop, and schedules its own follow-up tasks."
+
+**Shape:** Proprietary OpenAI product (not open-source), rolling out to ChatGPT desktop users April 17 2026. macOS computer control at launch, Windows forthcoming. Part of ChatGPT subscription. **Distinct from `openai-agents-sdk`** (developer API) — this is the consumer/prosumer agent product.
+
+**Overlap with us:** The three core features directly mirror Molecule AI: (1) parallel subagent orchestration for write/debug/test ≈ our multi-workspace org hierarchy; (2) cross-session project memory ≈ `agent_memories`; (3) autonomous self-wake scheduling ≈ `workspace_schedules`. Computer use overlaps with our browser-automation plugin.
+
+**Differentiation:** No org canvas, no multi-tenant governance, no Docker isolation, no custom runtime (OpenAI-only), no A2A, no plugin registry. Single-user prosumer — not an enterprise platform. Our moat: org hierarchy, governance canvas (#582), runtime flexibility, self-hosted deployment.
+
+**Worth borrowing:** Scheduling UX framing — "schedule a follow-up task" is cleaner than raw cron config. Consider exposing `workspace_schedules` as "follow-up tasks" in the Canvas Config tab.
+
+**Terminology collisions:** "Projects" = their cross-session persistence unit; we call these "workspaces". "Subagents" = parallel execution units; we call these worker workspaces.
+
+**Signals to react to:** If subagent API opens to third-party orchestrators → Molecule AI could orchestrate Codex as a specialist worker. If computer control expands to web + Windows → revisit threat level.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** N/A (proprietary) — HN 769 pts / 387 comments at launch
+
+---
+
+### Qwen3.6-35B-A3B — `qwen.ai/blog`
+
+**Pitch:** "35B MoE model, 3B active parameters per token — agentic coding power, now open to all."
+
+**Shape:** Open-weight model from Alibaba/Qwen, immediately downloadable. 35B total / 3B active per token via mixture-of-experts routing. Purpose-built for agentic coding loops: tight feedback cycles, low latency, low cost per token. Not an orchestration framework — a model that competitors can wire into their own stacks.
+
+**Overlap with us:** Indirect. Commoditizes the LLM layer for self-hosted orchestrators. Any competitor (VoltAgent, Paperclip, LangGraph self-hosted) can now offer near-zero API cost for coding agents using Qwen3.6. Erodes the cost argument for cloud-API-locked platforms more than it threatens us (we're already model-agnostic).
+
+**Differentiation:** Our `runtime:` field is already model-agnostic. Qwen3.6 doesn't threaten our orchestration layer; it pressures cloud-model-dependent competitors. Our cost position is neutral to positive.
+
+**Worth borrowing:** Add `qwen3.6-35b-a3b` as a documented supported model in workspace config docs before competitors do. Cost-sensitive enterprise buyers wanting self-hosted inference are our conversion path.
+
+**Terminology collisions:** "Agentic coding" = their framing for autonomous dev-loop use; our framing is "coding workspace."
+
+**Signals to react to:** If top-tier SWE-bench/Aider benchmark confirms → document as supported model immediately. If VoltAgent or Paperclip ship native Qwen3.6 integration → publish ours first or same day.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** HN #1 story (984 pts / 430 comments); open weights on qwen.ai
+
+---
+
+### EvoMap Evolver — `EvoMap/evolver`
+
+**Pitch:** "A GEP-powered self-evolution engine for AI agents — turns ad hoc prompt tweaks into auditable, reusable evolution assets with A2A-compatible distributed worker nodes."
+
+**Shape:** JavaScript (Node.js), GPL-3.0, ~3.3k ⭐, v1.67.1 April 17 2026. Not a general-purpose orchestrator. Deterministic, log-driven prompt-evolution engine: scans `memory/` for error signals → selects Genes/Capsules from local asset library → emits a structured GEP directive → records an immutable `EvolutionEvent` JSONL entry. Three run modes: standalone, `--review` (HITL gate), `--loop` (daemon). Connects to EvoMap Hub via `A2A_HUB_URL` + `A2A_NODE_ID` for distributed worker networks with capability-domain task routing and Evolution Circles (collaborative agent groups with shared context).
+
+**Overlap with us:** (1) A2A worker pool explicitly uses `A2A_HUB_URL`/`A2A_NODE_ID` — EvoMap nodes can be wired as a specialist `repair`/`harden` role inside a Molecule AI org hierarchy today. (2) Networked Skill Store ships `SKILL.md` natively compatible with agentskills.io. (3) Immutable `EvolutionEvent` JSONL (18 fields: identifiers + execution context + data + HMAC integrity) is the closest open-source implementation of the audit ledger needed by our governance canvas (#582).
+
+**Differentiation:** No visual canvas, no Docker isolation, no org hierarchy, no scheduling, no multi-runtime. Specialist tool, not a competing platform. GPL-3.0 copyleft: direct code embedding requires legal review; design inspiration is unrestricted.
+
+**Worth borrowing:** `EvolutionEvent` 18-field JSONL schema as reference for `molecule-audit-ledger` (see also EDDI audit ledger research). `--review` HITL gate pattern for surfacing agent self-edits to the governance canvas approvals UI.
+
+**Signals to react to:** EvoMap Hub paid-tier adoption → agentskills.io competitive signal. Docker container isolation added → escalate to MEDIUM.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 3,327 ⭐, +812 today, v1.67.1, 351 forks
