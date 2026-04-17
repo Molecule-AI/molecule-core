@@ -410,6 +410,7 @@ function MemoryEntryRow({
   onCancelEdit,
   onDelete,
 }: MemoryEntryRowProps) {
+  const bodyId = `memory-body-${entry.key.replace(/\s+/g, "-")}`;
   return (
     <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/50 overflow-hidden">
       {/* Header row — click to expand/collapse */}
@@ -417,6 +418,7 @@ function MemoryEntryRow({
         className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-zinc-800/30 transition-colors"
         onClick={onToggle}
         aria-expanded={isExpanded}
+        aria-controls={bodyId}
       >
         <span className="text-[10px] font-mono text-blue-400 truncate flex-1 min-w-0">
           {entry.key}
@@ -444,7 +446,12 @@ function MemoryEntryRow({
 
       {/* Expanded body */}
       {isExpanded && (
-        <div className="border-t border-zinc-800/50 px-3 pb-3 pt-2 space-y-2">
+        <div
+          id={bodyId}
+          role="region"
+          aria-label={`Details for ${entry.key}`}
+          className="border-t border-zinc-800/50 px-3 pb-3 pt-2 space-y-2"
+        >
           {entry.expires_at && (
             <p className="text-[9px] text-zinc-500">
               Expires: {new Date(entry.expires_at).toLocaleString()}
