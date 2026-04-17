@@ -70,7 +70,7 @@ function makeNodeData(overrides: Partial<WorkspaceNodeData> = {}): WorkspaceNode
     needsRestart: false,
     budgetLimit: null,
     ...overrides,
-  };
+  } as WorkspaceNodeData;
 }
 
 const parentNodeData = makeNodeData({ name: "Parent WS", parentId: null });
@@ -122,7 +122,7 @@ function renderParentNode() {
     <WorkspaceNode
       id={PARENT_ID}
       data={parentNodeData}
-      // NodeProps required but unused in our mock env
+      // NodeProps — all required fields included; React Flow internals unused in mock env
       type="workspaceNode"
       selected={false}
       isConnectable={true}
@@ -130,6 +130,9 @@ function renderParentNode() {
       positionAbsoluteX={0}
       positionAbsoluteY={0}
       dragging={false}
+      draggable={false}
+      selectable={false}
+      deletable={false}
     />
   );
 }
