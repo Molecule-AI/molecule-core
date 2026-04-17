@@ -120,14 +120,36 @@ export function OnboardingWizard() {
   const currentStepIdx = STEPS.findIndex((s) => s.id === step);
   const currentStep = STEPS[currentStepIdx];
 
+  // Screen-reader labels for each step (announced on step transitions)
+  const stepLabels: Record<string, string> = {
+    welcome: "Onboarding step 1 of 4: Welcome",
+    "api-key": "Onboarding step 2 of 4: Configure your workspace",
+    "send-message": "Onboarding step 3 of 4: Send your first message",
+    done: "Onboarding complete",
+  };
+
   return (
-    <div className="fixed bottom-20 left-4 z-50 w-80 rounded-2xl border border-zinc-700/60 bg-zinc-900/95 backdrop-blur-xl shadow-2xl shadow-black/40 overflow-hidden">
+    <div
+      role="complementary"
+      aria-label="Onboarding guide"
+      className="fixed bottom-20 left-4 z-50 w-80 rounded-2xl border border-zinc-700/60 bg-zinc-900/95 backdrop-blur-xl shadow-2xl shadow-black/40 overflow-hidden"
+    >
       {/* Progress bar */}
       <div className="h-1 bg-zinc-800">
         <div
           className="h-full bg-gradient-to-r from-blue-500 to-sky-400 transition-all duration-500"
           style={{ width: `${((currentStepIdx + 1) / STEPS.length) * 100}%` }}
         />
+      </div>
+
+      {/* Polite live region — announces step transitions to screen readers */}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {stepLabels[step] ?? currentStep.title}
       </div>
 
       <div className="p-4">
