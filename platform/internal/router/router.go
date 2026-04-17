@@ -444,6 +444,12 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	r.POST("/channels/discover", middleware.AdminAuth(db.DB), chh.Discover)
 	r.POST("/webhooks/:type", chh.Webhook)
 
+	// Audit — EU AI Act Annex III compliance endpoint (#594).
+	// Returns append-only HMAC-chained agent event log with optional inline
+	// chain verification when AUDIT_LEDGER_SALT is configured.
+	audh := handlers.NewAuditHandler()
+	wsAuth.GET("/audit", audh.Query)
+
 	// SSE — AG-UI compatible event stream per workspace (#590).
 	// WorkspaceAuth middleware (on wsAuth) binds the bearer token to :id.
 	sseh := handlers.NewSSEHandler(broadcaster)
