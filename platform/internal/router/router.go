@@ -408,6 +408,11 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	r.POST("/channels/discover", middleware.AdminAuth(db.DB), chh.Discover)
 	r.POST("/webhooks/:type", chh.Webhook)
 
+	// SSE — AG-UI compatible event stream per workspace (#590).
+	// WorkspaceAuth middleware (on wsAuth) binds the bearer token to :id.
+	sseh := handlers.NewSSEHandler(broadcaster)
+	wsAuth.GET("/events/stream", sseh.StreamEvents)
+
 	// WebSocket
 	sh := handlers.NewSocketHandler(hub)
 	r.GET("/ws", sh.HandleConnect)

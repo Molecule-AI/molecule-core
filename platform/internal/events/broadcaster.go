@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
@@ -14,8 +15,17 @@ import (
 
 const broadcastChannel = "events:broadcast"
 
+// sseSubscription is a single in-process SSE subscriber.
+// deliverToSSE writes to ch; StreamEvents reads from it.
+type sseSubscription struct {
+	workspaceID string
+	ch          chan models.WSMessage
+}
+
 type Broadcaster struct {
-	hub *ws.Hub
+	hub    *ws.Hub
+	ssesMu sync.RWMutex
+	sses   []*sseSubscription
 }
 
 func NewBroadcaster(hub *ws.Hub) *Broadcaster {
@@ -59,6 +69,9 @@ func (b *Broadcaster) RecordAndBroadcast(ctx context.Context, eventType string, 
 	// Broadcast to local WebSocket clients
 	b.hub.Broadcast(msg)
 
+	// Fan out to in-process SSE subscribers (e.g. GET /events/stream).
+	b.deliverToSSE(msg)
+
 	return nil
 }
 
@@ -79,6 +92,52 @@ func (b *Broadcaster) BroadcastOnly(workspaceID string, eventType string, payloa
 	}
 
 	b.hub.Broadcast(msg)
+
+	// Fan out to in-process SSE subscribers.
+	b.deliverToSSE(msg)
+}
+
+// SubscribeSSE registers a per-workspace in-process channel for SSE streaming.
+// The caller MUST invoke the returned cancel func when it disconnects so the
+// subscription is removed and the channel is not leaked.
+func (b *Broadcaster) SubscribeSSE(workspaceID string) (<-chan models.WSMessage, func()) {
+	sub := &sseSubscription{
+		workspaceID: workspaceID,
+		ch:          make(chan models.WSMessage, 64),
+	}
+	b.ssesMu.Lock()
+	b.sses = append(b.sses, sub)
+	b.ssesMu.Unlock()
+
+	cancel := func() {
+		b.ssesMu.Lock()
+		defer b.ssesMu.Unlock()
+		for i, s := range b.sses {
+			if s == sub {
+				b.sses = append(b.sses[:i], b.sses[i+1:]...)
+				break
+			}
+		}
+	}
+	return sub.ch, cancel
+}
+
+// deliverToSSE fans msg out to every in-process SSE subscriber watching the
+// same workspace. Non-blocking: if a subscriber's buffer is full the event is
+// dropped with a log line (the WebSocket path still delivers it).
+func (b *Broadcaster) deliverToSSE(msg models.WSMessage) {
+	b.ssesMu.RLock()
+	defer b.ssesMu.RUnlock()
+	for _, s := range b.sses {
+		if s.workspaceID != msg.WorkspaceID {
+			continue
+		}
+		select {
+		case s.ch <- msg:
+		default:
+			log.Printf("SSE: subscriber buffer full for workspace %s, dropping event %s", msg.WorkspaceID, msg.Event)
+		}
+	}
 }
 
 // Subscribe listens to Redis pub/sub and relays events to the WebSocket hub.
