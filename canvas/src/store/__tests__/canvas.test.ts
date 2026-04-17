@@ -27,6 +27,7 @@ function makeWS(overrides: Partial<WorkspaceData> & { id: string }): WorkspaceDa
     y: 0,
     collapsed: false,
     runtime: "",
+    budget_limit: null,
     ...overrides,
   };
 }
@@ -172,6 +173,7 @@ describe("summarizeWorkspaceCapabilities", () => {
       currentTask: "Reviewing docs",
       needsRestart: false,
       runtime: "claude-code",
+      budgetLimit: null,
     });
 
     expect(summary.runtime).toBe("claude-code");
@@ -197,6 +199,7 @@ describe("summarizeWorkspaceCapabilities", () => {
       currentTask: "   ",
       needsRestart: false,
       runtime: "",
+      budgetLimit: null,
     });
 
     expect(summary.runtime).toBeNull();
@@ -554,6 +557,7 @@ describe("context menu", () => {
       currentTask: "",
       needsRestart: false,
       runtime: "",
+      budgetLimit: null,
     },
   };
 
