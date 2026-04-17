@@ -38,21 +38,6 @@ const tokenPrefixLen = 8
 // was known.
 var ErrInvalidToken = errors.New("invalid or revoked workspace token")
 
-// Token type constants — recorded in the token_type column (migration 029).
-//
-//   TokenTypeWorkspace — issued to workspace agents via IssueToken. Scoped to
-//     a single workspace. Accepted by WorkspaceAuth and the A2A layer, but
-//     rejected by AdminAuth (ValidateAnyToken). This is the safe default.
-//
-//   TokenTypeAdmin — issued for platform-wide operations via IssueAdminToken.
-//     Not scoped to any specific workspace. The ONLY type that satisfies
-//     AdminAuth. Should be issued to operators, CI pipelines, and the E2E
-//     test-token endpoint — never to workspace agents at runtime.
-const (
-	TokenTypeWorkspace = "workspace"
-	TokenTypeAdmin     = "admin"
-)
-
 // IssueToken mints a fresh token, stores its hash + prefix against the
 // given workspace, and returns the plaintext to show the caller exactly
 // once. The plaintext is never recoverable from the database afterwards.
@@ -71,39 +56,11 @@ func IssueToken(ctx context.Context, db *sql.DB, workspaceID string) (string, er
 	prefix := plaintext[:tokenPrefixLen]
 
 	_, err := db.ExecContext(ctx, `
-		INSERT INTO workspace_auth_tokens (workspace_id, token_hash, prefix, token_type)
-		VALUES ($1, $2, $3, 'workspace')
+		INSERT INTO workspace_auth_tokens (workspace_id, token_hash, prefix)
+		VALUES ($1, $2, $3)
 	`, workspaceID, hash[:], prefix)
 	if err != nil {
 		return "", fmt.Errorf("wsauth: persist token: %w", err)
-	}
-	return plaintext, nil
-}
-
-// IssueAdminToken mints a platform-wide admin token that is NOT scoped to any
-// specific workspace. Only admin tokens satisfy AdminAuth — regular workspace
-// tokens are rejected by ValidateAnyToken (#684).
-//
-// Use this for: E2E test-token endpoint (dev/CI), molecule-controlplane
-// provisioner, operator tooling. Never issue admin tokens to workspace agents
-// at runtime.
-func IssueAdminToken(ctx context.Context, db *sql.DB) (string, error) {
-	buf := make([]byte, tokenPayloadBytes)
-	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("wsauth: generate admin token: %w", err)
-	}
-	plaintext := base64.RawURLEncoding.EncodeToString(buf)
-
-	hash := sha256.Sum256([]byte(plaintext))
-	prefix := plaintext[:tokenPrefixLen]
-
-	// workspace_id is NULL for admin tokens — they are platform-wide.
-	_, err := db.ExecContext(ctx, `
-		INSERT INTO workspace_auth_tokens (workspace_id, token_hash, prefix, token_type)
-		VALUES (NULL, $1, $2, 'admin')
-	`, hash[:], prefix)
-	if err != nil {
-		return "", fmt.Errorf("wsauth: persist admin token: %w", err)
 	}
 	return plaintext, nil
 }
@@ -209,19 +166,13 @@ func BearerTokenFromHeader(h string) string {
 	return strings.TrimSpace(h[len(prefix):])
 }
 
-// HasAnyLiveTokenGlobal reports whether ANY admin token (token_type='admin')
-// exists and is live (non-revoked). Used by AdminAuth for the lazy-bootstrap
-// decision: fresh installs with no admin tokens fail open so operators can
-// reach admin routes to issue the first token. Once an admin token exists the
-// gate is permanently enforced — workspace tokens can never satisfy AdminAuth.
-//
-// #684: counts only admin tokens (not workspace tokens). Workspace tokens
-// existing on the platform do NOT trigger enforcement — only admin tokens do.
+// HasAnyLiveTokenGlobal reports whether ANY workspace has at least one live
+// (non-revoked) token on file. Used by AdminAuth to decide whether to enforce
+// auth on global/admin routes — fresh installs with no tokens fail open.
 func HasAnyLiveTokenGlobal(ctx context.Context, db *sql.DB) (bool, error) {
 	var n int
 	err := db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM workspace_auth_tokens
-		WHERE token_type = 'admin' AND revoked_at IS NULL
+		SELECT COUNT(*) FROM workspace_auth_tokens WHERE revoked_at IS NULL
 	`).Scan(&n)
 	if err != nil {
 		return false, err
@@ -229,12 +180,10 @@ func HasAnyLiveTokenGlobal(ctx context.Context, db *sql.DB) (bool, error) {
 	return n > 0, nil
 }
 
-// ValidateAnyToken confirms the presented plaintext matches a live admin token
-// (token_type='admin'). Used exclusively by AdminAuth — workspace bearer
-// tokens are unconditionally rejected here (#684).
-//
-// Admin tokens are not scoped to a workspace (workspace_id IS NULL), so no
-// workspace JOIN is needed. The type filter is the sole privilege boundary.
+// ValidateAnyToken confirms the presented plaintext matches any live workspace
+// token (not scoped to a specific workspace). Used for admin/global routes
+// where workspace-scoped auth is not applicable — any authenticated agent may
+// access platform-wide settings.
 func ValidateAnyToken(ctx context.Context, db *sql.DB, plaintext string) error {
 	if plaintext == "" {
 		return ErrInvalidToken
@@ -243,11 +192,8 @@ func ValidateAnyToken(ctx context.Context, db *sql.DB, plaintext string) error {
 
 	var tokenID string
 	err := db.QueryRowContext(ctx, `
-		SELECT id
-		FROM workspace_auth_tokens
-		WHERE token_hash = $1
-		  AND token_type = 'admin'
-		  AND revoked_at IS NULL
+		SELECT id FROM workspace_auth_tokens
+		WHERE token_hash = $1 AND revoked_at IS NULL
 	`, hash[:]).Scan(&tokenID)
 	if err != nil {
 		return ErrInvalidToken
