@@ -16,6 +16,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
+import { A2ATopologyOverlay } from "./A2ATopologyOverlay";
 import { WorkspaceNode } from "./WorkspaceNode";
 import { SidePanel } from "./SidePanel";
 import { CreateWorkspaceButton } from "./CreateWorkspaceDialog";
@@ -56,6 +57,13 @@ export function Canvas() {
 function CanvasInner() {
   const nodes = useCanvasStore((s) => s.nodes);
   const edges = useCanvasStore((s) => s.edges);
+  const a2aEdges = useCanvasStore((s) => s.a2aEdges);
+  const showA2AEdges = useCanvasStore((s) => s.showA2AEdges);
+  // Merge topology edges with A2A overlay edges via useMemo (no new object in selector)
+  const allEdges = useMemo(
+    () => (showA2AEdges ? [...edges, ...a2aEdges] : edges),
+    [edges, a2aEdges, showA2AEdges]
+  );
   const onNodesChange = useCanvasStore((s) => s.onNodesChange);
   const savePosition = useCanvasStore((s) => s.savePosition);
   const selectNode = useCanvasStore((s) => s.selectNode);
@@ -257,7 +265,7 @@ function CanvasInner() {
       <ReactFlow
         colorMode="dark"
         nodes={nodes}
-        edges={edges}
+        edges={allEdges}
         onNodesChange={onNodesChange}
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
@@ -316,6 +324,7 @@ function CanvasInner() {
       </div>
 
       {nodes.length === 0 && <EmptyState />}
+      <A2ATopologyOverlay />
       <OnboardingWizard />
       <Toolbar />
       <ApprovalBanner />
