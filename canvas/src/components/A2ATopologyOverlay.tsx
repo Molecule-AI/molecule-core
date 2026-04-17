@@ -1,0 +1,188 @@
+'use client';
+
+import { useEffect, useMemo, useCallback } from "react";
+import { type Edge, MarkerType } from "@xyflow/react";
+import { api } from "@/lib/api";
+import { useCanvasStore } from "@/store/canvas";
+import type { ActivityEntry } from "@/types/activity";
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+/** 60-minute look-back window for delegation activity */
+export const A2A_WINDOW_MS = 60 * 60 * 1000;
+
+/** Polling interval — refresh edges every 60 seconds */
+export const A2A_POLL_MS = 60 * 1_000;
+
+/** Threshold for "hot" edges: < 5 minutes → animated + violet stroke */
+export const A2A_HOT_MS = 5 * 60 * 1_000;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Format millisecond timestamp as human-readable relative time ("2m ago"). */
+export function formatA2ARelativeTime(ts: number, now = Date.now()): string {
+  const diff = now - ts;
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  return `${Math.floor(diff / 3_600_000)}h ago`;
+}
+
+// ── Pure aggregation function (exported for unit tests) ───────────────────────
+
+/**
+ * Converts raw delegation activity rows into React Flow overlay edges.
+ *
+ * Rules applied:
+ * - Only `method === "delegate"` rows (initiation, not result) to avoid double-counting.
+ * - Rows older than A2A_WINDOW_MS are discarded.
+ * - Rows with null source_id or target_id are skipped.
+ * - Multiple rows on the same source→target pair are aggregated (count + latest timestamp).
+ * - Edge is animated + violet-500 when lastAt < A2A_HOT_MS ago; otherwise blue-500.
+ * - All styles have `pointerEvents: "none"` so canvas nodes remain draggable.
+ */
+export function buildA2AEdges(
+  rows: ActivityEntry[],
+  now = Date.now()
+): Edge[] {
+  const cutoff = now - A2A_WINDOW_MS;
+
+  // 1. Filter: only delegate initiations within the window with valid endpoints
+  const initiations = rows.filter(
+    (r) =>
+      r.method === "delegate" &&
+      r.source_id != null &&
+      r.target_id != null &&
+      new Date(r.created_at).getTime() > cutoff
+  );
+
+  if (initiations.length === 0) return [];
+
+  // 2. Aggregate by "source→target" pair
+  type Agg = { source: string; target: string; count: number; lastAt: number };
+  const map = new Map<string, Agg>();
+
+  for (const row of initiations) {
+    const source = row.source_id as string;
+    const target = row.target_id as string;
+    const key = `${source}→${target}`;
+    const ts = new Date(row.created_at).getTime();
+    const prev = map.get(key) ?? { source, target, count: 0, lastAt: 0 };
+    map.set(key, {
+      ...prev,
+      count: prev.count + 1,
+      lastAt: Math.max(prev.lastAt, ts),
+    });
+  }
+
+  // 3. Build React Flow Edge objects
+  return Array.from(map.values()).map(({ source, target, count, lastAt }) => {
+    const isHot = now - lastAt < A2A_HOT_MS;
+    const stroke = isHot ? "#8b5cf6" : "#3b82f6"; // violet-500 : blue-500
+
+    const callWord = count === 1 ? "call" : "calls";
+    const label = `${count} ${callWord} · ${formatA2ARelativeTime(lastAt, now)}`;
+
+    return {
+      id: `a2a-${source}-${target}`,
+      source,
+      target,
+      animated: isHot,
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: stroke,
+        width: 12,
+        height: 12,
+      },
+      style: {
+        stroke,
+        strokeWidth: 2,
+        // Non-blocking: label overlay never intercepts pointer events
+        pointerEvents: "none" as React.CSSProperties["pointerEvents"],
+      },
+      label,
+      labelStyle: {
+        fill: "#a1a1aa",   // zinc-400
+        fontSize: 10,
+        pointerEvents: "none" as React.CSSProperties["pointerEvents"],
+      },
+      labelBgStyle: {
+        fill: "#18181b",   // zinc-900
+        fillOpacity: 0.9,
+        pointerEvents: "none" as React.CSSProperties["pointerEvents"],
+      },
+      labelBgPadding: [4, 6] as [number, number],
+      labelBgBorderRadius: 4,
+    };
+  });
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+/**
+ * A2ATopologyOverlay — null-rendering side-effect component.
+ *
+ * Fetches delegation activity from all visible workspace nodes (fan-out),
+ * aggregates into directed edges, and writes them to the canvas store as
+ * `a2aEdges`. Canvas.tsx merges these with topology edges and passes the
+ * combined list to ReactFlow.
+ *
+ * Mount this inside CanvasInner (no ReactFlow hook dependency).
+ */
+export function A2ATopologyOverlay() {
+  const showA2AEdges = useCanvasStore((s) => s.showA2AEdges);
+  // Stable Zustand action reference — safe to call inside effects
+  const setA2AEdges = useCanvasStore((s) => s.setA2AEdges);
+
+  // Read the nodes array as a primitive ref; derive visible IDs outside the selector
+  const nodes = useCanvasStore((s) => s.nodes);
+
+  // IDs of visible (non-nested, non-hidden) workspace nodes.
+  // Recomputed only when the nodes array reference changes.
+  const visibleIds = useMemo(
+    () => nodes.filter((n) => !n.hidden).map((n) => n.id),
+    [nodes]
+  );
+
+  // Fetch delegation activity for all visible workspaces and rebuild overlay edges.
+  const fetchAndUpdate = useCallback(async () => {
+    if (visibleIds.length === 0) {
+      setA2AEdges([]);
+      return;
+    }
+    try {
+      // Fan-out — one request per visible workspace.
+      // Per-request failures are swallowed so one broken workspace doesn't blank the overlay.
+      const allRows = (
+        await Promise.all(
+          visibleIds.map((id) =>
+            api
+              .get<ActivityEntry[]>(
+                `/workspaces/${id}/activity?type=delegation&limit=500&source=agent`
+              )
+              .catch(() => [] as ActivityEntry[])
+          )
+        )
+      ).flat();
+
+      setA2AEdges(buildA2AEdges(allRows));
+    } catch {
+      // Overlay failure is non-critical — canvas remains functional
+    }
+  }, [visibleIds, setA2AEdges]);
+
+  useEffect(() => {
+    if (!showA2AEdges) {
+      // Clear edges immediately when toggled off
+      setA2AEdges([]);
+      return;
+    }
+
+    // Initial fetch, then poll every 60 s
+    void fetchAndUpdate();
+    const timer = setInterval(() => void fetchAndUpdate(), A2A_POLL_MS);
+    return () => clearInterval(timer);
+  }, [showA2AEdges, fetchAndUpdate, setA2AEdges]);
+
+  // Pure side-effect — renders nothing
+  return null;
+}
