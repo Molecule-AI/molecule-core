@@ -60,6 +60,10 @@ func TestMemoriesCommit_Global_AsRoot(t *testing.T) {
 		WithArgs("root-ws", "global fact", "GLOBAL", "general").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("mem-global"))
 
+	// #767: GLOBAL writes always produce an audit log entry.
+	mock.ExpectExec("INSERT INTO activity_logs").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "root-ws"}}
@@ -71,6 +75,9 @@ func TestMemoriesCommit_Global_AsRoot(t *testing.T) {
 
 	if w.Code != http.StatusCreated {
 		t.Errorf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
 }
 
@@ -603,5 +610,101 @@ func TestMemoriesSearch_LimitDefault_Is50(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("sqlmock expectations not met (default limit should be 50): %v", err)
+	}
+}
+
+// ---------- Issue #767: GLOBAL memory prompt injection safeguards ----------
+
+// TestRecallMemory_GlobalScope_HasDelimiter verifies that GLOBAL-scope
+// memories returned by Search are wrapped with the non-instructable
+// [MEMORY id=... scope=GLOBAL from=...]: prefix. This prevents stored
+// content from being interpreted as LLM instructions by MCP tool outputs.
+func TestRecallMemory_GlobalScope_HasDelimiter(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewMemoriesHandler()
+
+	// Parent lookup (needed by Search for access-control branching)
+	mock.ExpectQuery("SELECT parent_id FROM workspaces WHERE id").
+		WithArgs("ws-reader").
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(nil))
+
+	rows := sqlmock.NewRows([]string{"id", "workspace_id", "content", "scope", "namespace", "created_at"}).
+		AddRow("mem-g1", "root-ws", "global knowledge", "GLOBAL", "general", "2024-01-01T00:00:00Z")
+
+	mock.ExpectQuery("SELECT id, workspace_id, content, scope, namespace, created_at FROM agent_memories WHERE scope = 'GLOBAL'").
+		WillReturnRows(rows)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-reader"}}
+	c.Request = httptest.NewRequest("GET", "/memories?scope=GLOBAL", nil)
+	c.Request.URL.RawQuery = "scope=GLOBAL"
+
+	handler.Search(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result []map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatalf("body not valid JSON: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 memory in result, got %d", len(result))
+	}
+
+	content, _ := result[0]["content"].(string)
+	want := "[MEMORY id=mem-g1 scope=GLOBAL from=root-ws]: global knowledge"
+	if content != want {
+		t.Errorf("GLOBAL content delimiter missing or incorrect\ngot:  %q\nwant: %q", content, want)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestCommitMemory_GlobalScope_AuditLogEntry verifies that writing a
+// GLOBAL-scope memory always produces an activity_log entry with
+// event_type='memory_write_global'. The audit entry stores the SHA-256
+// content hash (never plaintext) for forensic replay.
+func TestCommitMemory_GlobalScope_AuditLogEntry(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewMemoriesHandler()
+
+	// Root workspace — allowed to write GLOBAL
+	mock.ExpectQuery("SELECT parent_id FROM workspaces WHERE id").
+		WithArgs("root-ws").
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(nil))
+
+	mock.ExpectQuery("INSERT INTO agent_memories").
+		WithArgs("root-ws", "sensitive global fact", "GLOBAL", "general").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("mem-audit"))
+
+	// KEY ASSERTION: GLOBAL write must produce an audit log entry.
+	// We match on the SQL prefix; the exact arguments (content hash, etc.)
+	// are validated by the implementation — here we verify the INSERT fires.
+	mock.ExpectExec("INSERT INTO activity_logs").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "root-ws"}}
+	body := `{"content":"sensitive global fact","scope":"GLOBAL"}`
+	c.Request = httptest.NewRequest("POST", "/", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Commit(c)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	// ExpectationsWereMet fails if the audit INSERT was not called —
+	// that's the primary assertion of this test.
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("GLOBAL memory write must produce audit log entry: %v", err)
 	}
 }
