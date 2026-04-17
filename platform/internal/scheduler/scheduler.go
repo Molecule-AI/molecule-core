@@ -43,12 +43,18 @@ type scheduleRow struct {
 	Prompt      string
 }
 
+// ChannelBroadcaster posts messages to a workspace's configured social channels.
+type ChannelBroadcaster interface {
+	BroadcastToWorkspaceChannels(ctx context.Context, workspaceID, text string)
+}
+
 // Scheduler polls the workspace_schedules table and fires A2A messages
 // when a schedule's next_run_at has passed. Follows the same goroutine
 // pattern as registry.StartHealthSweep.
 type Scheduler struct {
 	proxy       A2AProxy
 	broadcaster Broadcaster
+	channels    ChannelBroadcaster
 
 	// lastTickAt records the wall-clock time of the most recent tick
 	// (whether it fired schedules or not). Read by Healthy() and the
@@ -65,6 +71,12 @@ func New(proxy A2AProxy, broadcaster Broadcaster) *Scheduler {
 		broadcaster:  broadcaster,
 		tickInterval: pollInterval,
 	}
+}
+
+// SetChannels wires the channel manager for auto-posting cron output.
+// Called after both scheduler and channel manager are initialized.
+func (s *Scheduler) SetChannels(ch ChannelBroadcaster) {
+	s.channels = ch
 }
 
 // LastTickAt returns the wall-clock time of the most recently completed tick.
@@ -360,6 +372,16 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 			"status":        lastStatus,
 		})
 	}
+
+	// Level 1: auto-post cron output to workspace's Slack channels.
+	// Only post non-empty successful responses — errors and empties are
+	// noise that clutters the channel without adding value.
+	if s.channels != nil && lastStatus == "ok" && !isEmpty {
+		summary := s.extractResponseSummary(respBody)
+		if summary != "" {
+			go s.channels.BroadcastToWorkspaceChannels(ctx, sched.WorkspaceID, summary)
+		}
+	}
 }
 
 // recordSkipped advances next_run_at and logs a cron_run activity entry
@@ -475,6 +497,31 @@ func (s *Scheduler) repairNullNextRunAt(ctx context.Context) {
 // produced no meaningful output. Catches "(no response generated)" from
 // the workspace runtime + genuinely empty/null responses. Used by the
 // consecutive-empty tracker (#795) to detect phantom-producing crons.
+// extractResponseSummary pulls the agent's text from the A2A response body.
+// Returns empty string if parsing fails or the response has no text content.
+func (s *Scheduler) extractResponseSummary(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var resp map[string]interface{}
+	if json.Unmarshal(body, &resp) != nil {
+		return ""
+	}
+	// A2A response: result.parts[].text
+	if result, ok := resp["result"].(map[string]interface{}); ok {
+		if parts, ok := result["parts"].([]interface{}); ok {
+			for _, p := range parts {
+				if part, ok := p.(map[string]interface{}); ok {
+					if text, ok := part["text"].(string); ok && text != "" {
+						return text
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
 func isEmptyResponse(body []byte) bool {
 	if len(body) == 0 {
 		return true
