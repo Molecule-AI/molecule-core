@@ -603,6 +603,83 @@ func TestProxyA2AError_BusyShape(t *testing.T) {
 	}
 }
 
+// ==================== ProxyA2A — body-read failure (delivery_confirmed) #689 ====================
+//
+// When Do() succeeds (target sent 2xx headers — delivery confirmed) but reading
+// the response body fails (connection drop, mid-stream timeout), the proxy must:
+//   1. Return 502 (caller can't get the response content)
+//   2. Include "delivery_confirmed": true in the error body so callers can
+//      distinguish "not delivered" from "delivered, response body lost".
+
+func TestProxyA2A_BodyReadFailure_DeliveryConfirmed(t *testing.T) {
+	mock := setupTestDB(t)
+	mr := setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	// Agent server: sends 200 OK headers + partial body, then closes the
+	// connection abruptly to simulate a mid-stream read failure.
+	agentServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Flush 200 headers immediately so Do() returns (resp, nil).
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// Write partial JSON — just enough to prove the body was started,
+		// then hijack and close the connection so ReadAll fails.
+		if flusher, ok := w.(http.Flusher); ok {
+			io.WriteString(w, `{"result": "partial`) //nolint:errcheck
+			flusher.Flush()
+		}
+		// Hijack the underlying TCP connection and close it to simulate
+		// a mid-stream drop that causes io.ReadAll to return an error.
+		if hj, ok := w.(http.Hijacker); ok {
+			conn, _, _ := hj.Hijack()
+			if conn != nil {
+				conn.Close()
+			}
+		}
+	}))
+	defer agentServer.Close()
+
+	wsID := "ws-bodyreadfail"
+	mr.Set(fmt.Sprintf("ws:%s:url", wsID), agentServer.URL)
+
+	// Expect async activity log INSERT (logA2ASuccess is called because
+	// delivery_confirmed is true and the handler detected a 2xx status).
+	mock.ExpectExec("INSERT INTO activity_logs").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: wsID}}
+	body := `{"method":"message/send","params":{"message":{"role":"user","parts":[{"text":"ping"}]}}}`
+	c.Request = httptest.NewRequest("POST", "/workspaces/"+wsID+"/a2a", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.ProxyA2A(c)
+	time.Sleep(50 * time.Millisecond)
+
+	// Expect 502 (couldn't deliver the response content to the caller)
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	// delivery_confirmed must be true — Do() returned 2xx headers.
+	if v, _ := resp["delivery_confirmed"].(bool); !v {
+		t.Errorf(`expected "delivery_confirmed": true in response, got: %v`, resp)
+	}
+	if _, hasErr := resp["error"]; !hasErr {
+		t.Errorf(`expected "error" field in response body`)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 // ==================== validateCallerToken — Phase 30.5 ====================
 
 // The A2A proxy validates the *caller's* token (not the target's) when the
