@@ -144,6 +144,12 @@ services:
       # Generate: openssl rand -base64 32
       # Store in fly secrets / deployment env — NEVER commit the actual value.
       ADMIN_TOKEN: "${ADMIN_TOKEN:-}"
+      # Workspace hibernation default (issue #724 / PR #724). Sets platform-wide idle
+      # threshold (minutes); per-workspace column takes precedence. Leave empty to
+      # rely on per-workspace config only (current behaviour — global-default code pending).
+      HIBERNATION_IDLE_MINUTES: "${HIBERNATION_IDLE_MINUTES:-}"
+      # Plugin supply chain hardening (issue #768 / PR #775). Never set in production.
+      PLUGIN_ALLOW_UNPINNED: "${PLUGIN_ALLOW_UNPINNED:-}"
     volumes:
       - ./workspace-configs-templates:/configs
       - ./org-templates:/org-templates:ro
