@@ -406,20 +406,15 @@ func TestProxyA2A_AllowedSelf_SkipsAccessCheck(t *testing.T) {
 	}
 }
 
-func TestProxyA2A_SystemCaller_BypassesAccessCheck(t *testing.T) {
-	mock := setupTestDB(t)
-	mr := setupTestRedis(t)
+// TestProxyA2A_SystemCaller_HTTPHeaderRejected verifies the #761 fix:
+// system-caller prefixes in X-Workspace-ID MUST be rejected on the HTTP path.
+// Legitimate system callers (webhooks, scheduler, restart_context) call
+// proxyA2ARequest directly and never send HTTP headers with these prefixes.
+func TestProxyA2A_SystemCaller_HTTPHeaderRejected(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
-
-	agentServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"jsonrpc":"2.0","id":"1","result":{}}`)
-	}))
-	defer agentServer.Close()
-	mr.Set(fmt.Sprintf("ws:%s:url", "ws-target"), agentServer.URL)
-
-	mock.ExpectExec("INSERT INTO activity_logs").WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -428,13 +423,63 @@ func TestProxyA2A_SystemCaller_BypassesAccessCheck(t *testing.T) {
 	body := `{"method":"message/send","params":{"message":{"role":"user","parts":[{"text":"hi"}]}}}`
 	c.Request = httptest.NewRequest("POST", "/workspaces/ws-target/a2a", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
+	// Supply a real system-caller prefix — must be blocked at the HTTP layer.
 	c.Request.Header.Set("X-Workspace-ID", "webhook:github")
 
 	handler.ProxyA2A(c)
-	time.Sleep(50 * time.Millisecond)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 for system caller, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for system-caller prefix in HTTP header, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	if resp["error"] != "invalid caller ID" {
+		t.Errorf("expected error 'invalid caller ID', got %v", resp["error"])
+	}
+}
+
+// TestA2AProxy_SystemCallerForge_IsRejected verifies that an attacker who
+// sets X-Workspace-ID to a system-caller prefix (to bypass token validation
+// and CanCommunicate) receives 403 Forbidden — not 200 OK.
+// This is the core fix for issue #761.
+func TestA2AProxy_SystemCallerForge_IsRejected(t *testing.T) {
+	forgePrefixes := []string{
+		"system:forge",
+		"system:admin",
+		"webhook:evil",
+		"test:attacker",
+		"channel:hijack",
+	}
+	for _, forgedID := range forgePrefixes {
+		t.Run(forgedID, func(t *testing.T) {
+			setupTestDB(t)
+			setupTestRedis(t)
+			handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Params = gin.Params{{Key: "id", Value: "ws-victim"}}
+
+			body := `{"method":"message/send","params":{"message":{"role":"user","parts":[{"text":"exploit"}]}}}`
+			c.Request = httptest.NewRequest("POST", "/workspaces/ws-victim/a2a", bytes.NewBufferString(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			c.Request.Header.Set("X-Workspace-ID", forgedID)
+
+			handler.ProxyA2A(c)
+
+			if w.Code != http.StatusForbidden {
+				t.Errorf("forged caller %q: expected 403, got %d: %s", forgedID, w.Code, w.Body.String())
+			}
+			var resp map[string]interface{}
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("body not JSON: %v", err)
+			}
+			if resp["error"] != "invalid caller ID" {
+				t.Errorf("forged caller %q: expected error 'invalid caller ID', got %v", forgedID, resp["error"])
+			}
+		})
 	}
 }
 
