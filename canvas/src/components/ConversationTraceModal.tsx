@@ -96,6 +96,7 @@ export function ConversationTraceModal({ open, workspaceId: _workspaceId, onClos
         {/* Content wraps the entire centred modal panel */}
         <Dialog.Content
           className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          aria-label="Conversation trace"
           aria-describedby={undefined}
         >
           {/* Modal panel */}
