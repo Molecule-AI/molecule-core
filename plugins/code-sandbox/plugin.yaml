@@ -1,0 +1,10 @@
+name: code-sandbox
+version: 0.1.0
+description: >
+  Exposes the run_code tool so agents can execute Python, JavaScript,
+  and shell scripts in an isolated sandbox. Three backends are supported:
+  subprocess (default, no extra deps), docker (DinD with network/memory
+  isolation), and e2b (cloud microVM — requires E2B_API_KEY).
+author: Molecule AI
+tags: [code-execution, sandbox, tools]
+runtimes: [claude-code, langgraph, hermes, deepagents, crewai, autogen]
