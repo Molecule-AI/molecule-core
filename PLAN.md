@@ -575,6 +575,53 @@ self-hosted per-customer). Ordered by dependency + ROI.
 
 ---
 
+## Phase 33: Wildcard DNS + Cloudflare Worker Proxy
+
+> **Goal:** Eliminate DNS propagation delays and NXDOMAIN caching for tenant
+> subdomains. Every SaaS (Vercel, Railway, Fly.io) uses this pattern —
+> wildcard DNS + edge proxy routing by hostname.
+>
+> **Docs:** `docs/architecture/wildcard-dns-proxy.md`
+
+### Phase 33.1 — Worker + wildcard DNS (no tenant changes)
+
+- [ ] Create Cloudflare Worker that extracts slug from hostname, looks up
+  backend IP from CP API, proxies request to EC2
+- [ ] Add `GET /cp/orgs/:slug/instance` endpoint to CP (public, rate-limited)
+- [ ] Add `*.moleculesai.app` wildcard DNS record (proxied, orange cloud)
+- [ ] Worker serves static "provisioning" splash page when tenant not ready
+- [ ] Deploy Worker via `wrangler deploy` + GitHub Actions
+- [ ] Verify Worker routing works for existing tenants alongside old A records
+
+### Phase 33.2 — Stop per-tenant DNS records
+
+- [ ] Remove Cloudflare A record creation from `ec2.go` provisioner
+- [ ] Remove Cloudflare DNS cleanup from deprovision/purge cascade
+- [ ] Existing A records coexist harmlessly (explicit wins over wildcard)
+
+### Phase 33.3 — Remove Caddy from EC2
+
+- [ ] Worker handles TLS termination — EC2 runs plain HTTP only
+- [ ] Remove Caddy install + Caddyfile from EC2 user-data script
+- [ ] EC2 security group: allow inbound HTTP from Cloudflare IPs only
+- [ ] ~30s faster cold start (no apt-get caddy, no Let's Encrypt)
+
+### Phase 33.4 — Cleanup
+
+- [ ] Delete old per-tenant A records from Cloudflare
+- [ ] Remove `cloudflareapi/` package from CP (Worker replaces it)
+- [ ] Update `docs/runbooks/saas-secrets.md` with Worker secrets
+
+### Success criteria for Phase 33
+
+- New org subdomain resolves instantly (zero DNS wait)
+- No NXDOMAIN caching — user never sees "site can't be reached"
+- Provisioning splash page shown while EC2 boots (auto-refreshes)
+- Cold start ~30s faster (no Caddy/Let's Encrypt)
+- Cost: Cloudflare Worker free tier or $5/mo
+
+---
+
 ## Infra footnote — Temporal
 
 `docker-compose.infra.yml` now includes Temporal (`:7233` gRPC, `:8233` Web
