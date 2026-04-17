@@ -228,6 +228,14 @@ class WorkspaceConfig:
     security_scan: SecurityScanConfig = field(default_factory=SecurityScanConfig)
     compliance: ComplianceConfig = field(default_factory=ComplianceConfig)
     sub_workspaces: list[dict] = field(default_factory=list)
+    effort: str = ""
+    """Claude output effort level for the agentic loop: low | medium | high | xhigh | max.
+    Empty string = not set (model default applies).  xhigh is the Opus 4.7 recommended
+    default for long agentic tasks.  Passed as ``output_config.effort`` by ClaudeSDKExecutor."""
+    task_budget: int = 0
+    """Advisory total-token budget across the full agentic loop.  0 = not set.
+    Must be >= 20000 when non-zero (API minimum).  When set, ClaudeSDKExecutor
+    automatically adds the ``task-budgets-2026-03-13`` beta header."""
 
 
 def load_config(config_path: Optional[str] = None) -> WorkspaceConfig:
@@ -346,4 +354,6 @@ def load_config(config_path: Optional[str] = None) -> WorkspaceConfig:
             max_task_duration_seconds=int(compliance_raw.get("max_task_duration_seconds", 300)),
         ),
         sub_workspaces=raw.get("sub_workspaces", []),
+        effort=str(raw.get("effort", "")),
+        task_budget=int(raw.get("task_budget", 0)),
     )

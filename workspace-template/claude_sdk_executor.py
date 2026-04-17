@@ -33,6 +33,8 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+import yaml
+
 import claude_agent_sdk as sdk
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -233,6 +235,19 @@ class ClaudeSDKExecutor(AgentExecutor):
             return prompt
         return f"[Prior context from memory]\n{memories}\n\n{prompt}"
 
+    def _load_config_dict(self) -> dict:
+        """Read config.yaml as a raw dict for field-level inspection.
+
+        Returns an empty dict on any I/O or parse error so callers can
+        always use ``.get()`` without guards.
+        """
+        try:
+            config_file = os.path.join(self.config_path, "config.yaml")
+            with open(config_file) as f:
+                return yaml.safe_load(f) or {}
+        except Exception:
+            return {}
+
     def _build_options(self) -> Any:
         """Build ClaudeAgentOptions.
 
@@ -243,6 +258,18 @@ class ClaudeSDKExecutor(AgentExecutor):
 
         The MCP server launcher uses `sys.executable` so tests and alternate
         virtual-env layouts don't depend on a `python3` shim being on PATH.
+
+        output_config wiring (issue #652)
+        ----------------------------------
+        Reads ``effort`` and ``task_budget`` from config.yaml and populates
+        ``output_config`` on the SDK options before the API call:
+
+        - ``effort`` (str): one of low|medium|high|xhigh|max.  xhigh is the
+          Opus 4.7 recommended default for long agentic tasks.
+        - ``task_budget`` (int): advisory total-token budget across the full
+          agentic loop.  Must be >= 20000 (API minimum) or 0/absent (unset).
+          When set, the ``task-budgets-2026-03-13`` beta header is added so
+          the API accepts the field.
         """
         mcp_servers = {
             "a2a": {
@@ -250,7 +277,8 @@ class ClaudeSDKExecutor(AgentExecutor):
                 "args": [get_mcp_server_path()],
             }
         }
-        return sdk.ClaudeAgentOptions(
+
+        create_kwargs: dict = dict(
             model=self.model,
             permission_mode="bypassPermissions",
             cwd=self._resolve_cwd(),
@@ -258,6 +286,35 @@ class ClaudeSDKExecutor(AgentExecutor):
             system_prompt=self._build_system_prompt(),
             resume=self._session_id,
         )
+
+        # --- output_config: effort + task_budget (issue #652) ---
+        config = self._load_config_dict()
+        output_config: dict = {}
+        effort = config.get("effort", "")
+        task_budget = config.get("task_budget", 0)
+
+        if effort:
+            output_config["effort"] = effort  # "low"|"medium"|"high"|"xhigh"|"max"
+
+        if task_budget and int(task_budget) >= 20000:
+            output_config["task_budget"] = {
+                "type": "tokens",
+                "total": int(task_budget),
+            }
+            betas = list(create_kwargs.get("betas", []))
+            if "task-budgets-2026-03-13" not in betas:
+                betas.append("task-budgets-2026-03-13")
+            create_kwargs["betas"] = betas
+        elif task_budget and int(task_budget) > 0:
+            # Below minimum — reject clearly before any API call is made.
+            raise ValueError(
+                f"task_budget must be >= 20000 tokens (got {task_budget})"
+            )
+
+        if output_config:
+            create_kwargs["output_config"] = output_config
+
+        return sdk.ClaudeAgentOptions(**create_kwargs)
 
     # ------------------------------------------------------------------
     # Query streaming
