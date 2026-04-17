@@ -68,6 +68,7 @@ const mockStoreState = {
   setA2AEdges: vi.fn(),
   showA2AEdges: false,
   setShowA2AEdges: vi.fn(),
+  setPanelTab: vi.fn(),
 };
 
 vi.mock("@/store/canvas", () => ({
