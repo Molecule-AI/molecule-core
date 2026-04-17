@@ -223,7 +223,7 @@ func (h *WorkspaceHandler) checkWorkspaceBudget(ctx context.Context, workspaceID
 	if budgetLimit.Valid && monthlySpend >= budgetLimit.Int64 {
 		log.Printf("ProxyA2A: budget exceeded for %s (spend=%d limit=%d)", workspaceID, monthlySpend, budgetLimit.Int64)
 		return &proxyA2AError{
-			Status:   http.StatusTooManyRequests,
+			Status:   http.StatusPaymentRequired,
 			Response: gin.H{"error": "workspace budget limit exceeded"},
 		}
 	}
