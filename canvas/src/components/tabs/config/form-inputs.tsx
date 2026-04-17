@@ -16,6 +16,11 @@ export interface ConfigData {
     // Deprecated
     auth_token_file?: string;
   };
+  // Claude API primitives (Opus 4.7+) — issue #608
+  // effort maps to output_config.effort in Messages API: 'low' | 'medium' | 'high' | 'xhigh'
+  effort?: string;
+  // task_budget maps to output_config.task_budget.total (requires beta header task-budgets-2026-03-13)
+  task_budget?: number;
   prompt_files: string[];
   shared_context: string[];
   skills: string[];
@@ -32,6 +37,8 @@ export const DEFAULT_CONFIG: ConfigData = {
   tier: 1,
   model: "",
   runtime: "",
+  effort: "",
+  task_budget: 0,
   prompt_files: [],
   shared_context: [],
   skills: [],
