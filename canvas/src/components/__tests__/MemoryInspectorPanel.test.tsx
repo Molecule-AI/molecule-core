@@ -401,6 +401,45 @@ describe("MemoryInspectorPanel — Refresh button", () => {
   });
 });
 
+// ── role=alert a11y (issue #830) ─────────────────────────────────────────────
+
+describe("MemoryInspectorPanel — error elements have role=alert (issue #830)", () => {
+  it("fetch error banner has role='alert'", async () => {
+    mockGet.mockRejectedValue(new Error("Network error"));
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await waitFor(() => screen.getByText("Network error"));
+    const alert = screen.getByRole("alert");
+    expect(alert).toBeTruthy();
+    expect(alert.textContent).toContain("Network error");
+  });
+
+  it("editError paragraph has role='alert' on invalid JSON submission", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue(TWO_ENTRIES as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await waitFor(() => screen.getByText("task-queue"));
+
+    // Expand and open edit mode
+    fireEvent.click(screen.getByText("task-queue").closest("button")!);
+    await waitFor(() =>
+      screen.getByRole("button", { name: "Edit task-queue" })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit task-queue" }));
+
+    // Submit invalid JSON to trigger editError
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Edit memory value" }),
+      { target: { value: "{{bad json" } }
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => screen.getByText(/invalid json/i));
+    const alert = screen.getByRole("alert");
+    expect(alert).toBeTruthy();
+    expect(alert.textContent).toMatch(/invalid json/i);
+  });
+});
+
 // ── Semantic search (issue #783) ──────────────────────────────────────────────
 
 describe("MemoryInspectorPanel — semantic search", () => {

@@ -291,7 +291,11 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
 
       {/* Error banner */}
       {error && (
-        <div className="mx-4 mt-3 px-3 py-2 bg-red-950/30 border border-red-800/40 rounded text-xs text-red-400 shrink-0">
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="mx-4 mt-3 px-3 py-2 bg-red-950/30 border border-red-800/40 rounded text-xs text-red-400 shrink-0"
+        >
           {error}
         </div>
       )}
@@ -462,7 +466,9 @@ function MemoryEntryRow({
                 className="w-full bg-zinc-950 border border-zinc-700 focus:border-blue-500 rounded px-2 py-1.5 text-[11px] font-mono text-zinc-100 focus:outline-none resize-none transition-colors"
               />
               {editError && (
-                <p className="text-[10px] text-red-400">{editError}</p>
+                <p role="alert" aria-live="assertive" className="text-[10px] text-red-400">
+                  {editError}
+                </p>
               )}
               <div className="flex items-center gap-2">
                 <button
