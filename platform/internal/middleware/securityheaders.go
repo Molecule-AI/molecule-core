@@ -23,6 +23,7 @@ var apiPrefixes = []string{
 	"/settings",
 	"/bundles",
 	"/org",
+	"/orgs",   // #610 — per-org plugin allowlist routes
 	"/templates",
 	"/plugins",
 	"/webhooks",
