@@ -475,6 +475,45 @@ describe("MemoryInspectorPanel — semantic search", () => {
     ).toBeNull();
   });
 
+  it("colors similarity-badge blue-500 when score >= 0.8", async () => {
+    mockGet.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { ...ENTRY_A, similarity_score: 0.92 },
+    ] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await waitFor(() => screen.getByText("task-queue"));
+    const badge = document.querySelector('[data-testid="similarity-badge"]');
+    expect(badge?.className).toContain("text-blue-500");
+    expect(badge?.className).not.toContain("text-zinc-400");
+    expect(badge?.className).not.toContain("text-zinc-600");
+  });
+
+  it("colors similarity-badge zinc-400 when score is between 0.5 and 0.8", async () => {
+    mockGet.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { ...ENTRY_A, similarity_score: 0.65 },
+    ] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await waitFor(() => screen.getByText("task-queue"));
+    const badge = document.querySelector('[data-testid="similarity-badge"]');
+    expect(badge?.className).toContain("text-zinc-400");
+    expect(badge?.className).not.toContain("text-blue-500");
+    expect(badge?.className).not.toContain("text-zinc-600");
+  });
+
+  it("colors similarity-badge zinc-600 when score is below 0.5", async () => {
+    mockGet.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { ...ENTRY_A, similarity_score: 0.31 },
+    ] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await waitFor(() => screen.getByText("task-queue"));
+    const badge = document.querySelector('[data-testid="similarity-badge"]');
+    expect(badge?.className).toContain("text-zinc-600");
+    expect(badge?.className).not.toContain("text-blue-500");
+    expect(badge?.className).not.toContain("text-zinc-400");
+  });
+
   it("clear button resets debouncedQuery immediately and re-fetches without ?q=", async () => {
     vi.useFakeTimers();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

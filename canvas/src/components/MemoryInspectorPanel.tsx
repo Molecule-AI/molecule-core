@@ -427,7 +427,14 @@ function MemoryEntryRow({
         {/* Similarity score badge — only rendered when backend provides a score */}
         {entry.similarity_score != null && (
           <span
-            className="text-[9px] text-zinc-500 shrink-0 font-mono tabular-nums"
+            className={[
+              "text-[9px] shrink-0 font-mono tabular-nums",
+              entry.similarity_score >= 0.8
+                ? "text-blue-500"
+                : entry.similarity_score >= 0.5
+                ? "text-zinc-400"
+                : "text-zinc-600",
+            ].join(" ")}
             title={`Similarity: ${(entry.similarity_score * 100).toFixed(1)}%`}
             data-testid="similarity-badge"
           >
