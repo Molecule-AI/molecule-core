@@ -235,22 +235,58 @@ func (h *RegistryHandler) Heartbeat(c *gin.Context) {
 	var prevTask string
 	_ = db.DB.QueryRowContext(ctx, `SELECT COALESCE(current_task, '') FROM workspaces WHERE id = $1`, payload.WorkspaceID).Scan(&prevTask)
 
+	// #615: Clamp monthly_spend to a safe range before any DB write.
+	// A malicious or buggy agent could report math.MaxInt64, causing
+	// NUMERIC overflow or incorrect budget-enforcement comparisons.
+	// Negatives are meaningless (spend is always ≥ 0); the upper cap of
+	// $10 billion in cents is an intentionally astronomical value that no
+	// legitimate workspace will ever reach.
+	const maxMonthlySpend = int64(1_000_000_000_000) // $10B in cents
+	if payload.MonthlySpend < 0 {
+		payload.MonthlySpend = 0
+	}
+	if payload.MonthlySpend > maxMonthlySpend {
+		payload.MonthlySpend = maxMonthlySpend
+	}
+
 	// Update heartbeat columns. #73 guard: exclude 'removed' rows so a
 	// late heartbeat from a container that's being torn down doesn't
 	// refresh last_heartbeat_at on a tombstoned workspace (which would
 	// otherwise confuse the liveness monitor).
-	_, err := db.DB.ExecContext(ctx, `
-		UPDATE workspaces SET
-			last_heartbeat_at = now(),
-			last_error_rate   = $2,
-			last_sample_error = $3,
-			active_tasks      = $4,
-			uptime_seconds    = $5,
-			current_task      = $6,
-			updated_at        = now()
-		WHERE id = $1 AND status != 'removed'
-	`, payload.WorkspaceID, payload.ErrorRate, payload.SampleError,
-		payload.ActiveTasks, payload.UptimeSeconds, payload.CurrentTask)
+	//
+	// monthly_spend: updated only when the agent reports a positive value
+	// (cumulative USD cents for the current month). Zero means "no update"
+	// — never write zero to avoid clearing a previously-reported spend.
+	var err error
+	if payload.MonthlySpend > 0 {
+		_, err = db.DB.ExecContext(ctx, `
+			UPDATE workspaces SET
+				last_heartbeat_at = now(),
+				last_error_rate   = $2,
+				last_sample_error = $3,
+				active_tasks      = $4,
+				uptime_seconds    = $5,
+				current_task      = $6,
+				monthly_spend     = $7,
+				updated_at        = now()
+			WHERE id = $1 AND status != 'removed'
+		`, payload.WorkspaceID, payload.ErrorRate, payload.SampleError,
+			payload.ActiveTasks, payload.UptimeSeconds, payload.CurrentTask,
+			payload.MonthlySpend)
+	} else {
+		_, err = db.DB.ExecContext(ctx, `
+			UPDATE workspaces SET
+				last_heartbeat_at = now(),
+				last_error_rate   = $2,
+				last_sample_error = $3,
+				active_tasks      = $4,
+				uptime_seconds    = $5,
+				current_task      = $6,
+				updated_at        = now()
+			WHERE id = $1 AND status != 'removed'
+		`, payload.WorkspaceID, payload.ErrorRate, payload.SampleError,
+			payload.ActiveTasks, payload.UptimeSeconds, payload.CurrentTask)
+	}
 	if err != nil {
 		log.Printf("Heartbeat update error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update"})

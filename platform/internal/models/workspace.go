@@ -44,6 +44,12 @@ type HeartbeatPayload struct {
 	ActiveTasks   int     `json:"active_tasks"`
 	UptimeSeconds int     `json:"uptime_seconds"`
 	CurrentTask   string  `json:"current_task"`
+	// MonthlySpend is cumulative USD spend for the current calendar month,
+	// denominated in cents (e.g. 1500 = $15.00). Zero means "no update" —
+	// the heartbeat handler never writes zero to avoid accidentally clearing
+	// a previously-reported spend value. Any non-zero value is clamped to
+	// [0, maxMonthlySpend] before the DB write. (#615)
+	MonthlySpend int64 `json:"monthly_spend"`
 }
 
 type UpdateCardPayload struct {
