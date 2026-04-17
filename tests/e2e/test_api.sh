@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source "$(dirname "$0")/_lib.sh"  # sets BASE default
+source "$(dirname "$0")/_lib.sh"  # sets BASE and ADMIN_BASE defaults
 PASS=0
 FAIL=0
 
@@ -50,19 +50,21 @@ R=$(curl -s "$BASE/health")
 check "GET /health" '"status":"ok"' "$R"
 
 # Test 2: Empty list
-R=$(acurl "$BASE/workspaces")
+# fix/issue-684: GET /workspaces is now on ADMIN_BASE (admin router, port 8081)
+R=$(acurl "$ADMIN_BASE/workspaces")
 check "GET /workspaces (empty)" '[]' "$R"
 
 # Test 3: Create workspace A (AdminAuth fail-open — no tokens exist yet)
-R=$(curl -s -X POST "$BASE/workspaces" -H "Content-Type: application/json" -d '{"name":"Echo Agent","tier":1}')
+# fix/issue-684: POST /workspaces is now on ADMIN_BASE (admin router, port 8081)
+R=$(curl -s -X POST "$ADMIN_BASE/workspaces" -H "Content-Type: application/json" -d '{"name":"Echo Agent","tier":1}')
 check "POST /workspaces (create echo)" '"status":"provisioning"' "$R"
 ECHO_ID=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 
 # Mint a test token so all subsequent AdminAuth-gated calls succeed.
-# The test-token endpoint is NOT behind AdminAuth (always accessible
-# when MOLECULE_ENV != production), so this works even on first boot.
+# fix/issue-684: test-token endpoint is now on ADMIN_BASE (admin router, port 8081).
+# AdminAuth is still fail-open on fresh install so this works on first boot.
 # Debug: show what the test-token endpoint returns
-TEST_TOKEN_RAW=$(curl -s "$BASE/admin/workspaces/$ECHO_ID/test-token")
+TEST_TOKEN_RAW=$(curl -s "$ADMIN_BASE/admin/workspaces/$ECHO_ID/test-token")
 echo "  test-token response: $TEST_TOKEN_RAW"
 ADMIN_TOKEN=$(echo "$TEST_TOKEN_RAW" | python3 -c "import sys,json; print(json.load(sys.stdin).get('auth_token',''))" 2>/dev/null || echo "")
 if [ -n "$ADMIN_TOKEN" ]; then
@@ -72,12 +74,12 @@ else
 fi
 
 # Test 4: Create workspace B (needs bearer — tokens now exist in DB)
-R=$(acurl -X POST "$BASE/workspaces" -H "Content-Type: application/json" -d '{"name":"Summarizer Agent","tier":1}')
+R=$(acurl -X POST "$ADMIN_BASE/workspaces" -H "Content-Type: application/json" -d '{"name":"Summarizer Agent","tier":1}')
 check "POST /workspaces (create summarizer)" '"status":"provisioning"' "$R"
 SUM_ID=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 
 # Test 5: List has 2
-R=$(acurl "$BASE/workspaces")
+R=$(acurl "$ADMIN_BASE/workspaces")
 COUNT=$(echo "$R" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
 check "GET /workspaces (count=2)" "2" "$COUNT"
 
@@ -89,7 +91,8 @@ check "GET /workspaces/:id (agent_card null)" '"agent_card":null' "$R"
 # Test 7: Register echo — use workspace-specific token (from test-token
 # endpoint), not the admin token. C18 requires a token issued TO THIS
 # workspace, not just any valid token.
-ECHO_WS_TOKEN=$(curl -s "$BASE/admin/workspaces/$ECHO_ID/test-token" | python3 -c "import sys,json; print(json.load(sys.stdin).get('auth_token',''))" 2>/dev/null || echo "")
+# fix/issue-684: test-token endpoint now on ADMIN_BASE (admin router, port 8081)
+ECHO_WS_TOKEN=$(curl -s "$ADMIN_BASE/admin/workspaces/$ECHO_ID/test-token" | python3 -c "import sys,json; print(json.load(sys.stdin).get('auth_token',''))" 2>/dev/null || echo "")
 R=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
   ${ECHO_WS_TOKEN:+-H "Authorization: Bearer $ECHO_WS_TOKEN"} \
   -d "{\"id\":\"$ECHO_ID\",\"url\":\"http://localhost:8001\",\"agent_card\":{\"name\":\"Echo Agent\",\"skills\":[{\"id\":\"echo\",\"name\":\"Echo\"}]}}")
@@ -100,7 +103,8 @@ ECHO_TOKEN=$(echo "$R" | e2e_extract_token)
 if [ -z "$ECHO_TOKEN" ]; then ECHO_TOKEN="$ECHO_WS_TOKEN"; fi
 
 # Test 8: Register summarizer — same pattern: workspace-specific token
-SUM_WS_TOKEN=$(curl -s "$BASE/admin/workspaces/$SUM_ID/test-token" | python3 -c "import sys,json; print(json.load(sys.stdin).get('auth_token',''))" 2>/dev/null || echo "")
+# fix/issue-684: test-token endpoint now on ADMIN_BASE (admin router, port 8081)
+SUM_WS_TOKEN=$(curl -s "$ADMIN_BASE/admin/workspaces/$SUM_ID/test-token" | python3 -c "import sys,json; print(json.load(sys.stdin).get('auth_token',''))" 2>/dev/null || echo "")
 R=$(curl -s -X POST "$BASE/registry/register" -H "Content-Type: application/json" \
   ${SUM_WS_TOKEN:+-H "Authorization: Bearer $SUM_WS_TOKEN"} \
   -d "{\"id\":\"$SUM_ID\",\"url\":\"http://localhost:8002\",\"agent_card\":{\"name\":\"Summarizer\",\"skills\":[{\"id\":\"summarize\",\"name\":\"Summarize\"}]}}")
@@ -158,11 +162,12 @@ check "PATCH /workspaces/:id (name)" '"status":"updated"' "$R"
 R=$(acurl "$BASE/workspaces/$ECHO_ID")
 check "Name updated" '"name":"Echo Agent v2"' "$R"
 
-# Test 17: Events (#165 / PR #167 — now admin-gated, bearer required)
-R=$(acurl "$BASE/events" -H "Authorization: Bearer $ECHO_TOKEN")
+# Test 17: Events (#165 / PR #167 — admin-gated, bearer required)
+# fix/issue-684: /events now on ADMIN_BASE (admin router, port 8081)
+R=$(acurl "$ADMIN_BASE/events" -H "Authorization: Bearer $ECHO_TOKEN")
 check "GET /events (has events)" 'WORKSPACE_ONLINE' "$R"
 
-R=$(acurl "$BASE/events/$ECHO_ID" -H "Authorization: Bearer $ECHO_TOKEN")
+R=$(acurl "$ADMIN_BASE/events/$ECHO_ID" -H "Authorization: Bearer $ECHO_TOKEN")
 check "GET /events/:id (has events for echo)" 'WORKSPACE_ONLINE' "$R"
 
 # Test 18: Update card
@@ -272,16 +277,17 @@ check "Heartbeat clear current_task" '"status":"ok"' "$R"
 R=$(acurl "$BASE/workspaces/$ECHO_ID")
 check "current_task cleared" '"current_task":""' "$R"
 
-# Test: current_task in workspace list — now admin-auth gated (C1 fix), so a
-# workspace bearer token is required once tokens exist anywhere on the platform.
-R=$(curl -s "$BASE/workspaces" -H "Authorization: Bearer $ECHO_TOKEN")
+# Test: current_task in workspace list — admin-gated (C1 fix), bearer required.
+# fix/issue-684: GET /workspaces now on ADMIN_BASE (admin router, port 8081)
+R=$(curl -s "$ADMIN_BASE/workspaces" -H "Authorization: Bearer $ECHO_TOKEN")
 check "current_task in list response" '"current_task"' "$R"
 
 # Test 21: Delete
-R=$(acurl -X DELETE "$BASE/workspaces/$ECHO_ID" -H "Authorization: Bearer $ECHO_TOKEN")
+# fix/issue-684: DELETE /workspaces/:id now on ADMIN_BASE (admin router, port 8081)
+R=$(acurl -X DELETE "$ADMIN_BASE/workspaces/$ECHO_ID" -H "Authorization: Bearer $ECHO_TOKEN")
 check "DELETE /workspaces/:id" '"status":"removed"' "$R"
 
-R=$(curl -s "$BASE/workspaces" -H "Authorization: Bearer $SUM_TOKEN")
+R=$(curl -s "$ADMIN_BASE/workspaces" -H "Authorization: Bearer $SUM_TOKEN")
 COUNT=$(echo "$R" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
 check "List after delete (count=1)" "1" "$COUNT"
 
@@ -290,7 +296,8 @@ echo ""
 echo "--- Bundle Round-Trip Test ---"
 
 # Export the summarizer workspace (#165 / PR #167 — admin-gated)
-BUNDLE=$(curl -s "$BASE/bundles/export/$SUM_ID" -H "Authorization: Bearer $SUM_TOKEN")
+# fix/issue-684: /bundles/export now on ADMIN_BASE (admin router, port 8081)
+BUNDLE=$(curl -s "$ADMIN_BASE/bundles/export/$SUM_ID" -H "Authorization: Bearer $SUM_TOKEN")
 check "GET /bundles/export/:id" '"name":"Summarizer Agent"' "$BUNDLE"
 
 # Capture original config for comparison
@@ -299,7 +306,8 @@ ORIG_TIER=$(echo "$BUNDLE" | python3 -c "import sys,json; print(json.load(sys.st
 
 # Delete the workspace — use SUM_TOKEN (per-workspace) for WorkspaceAuth
 # and ADMIN_TOKEN for the AdminAuth layer.
-R=$(curl -s -X DELETE "$BASE/workspaces/$SUM_ID" -H "Authorization: Bearer $SUM_TOKEN")
+# fix/issue-684: DELETE /workspaces/:id now on ADMIN_BASE (admin router, port 8081)
+R=$(curl -s -X DELETE "$ADMIN_BASE/workspaces/$SUM_ID" -H "Authorization: Bearer $SUM_TOKEN")
 check "Delete before re-import" '"status":"removed"' "$R"
 
 # After deleting the last workspace, all per-workspace tokens are revoked.
@@ -308,12 +316,13 @@ check "Delete before re-import" '"status":"removed"' "$R"
 # for revocation). Clear ADMIN_TOKEN so acurl falls back to no-auth,
 # which works when HasAnyLiveTokenGlobal = false (fail-open).
 ADMIN_TOKEN=""
-R=$(acurl "$BASE/workspaces")
+R=$(acurl "$ADMIN_BASE/workspaces")
 COUNT=$(echo "$R" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
 check "All workspaces deleted (count=0)" "0" "$COUNT"
 
 # Re-import from the exported bundle (AdminAuth fail-open — no live tokens)
-R=$(acurl -X POST "$BASE/bundles/import" -H "Content-Type: application/json" -d "$BUNDLE")
+# fix/issue-684: /bundles/import now on ADMIN_BASE (admin router, port 8081)
+R=$(acurl -X POST "$ADMIN_BASE/bundles/import" -H "Content-Type: application/json" -d "$BUNDLE")
 check "POST /bundles/import" '"status":"provisioning"' "$R"
 NEW_ID=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace_id'])")
 
@@ -361,11 +370,13 @@ check "Register re-imported workspace" '"status":"registered"' "$R"
 NEW_TOKEN=$(echo "$R" | e2e_extract_token)
 
 # Re-export and verify agent_card survives the round-trip (#165 / PR #167 — admin-gated)
-REBUNDLE=$(curl -s "$BASE/bundles/export/$NEW_ID" -H "Authorization: Bearer $NEW_TOKEN")
+# fix/issue-684: /bundles/export now on ADMIN_BASE (admin router, port 8081)
+REBUNDLE=$(curl -s "$ADMIN_BASE/bundles/export/$NEW_ID" -H "Authorization: Bearer $NEW_TOKEN")
 check "Re-exported bundle has agent_card" '"agent_card"' "$REBUNDLE"
 
 # Clean up — use the token just issued to the re-imported workspace
-curl -s -X DELETE "$BASE/workspaces/$NEW_ID" -H "Authorization: Bearer $NEW_TOKEN" > /dev/null
+# fix/issue-684: DELETE /workspaces/:id now on ADMIN_BASE (admin router, port 8081)
+curl -s -X DELETE "$ADMIN_BASE/workspaces/$NEW_ID" -H "Authorization: Bearer $NEW_TOKEN" > /dev/null
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="

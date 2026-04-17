@@ -132,6 +132,11 @@ func main() {
 	}
 
 	port := envOr("PORT", "8080")
+	// ADMIN_PORT: internal-only port for admin routes (fix/issue-684).
+	// docker-compose.yml intentionally does NOT publish this port to the host,
+	// so workspace containers (PLATFORM_URL → public port) and external callers
+	// cannot reach admin endpoints even if AdminAuth middleware regresses.
+	adminPort := envOr("ADMIN_PORT", "8081")
 	platformURL := envOr("PLATFORM_URL", fmt.Sprintf("http://host.docker.internal:%s", port))
 	configsDir := envOr("CONFIGS_DIR", findConfigsDir())
 
@@ -189,20 +194,42 @@ func main() {
 	channelMgr := channels.NewManager(wh, broadcaster)
 	go supervised.RunWithRecover(ctx, "channel-manager", channelMgr.Start)
 
-	// Router
+	// Public router — workspace agents, registry, canvas, health
 	r := router.Setup(hub, broadcaster, prov, platformURL, configsDir, wh, channelMgr)
 
-	// HTTP server with graceful shutdown
+	// Admin router — operators only (fix/issue-684-admin-network-isolation).
+	// Bound to ADMIN_PORT (default :8081). docker-compose.yml does NOT publish
+	// this port to the host, so workspace containers (configured with PLATFORM_URL
+	// → public port) and external callers cannot reach admin endpoints even if
+	// the AdminAuth middleware has a regression. This is the network-layer half of
+	// defence-in-depth; AdminAuth remains the application-layer half.
+	adminR := router.SetupAdmin(hub, broadcaster, prov, platformURL, configsDir, wh, channelMgr)
+
+	// Public HTTP server
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%s", port),
 		Handler: r,
 	}
 
-	// Start server in goroutine
+	// Admin HTTP server — internal-only
+	adminSrv := &http.Server{
+		Addr:    fmt.Sprintf(":%s", adminPort),
+		Handler: adminR,
+	}
+
+	// Start public server
 	go func() {
-		log.Printf("Platform starting on :%s", port)
+		log.Printf("Platform public API starting on :%s", port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	// Start admin server
+	go func() {
+		log.Printf("Platform admin API starting on :%s (not published to host — fix/issue-684)", adminPort)
+		if err := adminSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Admin server failed: %v", err)
 		}
 	}()
 
@@ -220,6 +247,9 @@ func main() {
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Server forced shutdown: %v", err)
+	}
+	if err := adminSrv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Admin server forced shutdown: %v", err)
 	}
 
 	// Close WebSocket hub

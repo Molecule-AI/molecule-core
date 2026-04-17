@@ -80,25 +80,9 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
-	// /admin/liveness — per-subsystem last-tick timestamps. Operators read this
-	// to catch stuck-but-not-crashed goroutines (the failure mode that caused
-	// the 12h scheduler outage of 2026-04-14, issue #85). Any subsystem whose
-	// last tick is older than 2× its expected interval is stale.
-	//
-	// #166: gated behind AdminAuth. Internal health state is an ops-intel leak
-	// in production (scheduler tick cadence reveals fleet size + work pattern).
-	r.GET("/admin/liveness", middleware.AdminAuth(db.DB), func(c *gin.Context) {
-		snap := supervised.Snapshot()
-		out := make(map[string]interface{}, len(snap))
-		now := time.Now()
-		for name, last := range snap {
-			out[name] = gin.H{
-				"last_tick_at":    last,
-				"seconds_ago":     int(now.Sub(last).Seconds()),
-			}
-		}
-		c.JSON(200, gin.H{"subsystems": out})
-	})
+	// /admin/liveness — moved to admin router (fix/issue-684-admin-network-isolation).
+	// Served on ADMIN_PORT (default :8081) which is not published to the host.
+	// Calling GET /admin/liveness on the public port now returns 404.
 
 	// Prometheus metrics — exempt from rate limiter via separate registration
 	// (registered before Use(limiter) takes effect on this specific route — the
@@ -120,18 +104,8 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// The #120 escalation vectors stay locked; only cosmetic fields are open.
 	r.PATCH("/workspaces/:id", wh.Update)
 
-	// C1 + C20: workspace list and life-cycle mutations gated behind AdminAuth.
-	// Fail-open when no tokens exist anywhere (fresh install / pre-Phase-30).
-	// Blocks:
-	//   C1   — unauthenticated GET /workspaces (workspace topology exposure)
-	//   C20  — unauthenticated DELETE /workspaces/:id (mass-deletion attack)
-	//          unauthenticated POST /workspaces (workspace creation)
-	{
-		wsAdmin := r.Group("", middleware.AdminAuth(db.DB))
-		wsAdmin.GET("/workspaces", wh.List)
-		wsAdmin.POST("/workspaces", wh.Create)
-		wsAdmin.DELETE("/workspaces/:id", wh.Delete)
-	}
+	// C1 + C20: GET/POST/DELETE /workspaces moved to admin router (fix/issue-684).
+	// Served on ADMIN_PORT (default :8081), not published to host.
 
 	// A2A proxy — registered outside the auth group; already enforces CanCommunicate access control.
 	r.POST("/workspaces/:id/a2a", wh.ProxyA2A)
@@ -181,11 +155,8 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		wsAuth.POST("/approvals", apph.Create)
 		wsAuth.GET("/approvals", apph.List)
 		wsAuth.POST("/approvals/:approvalId/decide", apph.Decide)
-		// /approvals/pending is a cross-workspace admin path; WorkspaceAuth cannot
-		// be used here (no workspace scope), but it still needs auth so an
-		// unauthenticated caller cannot enumerate all pending approvals across the
-		// entire platform. Gated behind AdminAuth (issue #180).
-		r.GET("/approvals/pending", middleware.AdminAuth(db.DB), apph.ListAll)
+		// /approvals/pending moved to admin router (fix/issue-684-admin-network-isolation).
+		// Served on ADMIN_PORT (default :8081), not published to host.
 
 		// Team Expansion
 		teamh := handlers.NewTeamHandler(broadcaster, prov, platformURL, configsDir)
@@ -217,16 +188,8 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	r.GET("/registry/:id/peers", dh.Peers)
 	r.POST("/registry/check-access", dh.CheckAccess)
 
-	// Events — #165: gated behind AdminAuth. The raw event log contains org
-	// topology, workspace names, and agent-card fragments; an unauth read
-	// leaks the entire fleet structure. GET /events/:workspaceId is still
-	// a cross-workspace read so it uses AdminAuth, not WorkspaceAuth.
-	eh := handlers.NewEventsHandler()
-	{
-		eventsAdmin := r.Group("", middleware.AdminAuth(db.DB))
-		eventsAdmin.GET("/events", eh.List)
-		eventsAdmin.GET("/events/:workspaceId", eh.ListByWorkspace)
-	}
+	// Events — GET /events and GET /events/:workspaceId moved to admin router
+	// (fix/issue-684-admin-network-isolation). Served on ADMIN_PORT (default :8081).
 
 	// Remaining auth-gated workspace sub-routes — appended to wsAuth group declared above.
 	{
@@ -258,11 +221,11 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 
 		// Budget — per-workspace spend ceiling and current usage (#541).
 		// GET stays on wsAuth — a workspace agent reading its own budget is legitimate.
-		// PATCH is admin-only — workspace agents must not be able to self-clear their
-		// spending ceiling (that would defeat the entire budget enforcement feature).
+		// PATCH moved to admin router (fix/issue-684): workspace agents must not be
+		// able to self-clear their spending ceiling.
 		budgeth := handlers.NewBudgetHandler()
 		wsAuth.GET("/budget", budgeth.GetBudget)
-		r.PATCH("/workspaces/:id/budget", middleware.AdminAuth(db.DB), budgeth.PatchBudget)
+		// PATCH /workspaces/:id/budget served on ADMIN_PORT (default :8081).
 
 		// Token management (user-facing create/list/revoke)
 		tokh := handlers.NewTokenHandler()
@@ -305,41 +268,11 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		wsAuth.POST("/artifacts/token", arth.Token)
 	}
 
-	// Global secrets — /settings/secrets is the canonical path; /admin/secrets kept for backward compat.
-	// Fix (Cycle 7): protected by AdminAuth — any valid workspace bearer token grants access.
-	// Fail-open when no tokens exist (fresh install / pre-Phase-30 upgrade).
-	{
-		adminAuth := r.Group("", middleware.AdminAuth(db.DB))
-		sechGlobal := handlers.NewSecretsHandler(wh.RestartByID)
-		adminAuth.GET("/settings/secrets", sechGlobal.ListGlobal)
-		adminAuth.PUT("/settings/secrets", sechGlobal.SetGlobal)
-		adminAuth.POST("/settings/secrets", sechGlobal.SetGlobal)
-		adminAuth.DELETE("/settings/secrets/:key", sechGlobal.DeleteGlobal)
-		adminAuth.GET("/admin/secrets", sechGlobal.ListGlobal)
-		adminAuth.POST("/admin/secrets", sechGlobal.SetGlobal)
-		adminAuth.DELETE("/admin/secrets/:key", sechGlobal.DeleteGlobal)
-	}
-
-	// Admin — test token minting (issue #6). Hidden in production via TestTokensEnabled().
-	// AdminAuth is a second defence-in-depth layer: on a fresh install with no tokens yet,
-	// AdminAuth is fail-open (HasAnyLiveTokenGlobal == 0), so the bootstrap still works.
-	// Once any token exists, callers must present a valid bearer — unauthenticated workspace-
-	// UUID enumeration is blocked even on non-production instances.
-	{
-		tokh := handlers.NewAdminTestTokenHandler()
-		r.GET("/admin/workspaces/:id/test-token", middleware.AdminAuth(db.DB), tokh.GetTestToken)
-	}
-
-	// Admin — GitHub App installation token refresh (issue #547).
-	// Long-running workspaces (>60 min) use this endpoint to refresh
-	// GH_TOKEN without restarting. Returns the current installation token
-	// from the github-app-auth plugin's in-process cache (which proactively
-	// refreshes 5 min before expiry). 404 when no GitHub App is configured
-	// (dev / self-hosted without GITHUB_APP_ID).
-	{
-		ghTokH := handlers.NewGitHubTokenHandler(wh.TokenRegistry())
-		r.GET("/admin/github-installation-token", middleware.AdminAuth(db.DB), ghTokH.GetInstallationToken)
-	}
+	// Global secrets + admin token + admin GitHub token — all moved to admin
+	// router (fix/issue-684-admin-network-isolation). Served on ADMIN_PORT
+	// (default :8081), not published to host.
+	// Paths affected: /settings/secrets, /admin/secrets, /admin/workspaces/:id/test-token,
+	// /admin/github-installation-token.
 
 	// Terminal — shares Docker client with provisioner
 	var dockerCli *client.Client
@@ -364,12 +297,8 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// Templates
 	tmplh := handlers.NewTemplatesHandler(configsDir, dockerCli)
 	r.GET("/templates", tmplh.List)
-	// #190: POST /templates/import writes arbitrary files into configsDir.
-	// Must be admin-gated — same class as /bundles/import (#164) and /org/import.
-	{
-		tmplAdmin := r.Group("", middleware.AdminAuth(db.DB))
-		tmplAdmin.POST("/templates/import", tmplh.Import)
-	}
+	// POST /templates/import moved to admin router (fix/issue-684).
+	// Served on ADMIN_PORT (default :8081), not published to host.
 	wsAuth.GET("/shared-context", tmplh.SharedContext)
 	wsAuth.PUT("/files", tmplh.ReplaceFiles)
 	wsAuth.GET("/files", tmplh.ListFiles)
@@ -404,38 +333,15 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// unpack locally instead of going through Docker exec.
 	wsAuth.GET("/plugins/:name/download", plgh.Download)
 
-	// Bundles — #164 + #165: both gated behind AdminAuth.
-	//   POST /bundles/import — CRITICAL: anon creation of arbitrary workspaces
-	//                          with user-supplied config (system prompts,
-	//                          plugins, secrets envelope). #164.
-	//   GET /bundles/export/:id — HIGH: full system prompts + memory for any
-	//                             workspace by UUID probe. #165.
-	bh := handlers.NewBundleHandler(broadcaster, prov, platformURL, configsDir, dockerCli)
-	{
-		bundleAdmin := r.Group("", middleware.AdminAuth(db.DB))
-		bundleAdmin.GET("/bundles/export/:id", bh.Export)
-		bundleAdmin.POST("/bundles/import", bh.Import)
-	}
+	// Bundles, org/import, and org plugin allowlist moved to admin router
+	// (fix/issue-684-admin-network-isolation). Served on ADMIN_PORT (default :8081).
+	// Paths: /bundles/export/:id, /bundles/import, /org/import,
+	//        /orgs/:id/plugins/allowlist.
 
-	// Org Templates
+	// Org Templates (open read — stays on public router)
 	orgDir := findOrgDir(configsDir)
 	orgh := handlers.NewOrgHandler(wh, broadcaster, prov, channelMgr, configsDir, orgDir)
 	r.GET("/org/templates", orgh.ListTemplates)
-	// /org/import can create arbitrary workspaces from an uploaded YAML — it
-	// must be an admin-gated route. The handler also path-sanitizes
-	// `dir`/`template`/`files_dir` via resolveInsideRoot, but defence-in-
-	// depth keeps the route behind AdminAuth regardless.
-	r.POST("/org/import", middleware.AdminAuth(db.DB), orgh.Import)
-
-	// Org plugin allowlist — tool governance (#591).
-	// Both endpoints are admin-gated: reading the allowlist reveals approved
-	// tooling policy; writing it enforces org-level install governance.
-	{
-		allowlistAdmin := r.Group("", middleware.AdminAuth(db.DB))
-		aplh := handlers.NewOrgPluginAllowlistHandler()
-		allowlistAdmin.GET("/orgs/:id/plugins/allowlist", aplh.GetAllowlist)
-		allowlistAdmin.PUT("/orgs/:id/plugins/allowlist", aplh.PutAllowlist)
-	}
 
 	// Channels (social integrations — Telegram, Slack, Discord, etc.)
 	chh := handlers.NewChannelHandler(channelMgr)
@@ -446,13 +352,8 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	wsAuth.DELETE("/channels/:channelId", chh.Delete)
 	wsAuth.POST("/channels/:channelId/send", chh.Send)
 	wsAuth.POST("/channels/:channelId/test", chh.Test)
-	// #250: /channels/discover is an admin-setup helper (takes a bot
-	// token, asks the vendor "what chats is this token a member of?").
-	// Leaving it unauthenticated turned it into a bot-token oracle plus
-	// a drive-by deleteWebhook side effect against any valid token an
-	// attacker could probe. AdminAuth matches the intent — it's a
-	// platform-operator helper, not a per-workspace route.
-	r.POST("/channels/discover", middleware.AdminAuth(db.DB), chh.Discover)
+	// POST /channels/discover moved to admin router (fix/issue-684).
+	// Served on ADMIN_PORT (default :8081), not published to host.
 	r.POST("/webhooks/:type", chh.Webhook)
 
 	// SSE — AG-UI compatible event stream per workspace (#590).
@@ -475,6 +376,142 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	if canvasURL := os.Getenv("CANVAS_PROXY_URL"); canvasURL != "" {
 		canvasProxy := newCanvasProxy(canvasURL)
 		r.NoRoute(canvasProxy)
+	}
+
+	return r
+}
+
+// SetupAdmin returns an HTTP router that serves ONLY admin-gated routes.
+//
+// Defence-in-depth for issue #684: this router must be served on a separate
+// port (ADMIN_PORT, default 8081) that is intentionally NOT published to the
+// host in docker-compose.yml. Workspace containers receive PLATFORM_URL
+// pointing to the public port and therefore cannot reach these routes even if
+// AdminAuth middleware has a regression. External callers (internet-facing
+// traffic) are also blocked because the Docker port mapping omits this port.
+//
+// Within molecule-monorepo-net, containers that know the admin port can still
+// reach it — full network-policy isolation (iptables) is a future hardening
+// step. This implementation closes the primary attack surface: host-exposed
+// admin access and workspace-agent lateral movement via PLATFORM_URL.
+func SetupAdmin(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provisioner, platformURL, configsDir string, wh *handlers.WorkspaceHandler, channelMgr *channels.Manager) *gin.Engine {
+	r := gin.Default()
+
+	if err := r.SetTrustedProxies(nil); err != nil {
+		panic("admin router: SetTrustedProxies: " + err.Error())
+	}
+
+	// Tenant isolation — same guard as public router
+	r.Use(middleware.TenantGuard())
+	r.Use(middleware.SecurityHeaders())
+
+	// Docker client (needed by bundle + templates import handlers)
+	var dockerCli *client.Client
+	if prov != nil {
+		dockerCli = prov.DockerClient()
+	}
+
+	// /admin/liveness — per-subsystem last-tick timestamps (issue #166 / #85).
+	// Ops-intel leak in production (scheduler tick cadence reveals fleet size +
+	// work pattern). AdminAuth-gated and now also network-isolated on admin port.
+	r.GET("/admin/liveness", middleware.AdminAuth(db.DB), func(c *gin.Context) {
+		snap := supervised.Snapshot()
+		out := make(map[string]interface{}, len(snap))
+		now := time.Now()
+		for name, last := range snap {
+			out[name] = gin.H{
+				"last_tick_at": last,
+				"seconds_ago":  int(now.Sub(last).Seconds()),
+			}
+		}
+		c.JSON(200, gin.H{"subsystems": out})
+	})
+
+	// C1 + C20: workspace list and life-cycle mutations (issue #684 network isolation).
+	{
+		wsAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		wsAdmin.GET("/workspaces", wh.List)
+		wsAdmin.POST("/workspaces", wh.Create)
+		wsAdmin.DELETE("/workspaces/:id", wh.Delete)
+	}
+
+	// Cross-workspace pending approvals — admin enumeration (issue #180).
+	apph := handlers.NewApprovalsHandler(broadcaster)
+	r.GET("/approvals/pending", middleware.AdminAuth(db.DB), apph.ListAll)
+
+	// Events — raw event log leaks org topology (issue #165).
+	eh := handlers.NewEventsHandler()
+	{
+		eventsAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		eventsAdmin.GET("/events", eh.List)
+		eventsAdmin.GET("/events/:workspaceId", eh.ListByWorkspace)
+	}
+
+	// Budget — admin-only spend ceiling modification (issue #541).
+	// Workspace agents must not be able to self-clear their spending ceiling.
+	budgeth := handlers.NewBudgetHandler()
+	r.PATCH("/workspaces/:id/budget", middleware.AdminAuth(db.DB), budgeth.PatchBudget)
+
+	// Global secrets — canonical path /settings/secrets; /admin/secrets for backward compat.
+	{
+		adminAuth := r.Group("", middleware.AdminAuth(db.DB))
+		sechGlobal := handlers.NewSecretsHandler(wh.RestartByID)
+		adminAuth.GET("/settings/secrets", sechGlobal.ListGlobal)
+		adminAuth.PUT("/settings/secrets", sechGlobal.SetGlobal)
+		adminAuth.POST("/settings/secrets", sechGlobal.SetGlobal)
+		adminAuth.DELETE("/settings/secrets/:key", sechGlobal.DeleteGlobal)
+		adminAuth.GET("/admin/secrets", sechGlobal.ListGlobal)
+		adminAuth.POST("/admin/secrets", sechGlobal.SetGlobal)
+		adminAuth.DELETE("/admin/secrets/:key", sechGlobal.DeleteGlobal)
+	}
+
+	// Admin — test token minting (issue #6).
+	// AdminAuth is fail-open on fresh install (HasAnyLiveTokenGlobal == 0).
+	{
+		tokh := handlers.NewAdminTestTokenHandler()
+		r.GET("/admin/workspaces/:id/test-token", middleware.AdminAuth(db.DB), tokh.GetTestToken)
+	}
+
+	// Admin — GitHub App installation token refresh (issue #547).
+	{
+		ghTokH := handlers.NewGitHubTokenHandler(wh.TokenRegistry())
+		r.GET("/admin/github-installation-token", middleware.AdminAuth(db.DB), ghTokH.GetInstallationToken)
+	}
+
+	// Templates import — writes arbitrary files into configsDir (issue #190).
+	{
+		tmplh := handlers.NewTemplatesHandler(configsDir, dockerCli)
+		tmplAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		tmplAdmin.POST("/templates/import", tmplh.Import)
+	}
+
+	// Bundles — CRITICAL: arbitrary workspace creation + full config export (issues #164, #165).
+	bh := handlers.NewBundleHandler(broadcaster, prov, platformURL, configsDir, dockerCli)
+	{
+		bundleAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		bundleAdmin.GET("/bundles/export/:id", bh.Export)
+		bundleAdmin.POST("/bundles/import", bh.Import)
+	}
+
+	// Org import — creates workspaces from uploaded YAML (path-sanitized via resolveInsideRoot).
+	{
+		orgDir := findOrgDir(configsDir)
+		orgh := handlers.NewOrgHandler(wh, broadcaster, prov, channelMgr, configsDir, orgDir)
+		r.POST("/org/import", middleware.AdminAuth(db.DB), orgh.Import)
+	}
+
+	// Org plugin allowlist — tool governance policy (issue #591).
+	{
+		allowlistAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		aplh := handlers.NewOrgPluginAllowlistHandler()
+		allowlistAdmin.GET("/orgs/:id/plugins/allowlist", aplh.GetAllowlist)
+		allowlistAdmin.PUT("/orgs/:id/plugins/allowlist", aplh.PutAllowlist)
+	}
+
+	// Channels discover — bot-token oracle + webhook discovery (issue #250).
+	{
+		chh := handlers.NewChannelHandler(channelMgr)
+		r.POST("/channels/discover", middleware.AdminAuth(db.DB), chh.Discover)
 	}
 
 	return r

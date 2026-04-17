@@ -122,6 +122,12 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-dev}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-molecule}?sslmode=disable
       REDIS_URL: redis://redis:6379
       PORT: "${PLATFORM_PORT:-8080}"
+      # ADMIN_PORT: internal-only port for admin routes (fix/issue-684-admin-network-isolation).
+      # Intentionally NOT included in the `ports:` mapping below — the port is
+      # reachable only within molecule-monorepo-net, not from the host interface.
+      # Workspace containers use PLATFORM_URL (→ public port) and therefore cannot
+      # reach admin endpoints even if AdminAuth middleware has a regression.
+      ADMIN_PORT: "${ADMIN_PORT:-8081}"
       PLATFORM_URL: "http://platform:${PLATFORM_PORT:-8080}"
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:${CANVAS_PUBLISH_PORT:-3000},http://127.0.0.1:${CANVAS_PUBLISH_PORT:-3000},http://localhost:3001}
       RATE_LIMIT: "${RATE_LIMIT:-1000}"
