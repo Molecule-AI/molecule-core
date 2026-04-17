@@ -390,6 +390,16 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// depth keeps the route behind AdminAuth regardless.
 	r.POST("/org/import", middleware.AdminAuth(db.DB), orgh.Import)
 
+	// Org plugin allowlist — tool governance (#591).
+	// Both endpoints are admin-gated: reading the allowlist reveals approved
+	// tooling policy; writing it enforces org-level install governance.
+	{
+		allowlistAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		aplh := handlers.NewOrgPluginAllowlistHandler()
+		allowlistAdmin.GET("/orgs/:id/plugins/allowlist", aplh.GetAllowlist)
+		allowlistAdmin.PUT("/orgs/:id/plugins/allowlist", aplh.PutAllowlist)
+	}
+
 	// Channels (social integrations — Telegram, Slack, Discord, etc.)
 	chh := handlers.NewChannelHandler(channelMgr)
 	r.GET("/channels/adapters", chh.ListAdapters)
