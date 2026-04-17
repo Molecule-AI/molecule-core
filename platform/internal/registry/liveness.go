@@ -41,10 +41,10 @@ func StartLivenessMonitor(ctx context.Context, onOffline OfflineHandler) {
 
 			log.Printf("Liveness: workspace %s TTL expired", workspaceID)
 
-			// Mark offline in Postgres — skip paused workspaces (they have no container)
+			// Mark offline in Postgres — skip paused and hibernated workspaces (no active container)
 			_, err := db.DB.ExecContext(ctx, `
 				UPDATE workspaces SET status = 'offline', updated_at = now()
-				WHERE id = $1 AND status NOT IN ('removed', 'paused')
+				WHERE id = $1 AND status NOT IN ('removed', 'paused', 'hibernated')
 			`, workspaceID)
 			if err != nil {
 				log.Printf("Liveness: failed to mark %s offline: %v", workspaceID, err)

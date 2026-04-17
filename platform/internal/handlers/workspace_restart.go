@@ -181,6 +181,68 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "provisioning", "config_dir": configLabel, "reset_session": resetClaudeSession})
 }
 
+// Hibernate handles POST /workspaces/:id/hibernate
+// Manually puts a running workspace into hibernation — useful for immediate
+// cost savings without waiting for the idle timer. The workspace auto-wakes
+// on the next incoming A2A message/send.
+func (h *WorkspaceHandler) Hibernate(c *gin.Context) {
+	id := c.Param("id")
+	ctx := c.Request.Context()
+
+	var wsName string
+	var tier int
+	err := db.DB.QueryRowContext(ctx,
+		`SELECT name, tier FROM workspaces WHERE id = $1 AND status IN ('online', 'degraded')`, id,
+	).Scan(&wsName, &tier)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found or not in a hibernatable state (must be online or degraded)"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "lookup failed"})
+		return
+	}
+
+	h.HibernateWorkspace(ctx, id)
+	c.JSON(http.StatusOK, gin.H{"status": "hibernated"})
+}
+
+// HibernateWorkspace stops the container and sets the workspace status to
+// 'hibernated'. Called by the hibernation monitor when a workspace has had
+// active_tasks == 0 for longer than its configured hibernation_idle_minutes.
+// Hibernated workspaces auto-wake on the next incoming A2A message.
+func (h *WorkspaceHandler) HibernateWorkspace(ctx context.Context, workspaceID string) {
+	var wsName string
+	var tier int
+	err := db.DB.QueryRowContext(ctx,
+		`SELECT name, tier FROM workspaces WHERE id = $1 AND status IN ('online', 'degraded')`, workspaceID,
+	).Scan(&wsName, &tier)
+	if err != nil {
+		// Already changed state (paused, removed, etc.) — nothing to do.
+		return
+	}
+
+	log.Printf("Hibernate: stopping container for %s (%s)", wsName, workspaceID)
+	if h.provisioner != nil {
+		h.provisioner.Stop(ctx, workspaceID)
+	}
+
+	_, err = db.DB.ExecContext(ctx,
+		`UPDATE workspaces SET status = 'hibernated', url = '', updated_at = now() WHERE id = $1 AND status IN ('online', 'degraded')`,
+		workspaceID)
+	if err != nil {
+		log.Printf("Hibernate: failed to update status for %s: %v", workspaceID, err)
+		return
+	}
+
+	db.ClearWorkspaceKeys(ctx, workspaceID)
+	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_HIBERNATED", workspaceID, map[string]interface{}{
+		"name": wsName,
+		"tier": tier,
+	})
+	log.Printf("Hibernate: workspace %s (%s) is now hibernated", wsName, workspaceID)
+}
+
 // RestartByID restarts a workspace by ID — for programmatic use (e.g., auto-restart after secret change).
 func (h *WorkspaceHandler) RestartByID(workspaceID string) {
 	if h.provisioner == nil {
@@ -201,10 +263,10 @@ func (h *WorkspaceHandler) RestartByID(workspaceID string) {
 	var wsName, status, dbRuntime string
 	var tier int
 	err := db.DB.QueryRowContext(ctx,
-		`SELECT name, status, tier, COALESCE(runtime, 'langgraph') FROM workspaces WHERE id = $1 AND status NOT IN ('removed', 'paused')`, workspaceID,
+		`SELECT name, status, tier, COALESCE(runtime, 'langgraph') FROM workspaces WHERE id = $1 AND status NOT IN ('removed', 'paused', 'hibernated')`, workspaceID,
 	).Scan(&wsName, &status, &tier, &dbRuntime)
 	if err != nil {
-		return // includes paused — don't auto-restart paused workspaces
+		return // includes paused/hibernated — don't auto-restart those
 	}
 
 	// Don't auto-restart external workspaces (no Docker container)

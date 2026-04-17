@@ -377,6 +377,51 @@ func TestRepairNullNextRunAt_DBError_NoPanic(t *testing.T) {
 	}
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// repairNullNextRunAt + hibernation (#711 + #722 integration)
+// ──────────────────────────────────────────────────────────────────────────────
+
+// TestRepairNullNextRunAt_HibernatedWorkspace_ScheduleRepaired verifies that
+// repairNullNextRunAt() repairs schedules belonging to hibernated workspaces.
+//
+// Context: the repair query is:
+//
+//	SELECT id, cron_expr, timezone
+//	FROM workspace_schedules
+//	WHERE enabled = true AND next_run_at IS NULL
+//
+// Critically, there is NO "AND workspace.status != 'hibernated'" filter.
+// This is intentional — a hibernated workspace should wake up on schedule
+// (via the auto-wake A2A path). If the repair skipped hibernated workspaces,
+// any schedule whose next_run_at was NULL'd before hibernation would never
+// fire again even after the workspace wakes.
+//
+// This test simulates a schedule with a NULL next_run_at whose owning workspace
+// is currently hibernated, and asserts the UPDATE fires to set next_run_at.
+func TestRepairNullNextRunAt_HibernatedWorkspace_ScheduleRepaired(t *testing.T) {
+	mock := setupTestDB(t)
+
+	// The repair SELECT has no workspace status filter — a hibernated workspace's
+	// schedule appears in the result set normally.
+	mock.ExpectQuery(`SELECT id, cron_expr, timezone`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "cron_expr", "timezone"}).
+			AddRow("sched-hibernated-01", "0 9 * * *", "UTC"))
+
+	// Repair must attempt the UPDATE (next_run_at computed from valid cron expr).
+	mock.ExpectExec(`UPDATE workspace_schedules`).
+		WithArgs("sched-hibernated-01", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s := New(nil, nil)
+	s.repairNullNextRunAt(context.Background())
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet DB expectations: %v\n"+
+			"repairNullNextRunAt must not filter out hibernated workspaces — "+
+			"their schedules must still be repaired so they fire on wake", err)
+	}
+}
+
 // ── TestRecordSkipped_shortWorkspaceIDNoPanic ─────────────────────────────────
 // Guards against the short() regression: recordSkipped must not panic if
 // WorkspaceID is unexpectedly shorter than the 12-char prefix used in logs.
