@@ -1237,3 +1237,81 @@ func TestLogA2ASuccess_ErrorStatus(t *testing.T) {
 	handler.logA2ASuccess(context.Background(), "ws-err", "ws-caller", []byte(`{}`), []byte(`{}`), "message/send", 500, 10)
 	time.Sleep(80 * time.Millisecond)
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// A2A auto-wake: hibernated workspace (#711)
+// ──────────────────────────────────────────────────────────────────────────────
+
+// TestResolveAgentURL_HibernatedWorkspace_Returns503WithWaking verifies the
+// auto-wake path added in PR #724: when resolveAgentURL finds a workspace with
+// status='hibernated' and no URL, it must:
+//   - Return a proxyA2AError with Status 503
+//   - Set Retry-After: 15 in Headers
+//   - Include waking:true and retry_after:15 in the response body
+//
+// RestartByID fires asynchronously via `go h.RestartByID(workspaceID)`. Because
+// provisioner is nil in tests, RestartByID returns immediately without any DB
+// calls, so no additional mocks are needed.
+func TestResolveAgentURL_HibernatedWorkspace_Returns503WithWaking(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t) // empty Redis → GetCachedURL returns error → DB fallback
+
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	// DB fallback: workspace exists but has no URL and is hibernated.
+	mock.ExpectQuery(`SELECT url, status FROM workspaces WHERE id =`).
+		WithArgs("ws-hibernated").
+		WillReturnRows(sqlmock.NewRows([]string{"url", "status"}).AddRow("", "hibernated"))
+
+	_, perr := handler.resolveAgentURL(context.Background(), "ws-hibernated")
+
+	if perr == nil {
+		t.Fatal("expected proxyA2AError, got nil")
+	}
+	if perr.Status != http.StatusServiceUnavailable {
+		t.Errorf("expected status 503, got %d", perr.Status)
+	}
+	if perr.Headers["Retry-After"] != "15" {
+		t.Errorf("expected Retry-After: 15, got %q", perr.Headers["Retry-After"])
+	}
+
+	if perr.Response["waking"] != true {
+		t.Errorf("expected waking:true in body, got %v", perr.Response["waking"])
+	}
+	if perr.Response["retry_after"] != 15 {
+		t.Errorf("expected retry_after:15 in body, got %v", perr.Response["retry_after"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet DB expectations: %v", err)
+	}
+}
+
+// TestResolveAgentURL_HibernatedWorkspace_NullURLVariant verifies the same
+// auto-wake behaviour when the DB returns a SQL NULL for the url column
+// (rather than an empty string). Both forms represent "no URL assigned".
+func TestResolveAgentURL_HibernatedWorkspace_NullURLVariant(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectQuery(`SELECT url, status FROM workspaces WHERE id =`).
+		WithArgs("ws-hibernated-null").
+		WillReturnRows(sqlmock.NewRows([]string{"url", "status"}).AddRow(nil, "hibernated"))
+
+	_, perr := handler.resolveAgentURL(context.Background(), "ws-hibernated-null")
+
+	if perr == nil {
+		t.Fatal("expected proxyA2AError, got nil")
+	}
+	if perr.Status != http.StatusServiceUnavailable {
+		t.Errorf("expected status 503, got %d", perr.Status)
+	}
+	if perr.Headers["Retry-After"] != "15" {
+		t.Errorf("expected Retry-After: 15, got %q", perr.Headers["Retry-After"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet DB expectations: %v", err)
+	}
+}
