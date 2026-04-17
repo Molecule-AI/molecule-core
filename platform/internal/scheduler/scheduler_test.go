@@ -237,6 +237,68 @@ func TestRecordSkipped_writesSkippedStatus(t *testing.T) {
 	}
 }
 
+// ── TestRepairNullNextRunAt_repairsRows (#722 Bug 3) ─────────────────────────
+// repairNullNextRunAt must query enabled schedules with next_run_at IS NULL and
+// UPDATE them with a computed next_run_at. Without this, bad cron rows are
+// permanently silenced because tick() filters WHERE next_run_at IS NOT NULL.
+
+func TestRepairNullNextRunAt_repairsRows(t *testing.T) {
+	mock := setupTestDB(t)
+	s := New(nil, nil)
+
+	// One silenced schedule with a valid cron expression — repair should fire.
+	repairRows := sqlmock.NewRows([]string{"id", "cron_expr", "timezone"}).
+		AddRow("aaaaaaaa-0000-0000-0000-000000000001", "0 * * * *", "UTC")
+	mock.ExpectQuery(`SELECT id, cron_expr, timezone\s+FROM workspace_schedules\s+WHERE enabled = true AND next_run_at IS NULL`).
+		WillReturnRows(repairRows)
+	mock.ExpectExec(`UPDATE workspace_schedules SET next_run_at = \$2, updated_at = now\(\) WHERE id = \$1`).
+		WithArgs("aaaaaaaa-0000-0000-0000-000000000001", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s.repairNullNextRunAt(context.Background())
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestRepairNullNextRunAt_noRows — empty result set must not cause a panic or
+// unexpected DB call.
+
+func TestRepairNullNextRunAt_noRows(t *testing.T) {
+	mock := setupTestDB(t)
+	s := New(nil, nil)
+
+	mock.ExpectQuery(`SELECT id, cron_expr, timezone\s+FROM workspace_schedules\s+WHERE enabled = true AND next_run_at IS NULL`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "cron_expr", "timezone"}))
+
+	s.repairNullNextRunAt(context.Background())
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestRepairNullNextRunAt_badCronSkipped — a schedule whose cron expression is
+// unparseable must be skipped (no UPDATE attempted) and must not panic.
+
+func TestRepairNullNextRunAt_badCronSkipped(t *testing.T) {
+	mock := setupTestDB(t)
+	s := New(nil, nil)
+
+	repairRows := sqlmock.NewRows([]string{"id", "cron_expr", "timezone"}).
+		AddRow("bbbbbbbb-0000-0000-0000-000000000002", "not-a-cron", "UTC")
+	mock.ExpectQuery(`SELECT id, cron_expr, timezone\s+FROM workspace_schedules\s+WHERE enabled = true AND next_run_at IS NULL`).
+		WillReturnRows(repairRows)
+	// No ExpectExec — bad cron must not trigger an UPDATE.
+
+	s.repairNullNextRunAt(context.Background())
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 // ── TestRecordSkipped_shortWorkspaceIDNoPanic ─────────────────────────────────
 // Guards against the short() regression: recordSkipped must not panic if
 // WorkspaceID is unexpectedly shorter than the 12-char prefix used in logs.

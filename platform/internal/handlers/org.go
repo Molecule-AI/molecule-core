@@ -643,9 +643,18 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 			log.Printf("Org import: schedule '%s' on %s has empty prompt (neither prompt nor prompt_file set) — skipping insert", sched.Name, ws.Name)
 			continue
 		}
-		nextRun, _ := scheduler.ComputeNextRun(sched.CronExpr, tz, time.Now())
+		// #722: capture ComputeNextRun error; pass *time.Time (nil=NULL) so
+		// the driver writes NULL instead of zero-time (0001-01-01). The startup
+		// repair in scheduler.Start() will patch any NULL rows on next boot.
+		nextRun, nextRunErr := scheduler.ComputeNextRun(sched.CronExpr, tz, time.Now())
+		var nextRunPtr *time.Time
+		if nextRunErr != nil {
+			log.Printf("Org import: ComputeNextRun failed for schedule '%s' (expr=%q tz=%q): %v — next_run_at will be NULL (repaired at scheduler startup)", sched.Name, sched.CronExpr, tz, nextRunErr)
+		} else {
+			nextRunPtr = &nextRun
+		}
 		if _, err := db.DB.ExecContext(context.Background(), orgImportScheduleSQL,
-			id, sched.Name, sched.CronExpr, tz, prompt, enabled, nextRun); err != nil {
+			id, sched.Name, sched.CronExpr, tz, prompt, enabled, nextRunPtr); err != nil {
 			log.Printf("Org import: failed to upsert schedule '%s' for %s: %v", sched.Name, ws.Name, err)
 		} else {
 			log.Printf("Org import: schedule '%s' (%s, %d chars) upserted for %s (source=template)", sched.Name, sched.CronExpr, len(prompt), ws.Name)

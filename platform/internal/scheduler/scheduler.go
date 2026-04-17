@@ -87,6 +87,51 @@ func (s *Scheduler) Healthy() bool {
 	return time.Since(t) < 2*pollInterval
 }
 
+// repairNullNextRunAt patches enabled schedules whose next_run_at is NULL.
+// This can happen when a previous ComputeNextRun call failed at fire-time or
+// import-time and the protective COALESCE wasn't in place (issue #722 Bug 3).
+// Called once at startup, before the first tick, so affected schedules are
+// never permanently silenced — the poll loop would skip them forever because
+// tick() filters WHERE next_run_at IS NOT NULL.
+func (s *Scheduler) repairNullNextRunAt(ctx context.Context) {
+	rows, err := db.DB.QueryContext(ctx, `
+		SELECT id, cron_expr, timezone
+		FROM workspace_schedules
+		WHERE enabled = true AND next_run_at IS NULL
+	`)
+	if err != nil {
+		log.Printf("Scheduler: repairNullNextRunAt: query error: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	repaired := 0
+	for rows.Next() {
+		var id, cronExpr, tz string
+		if err := rows.Scan(&id, &cronExpr, &tz); err != nil {
+			log.Printf("Scheduler: repairNullNextRunAt: scan error: %v", err)
+			continue
+		}
+		nextRun, nextErr := ComputeNextRun(cronExpr, tz, time.Now())
+		if nextErr != nil {
+			log.Printf("Scheduler: repairNullNextRunAt: ComputeNextRun failed for %s (expr=%q tz=%q): %v — leaving NULL", short(id, 12), cronExpr, tz, nextErr)
+			continue
+		}
+		if _, err := db.DB.ExecContext(ctx,
+			`UPDATE workspace_schedules SET next_run_at = $2, updated_at = now() WHERE id = $1`,
+			id, nextRun,
+		); err != nil {
+			log.Printf("Scheduler: repairNullNextRunAt: update error for %s: %v", short(id, 12), err)
+			continue
+		}
+		repaired++
+		log.Printf("Scheduler: repairNullNextRunAt: repaired %s → next_run_at=%s", short(id, 12), nextRun.Format(time.RFC3339))
+	}
+	if repaired > 0 {
+		log.Printf("Scheduler: repairNullNextRunAt: repaired %d schedule(s)", repaired)
+	}
+}
+
 // Start runs the scheduler poll loop. Blocks until ctx is cancelled.
 //
 // Defends against panics inside tick() so a single bad row / bad cron
@@ -97,6 +142,9 @@ func (s *Scheduler) Healthy() bool {
 func (s *Scheduler) Start(ctx context.Context) {
 	ticker := time.NewTicker(s.tickInterval)
 	defer ticker.Stop()
+
+	// Repair any schedules silenced by a prior ComputeNextRun failure (#722).
+	s.repairNullNextRunAt(ctx)
 
 	log.Printf("Scheduler: started (poll interval=%s)", s.tickInterval)
 
@@ -279,12 +327,17 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 	var nextRunPtr *time.Time
 	if nextErr == nil {
 		nextRunPtr = &nextRun
+	} else {
+		// #722 Bug 1: log the failure so it's not silent; COALESCE below
+		// preserves the existing next_run_at rather than writing NULL.
+		log.Printf("Scheduler: ComputeNextRun failed for '%s' (expr=%q tz=%q): %v — preserving existing next_run_at",
+			sched.Name, sched.CronExpr, sched.Timezone, nextErr)
 	}
 
 	_, err := db.DB.ExecContext(ctx, `
 		UPDATE workspace_schedules
 		SET last_run_at = now(),
-		    next_run_at = $2,
+		    next_run_at = COALESCE($2, next_run_at),
 		    run_count = run_count + 1,
 		    last_status = $3,
 		    last_error = $4,
@@ -334,15 +387,22 @@ func (s *Scheduler) recordSkipped(ctx context.Context, sched scheduleRow, active
 	var nextRunPtr *time.Time
 	if nextErr == nil {
 		nextRunPtr = &nextRun
+	} else {
+		// #722 Bug 2: same guard as fireSchedule — log and preserve existing
+		// next_run_at via COALESCE rather than silencing the schedule with NULL.
+		log.Printf("Scheduler: ComputeNextRun failed in recordSkipped for '%s' (expr=%q tz=%q): %v — preserving existing next_run_at",
+			sched.Name, sched.CronExpr, sched.Timezone, nextErr)
 	}
 
 	// Advance next_run_at + bump run_count so the liveness view reflects
 	// that we're still ticking. last_status='skipped', last_error carries
 	// the reason for operators debugging via the schedule history API.
+	// COALESCE($2, next_run_at): if ComputeNextRun failed, preserve the
+	// existing next_run_at rather than writing NULL (#722).
 	_, _ = db.DB.ExecContext(ctx, `
 		UPDATE workspace_schedules
 		SET last_run_at = now(),
-		    next_run_at = $2,
+		    next_run_at = COALESCE($2, next_run_at),
 		    run_count = run_count + 1,
 		    last_status = 'skipped',
 		    last_error = $3,
