@@ -2819,7 +2819,7 @@ langgraph/crewai adapters.
 
 **Signals to react to:** ACP adopted by a major enterprise vendor (SAP, Salesforce, IBM Watson) → Molecule needs ACP bridge. ACP merges with A2A under AAIF → de-duplication milestone. GitHub Copilot CLI ships ACP support (already in preview Jan 2026) → ACP is a GitHub-distribution channel.
 
-**Last reviewed:** 2026-04-17 · **Stars / activity:** early-stage, Apache-2.0, IBM BeeAI, Python+TS SDKs
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ⚠️ ARCHIVED Aug 27, 2025 — IBM contributed to AAIF/A2A working group; no active development. A2A won the protocol consolidation. No action needed.
 
 ---
 
