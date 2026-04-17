@@ -253,7 +253,7 @@ func TestWorkspaceCreate(t *testing.T) {
 
 	// Expect workspace INSERT (uuid is dynamic, use AnyArg for id, runtime, awareness_namespace)
 	mock.ExpectExec("INSERT INTO workspaces").
-		WithArgs(sqlmock.AnyArg(), "Test Agent", nil, 1, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none").
+		WithArgs(sqlmock.AnyArg(), "Test Agent", nil, 1, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// Expect transaction commit (no secrets in this payload)
@@ -340,12 +340,13 @@ func TestWorkspaceList(t *testing.T) {
 		"id", "name", "role", "tier", "status", "agent_card", "url",
 		"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
 		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
+		"budget_limit", "monthly_spend",
 	}
 	rows := sqlmock.NewRows(columns).
 		AddRow("ws-1", "Agent One", "worker", 1, "online", []byte("null"), "http://localhost:8001",
-			nil, 0, 0.0, "", 100, "", "claude-code", "", 10.0, 20.0, false).
+			nil, 0, 0.0, "", 100, "", "claude-code", "", 10.0, 20.0, false, nil, int64(0)).
 		AddRow("ws-2", "Agent Two", "manager", 2, "provisioning", []byte("null"), "",
-			nil, 0, 0.0, "", 0, "", "langgraph", "", 50.0, 60.0, false)
+			nil, 0, 0.0, "", 0, "", "langgraph", "", 50.0, 60.0, false, nil, int64(0))
 
 	mock.ExpectQuery("SELECT w.id, w.name").
 		WillReturnRows(rows)
@@ -1007,12 +1008,14 @@ func TestWorkspaceGet_CurrentTask(t *testing.T) {
 		"id", "name", "role", "tier", "status", "agent_card", "url",
 		"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
 		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
+		"budget_limit", "monthly_spend",
 	}
 	mock.ExpectQuery("SELECT w.id, w.name").
 		WithArgs("ws-task").
 		WillReturnRows(sqlmock.NewRows(columns).AddRow(
 			"ws-task", "Task Worker", "worker", 1, "online", []byte("null"), "http://localhost:9000",
 			nil, 2, 0.0, "", 300, "Analyzing document", "langgraph", "", 10.0, 20.0, false,
+			nil, int64(0),
 		))
 
 	w := httptest.NewRecorder()
