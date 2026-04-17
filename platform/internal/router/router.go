@@ -304,6 +304,17 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		r.GET("/admin/workspaces/:id/test-token", tokh.GetTestToken)
 	}
 
+	// Admin — GitHub App installation token refresh (issue #547).
+	// Long-running workspaces (>60 min) use this endpoint to refresh
+	// GH_TOKEN without restarting. Returns the current installation token
+	// from the github-app-auth plugin's in-process cache (which proactively
+	// refreshes 5 min before expiry). 404 when no GitHub App is configured
+	// (dev / self-hosted without GITHUB_APP_ID).
+	{
+		ghTokH := handlers.NewGitHubTokenHandler(wh.TokenRegistry())
+		r.GET("/admin/github-installation-token", middleware.AdminAuth(db.DB), ghTokH.GetInstallationToken)
+	}
+
 	// Terminal — shares Docker client with provisioner
 	var dockerCli *client.Client
 	if prov != nil {
