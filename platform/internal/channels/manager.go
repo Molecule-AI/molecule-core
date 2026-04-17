@@ -437,6 +437,41 @@ func (m *Manager) SendOutbound(ctx context.Context, channelID string, text strin
 	return nil
 }
 
+// BroadcastToWorkspaceChannels sends a message to ALL enabled channels
+// configured for a workspace. Used by the scheduler to auto-post cron
+// output summaries and by delegation handlers to post completion notices.
+//
+// Unlike SendOutbound (which targets a specific channel row by ID), this
+// fans out to every enabled channel for the workspace — so a single cron
+// completion posts to both #mol-engineering AND #mol-firehose if the
+// workspace has both configured via chat_id comma-separation.
+func (m *Manager) BroadcastToWorkspaceChannels(ctx context.Context, workspaceID, text string) {
+	if text == "" || db.DB == nil {
+		return
+	}
+	// Truncate to keep Slack messages digestible (rune-safe for CJK/emoji)
+	runes := []rune(text)
+	if len(runes) > 500 {
+		text = string(runes[:497]) + "..."
+	}
+	rows, err := db.DB.QueryContext(ctx, `
+		SELECT id FROM workspace_channels
+		WHERE workspace_id = $1 AND enabled = true
+	`, workspaceID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var channelID string
+		if rows.Scan(&channelID) == nil {
+			if sendErr := m.SendOutbound(ctx, channelID, text); sendErr != nil {
+				log.Printf("Channels: broadcast to %s failed: %v", channelID[:12], sendErr)
+			}
+		}
+	}
+}
+
 func splitChatIDs(raw string) []string {
 	var ids []string
 	for _, s := range strings.Split(raw, ",") {
