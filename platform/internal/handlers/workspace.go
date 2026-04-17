@@ -60,6 +60,14 @@ func (h *WorkspaceHandler) SetEnvMutators(r *provisionhook.Registry) {
 	h.envMutators = r
 }
 
+// TokenRegistry returns the provisionhook.Registry so the router can
+// wire the GET /admin/github-installation-token handler without coupling
+// to WorkspaceHandler's internals. Returns nil when no plugin has been
+// registered (dev / self-hosted deployments without a GitHub App).
+func (h *WorkspaceHandler) TokenRegistry() *provisionhook.Registry {
+	return h.envMutators
+}
+
 // Create handles POST /workspaces
 func (h *WorkspaceHandler) Create(c *gin.Context) {
 	var payload models.CreateWorkspacePayload
