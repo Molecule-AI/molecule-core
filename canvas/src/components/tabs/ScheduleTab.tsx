@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 import { api } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 
@@ -66,6 +66,11 @@ export function ScheduleTab({ workspaceId }: Props) {
   const [formEnabled, setFormEnabled] = useState(true);
   const [error, setError] = useState("");
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
+
+  // Stable IDs for label↔input associations (WCAG 1.3.1)
+  const cronId = useId();
+  const timezoneId = useId();
+  const promptId = useId();
 
   const fetchSchedules = useCallback(async () => {
     try {
@@ -198,6 +203,7 @@ export function ScheduleTab({ workspaceId }: Props) {
         <div className="p-3 border-b border-zinc-800/50 bg-zinc-900/50 space-y-2">
           <input
             type="text"
+            aria-label="Schedule name"
             placeholder="Schedule name (e.g., Daily security scan)"
             value={formName}
             onChange={(e) => setFormName(e.target.value)}
@@ -205,8 +211,9 @@ export function ScheduleTab({ workspaceId }: Props) {
           />
           <div className="flex gap-2">
             <div className="flex-1">
-              <label className="text-[10px] text-zinc-500 block mb-0.5">Cron Expression</label>
+              <label htmlFor={cronId} className="text-[10px] text-zinc-500 block mb-0.5">Cron Expression</label>
               <input
+                id={cronId}
                 type="text"
                 value={formCron}
                 onChange={(e) => setFormCron(e.target.value)}
@@ -217,8 +224,9 @@ export function ScheduleTab({ workspaceId }: Props) {
               </div>
             </div>
             <div className="w-24">
-              <label className="text-[10px] text-zinc-500 block mb-0.5">Timezone</label>
+              <label htmlFor={timezoneId} className="text-[10px] text-zinc-500 block mb-0.5">Timezone</label>
               <select
+                id={timezoneId}
                 value={formTimezone}
                 onChange={(e) => setFormTimezone(e.target.value)}
                 className="w-full text-[10px] bg-zinc-800 border border-zinc-700 rounded px-1 py-1 text-zinc-200"
@@ -237,8 +245,9 @@ export function ScheduleTab({ workspaceId }: Props) {
             </div>
           </div>
           <div>
-            <label className="text-[10px] text-zinc-500 block mb-0.5">Prompt / Task</label>
+            <label htmlFor={promptId} className="text-[10px] text-zinc-500 block mb-0.5">Prompt / Task</label>
             <textarea
+              id={promptId}
               value={formPrompt}
               onChange={(e) => setFormPrompt(e.target.value)}
               placeholder="What should the agent do on this schedule?"
