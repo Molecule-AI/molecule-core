@@ -16,7 +16,6 @@ Platforms that directly substitute for or significantly erode Molecule AI's mark
 
 | Competitor | Version | Stars | Threat Signal | Updated |
 |---|---|---|---|---|
-| [Paperclip](https://github.com/paperclipai/paperclip) | v2026.416.0 | 54.8k | v2026.416.0 (Apr 16) ships execution policies + chat threads for agents; "zero-human companies" org-hierarchy mirrors our PM→Dev→Eng model | 2026-04-17 |
 | [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) | v0.14.1 | 14k | v0.14.1 SandboxAgent beta — persistent isolated workspaces, snapshot/resume, sandbox memory; directly competes with our workspace lifecycle | 2026-04-17 |
 | [CrewAI](https://github.com/crewAIInc/crewAI) | v1.14.1 | 48k | 1.4B agentic automations, 60% Fortune 500 adoption, $18M Insight-led round; CrewAI Enterprise SaaS targeting our enterprise segment | 2026-04-17 |
 | [Google ADK](https://github.com/google/adk-python) | v1.30.0 | 19k | v1.30.0 adds Auth Provider registry; full Google agent stack (ADK + Gemini CLI + adk-web DevUI + Scion harness) = largest platform risk | 2026-04-17 |
@@ -30,6 +29,7 @@ Significant overlap in adjacent space; active watch required.
 
 | Competitor | Version | Stars | Notes | Updated |
 |---|---|---|---|---|
+| [Paperclip](https://github.com/paperclipai/paperclip) | v2026.416.0 | 54.8k | Downgraded HIGH→MEDIUM (deep-dive #571): no A2A, no visual canvas on roadmap; single-process task DAG only; brand/framing threat ("zero-human companies"), not a technical substitute. Only gap vs Molecule AI: per-workspace budget limits (#541). | 2026-04-17 |
 | [Dify](https://github.com/langgenius/dify) | v1.13.3 | 60k | v1.14.0 RC adds Human Input node; $30M Pre-A ($180M val); no-code positioning targets business users, not our developer audience | 2026-04-17 |
 | [LangGraph](https://github.com/langchain-ai/langgraph) | v1.1.6 | 29k | CLI v0.4.22 Apr 16; LangGraph Cloud hosted execution competes with our scheduler | 2026-04-17 |
 | [VoltAgent](https://github.com/VoltAgent/voltagent) | server-elysia@2.0.7 | 8.2k | VoltOps Console = closest Canvas analogue in TypeScript ecosystem | 2026-04-17 |
@@ -77,8 +77,8 @@ The following events would require immediate threat-level re-assessment:
 
 | Competitor | Watch Signal | Current Level | Escalates To |
 |---|---|---|---|
-| Paperclip | Ships persistent agent memory | HIGH | CRITICAL — 54.8k ⭐ head-start |
-| Paperclip | Ships visual org-chart canvas | HIGH | CRITICAL — direct Canvas competitor |
+| Paperclip | Ships persistent agent memory | MEDIUM | HIGH — 54.8k ⭐ head-start |
+| Paperclip | Ships visual org-chart canvas | MEDIUM | HIGH — direct Canvas competitor |
 | Scion | Google productizes as managed GCP service | MEDIUM | HIGH |
 | VoltAgent | VoltOps Console adds visual org-chart topology | MEDIUM | HIGH |
 | Google ADK | ADK + Vertex AI becomes hosted managed platform | HIGH | CRITICAL |
@@ -95,6 +95,7 @@ The following events would require immediate threat-level re-assessment:
 
 | Date | Competitor | Change |
 |---|---|---|
+| 2026-04-17 | **Paperclip** | Threat downgraded HIGH→MEDIUM (deep-dive #571): no A2A, no canvas, brand threat only |
 | 2026-04-17 | **Paperclip** | v2026.416.0 — execution policies + chat threads for agent transcripts |
 | 2026-04-17 | **Hermes Agent** | v0.10.0 — Tool Gateway (web search, image gen, TTS, browser automation) |
 | 2026-04-16 | **LangGraph CLI** | v0.4.22 — deploy source tracking |
