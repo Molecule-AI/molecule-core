@@ -75,14 +75,17 @@ func (h *AdminTestTokenHandler) GetTestToken(c *gin.Context) {
 		return
 	}
 
-	token, err := wsauth.IssueToken(c.Request.Context(), db.DB, workspaceID)
+	// #684: issue an admin token so E2E test scripts can reach AdminAuth-gated
+	// routes (/bundles/export, /events, /org/import, etc.). Workspace tokens
+	// (token_type='workspace') are now rejected by ValidateAnyToken.
+	token, err := wsauth.IssueAdminToken(c.Request.Context(), db.DB)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "token issue failed"})
 		return
 	}
 
 	// INFO log — never include the token itself.
-	log.Printf("admin: issued test token for workspace %s", workspaceID)
+	log.Printf("admin: issued test admin token (for workspace %s)", workspaceID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"auth_token":   token,
