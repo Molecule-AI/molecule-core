@@ -110,16 +110,6 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// without a token (used by WorkspaceNode polling and health checks).
 	r.GET("/workspaces/:id", wh.Get)
 
-	// PATCH /workspaces/:id — back on the open router per #138. Canvas
-	// drag-reposition uses session cookies not bearer tokens; gating the
-	// whole route behind AdminAuth broke drag-to-reposition and inline
-	// rename. Field-level authz lives inside WorkspaceHandler.Update:
-	//   - {x, y, canvas} only → passthrough (canvas position persist)
-	//   - name / role       → passthrough (inline rename)
-	//   - tier / parent_id / runtime / workspace_dir → require bearer token
-	// The #120 escalation vectors stay locked; only cosmetic fields are open.
-	r.PATCH("/workspaces/:id", wh.Update)
-
 	// C1 + C20: workspace list and life-cycle mutations gated behind AdminAuth.
 	// Fail-open when no tokens exist anywhere (fresh install / pre-Phase-30).
 	// Blocks:
@@ -142,6 +132,13 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// Legacy workspaces (no token) are grandfathered to allow rolling upgrades.
 	wsAuth := r.Group("/workspaces/:id", middleware.WorkspaceAuth(db.DB))
 	{
+		// #680: PATCH /workspaces/:id moved under WorkspaceAuth (#680 IDOR fix).
+		// WorkspaceAuth enforces that the caller holds a valid bearer token for
+		// this specific workspace — both auth AND ownership in one check. Cosmetic
+		// updates (x/y drag-reposition, inline rename) from the combined tenant
+		// image canvas still pass via the isSameOriginCanvas bypass in WorkspaceAuth.
+		wsAuth.PATCH("", wh.Update)
+
 		// Lifecycle
 		wsAuth.GET("/state", wh.State)
 		wsAuth.POST("/restart", wh.Restart)
