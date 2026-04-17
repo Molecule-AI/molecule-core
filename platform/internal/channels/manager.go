@@ -472,6 +472,58 @@ func (m *Manager) BroadcastToWorkspaceChannels(ctx context.Context, workspaceID,
 	}
 }
 
+// FetchWorkspaceChannelContext returns recent Slack channel messages formatted
+// as ambient context for cron prompts (Level 3).
+func (m *Manager) FetchWorkspaceChannelContext(ctx context.Context, workspaceID string) string {
+	if db.DB == nil {
+		return ""
+	}
+	rows, err := db.DB.QueryContext(ctx, `
+		SELECT channel_config FROM workspace_channels
+		WHERE workspace_id = $1 AND channel_type = 'slack' AND enabled = true
+		LIMIT 1
+	`, workspaceID)
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return ""
+	}
+	var configJSON []byte
+	if rows.Scan(&configJSON) != nil {
+		return ""
+	}
+	var config map[string]interface{}
+	json.Unmarshal(configJSON, &config)
+	if err := DecryptSensitiveFields(config); err != nil {
+		return ""
+	}
+	botToken, _ := config["bot_token"].(string)
+	channelID, _ := config["channel_id"].(string)
+	if botToken == "" || channelID == "" {
+		return ""
+	}
+	messages, err := FetchChannelHistory(ctx, botToken, channelID, 10)
+	if err != nil || len(messages) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("[Slack channel context — recent team messages]\n")
+	for _, msg := range messages {
+		name := msg.Username
+		if name == "" {
+			name = msg.User
+		}
+		text := msg.Text
+		if len(text) > 200 {
+			text = text[:197] + "..."
+		}
+		sb.WriteString(fmt.Sprintf("- %s: %s\n", name, text))
+	}
+	return sb.String()
+}
+
 func splitChatIDs(raw string) []string {
 	var ids []string
 	for _, s := range strings.Split(raw, ",") {
