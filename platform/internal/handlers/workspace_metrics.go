@@ -98,10 +98,32 @@ func todayUTC() time.Time {
 	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 }
 
+// maxTokensPerCall is the per-call sanity cap applied before upsert (#615).
+// An adversarial or buggy agent reporting INT64_MAX would otherwise cause a
+// NUMERIC(12,6) overflow in Postgres (silent failure, no cross-workspace
+// impact, but corrupts the workspace's cost accounting). 10 M tokens/call is
+// generous for any real LLM API response; anything above is clamped.
+const maxTokensPerCall = int64(10_000_000)
+
 // upsertTokenUsage accumulates input/output token counts for workspaceID's
 // current UTC day. Cost is estimated using the default per-token pricing
 // constants. Always call in a detached goroutine — never block the A2A path.
 func upsertTokenUsage(ctx context.Context, workspaceID string, inputTokens, outputTokens int64) {
+	// Clamp to safe range before any arithmetic — prevents NUMERIC overflow
+	// from adversarial or buggy agent responses (#615).
+	if inputTokens < 0 {
+		inputTokens = 0
+	}
+	if outputTokens < 0 {
+		outputTokens = 0
+	}
+	if inputTokens > maxTokensPerCall {
+		inputTokens = maxTokensPerCall
+	}
+	if outputTokens > maxTokensPerCall {
+		outputTokens = maxTokensPerCall
+	}
+
 	if inputTokens == 0 && outputTokens == 0 {
 		return
 	}
