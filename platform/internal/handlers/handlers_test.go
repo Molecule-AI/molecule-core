@@ -1011,16 +1011,16 @@ func TestWorkspaceGet_CurrentTask(t *testing.T) {
 		"budget_limit", "monthly_spend",
 	}
 	mock.ExpectQuery("SELECT w.id, w.name").
-		WithArgs("ws-task").
+		WithArgs("dddddddd-0004-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows(columns).AddRow(
-			"ws-task", "Task Worker", "worker", 1, "online", []byte("null"), "http://localhost:9000",
+			"dddddddd-0004-0000-0000-000000000000", "Task Worker", "worker", 1, "online", []byte("null"), "http://localhost:9000",
 			nil, 2, 0.0, "", 300, "Analyzing document", "langgraph", "", 10.0, 20.0, false,
 			nil, int64(0),
 		))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-task"}}
+	c.Params = gin.Params{{Key: "id", Value: "dddddddd-0004-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("GET", "/workspaces/ws-task", nil)
 
 	handler.Get(c)
