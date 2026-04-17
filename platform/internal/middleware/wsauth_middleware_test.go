@@ -1170,3 +1170,168 @@ func TestAdminAuth_684_FailOpen_AdminTokenSet_NoGlobalTokens(t *testing.T) {
 		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
 }
+
+// ── Issue #684 route-specific regression ─────────────────────────────────────
+// The tests above validate the core AdminAuth middleware contract. These
+// table-driven tests pin the same contract for the three specific routes named
+// in the #684 security report: /admin/liveness, /admin/github-installation-token,
+// and /approvals/pending. Coverage: workspace-token rejected, correct ADMIN_TOKEN
+// accepted, no-bearer rejected (with and without ADMIN_TOKEN configured).
+
+// TestAdminAuth_684_SpecificRoutes_WorkspaceTokenRejected — a workspace bearer
+// must be rejected on each vulnerable route when ADMIN_TOKEN is set (tier 2).
+// The workspace token value intentionally differs from ADMIN_TOKEN.
+func TestAdminAuth_684_SpecificRoutes_WorkspaceTokenRejected(t *testing.T) {
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/admin/liveness"},
+		{http.MethodGet, "/admin/github-installation-token"},
+		{http.MethodGet, "/approvals/pending"},
+	}
+
+	for _, rt := range routes {
+		rt := rt
+		t.Run(rt.path, func(t *testing.T) {
+			mockDB, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("sqlmock.New: %v", err)
+			}
+			defer mockDB.Close()
+
+			const adminSecret = "correct-admin-secret-not-a-workspace-token"
+			t.Setenv("ADMIN_TOKEN", adminSecret)
+
+			mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+			// With ADMIN_TOKEN set, ValidateAnyToken is never called — the env-var
+			// check short-circuits. No DB token lookup expectation is set here.
+
+			r := gin.New()
+			r.Handle(rt.method, rt.path, AdminAuth(mockDB), func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{"ok": true})
+			})
+
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(rt.method, rt.path, nil)
+			// Workspace-scoped token — valid for a workspace, but ≠ ADMIN_TOKEN.
+			req.Header.Set("Authorization", "Bearer workspace-agent-bearer-not-admin")
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusUnauthorized {
+				t.Errorf("#684 %s %s: workspace token should be rejected, got %d: %s",
+					rt.method, rt.path, w.Code, w.Body.String())
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unmet sqlmock expectations: %v", err)
+			}
+		})
+	}
+}
+
+// TestAdminAuth_684_SpecificRoutes_CorrectAdminTokenAccepted — the exact
+// ADMIN_TOKEN value must grant access on each vulnerable route. No DB token
+// lookup occurs — the env-var comparison is constant-time only.
+func TestAdminAuth_684_SpecificRoutes_CorrectAdminTokenAccepted(t *testing.T) {
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/admin/liveness"},
+		{http.MethodGet, "/admin/github-installation-token"},
+		{http.MethodGet, "/approvals/pending"},
+	}
+
+	for _, rt := range routes {
+		rt := rt
+		t.Run(rt.path, func(t *testing.T) {
+			mockDB, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("sqlmock.New: %v", err)
+			}
+			defer mockDB.Close()
+
+			const adminSecret = "correct-admin-secret-not-a-workspace-token"
+			t.Setenv("ADMIN_TOKEN", adminSecret)
+
+			mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+			// No DB token lookup — ADMIN_TOKEN match triggers c.Next() directly.
+
+			r := gin.New()
+			r.Handle(rt.method, rt.path, AdminAuth(mockDB), func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{"ok": true})
+			})
+
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(rt.method, rt.path, nil)
+			req.Header.Set("Authorization", "Bearer "+adminSecret)
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("#684 %s %s: correct ADMIN_TOKEN should pass, got %d: %s",
+					rt.method, rt.path, w.Code, w.Body.String())
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unmet sqlmock expectations: %v", err)
+			}
+		})
+	}
+}
+
+// TestAdminAuth_684_SpecificRoutes_NoBearer_Returns401 — no bearer returns
+// 401 on each vulnerable route, both with and without ADMIN_TOKEN set.
+func TestAdminAuth_684_SpecificRoutes_NoBearer_Returns401(t *testing.T) {
+	routes := []struct {
+		method     string
+		path       string
+		adminToken string // empty = ADMIN_TOKEN not configured (tier-3 fallback)
+	}{
+		// ADMIN_TOKEN configured — explicit rejection before any DB lookup.
+		{http.MethodGet, "/admin/liveness", "some-admin-secret"},
+		{http.MethodGet, "/admin/github-installation-token", "some-admin-secret"},
+		{http.MethodGet, "/approvals/pending", "some-admin-secret"},
+		// ADMIN_TOKEN absent — tier-3 fallback, still rejects missing bearer.
+		{http.MethodGet, "/admin/liveness", ""},
+		{http.MethodGet, "/admin/github-installation-token", ""},
+		{http.MethodGet, "/approvals/pending", ""},
+	}
+
+	for _, rt := range routes {
+		rt := rt
+		label := rt.path + "/ADMIN_TOKEN=" + rt.adminToken
+		t.Run(label, func(t *testing.T) {
+			mockDB, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("sqlmock.New: %v", err)
+			}
+			defer mockDB.Close()
+
+			t.Setenv("ADMIN_TOKEN", rt.adminToken)
+
+			mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+			r := gin.New()
+			r.Handle(rt.method, rt.path, AdminAuth(mockDB), func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{"ok": true})
+			})
+
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(rt.method, rt.path, nil)
+			// No Authorization header — must be rejected unconditionally.
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusUnauthorized {
+				t.Errorf("#684 no-bearer %s %s: expected 401, got %d: %s",
+					rt.method, rt.path, w.Code, w.Body.String())
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unmet sqlmock expectations: %v", err)
+			}
+		})
+	}
+}
