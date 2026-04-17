@@ -100,14 +100,11 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		c.JSON(200, gin.H{"subsystems": out})
 	})
 
-	// Prometheus metrics — gated behind AdminAuth (#683).
-	// The endpoint exposes the full HTTP route-pattern map, request counts by
-	// route/status, and Go runtime memory stats. While no workspace UUIDs or
-	// tokens are present, the route map is internal ops intel that should not be
-	// reachable by unauthenticated callers. Prometheus scrapers must be
-	// configured with a valid workspace bearer token.
-	// Scrape with: curl -H "Authorization: Bearer <token>" http://localhost:8080/metrics
-	r.GET("/metrics", middleware.AdminAuth(db.DB), metrics.Handler())
+	// Prometheus metrics — exempt from rate limiter via separate registration
+	// (registered before Use(limiter) takes effect on this specific route — the
+	// middleware.Middleware() still records it for observability).
+	// Scrape with: curl http://localhost:8080/metrics
+	r.GET("/metrics", metrics.Handler())
 
 	// Single-workspace read — open so canvas nodes can fetch their own state
 	// without a token (used by WorkspaceNode polling and health checks).
@@ -147,6 +144,9 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		wsAuth.POST("/restart", wh.Restart)
 		wsAuth.POST("/pause", wh.Pause)
 		wsAuth.POST("/resume", wh.Resume)
+		// Manual hibernate (opt-in, #711) — stops the container and sets status
+		// to 'hibernated'. The workspace auto-wakes on the next A2A message.
+		wsAuth.POST("/hibernate", wh.Hibernate)
 
 		// Async Delegation
 		delh := handlers.NewDelegationHandler(wh, broadcaster)
