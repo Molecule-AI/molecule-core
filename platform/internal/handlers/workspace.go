@@ -150,9 +150,9 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 
 	// Insert workspace with runtime persisted in DB (inside transaction)
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access)
-		VALUES ($1, $2, $3, $4, $5, $6, 'provisioning', $7, $8, $9)
-	`, id, payload.Name, role, payload.Tier, payload.Runtime, awarenessNamespace, payload.ParentID, workspaceDir, workspaceAccess)
+		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access, budget_limit)
+		VALUES ($1, $2, $3, $4, $5, $6, 'provisioning', $7, $8, $9, $10)
+	`, id, payload.Name, role, payload.Tier, payload.Runtime, awarenessNamespace, payload.ParentID, workspaceDir, workspaceAccess, payload.BudgetLimit)
 	if err != nil {
 		tx.Rollback() //nolint:errcheck
 		log.Printf("Create workspace error: %v", err)
@@ -293,10 +293,13 @@ func scanWorkspaceRow(rows interface {
 	var collapsed bool
 	var parentID *string
 	var agentCard []byte
+	var budgetLimit sql.NullInt64
+	var monthlySpend int64
 
 	err := rows.Scan(&id, &name, &role, &tier, &status, &agentCard, &url,
 		&parentID, &activeTasks, &errorRate, &sampleError, &uptimeSeconds,
-		&currentTask, &runtime, &workspaceDir, &x, &y, &collapsed)
+		&currentTask, &runtime, &workspaceDir, &x, &y, &collapsed,
+		&budgetLimit, &monthlySpend)
 	if err != nil {
 		return nil, err
 	}
@@ -315,9 +318,17 @@ func scanWorkspaceRow(rows interface {
 		"current_task":      currentTask,
 		"runtime":           runtime,
 		"workspace_dir":     nilIfEmpty(workspaceDir),
+		"monthly_spend":     monthlySpend,
 		"x":                 x,
 		"y":                 y,
 		"collapsed":         collapsed,
+	}
+
+	// budget_limit: nil when no limit set, int64 otherwise
+	if budgetLimit.Valid {
+		ws["budget_limit"] = budgetLimit.Int64
+	} else {
+		ws["budget_limit"] = nil
 	}
 
 	// Only include non-empty values
@@ -344,7 +355,8 @@ const workspaceListQuery = `
 		   COALESCE(w.last_sample_error, ''), w.uptime_seconds,
 		   COALESCE(w.current_task, ''), COALESCE(w.runtime, 'langgraph'),
 		   COALESCE(w.workspace_dir, ''),
-		   COALESCE(cl.x, 0), COALESCE(cl.y, 0), COALESCE(cl.collapsed, false)
+		   COALESCE(cl.x, 0), COALESCE(cl.y, 0), COALESCE(cl.collapsed, false),
+		   w.budget_limit, COALESCE(w.monthly_spend, 0)
 	FROM workspaces w
 	LEFT JOIN canvas_layouts cl ON cl.workspace_id = w.id
 	WHERE w.status != 'removed'
@@ -389,7 +401,8 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 			   COALESCE(w.last_sample_error, ''), w.uptime_seconds,
 			   COALESCE(w.current_task, ''), COALESCE(w.runtime, 'langgraph'),
 			   COALESCE(w.workspace_dir, ''),
-			   COALESCE(cl.x, 0), COALESCE(cl.y, 0), COALESCE(cl.collapsed, false)
+			   COALESCE(cl.x, 0), COALESCE(cl.y, 0), COALESCE(cl.collapsed, false),
+			   w.budget_limit, COALESCE(w.monthly_spend, 0)
 		FROM workspaces w
 		LEFT JOIN canvas_layouts cl ON cl.workspace_id = w.id
 		WHERE w.id = $1
@@ -405,6 +418,12 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
+
+	// Strip financial fields — GET /workspaces/:id is on the open router.
+	// Any caller with a valid UUID would otherwise read billing data.
+	// The dedicated budget/spend endpoints are AdminAuth-gated. (#611)
+	delete(ws, "budget_limit")
+	delete(ws, "monthly_spend")
 
 	c.JSON(http.StatusOK, ws)
 }
@@ -506,6 +525,10 @@ var sensitiveUpdateFields = map[string]struct{}{
 	"parent_id":     {},
 	"runtime":       {},
 	"workspace_dir": {},
+	// budget_limit is intentionally NOT here. The dedicated
+	// PATCH /workspaces/:id/budget (AdminAuth) is the only write path.
+	// Accepting it here — even behind ValidateAnyToken — lets workspace agents
+	// self-clear their own spending ceiling. (#611 Security Auditor finding)
 }
 
 // Update handles PATCH /workspaces/:id
@@ -603,6 +626,10 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 		}
 		needsRestart = true
 	}
+	// NOTE: budget_limit is intentionally NOT handled here. The dedicated
+	// PATCH /workspaces/:id/budget (AdminAuth) is the only write path.
+	// This endpoint uses ValidateAnyToken — any enrolled workspace bearer
+	// could otherwise self-clear its own spending ceiling. (#611 Security Auditor)
 
 	// Update canvas position if both x and y provided
 	if x, xOk := body["x"]; xOk {
