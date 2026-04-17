@@ -51,7 +51,7 @@ def _reset_ledger_caches(monkeypatch):
     """Reset module-level caches and force AUDIT_LEDGER_SALT for every test."""
     import molecule_audit.ledger as ledger
 
-    monkeypatch.setattr(ledger, "AUDIT_LEDGER_SALT", "test-salt-for-pytest")
+    monkeypatch.setenv("AUDIT_LEDGER_SALT", "test-salt-for-pytest")
     monkeypatch.setattr(ledger, "_hmac_key", None)
     monkeypatch.setattr(ledger, "_engine", None)
     monkeypatch.setattr(ledger, "_SessionFactory", None)
@@ -95,9 +95,6 @@ class TestGetHmacKey:
 
     def test_raises_when_salt_missing(self, monkeypatch):
         import molecule_audit.ledger as ledger
-        monkeypatch.setattr(ledger, "AUDIT_LEDGER_SALT", "")
-        monkeypatch.setenv("AUDIT_LEDGER_SALT", "")
-        # Remove from env so os.environ.get also returns ""
         monkeypatch.delenv("AUDIT_LEDGER_SALT", raising=False)
         ledger._hmac_key = None  # clear cache
 
@@ -118,7 +115,7 @@ class TestGetHmacKey:
         key1 = ledger._get_hmac_key()
 
         ledger.reset_hmac_key_cache()
-        monkeypatch.setattr(ledger, "AUDIT_LEDGER_SALT", "different-salt")
+        monkeypatch.setenv("AUDIT_LEDGER_SALT", "different-salt")
         key2 = ledger._get_hmac_key()
 
         assert key1 != key2
@@ -520,15 +517,14 @@ class TestLedgerHooks:
 
         assert hooks._session is None
 
-    def test_exception_in_append_is_swallowed(self, mem_session, caplog):
+    def test_exception_in_append_is_swallowed(self, mem_session, caplog, monkeypatch):
         """Audit failures must never raise — they log a WARNING instead."""
         import molecule_audit.ledger as ledger
         from molecule_audit.hooks import LedgerHooks
 
         # Make the key derivation raise so append_event will fail
         ledger.reset_hmac_key_cache()
-        original_salt = ledger.AUDIT_LEDGER_SALT
-        ledger.AUDIT_LEDGER_SALT = ""
+        monkeypatch.delenv("AUDIT_LEDGER_SALT", raising=False)
 
         hooks = LedgerHooks(session_id="s1", agent_id="ag1")
         hooks._session = mem_session
@@ -538,10 +534,6 @@ class TestLedgerHooks:
             hooks.on_task_start(input_text="test")
 
         assert any("failed to append event" in r.message for r in caplog.records)
-
-        # Restore
-        ledger.AUDIT_LEDGER_SALT = original_salt
-        ledger.reset_hmac_key_cache()
 
     def test_human_oversight_flag_default(self, mem_session):
         from molecule_audit.hooks import LedgerHooks
@@ -644,7 +636,6 @@ class TestVerifyCLI:
         from molecule_audit.verify import main
 
         ledger.reset_hmac_key_cache()
-        ledger.AUDIT_LEDGER_SALT = ""
         monkeypatch.delenv("AUDIT_LEDGER_SALT", raising=False)
 
         # Patch get_session_factory to raise RuntimeError (simulates SALT check)

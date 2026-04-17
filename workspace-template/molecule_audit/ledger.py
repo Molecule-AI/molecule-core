@@ -10,7 +10,7 @@ Key derivation:
         algorithm=SHA-256,
         password=AUDIT_LEDGER_SALT,      # from env — the shared secret
         salt=b"molecule-audit-ledger-v1", # fixed domain separator
-        iterations=100_000,
+        iterations=210_000,
         length=32,
     )
 
@@ -63,13 +63,10 @@ AUDIT_LEDGER_DB: str = os.environ.get(
     "AUDIT_LEDGER_DB", "/var/log/molecule/audit_ledger.db"
 )
 
-# Module-level mutable so tests can override before first key derivation.
-AUDIT_LEDGER_SALT: str = os.environ.get("AUDIT_LEDGER_SALT", "")
-
 # PBKDF2 parameters (must never change once events are written — all existing
 # HMACs become unverifiable if parameters change).
 _PBKDF2_SALT: bytes = b"molecule-audit-ledger-v1"  # fixed domain separator
-_PBKDF2_ITERATIONS: int = 100_000
+_PBKDF2_ITERATIONS: int = 210_000
 _PBKDF2_DKLEN: int = 32
 
 # Cached derived key (reset to None in tests when AUDIT_LEDGER_SALT changes).
@@ -83,11 +80,13 @@ _hmac_key: Optional[bytes] = None
 def _get_hmac_key() -> bytes:
     """Return (and cache) the 32-byte HMAC key derived from AUDIT_LEDGER_SALT.
 
-    Raises RuntimeError if AUDIT_LEDGER_SALT is not set.
+    Reads AUDIT_LEDGER_SALT exclusively from the environment — never from a
+    module-level attribute — so the secret is not exposed in the module
+    namespace.  Raises RuntimeError if the env var is not set.
     """
-    global _hmac_key, AUDIT_LEDGER_SALT
+    global _hmac_key
     if _hmac_key is None:
-        salt = AUDIT_LEDGER_SALT or os.environ.get("AUDIT_LEDGER_SALT", "")
+        salt = os.environ.get("AUDIT_LEDGER_SALT", "")
         if not salt:
             raise RuntimeError(
                 "AUDIT_LEDGER_SALT environment variable is required but not set. "
@@ -96,7 +95,6 @@ def _get_hmac_key() -> bytes:
                 "export AUDIT_LEDGER_SALT=$(python3 -c "
                 "\"import secrets; print(secrets.token_hex(32))\")"
             )
-        AUDIT_LEDGER_SALT = salt
         _hmac_key = hashlib.pbkdf2_hmac(
             "sha256",
             password=salt.encode("utf-8"),
@@ -108,7 +106,7 @@ def _get_hmac_key() -> bytes:
 
 
 def reset_hmac_key_cache() -> None:
-    """Reset the cached HMAC key — call after changing AUDIT_LEDGER_SALT in tests."""
+    """Reset the cached HMAC key — call after changing AUDIT_LEDGER_SALT env var in tests."""
     global _hmac_key
     _hmac_key = None
 
@@ -411,7 +409,7 @@ def verify_chain(agent_id: str, db_session: Session) -> bool:
     expected_prev: str | None = None
     for ev in events:
         expected_hmac = _compute_event_hmac(ev)
-        if ev.hmac != expected_hmac:
+        if not _hmac_mod.compare_digest(ev.hmac, expected_hmac):
             logger.warning(
                 "audit: HMAC mismatch at event %s (agent=%s): "
                 "stored=%r computed=%r",
@@ -421,7 +419,7 @@ def verify_chain(agent_id: str, db_session: Session) -> bool:
                 expected_hmac,
             )
             return False
-        if ev.prev_hmac != expected_prev:
+        if not _hmac_mod.compare_digest(ev.prev_hmac or "", expected_prev or ""):
             logger.warning(
                 "audit: chain break at event %s (agent=%s): "
                 "stored prev_hmac=%r expected=%r",

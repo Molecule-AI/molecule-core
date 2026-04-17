@@ -63,7 +63,7 @@ import (
 // pbkdf2 parameters — must match molecule_audit/ledger.py exactly.
 var (
 	auditPBKDF2Salt       = []byte("molecule-audit-ledger-v1")
-	auditPBKDF2Iterations = 100_000
+	auditPBKDF2Iterations = 210_000
 	auditPBKDF2KeyLen     = 32
 
 	auditKeyOnce sync.Once
@@ -213,7 +213,13 @@ func (h *AuditHandler) Query(c *gin.Context) {
 	}
 
 	// Chain verification (inline when AUDIT_LEDGER_SALT is set) ------------
-	chainValid := verifyAuditChain(events)
+	// Paginated views cannot verify chain integrity — earlier events are absent
+	// from the result set so any verdict would be misleading. Return null to
+	// signal "not computed" rather than false (which would imply tampering).
+	var chainValid *bool
+	if offset == 0 {
+		chainValid = verifyAuditChain(events)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"events":      events,
@@ -276,7 +282,7 @@ func verifyAuditChain(events []auditEventRow) *bool {
 
 		// Recompute the expected HMAC.
 		expected := computeAuditHMAC(key, ev)
-		if ev.HMAC != expected {
+		if !hmac.Equal([]byte(ev.HMAC), []byte(expected)) {
 			log.Printf(
 				"audit: HMAC mismatch at event %s (agent=%s): stored=%q computed=%q",
 				ev.ID, ev.AgentID, ev.HMAC[:12], expected[:12],
@@ -285,9 +291,9 @@ func verifyAuditChain(events []auditEventRow) *bool {
 			return &f
 		}
 
-		// Check chain linkage.
+		// Check chain linkage (constant-time to prevent HMAC oracle timing attacks).
 		prevMatches := (state.prevHMAC == nil && ev.PrevHMAC == nil) ||
-			(state.prevHMAC != nil && ev.PrevHMAC != nil && *state.prevHMAC == *ev.PrevHMAC)
+			(state.prevHMAC != nil && ev.PrevHMAC != nil && hmac.Equal([]byte(*state.prevHMAC), []byte(*ev.PrevHMAC)))
 		if !prevMatches {
 			log.Printf(
 				"audit: chain break at event %s (agent=%s)",

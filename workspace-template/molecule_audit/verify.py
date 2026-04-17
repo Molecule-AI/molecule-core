@@ -28,6 +28,7 @@ Example
 from __future__ import annotations
 
 import argparse
+import hmac as _hmac_mod
 import sys
 
 
@@ -105,14 +106,14 @@ def main(argv=None) -> None:
             expected_prev = None
             for ev in events:
                 expected_hmac = _compute_event_hmac(ev)
-                if ev.hmac != expected_hmac:
+                if not _hmac_mod.compare_digest(ev.hmac, expected_hmac):
                     print(
                         f"CHAIN BROKEN at event {ev.id} "
                         f"(HMAC mismatch: stored={ev.hmac[:12]}... "
                         f"computed={expected_hmac[:12]}...)"
                     )
                     sys.exit(1)
-                if ev.prev_hmac != expected_prev:
+                if not _hmac_mod.compare_digest(ev.prev_hmac or "", expected_prev or ""):
                     print(
                         f"CHAIN BROKEN at event {ev.id} "
                         f"(prev_hmac mismatch: stored={ev.prev_hmac} "
