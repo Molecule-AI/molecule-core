@@ -296,7 +296,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return (
     <div>
       <label htmlFor={fieldId} className="text-[10px] text-zinc-500 block mb-0.5">{label}</label>
-      {cloneElement(children as ReactElement, { id: fieldId })}
+      {cloneElement(children as ReactElement<{ id?: string }>, { id: fieldId })}
     </div>
   );
 }
