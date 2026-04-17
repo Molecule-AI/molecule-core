@@ -251,6 +251,12 @@ func (h *WorkspaceHandler) proxyA2ARequest(ctx context.Context, workspaceID stri
 	if logActivity {
 		h.logA2ASuccess(ctx, workspaceID, callerID, body, respBody, a2aMethod, resp.StatusCode, durationMs)
 	}
+
+	// Track LLM token usage for cost transparency (#593).
+	// Fires in a detached goroutine so token accounting never adds latency
+	// to the critical A2A path.
+	go extractAndUpsertTokenUsage(context.WithoutCancel(ctx), workspaceID, respBody)
+
 	return resp.StatusCode, respBody, nil
 }
 
@@ -577,3 +583,65 @@ func validateCallerToken(ctx context.Context, c *gin.Context, callerID string) e
 // token" branch so the handler-level guard can detect it without string
 // matching (the wsauth errors are typed for the invalid case).
 var errInvalidCallerToken = errors.New("missing caller auth token")
+
+// extractAndUpsertTokenUsage parses LLM usage from a raw A2A response body
+// and persists it via upsertTokenUsage. Safe to call in a goroutine — logs
+// errors but never panics. ctx must already be detached from the request.
+func extractAndUpsertTokenUsage(ctx context.Context, workspaceID string, respBody []byte) {
+	in, out := parseUsageFromA2AResponse(respBody)
+	if in > 0 || out > 0 {
+		upsertTokenUsage(ctx, workspaceID, in, out)
+	}
+}
+
+// parseUsageFromA2AResponse extracts input_tokens / output_tokens from an A2A
+// JSON-RPC response. Inspects two locations in order of preference:
+//  1. result.usage — the JSON-RPC 2.0 result envelope from workspace agents.
+//  2. usage — top-level, for non-JSON-RPC or direct Anthropic-shaped payloads.
+//
+// Returns (0, 0) when no recognisable usage data is found.
+func parseUsageFromA2AResponse(body []byte) (inputTokens, outputTokens int64) {
+	if len(body) == 0 {
+		return 0, 0
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(body, &top); err != nil {
+		return 0, 0
+	}
+
+	// 1. result.usage (JSON-RPC 2.0 wrapper produced by workspace agents).
+	if rawResult, ok := top["result"]; ok {
+		var result map[string]json.RawMessage
+		if err := json.Unmarshal(rawResult, &result); err == nil {
+			if in, out, ok := readUsageMap(result); ok {
+				return in, out
+			}
+		}
+	}
+
+	// 2. Fallback: top-level usage (direct Anthropic or non-JSON-RPC response).
+	if in, out, ok := readUsageMap(top); ok {
+		return in, out
+	}
+	return 0, 0
+}
+
+// readUsageMap extracts input_tokens / output_tokens from the "usage" key of m.
+// Returns (0, 0, false) when the key is absent or contains no non-zero values.
+func readUsageMap(m map[string]json.RawMessage) (inputTokens, outputTokens int64, ok bool) {
+	rawUsage, has := m["usage"]
+	if !has {
+		return 0, 0, false
+	}
+	var usage struct {
+		InputTokens  int64 `json:"input_tokens"`
+		OutputTokens int64 `json:"output_tokens"`
+	}
+	if err := json.Unmarshal(rawUsage, &usage); err != nil {
+		return 0, 0, false
+	}
+	if usage.InputTokens == 0 && usage.OutputTokens == 0 {
+		return 0, 0, false
+	}
+	return usage.InputTokens, usage.OutputTokens, true
+}
