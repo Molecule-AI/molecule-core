@@ -67,10 +67,17 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 // Same lazy-bootstrap contract as WorkspaceAuth: if no live token exists
 // anywhere on the platform (fresh install / pre-Phase-30 upgrade), requests
 // are let through so existing deployments keep working. Once any workspace
-// has a live token every request to these routes MUST present a valid one.
+// has a live token every request to these routes MUST present a valid bearer
+// token — no Origin-based bypass. (#623)
 //
 // Any valid workspace bearer token is accepted — the route is not scoped to
 // a specific workspace so we only verify the token is live and unrevoked.
+//
+// NOTE: canvasOriginAllowed / isSameOriginCanvas are intentionally NOT called
+// here.  The Origin header is trivially forgeable by any container on the
+// Docker network; using it as an auth bypass would let an attacker reach
+// /settings/secrets, /bundles/import, /events, etc. without a bearer token.
+// Those short-circuits belong ONLY in CanvasOrBearer (cosmetic routes).
 func AdminAuth(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
@@ -82,23 +89,13 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 		if hasLive {
-			// Bearer token path — agents, CLI, and API clients.
+			// Bearer token is the ONLY accepted credential for admin routes.
 			tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
 			if tok != "" {
 				if err := wsauth.ValidateAnyToken(ctx, database, tok); err != nil {
 					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
 					return
 				}
-				c.Next()
-				return
-			}
-			// Canvas origin path — cross-origin canvas (CORS_ORIGINS match).
-			if canvasOriginAllowed(c.GetHeader("Origin")) {
-				c.Next()
-				return
-			}
-			// Same-origin canvas path — tenant image where canvas + API share a host.
-			if isSameOriginCanvas(c) {
 				c.Next()
 				return
 			}

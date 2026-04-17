@@ -778,3 +778,116 @@ func TestCanvasOriginAllowed_LocalhostDefault(t *testing.T) {
 		t.Error("random origin should not be allowed")
 	}
 }
+
+// ── Issue #623 regression ─────────────────────────────────────────────────────
+// AdminAuth must NOT accept forged Origin headers. Any container on the Docker
+// network can set Origin: http://localhost:3000 without a bearer token, which
+// previously bypassed AdminAuth on ALL admin-gated routes. (#623, dup #626)
+
+// TestAdminAuth_623_ForgedOrigin_Returns401 — the main regression test:
+// a request with a matching CORS origin but no bearer token must be rejected.
+func TestAdminAuth_623_ForgedOrigin_Returns401(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer mockDB.Close()
+
+	// Platform has live tokens — AdminAuth is active.
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	t.Setenv("CORS_ORIGINS", "http://localhost:3000")
+
+	r := gin.New()
+	r.GET("/settings/secrets", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"secrets": []string{"OPENAI_API_KEY"}})
+	})
+
+	w := httptest.NewRecorder()
+	// #623 attack: forge the canvas Origin header — no bearer token.
+	req, _ := http.NewRequest(http.MethodGet, "/settings/secrets", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("#623 forged Origin bypass: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestAdminAuth_623_ForgedCORSOrigin_Returns401 — variant: attacker uses the
+// tenant-domain CORS origin from CORS_ORIGINS (not just localhost).
+func TestAdminAuth_623_ForgedCORSOrigin_Returns401(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer mockDB.Close()
+
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	t.Setenv("CORS_ORIGINS", "https://acme.moleculesai.app")
+
+	r := gin.New()
+	r.GET("/admin/secrets", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/admin/secrets", nil)
+	req.Header.Set("Origin", "https://acme.moleculesai.app")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("#623 forged tenant Origin: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestAdminAuth_623_ValidBearer_WithOrigin_Passes — bearer + matching Origin
+// should still work (the Origin is irrelevant once the bearer validates).
+func TestAdminAuth_623_ValidBearer_WithOrigin_Passes(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer mockDB.Close()
+
+	goodToken := "valid-bearer-token-xyz"
+	tokenHash := sha256.Sum256([]byte(goodToken))
+
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(validateAnyTokenSelectQuery).
+		WithArgs(tokenHash[:]).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-1"))
+	mock.ExpectExec(validateTokenUpdateQuery).
+		WithArgs("tok-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	t.Setenv("CORS_ORIGINS", "http://localhost:3000")
+
+	r := gin.New()
+	r.GET("/settings/secrets", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/settings/secrets", nil)
+	req.Header.Set("Authorization", "Bearer "+goodToken)
+	req.Header.Set("Origin", "http://localhost:3000") // present but irrelevant
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("bearer+origin: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
