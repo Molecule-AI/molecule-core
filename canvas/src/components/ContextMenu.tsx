@@ -235,6 +235,14 @@ export function ContextMenu() {
     closeContextMenu();
   }, [contextMenu, nestNode, closeContextMenu]);
 
+  const handleZoomToTeam = useCallback(() => {
+    if (!contextMenu) return;
+    window.dispatchEvent(
+      new CustomEvent("molecule:zoom-to-team", { detail: { nodeId: contextMenu.nodeId } })
+    );
+    closeContextMenu();
+  }, [contextMenu, closeContextMenu]);
+
   if (!contextMenu) return null;
 
   const isOfflineOrFailed = contextMenu.nodeData.status === "offline" || contextMenu.nodeData.status === "failed";
@@ -253,7 +261,10 @@ export function ContextMenu() {
       ? [{ label: "Extract from Team", icon: "⤴", action: handleRemoveFromTeam }]
       : []),
     ...(hasChildren
-      ? [{ label: "Collapse Team", icon: "◁", action: handleCollapse }]
+      ? [
+          { label: "Collapse Team", icon: "◁", action: handleCollapse },
+          { label: "Zoom to Team", icon: "⊕", action: handleZoomToTeam },
+        ]
       : [{ label: "Expand to Team", icon: "▷", action: handleExpand }]),
     { label: "", icon: "", action: () => {}, divider: true },
     ...(isPaused

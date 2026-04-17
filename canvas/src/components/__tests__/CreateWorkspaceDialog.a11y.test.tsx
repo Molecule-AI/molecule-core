@@ -89,4 +89,75 @@ describe("CreateWorkspaceDialog — accessibility", () => {
       expect(t2?.getAttribute("aria-checked")).toBe("true")
     );
   });
+
+  // ── Arrow-key navigation (WCAG 2.1 radio group) — Issue #556 ──────────────
+
+  it("selected radio has tabIndex=0, others have tabIndex=-1 (roving tabIndex)", async () => {
+    await openDialog();
+    const radios = screen.getAllByRole("radio");
+    const t1 = radios.find((r) => r.textContent?.includes("T1"))!;
+    const t2 = radios.find((r) => r.textContent?.includes("T2"))!;
+    const t3 = radios.find((r) => r.textContent?.includes("T3"))!;
+    // T1 is default selected
+    expect(t1.getAttribute("tabindex")).toBe("0");
+    expect(t2.getAttribute("tabindex")).toBe("-1");
+    expect(t3.getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("ArrowDown moves selection from T1 to T2", async () => {
+    await openDialog();
+    const radios = screen.getAllByRole("radio");
+    const t1 = radios.find((r) => r.textContent?.includes("T1"))!;
+    const t2 = radios.find((r) => r.textContent?.includes("T2"))!;
+    t1.focus();
+    fireEvent.keyDown(t1, { key: "ArrowDown" });
+    await waitFor(() => expect(t2.getAttribute("aria-checked")).toBe("true"));
+    expect(t1.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("ArrowRight moves selection from T2 to T3", async () => {
+    await openDialog();
+    const radios = screen.getAllByRole("radio");
+    const t2 = radios.find((r) => r.textContent?.includes("T2"))!;
+    const t3 = radios.find((r) => r.textContent?.includes("T3"))!;
+    fireEvent.click(t2); // select T2 first
+    await waitFor(() => expect(t2.getAttribute("aria-checked")).toBe("true"));
+    t2.focus();
+    fireEvent.keyDown(t2, { key: "ArrowRight" });
+    await waitFor(() => expect(t3.getAttribute("aria-checked")).toBe("true"));
+  });
+
+  it("ArrowDown wraps from T3 back to T1", async () => {
+    await openDialog();
+    const radios = screen.getAllByRole("radio");
+    const t1 = radios.find((r) => r.textContent?.includes("T1"))!;
+    const t3 = radios.find((r) => r.textContent?.includes("T3"))!;
+    fireEvent.click(t3); // select T3 first
+    await waitFor(() => expect(t3.getAttribute("aria-checked")).toBe("true"));
+    t3.focus();
+    fireEvent.keyDown(t3, { key: "ArrowDown" });
+    await waitFor(() => expect(t1.getAttribute("aria-checked")).toBe("true"));
+  });
+
+  it("ArrowUp moves selection from T2 to T1", async () => {
+    await openDialog();
+    const radios = screen.getAllByRole("radio");
+    const t1 = radios.find((r) => r.textContent?.includes("T1"))!;
+    const t2 = radios.find((r) => r.textContent?.includes("T2"))!;
+    fireEvent.click(t2);
+    await waitFor(() => expect(t2.getAttribute("aria-checked")).toBe("true"));
+    t2.focus();
+    fireEvent.keyDown(t2, { key: "ArrowUp" });
+    await waitFor(() => expect(t1.getAttribute("aria-checked")).toBe("true"));
+  });
+
+  it("ArrowLeft wraps from T1 back to T3", async () => {
+    await openDialog();
+    const radios = screen.getAllByRole("radio");
+    const t1 = radios.find((r) => r.textContent?.includes("T1"))!;
+    const t3 = radios.find((r) => r.textContent?.includes("T3"))!;
+    t1.focus();
+    fireEvent.keyDown(t1, { key: "ArrowLeft" });
+    await waitFor(() => expect(t3.getAttribute("aria-checked")).toBe("true"));
+  });
 });
