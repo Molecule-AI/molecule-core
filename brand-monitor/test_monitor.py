@@ -304,6 +304,23 @@ class TestSlackClient:
         text = mock_post.call_args.kwargs["json"]["text"]
         assert "Top engagements" in text
 
+    def test_post_digest_mrkdwn_escaping_in_snippet(self):
+        """< > & in top-tweet snippets are escaped to prevent mrkdwn injection."""
+        c = self._make_client()
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        malicious_tweet = {**SAMPLE_TWEET, "text": "X < Y & Z > W <!channel>"}
+
+        with patch("slack_client.requests.post", return_value=mock_resp) as mock_post:
+            c.post_digest({"count": 1, "top_tweets": [malicious_tweet]})
+
+        text = mock_post.call_args.kwargs["json"]["text"]
+        assert "&lt;" in text
+        assert "&gt;" in text
+        assert "&amp;" in text
+        assert "<!channel>" not in text
+        assert "<" not in text.split("twitter.com")[1]  # no raw < after the URL
+
     def test_post_digest_http_error_propagates(self):
         c = self._make_client()
         mock_resp = MagicMock()

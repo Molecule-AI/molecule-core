@@ -40,6 +40,10 @@ class SlackClient:
             + metrics.get("reply_count", 0)
         )
 
+    def _escape_mrkdwn(self, text: str) -> str:
+        """Escape Slack mrkdwn special characters in untrusted content."""
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
     def _should_at_here(self, tweet):
         """Return True if the tweet warrants an @here ping."""
         if self._engagement_score(tweet) > AT_HERE_ENGAGEMENT_THRESHOLD:
@@ -133,7 +137,7 @@ class SlackClient:
         if top_tweets:
             lines.append("\n*Top engagements:*")
             for tweet in top_tweets[:3]:
-                snippet = tweet.get("text", "")[:120]
+                snippet = self._escape_mrkdwn(tweet.get("text", "")[:120])
                 score = self._engagement_score(tweet)
                 tweet_id = tweet.get("id", "")
                 url = f"https://twitter.com/i/web/status/{tweet_id}"
