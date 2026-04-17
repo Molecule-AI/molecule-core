@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -33,6 +34,10 @@ type WorkspaceHandler struct {
 	// registered; Registry.Run handles a nil receiver as a no-op so the
 	// hot path stays a single nil-pointer compare.
 	envMutators *provisionhook.Registry
+	// stopFnOverride is set exclusively in tests to intercept provisioner.Stop
+	// calls made by HibernateWorkspace without requiring a running Docker daemon.
+	// Always nil in production; the real provisioner path is used when nil.
+	stopFnOverride func(ctx context.Context, workspaceID string)
 }
 
 func NewWorkspaceHandler(b *events.Broadcaster, p *provisioner.Provisioner, platformURL, configsDir string) *WorkspaceHandler {
