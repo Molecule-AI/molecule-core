@@ -72,6 +72,13 @@ const mockStoreState = {
   nestNode: vi.fn(),
   isDescendant: vi.fn(() => false),
   setSearchOpen: vi.fn(),
+  wsStatus: "connected" as const,
+  setWsStatus: vi.fn(),
+  a2aEdges: [],
+  setA2AEdges: vi.fn(),
+  showA2AEdges: false,
+  setShowA2AEdges: vi.fn(),
+  setPanelTab: vi.fn(),
 };
 
 vi.mock("@/store/canvas", () => ({

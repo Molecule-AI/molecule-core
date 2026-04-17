@@ -35,7 +35,7 @@ export interface WorkspaceNodeData extends Record<string, unknown> {
   budgetUsed?: number | null;
 }
 
-export type PanelTab = "details" | "skills" | "chat" | "terminal" | "config" | "schedule" | "channels" | "files" | "memory" | "traces" | "events" | "activity";
+export type PanelTab = "details" | "skills" | "chat" | "terminal" | "config" | "schedule" | "channels" | "files" | "memory" | "traces" | "events" | "activity" | "audit";
 
 export interface ContextMenuState {
   x: number;
@@ -80,6 +80,13 @@ interface CanvasState {
   /** Hydration error message — set when initial canvas load fails. Null when no error. */
   hydrationError: string | null;
   setHydrationError: (error: string | null) => void;
+  // ── A2A topology overlay (issue #744) ─────────────────────────────────────
+  /** Directed delegation edges shown as an overlay on the canvas (separate from topology edges). */
+  a2aEdges: Edge[];
+  setA2AEdges: (edges: Edge[]) => void;
+  /** Whether the A2A topology overlay is visible. Persisted to localStorage. Default: true. */
+  showA2AEdges: boolean;
+  setShowA2AEdges: (show: boolean) => void;
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -93,6 +100,19 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   setWsStatus: (status) => set({ wsStatus: status }),
   hydrationError: null,
   setHydrationError: (error) => set({ hydrationError: error }),
+  // A2A overlay — default on, persisted to localStorage
+  a2aEdges: [],
+  setA2AEdges: (edges) => set({ a2aEdges: edges }),
+  showA2AEdges:
+    typeof window !== "undefined"
+      ? localStorage.getItem("molecule:show-a2a-edges") !== "false"
+      : true,
+  setShowA2AEdges: (show) => {
+    set({ showA2AEdges: show });
+    if (typeof window !== "undefined") {
+      localStorage.setItem("molecule:show-a2a-edges", String(show));
+    }
+  },
 
   viewport: { x: 0, y: 0, zoom: 1 },
 
