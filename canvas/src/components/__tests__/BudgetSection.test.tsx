@@ -229,6 +229,24 @@ describe("BudgetSection — save", () => {
     expect(body.budget_limit).toBe(800);
   });
 
+  it("sends budget_limit: 0 (not null) when input is '0' — zero-credit budget", async () => {
+    // Regression for QA bug report: `parseInt("0") || null` would yield null.
+    // The correct form `raw !== "" ? parseInt(raw, 10) : null` must return 0.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockPatch.mockResolvedValueOnce(budgetResponse({ budget_limit: 0, budget_used: 0, budget_remaining: 0 }) as any);
+    await renderLoaded(budgetResponse({ budget_limit: 1000 }));
+
+    fireEvent.change(screen.getByTestId("budget-limit-input"), {
+      target: { value: "0" },
+    });
+    fireEvent.click(screen.getByTestId("budget-save-btn"));
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalled());
+    const body = mockPatch.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.budget_limit).toBe(0);
+    expect(body.budget_limit).not.toBeNull();
+  });
+
   it("sends budget_limit: null when input is blank", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockPatch.mockResolvedValueOnce(budgetResponse({ budget_limit: null, budget_remaining: null }) as any);
