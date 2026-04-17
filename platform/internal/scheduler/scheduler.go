@@ -112,6 +112,11 @@ func (s *Scheduler) Start(ctx context.Context) {
 		s.mu.Unlock()
 	}
 
+	// #722 — startup repair: find any enabled schedule whose next_run_at was
+	// NULL'd by the pre-fix bug and recompute it now. Without this pass those
+	// schedules would never fire again even after the binary is updated.
+	s.repairNullNextRunAt(ctx)
+
 	// Heartbeat + initial lastTickAt so /admin/liveness and Healthy() both
 	// pass during the first 30s interval after startup.
 	supervised.Heartbeat("scheduler")
@@ -279,12 +284,19 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 	var nextRunPtr *time.Time
 	if nextErr == nil {
 		nextRunPtr = &nextRun
+	} else {
+		// #722: if ComputeNextRun fails, keep the existing next_run_at so the
+		// schedule is not silently removed from the fire query (NULL next_run_at
+		// is excluded by the tick WHERE clause). COALESCE($2, next_run_at) does
+		// this: when $2 is NULL the DB column value is preserved as-is.
+		log.Printf("Scheduler: ComputeNextRun error for '%s' (%s) — preserving existing next_run_at: %v",
+			sched.Name, sched.ID, nextErr)
 	}
 
 	_, err := db.DB.ExecContext(ctx, `
 		UPDATE workspace_schedules
 		SET last_run_at = now(),
-		    next_run_at = $2,
+		    next_run_at = COALESCE($2, next_run_at),
 		    run_count = run_count + 1,
 		    last_status = $3,
 		    last_error = $4,
@@ -334,6 +346,11 @@ func (s *Scheduler) recordSkipped(ctx context.Context, sched scheduleRow, active
 	var nextRunPtr *time.Time
 	if nextErr == nil {
 		nextRunPtr = &nextRun
+	} else {
+		// #722: same guard as in fireSchedule — preserve existing next_run_at
+		// rather than writing NULL when the cron expression cannot be parsed.
+		log.Printf("Scheduler: ComputeNextRun error in recordSkipped for '%s' (%s) — preserving existing next_run_at: %v",
+			sched.Name, sched.ID, nextErr)
 	}
 
 	// Advance next_run_at + bump run_count so the liveness view reflects
@@ -342,7 +359,7 @@ func (s *Scheduler) recordSkipped(ctx context.Context, sched scheduleRow, active
 	_, _ = db.DB.ExecContext(ctx, `
 		UPDATE workspace_schedules
 		SET last_run_at = now(),
-		    next_run_at = $2,
+		    next_run_at = COALESCE($2, next_run_at),
 		    run_count = run_count + 1,
 		    last_status = 'skipped',
 		    last_error = $3,
@@ -368,6 +385,60 @@ func (s *Scheduler) recordSkipped(ctx context.Context, sched scheduleRow, active
 			"schedule_name": sched.Name,
 			"reason":        reason,
 		})
+	}
+}
+
+// repairNullNextRunAt is called once during Start() to recompute next_run_at
+// for any enabled schedule where it is NULL — a state left by the pre-#722 bug
+// where a ComputeNextRun error caused an UPDATE that wrote NULL.
+// Without this repair those schedules would never appear in the tick query
+// (which requires next_run_at IS NOT NULL) even after the binary is patched.
+func (s *Scheduler) repairNullNextRunAt(ctx context.Context) {
+	rows, err := db.DB.QueryContext(ctx, `
+		SELECT id, cron_expr, timezone
+		FROM workspace_schedules
+		WHERE enabled = true AND next_run_at IS NULL
+	`)
+	if err != nil {
+		log.Printf("Scheduler: startup repair query error: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	type repairRow struct {
+		ID       string
+		CronExpr string
+		Timezone string
+	}
+
+	var repaired, failed int
+	for rows.Next() {
+		var r repairRow
+		if err := rows.Scan(&r.ID, &r.CronExpr, &r.Timezone); err != nil {
+			log.Printf("Scheduler: startup repair scan error: %v", err)
+			continue
+		}
+		nextRun, err := ComputeNextRun(r.CronExpr, r.Timezone, time.Now())
+		if err != nil {
+			log.Printf("Scheduler: startup repair: cannot compute next_run_at for schedule %s (%s): %v — leaving NULL",
+				r.ID, r.CronExpr, err)
+			failed++
+			continue
+		}
+		if _, err := db.DB.ExecContext(ctx, `
+			UPDATE workspace_schedules SET next_run_at = $2, updated_at = now() WHERE id = $1
+		`, r.ID, nextRun); err != nil {
+			log.Printf("Scheduler: startup repair: update failed for schedule %s: %v", r.ID, err)
+			failed++
+		} else {
+			repaired++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Scheduler: startup repair rows error: %v", err)
+	}
+	if repaired > 0 || failed > 0 {
+		log.Printf("Scheduler: startup repair: %d schedule(s) repaired, %d skipped (bad cron/tz)", repaired, failed)
 	}
 }
 
