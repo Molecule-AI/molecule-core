@@ -27,5 +27,5 @@ BEGIN
     WHERE embedding IS NOT NULL;
 
 EXCEPTION WHEN OTHERS THEN
-  RAISE NOTICE 'pgvector not available — 031_memories_pgvector skipped (%%)', SQLERRM;
+  RAISE NOTICE 'pgvector not available — 031_memories_pgvector skipped: %', SQLERRM;
 END $migrate$;
