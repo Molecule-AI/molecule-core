@@ -70,16 +70,50 @@ The Worker runs on every request to `*.moleculesai.app` that isn't matched
 by an explicit DNS record. It:
 
 1. **Extracts the slug** from the `Host` header
-2. **Looks up the backend IP** by calling `GET https://api.moleculesai.app/cp/orgs/<slug>/instance`
-   - Caches the response for 60s in Cloudflare's edge cache (KV or Cache API)
-   - If the org doesn't exist → 404 page
+2. **Looks up the backend IP** using a 3-tier cache strategy:
+   - **L1: in-memory cache** (60s TTL) — fastest, per-isolate
+   - **L2: Workers KV** (5 min TTL, stale-while-revalidate) — survives isolate
+     restarts, shared across all edge locations
+   - **L3: CP API** — `GET https://api.moleculesai.app/cp/orgs/<slug>/instance`
+   - **Fallback:** if CP is unreachable, serve stale KV entry (any age) rather
+     than erroring. A 10-minute CP outage is invisible to tenants.
+   - If the org doesn't exist (404 from CP, no KV entry) → 404 page
    - If the org is provisioning (no IP yet) → return a static "provisioning" HTML page
 3. **Proxies the request** to `http://<ec2-ip>:8080` (platform) or `:3000` (canvas)
    - Route: `/health`, `/workspaces*`, `/registry*`, etc. → `:8080`
    - Route: everything else → `:3000`
+   - Route: `/ws` → `:8080` with WebSocket upgrade (see WebSocket section below)
    - Injects `X-Molecule-Org-Id` header (same as Caddy does today)
    - Injects `Origin` header for AdminAuth bypass
+   - Injects `X-Forwarded-For` with client IP from `CF-Connecting-IP`
+   - Injects `X-Forwarded-Proto: https`
 4. **Returns the response** to the browser with Cloudflare's TLS
+
+#### WebSocket proxying
+
+Cloudflare Workers support WebSocket proxying via the `upgradeHeader` check.
+The Worker detects `Upgrade: websocket` on incoming requests and passes them
+through to the EC2 backend on `:8080/ws`. The Worker acts as a transparent
+tunnel — it does not inspect or buffer WebSocket frames.
+
+```js
+// Simplified WebSocket handling in the Worker
+if (request.headers.get('Upgrade') === 'websocket') {
+  return fetch(`http://${backendIp}:8080${url.pathname}`, request);
+}
+```
+
+If Workers WebSocket proxying proves unreliable in production (frame drops,
+idle timeout issues), Phase 33.3 keeps Caddy as a thin WSocket-only reverse
+proxy on EC2 instead of removing it entirely.
+
+#### Trusted proxy configuration
+
+The platform's Gin server uses `SetTrustedProxies(nil)` (trust all) by
+default. When requests come through the Worker instead of directly, the
+platform should trust `CF-Connecting-IP` for the real client IP. In
+production, set `TRUSTED_PROXIES` to Cloudflare's published IP ranges
+(auto-updated from `https://api.cloudflare.com/client/v4/ips`).
 
 ### 3. CP API endpoint: `GET /cp/orgs/:slug/instance`
 
@@ -124,9 +158,15 @@ Worker → EC2 :8080 (platform, direct HTTP)
 Worker → EC2 :3000 (canvas, direct HTTP)
 ```
 
-Caddy can be removed from the EC2 user-data script entirely. The Worker
-handles TLS termination + routing. The EC2 security group should allow
-inbound HTTP from Cloudflare IPs only (not public).
+Caddy can be removed from the EC2 user-data script for HTTP routing. If
+WebSocket proxying through Workers proves reliable, Caddy is fully removed.
+If not, Caddy stays as a thin WebSocket-only reverse proxy (no TLS, no
+HTTP routing — just `/ws` → `:8080`).
+
+The EC2 security group should allow inbound HTTP from Cloudflare IPs only
+(not public). **Automate the IP list** — Cloudflare publishes their ranges
+at `https://api.cloudflare.com/client/v4/ips`. Use a Lambda or cron to
+update the SG weekly. Do not hardcode the IP ranges.
 
 **Headers injected by Worker** (replaces Caddy's `header_up`):
 - `X-Molecule-Org-Id: <org-id>` — for TenantGuard
