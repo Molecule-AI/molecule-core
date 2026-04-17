@@ -189,6 +189,19 @@ def _make_tools_mocks():
     tools_hitl_mod.requires_approval = MagicMock(side_effect=lambda *a, **kw: (lambda f: f))
     tools_hitl_mod.pause_registry = MagicMock()
 
+    # builtin_tools.security — load the real module so _redact_secrets is
+    # available to executor_helpers, a2a_tools, and any other module that
+    # imports from it.  The module is pure-Python with no external deps.
+    import importlib.util as _ilu
+    import os as _os
+    _sec_path = _os.path.join(
+        _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+        "builtin_tools", "security.py",
+    )
+    _sec_spec = _ilu.spec_from_file_location("builtin_tools.security", _sec_path)
+    _sec_mod = _ilu.module_from_spec(_sec_spec)
+    _sec_spec.loader.exec_module(_sec_mod)
+
     sys.modules["builtin_tools"] = tools_mod
     sys.modules["builtin_tools.delegation"] = tools_delegation_mod
     sys.modules["builtin_tools.approval"] = tools_approval_mod
@@ -199,6 +212,7 @@ def _make_tools_mocks():
     sys.modules["builtin_tools.telemetry"] = tools_telemetry_mod
     sys.modules["builtin_tools.audit"] = tools_audit_mod
     sys.modules["builtin_tools.hitl"] = tools_hitl_mod
+    sys.modules["builtin_tools.security"] = _sec_mod
 
 
 def _make_claude_agent_sdk_mock():

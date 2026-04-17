@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from builtin_tools.security import _redact_secrets
+
 if TYPE_CHECKING:
     from heartbeat import HeartbeatLoop
 
@@ -129,6 +131,7 @@ async def commit_memory(content: str) -> None:
     platform_url = os.environ.get("PLATFORM_URL", "")
     if not workspace_id or not platform_url or not content:
         return
+    content = _redact_secrets(content)
     # Fix E (Cycle 5): include auth header so WorkspaceAuth middleware allows access.
     try:
         from platform_auth import auth_headers as _platform_auth
