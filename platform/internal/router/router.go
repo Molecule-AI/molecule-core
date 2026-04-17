@@ -427,7 +427,12 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// Org Templates
 	orgDir := findOrgDir(configsDir)
 	orgh := handlers.NewOrgHandler(wh, broadcaster, prov, channelMgr, configsDir, orgDir)
-	r.GET("/org/templates", orgh.ListTemplates)
+	// /org/templates reveals customer org names, internal project identifiers,
+	// and workspace counts (#686). Gate it behind AdminAuth so only enrolled
+	// agents (holding a valid workspace bearer token) can enumerate templates.
+	// /org/import already requires AdminAuth; this brings ListTemplates into
+	// parity with the rest of the org-admin surface.
+	r.GET("/org/templates", middleware.AdminAuth(db.DB), orgh.ListTemplates)
 	// /org/import can create arbitrary workspaces from an uploaded YAML — it
 	// must be an admin-gated route. The handler also path-sanitizes
 	// `dir`/`template`/`files_dir` via resolveInsideRoot, but defence-in-
