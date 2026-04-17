@@ -146,10 +146,12 @@ func TestWorkspaceCreate_DBInsertError(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
-	// Workspace INSERT fails
+	// Transaction begins, workspace INSERT fails, transaction is rolled back.
+	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO workspaces").
 		WithArgs(sqlmock.AnyArg(), "Failing Agent", nil, 1, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none").
 		WillReturnError(sql.ErrConnDone)
+	mock.ExpectRollback()
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -175,10 +177,13 @@ func TestWorkspaceCreate_DefaultsApplied(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
+	// Transaction wraps the workspace INSERT (no secrets in this request).
+	mock.ExpectBegin()
 	// Expect workspace INSERT with defaulted tier=1, runtime="langgraph"
 	mock.ExpectExec("INSERT INTO workspaces").
 		WithArgs(sqlmock.AnyArg(), "Default Agent", nil, 1, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	// Expect canvas_layouts INSERT (x=0, y=0 — defaults)
 	mock.ExpectExec("INSERT INTO canvas_layouts").
@@ -208,6 +213,117 @@ func TestWorkspaceCreate_DefaultsApplied(t *testing.T) {
 	}
 	if resp["status"] != "provisioning" {
 		t.Errorf("expected status 'provisioning', got %v", resp["status"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestWorkspaceCreate_WithSecrets_Persists asserts that secrets in the create
+// payload are written to workspace_secrets inside the same transaction as the
+// workspace row, and that the handler returns 201.
+func TestWorkspaceCreate_WithSecrets_Persists(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	// External workspace: simplest code path — no provisioner goroutine.
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO workspaces").
+		WithArgs(sqlmock.AnyArg(), "Hermes Agent", nil, 1, "hermes", sqlmock.AnyArg(), (*string)(nil), nil, "none").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Secret inserted inside the same transaction.
+	mock.ExpectExec("INSERT INTO workspace_secrets").
+		WithArgs(sqlmock.AnyArg(), "HERMES_API_KEY", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	// canvas_layouts (non-fatal, outside tx)
+	mock.ExpectExec("INSERT INTO canvas_layouts").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	body := `{"name":"Hermes Agent","runtime":"hermes","external":true,"secrets":{"HERMES_API_KEY":"sk-test-123"}}`
+	c.Request = httptest.NewRequest("POST", "/workspaces", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Create(c)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("expected status 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestWorkspaceCreate_SecretPersistFails_RollsBack asserts that a DB error
+// while persisting a secret causes the entire transaction to roll back and
+// the handler to return 500.  The workspace row must NOT be committed.
+func TestWorkspaceCreate_SecretPersistFails_RollsBack(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO workspaces").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO workspace_secrets").
+		WillReturnError(sql.ErrConnDone) // DB failure while writing secret
+	mock.ExpectRollback() // workspace insert must be rolled back
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	body := `{"name":"Rollback Agent","secrets":{"OPENAI_API_KEY":"sk-fail"}}`
+	c.Request = httptest.NewRequest("POST", "/workspaces", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Create(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestWorkspaceCreate_EmptySecrets_OK asserts that an empty secrets map (or
+// no secrets key at all) creates the workspace normally without touching
+// workspace_secrets.
+func TestWorkspaceCreate_EmptySecrets_OK(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO workspaces").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// No ExpectExec for workspace_secrets — empty map must be a no-op.
+	mock.ExpectCommit()
+	mock.ExpectExec("INSERT INTO canvas_layouts").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	body := `{"name":"No Secrets Agent","external":true,"secrets":{}}`
+	c.Request = httptest.NewRequest("POST", "/workspaces", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Create(c)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("expected status 201, got %d: %s", w.Code, w.Body.String())
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
