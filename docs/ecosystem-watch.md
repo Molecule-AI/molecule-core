@@ -674,6 +674,34 @@ snapshots:
       audit ledger reference for governance canvas (#582). Integration
       opportunity — not a direct competitor.
     source_url: https://github.com/EvoMap/evolver/releases
+
+  - name: MarkItDown
+    slug: markitdown
+    date: "2026-04-17"
+    version: "latest"
+    stars: "111k"
+    threat_level: low
+    notable_changes: >
+      111k★ (+14.5k this week), MIT, Microsoft-maintained Python library +
+      markitdown-mcp MCP server. Single tool convert_to_markdown(uri) converts
+      PDF/DOCX/PPTX/XLSX/images/audio/HTML/CSV/JSON/XML/ZIP/YouTube/EPubs.
+      Fills #1 content-ingestion gap for all Molecule AI agent roles. Plugin
+      proposal filed (molecule-markitdown — GH pending token rotation).
+    source_url: https://github.com/microsoft/markitdown/releases
+
+  - name: n8n-mcp
+    slug: n8n-mcp
+    date: "2026-04-17"
+    version: "v2.47.12"
+    stars: "18.3k"
+    threat_level: low
+    notable_changes: >
+      v2.47.12 (Apr 17 2026); 20+ MCP tools exposing full n8n workflow
+      automation instance (400+ integrations) to any MCP client. Platform-
+      as-MCP-server pattern: complements existing n8n tracking (line 903).
+      2,646 pre-extracted node configs ship as local DB (offline node lookup).
+      Plugin proposal filed (molecule-n8n — GH pending token rotation).
+    source_url: https://github.com/czlonkowski/n8n-mcp/releases
 ```
 
 ---
@@ -2878,3 +2906,43 @@ langgraph/crewai adapters.
 **Signals to react to:** Claw Code ships A2A support → evaluate `molecule-ai-workspace-template-claw-code`. Anthropic legal action → monitor for project discontinuation risk. Claw Code's Python SDK becomes pip-installable → simplifies potential workspace template adapter.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 100k+★, Rust+Python, 72.6k forks, fastest-growing repo in GitHub history
+
+---
+
+### MarkItDown — `microsoft/markitdown`
+
+**Pitch:** "Convert anything to Markdown — PDFs, Office docs, images, audio, HTML, and more — via a single Python library or MCP tool."
+
+**Shape:** Python, MIT, 111k★, Microsoft-maintained. `pip install markitdown markitdown-mcp`. Ships as both a library (`MarkItDown().convert(source)`) and an MCP server (`markitdown-mcp`) exposing a single tool `convert_to_markdown(uri)`. Accepts `http://`, `https://`, `file://`, and `data:` URIs. Converts: PDF, DOCX, PPTX, XLSX, images (EXIF + LLM caption), audio (Whisper transcription), HTML, CSV, JSON, XML, ZIP archives, YouTube videos, EPubs. Azure Document Intelligence backend optional for richer PDF OCR.
+
+**Overlap with us:** Fills the #1 content-ingestion gap for all Molecule AI agent roles — no workspace today can natively ingest Office docs or PDFs without custom code. `markitdown-mcp` drops directly into any workspace as a single-tool MCP plugin (zero config beyond URI). Directly relevant to Research Lead (competitive docs, whitepapers), Dev Lead (specs), and Marketing (brand assets).
+
+**Differentiation:** Pure document-ingestion utility. No agent orchestration, no A2A protocol, no multi-agent coordination. Molecule provides the governance layer that decides *what* to do with the Markdown output.
+
+**Worth borrowing:** `data:` URI input pattern (inline base64 blob → no file I/O needed). Azure Document Intelligence integration path for enterprise PDF accuracy. ZIP-unpacking for bulk document ingestion.
+
+**Terminology collisions:** "convert" — standard term, no collision risk.
+
+**Signals to react to:** `markitdown-mcp` hits 5k★ → accelerate plugin proposal. Azure Document Intelligence backend becomes GA default → evaluate enterprise tier packaging. Microsoft ships Copilot Studio integration → distribution channel via M365.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 111k★ (+14.5k this week), Python, MIT, Microsoft-maintained. **Plugin proposal pending** (molecule-markitdown — GH issue queued, pending GH_TOKEN rotation).
+
+---
+
+### n8n-mcp — `czlonkowski/n8n-mcp`
+
+**Pitch:** "Expose your entire n8n workflow automation instance as a suite of MCP tools — build, validate, deploy, and execute n8n workflows from any MCP client."
+
+**Shape:** TypeScript, MIT, 18.3k★, v2.47.12 (Apr 17 2026). `npx czlonkowski/n8n-mcp`. 20+ MCP tools: node discovery (`list_nodes`, `get_node_info`, `search_nodes`), workflow CRUD (`create_workflow`, `update_workflow`, `delete_workflow`), validation, deployment, and execution management (`execute_workflow`, `get_execution`). Ships 2,646 pre-extracted n8n node configurations as a local database — offline node lookup without a live n8n connection. Requires `N8N_API_KEY` + `N8N_URL` for live workflow operations.
+
+**Overlap with us:** n8n is already tracked (MEDIUM threat, 50k★). This MCP bridge implements the "platform-as-MCP-server" pattern: n8n's 400+ integration nodes become MCP tools callable from any Molecule AI workspace. Directly overlaps our `workspace_channels` model (email, Slack, GitHub, HTTP, databases — all available without custom code).
+
+**Differentiation:** n8n is a workflow automation *platform*; n8n-mcp is a bridge layer. Molecule provides agent governance + multi-workspace orchestration; n8n-mcp provides the 400-connector integration fabric underneath. Complementary architecture, not competing.
+
+**Worth borrowing:** "Platform-as-MCP-server" pattern — validates MCP as a platform API adapter layer (our `@molecule-ai/mcp-server` already implements this for Molecule). Pre-extracted node DB pattern (ship a local config snapshot for offline lookup).
+
+**Terminology collisions:** "workflow" (n8n) = visual automation flow ≠ our workspace workflow; "execution" (n8n run) ≈ our workspace `active_task`.
+
+**Signals to react to:** n8n-mcp ships A2A support → evaluate deep integration. Plugin proposal accepted → molecule-n8n becomes default channel integration for new org templates. n8n-mcp reaches 30k★ → upgrade to MEDIUM threat (de facto agent-to-automation bridge).
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 18.3k★, TypeScript, MIT, v2.47.12 (Apr 17 2026). **Plugin proposal pending** (molecule-n8n — GH issue queued, pending GH_TOKEN rotation).
