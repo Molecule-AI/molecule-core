@@ -26,7 +26,8 @@ const hasAnyLiveTokenGlobalQuery = "SELECT COUNT.*FROM workspace_auth_tokens"
 const validateTokenSelectQuery = "SELECT id, workspace_id.*FROM workspace_auth_tokens.*token_hash"
 
 // validateAnyTokenQuery is matched for ValidateAnyToken (SELECT).
-const validateAnyTokenSelectQuery = "SELECT id.*FROM workspace_auth_tokens.*token_hash"
+// The JOIN on workspaces filters removed-workspace tokens (#682 defense-in-depth).
+const validateAnyTokenSelectQuery = "SELECT t\\.id.*FROM workspace_auth_tokens t.*JOIN workspaces"
 
 // validateTokenUpdateQuery is matched for the best-effort last_used_at UPDATE.
 const validateTokenUpdateQuery = "UPDATE workspace_auth_tokens SET last_used_at"
@@ -733,6 +734,54 @@ func TestCanvasOrBearer_TokensExist_CanvasOrigin_Passes(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("canvas origin: got %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// #682 defense-in-depth — ValidateAnyToken JOIN on workspaces
+//
+// Tokens belonging to 'removed' workspaces must be rejected by AdminAuth even
+// if the token row itself is not yet revoked. The JOIN in ValidateAnyToken
+// filters them at the DB layer before revoked_at is checked.
+// ────────────────────────────────────────────────────────────────────────────
+
+// TestAdminAuth_RemovedWorkspaceToken_Returns401 — a bearer token whose
+// issuing workspace has status='removed' must not grant admin access.
+// The JOIN in ValidateAnyToken filters the row out, resulting in ErrNoRows.
+func TestAdminAuth_RemovedWorkspaceToken_Returns401(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	removedToken := "token-from-removed-workspace"
+	removedHash := sha256.Sum256([]byte(removedToken))
+
+	// HasAnyLiveTokenGlobal: tokens exist (other workspaces are live).
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// ValidateAnyToken SELECT with JOIN — removed workspace filtered out → empty result.
+	mock.ExpectQuery(validateAnyTokenSelectQuery).
+		WithArgs(removedHash[:]).
+		WillReturnRows(sqlmock.NewRows([]string{"id"})) // empty: w.status='removed'
+
+	r := gin.New()
+	r.GET("/admin/secrets", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/admin/secrets", nil)
+	req.Header.Set("Authorization", "Bearer "+removedToken)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("#682 removed-workspace token: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
 }
 
