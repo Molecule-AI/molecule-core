@@ -44,6 +44,10 @@ venv/
 *.egg-info/
 .pytest_cache/
 
+# Brand monitor runtime state (never commit)
+brand-monitor/.surge_state.json
+brand-monitor/.monitor_state.json
+
 # Docker
 *.log
 
