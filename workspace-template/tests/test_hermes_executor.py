@@ -69,6 +69,8 @@ from hermes_executor import (  # noqa: E402
     HermesA2AExecutor,
     ProviderConfig,
     _HERMES4_PATTERNS,
+    _HERMES_SAMPLING_DEFAULTS,
+    _merge_system_messages,
     _reasoning_supported,
 )
 
@@ -699,3 +701,274 @@ async def test_no_system_prompt_only_user_message():
     msgs = mock_client.chat.completions.create.call_args[1]["messages"]
     assert len(msgs) == 1
     assert msgs[0]["role"] == "user"
+
+
+# ---------------------------------------------------------------------------
+# _merge_system_messages — unit tests (issue #499)
+# ---------------------------------------------------------------------------
+
+
+def test_merge_system_messages_stacked():
+    """Two consecutive system messages are merged with \\n\\n separator."""
+    msgs = [
+        {"role": "system", "content": "A"},
+        {"role": "system", "content": "B"},
+        {"role": "user", "content": "Q"},
+    ]
+    result = _merge_system_messages(msgs)
+    assert result == [
+        {"role": "system", "content": "A\n\nB"},
+        {"role": "user", "content": "Q"},
+    ]
+
+
+def test_merge_system_messages_single_unchanged():
+    """A single leading system message is returned as-is (same list)."""
+    msgs = [
+        {"role": "system", "content": "only"},
+        {"role": "user", "content": "hello"},
+    ]
+    result = _merge_system_messages(msgs)
+    assert result is msgs  # same object — no allocation
+
+
+def test_merge_system_messages_no_system_unchanged():
+    """No system message → list returned as-is."""
+    msgs = [{"role": "user", "content": "hi"}]
+    result = _merge_system_messages(msgs)
+    assert result is msgs
+
+
+def test_merge_system_messages_three():
+    """Three consecutive system messages are collapsed into one."""
+    msgs = [
+        {"role": "system", "content": "base"},
+        {"role": "system", "content": "workspace config"},
+        {"role": "system", "content": "user override"},
+        {"role": "user", "content": "go"},
+    ]
+    result = _merge_system_messages(msgs)
+    assert len(result) == 2
+    assert result[0]["content"] == "base\n\nworkspace config\n\nuser override"
+    assert result[1] == {"role": "user", "content": "go"}
+
+
+def test_merge_system_messages_interleaved_not_merged():
+    """A system message AFTER a user turn is left untouched."""
+    msgs = [
+        {"role": "system", "content": "A"},
+        {"role": "system", "content": "B"},
+        {"role": "user", "content": "Q1"},
+        {"role": "system", "content": "C"},  # after user turn — not merged
+        {"role": "user", "content": "Q2"},
+    ]
+    result = _merge_system_messages(msgs)
+    assert result[0] == {"role": "system", "content": "A\n\nB"}
+    assert result[1] == {"role": "user", "content": "Q1"}
+    assert result[2] == {"role": "system", "content": "C"}  # untouched
+    assert result[3] == {"role": "user", "content": "Q2"}
+
+
+def test_merge_system_messages_empty_list():
+    """Empty list is returned as-is without error."""
+    result = _merge_system_messages([])
+    assert result == []
+
+
+def test_merge_system_messages_only_system_messages():
+    """All-system array is merged into one."""
+    msgs = [
+        {"role": "system", "content": "first"},
+        {"role": "system", "content": "second"},
+    ]
+    result = _merge_system_messages(msgs)
+    assert result == [{"role": "system", "content": "first\n\nsecond"}]
+
+
+# ---------------------------------------------------------------------------
+# _build_messages with stacked system prompts (issue #499 integration)
+# ---------------------------------------------------------------------------
+
+
+def test_build_messages_single_system_prompt_unchanged():
+    """Single system_prompt still works — no merge overhead."""
+    executor = HermesA2AExecutor(
+        model="hermes-4", system_prompt="You are helpful.", _client=MagicMock()
+    )
+    msgs = executor._build_messages("Hello!")
+    assert msgs == [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "Hello!"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_execute_stacked_system_messages_merged_in_api_call():
+    """If _build_messages produces stacked system entries they are merged
+    before reaching the vLLM API call.
+
+    This test overrides _build_messages to inject a stacked scenario so the
+    merge path is exercised end-to-end through execute().
+    """
+    executor, mock_client = _make_executor(
+        model="hermes-4", system_prompt="base prompt"
+    )
+    mock_client.chat.completions.create.return_value = _make_api_response("ok")
+
+    # Override _build_messages to return stacked system messages
+    def _stacked_build(user_input: str) -> list[dict]:
+        raw = [
+            {"role": "system", "content": "base prompt"},
+            {"role": "system", "content": "workspace config"},
+            {"role": "user", "content": user_input},
+        ]
+        return _merge_system_messages(raw)
+
+    executor._build_messages = _stacked_build
+
+    await executor.execute(_make_context("Q"), AsyncMock())
+
+    msgs = mock_client.chat.completions.create.call_args[1]["messages"]
+    # vLLM must receive exactly ONE system message
+    system_msgs = [m for m in msgs if m["role"] == "system"]
+    assert len(system_msgs) == 1
+    assert system_msgs[0]["content"] == "base prompt\n\nworkspace config"
+
+
+# ---------------------------------------------------------------------------
+# Sampling defaults (issue #500)
+# ---------------------------------------------------------------------------
+
+
+def test_sampling_defaults_values():
+    """_HERMES_SAMPLING_DEFAULTS contains all four Nous-recommended keys."""
+    assert _HERMES_SAMPLING_DEFAULTS["temperature"] == 0.7
+    assert _HERMES_SAMPLING_DEFAULTS["top_p"] == 0.9
+    assert _HERMES_SAMPLING_DEFAULTS["top_k"] == 50
+    assert _HERMES_SAMPLING_DEFAULTS["repetition_penalty"] == 1.1
+
+
+def test_sampling_defaults_applied_when_no_params():
+    """No sampling_params → all four Nous defaults are in _sampling."""
+    executor = HermesA2AExecutor(model="hermes-4", _client=MagicMock())
+    assert executor._sampling["temperature"] == 0.7
+    assert executor._sampling["top_p"] == 0.9
+    assert executor._sampling["top_k"] == 50
+    assert executor._sampling["repetition_penalty"] == 1.1
+
+
+def test_sampling_explicit_override_replaces_default():
+    """Explicit temperature overrides the default; other keys keep defaults."""
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        sampling_params={"temperature": 1.0},
+        _client=MagicMock(),
+    )
+    assert executor._sampling["temperature"] == 1.0  # overridden
+    assert executor._sampling["top_p"] == 0.9          # default kept
+    assert executor._sampling["top_k"] == 50            # default kept
+    assert executor._sampling["repetition_penalty"] == 1.1  # default kept
+
+
+def test_sampling_empty_dict_disables_all_defaults():
+    """sampling_params={} → no sampling keys forwarded (provider decides)."""
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        sampling_params={},
+        _client=MagicMock(),
+    )
+    assert executor._sampling == {}
+
+
+def test_sampling_extra_key_forwarded():
+    """An extra key not in defaults is also passed through."""
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        sampling_params={"max_tokens": 512},
+        _client=MagicMock(),
+    )
+    assert executor._sampling["max_tokens"] == 512
+    # Nous defaults still applied
+    assert executor._sampling["temperature"] == 0.7
+
+
+def test_build_sampling_kwargs_returns_copy():
+    """_build_sampling_kwargs returns a fresh copy each call."""
+    executor = HermesA2AExecutor(model="hermes-4", _client=MagicMock())
+    k1 = executor._build_sampling_kwargs()
+    k2 = executor._build_sampling_kwargs()
+    assert k1 == k2
+    assert k1 is not k2  # distinct objects
+
+
+@pytest.mark.asyncio
+async def test_execute_sampling_defaults_forwarded_to_api():
+    """Default sampling params are passed as kwargs to completions.create()."""
+    executor, mock_client = _make_executor(model="hermes-4")
+    mock_client.chat.completions.create.return_value = _make_api_response("ok")
+
+    await executor.execute(_make_context("hello"), AsyncMock())
+
+    kwargs = mock_client.chat.completions.create.call_args[1]
+    assert kwargs["temperature"] == 0.7
+    assert kwargs["top_p"] == 0.9
+    assert kwargs["top_k"] == 50
+    assert kwargs["repetition_penalty"] == 1.1
+
+
+@pytest.mark.asyncio
+async def test_execute_explicit_sampling_override_forwarded():
+    """User-supplied temperature override is forwarded; other defaults kept."""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_api_response("ok")
+    )
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        system_prompt="sys",
+        sampling_params={"temperature": 0.2},
+        _client=mock_client,
+    )
+
+    await executor.execute(_make_context("hello"), AsyncMock())
+
+    kwargs = mock_client.chat.completions.create.call_args[1]
+    assert kwargs["temperature"] == 0.2       # override
+    assert kwargs["top_p"] == 0.9              # default kept
+    assert kwargs["top_k"] == 50               # default kept
+    assert kwargs["repetition_penalty"] == 1.1  # default kept
+
+
+@pytest.mark.asyncio
+async def test_execute_empty_sampling_params_no_sampling_kwargs():
+    """sampling_params={} → no sampling kwargs forwarded to API."""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_api_response("ok")
+    )
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        sampling_params={},
+        _client=mock_client,
+    )
+
+    await executor.execute(_make_context("hello"), AsyncMock())
+
+    kwargs = mock_client.chat.completions.create.call_args[1]
+    assert "temperature" not in kwargs
+    assert "top_p" not in kwargs
+    assert "top_k" not in kwargs
+    assert "repetition_penalty" not in kwargs
+
+
+@pytest.mark.asyncio
+async def test_execute_sampling_does_not_override_explicit_extra_body():
+    """Sampling defaults coexist with Hermes 4 extra_body — neither clobbers the other."""
+    executor, mock_client = _make_executor(model="nousresearch/hermes-4-0")
+    mock_client.chat.completions.create.return_value = _make_api_response("ok")
+
+    await executor.execute(_make_context("test"), AsyncMock())
+
+    kwargs = mock_client.chat.completions.create.call_args[1]
+    assert kwargs["extra_body"] == {"reasoning": {"enabled": True}}
+    assert kwargs["temperature"] == 0.7  # sampling default also present

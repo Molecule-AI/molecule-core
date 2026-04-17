@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Sequence
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
@@ -44,8 +44,70 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Stacked system-message merge
+# ---------------------------------------------------------------------------
+
+
+def _merge_system_messages(messages: list[dict]) -> list[dict]:
+    """Collapse consecutive leading system messages into a single system message.
+
+    vLLM (and the Nous Hermes portal) accept exactly **one** system message.
+    When a messages array is built from multiple sources — e.g. a base system
+    prompt, a workspace-level config block, and a per-session user override —
+    the consecutive ``{"role": "system"}`` entries at the front cause vLLM to
+    reject or silently drop all but the first.
+
+    This function is a stateless pre-flight transform applied in
+    ``_build_messages`` before the array is forwarded to the API.
+
+    Rules:
+    - Only the **uninterrupted leading run** of ``role == "system"`` entries is
+      merged.  A system message that appears after a ``user`` or ``assistant``
+      turn is left in place.
+    - Content strings are joined with ``"\\n\\n"`` (double newline).
+    - A single leading system message is returned as-is (no copy).
+    - An empty list is returned as-is.
+
+    Example::
+
+        >>> _merge_system_messages([
+        ...     {"role": "system", "content": "Base prompt."},
+        ...     {"role": "system", "content": "Workspace config."},
+        ...     {"role": "user",   "content": "Hello!"},
+        ... ])
+        [{"role": "system", "content": "Base prompt.\\n\\nWorkspace config."}, {"role": "user", "content": "Hello!"}]
+    """
+    # Find the end of the leading system-message run.
+    end = 0
+    while end < len(messages) and messages[end].get("role") == "system":
+        end += 1
+
+    # Zero or one system message — nothing to merge, return unchanged.
+    if end <= 1:
+        return messages
+
+    merged_content = "\n\n".join(
+        m.get("content", "") for m in messages[:end]
+    )
+    return [{"role": "system", "content": merged_content}, *messages[end:]]
+
+
+# ---------------------------------------------------------------------------
 # Per-model reasoning capability detection
 # ---------------------------------------------------------------------------
+
+# Nous-recommended sampling defaults for Hermes models.
+# Applied ONLY when the caller does not supply an explicit value for that
+# parameter.  This matches the recommended settings from the Nous Research
+# documentation for Hermes 3 and Hermes 4.
+#
+# Reference: https://nousresearch.com/hermes3/ — "Recommended Settings"
+_HERMES_SAMPLING_DEFAULTS: dict = {
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "top_k": 50,
+    "repetition_penalty": 1.1,
+}
 
 # Substrings that identify a Hermes 4 model slug from either provider:
 #   OpenRouter:  "nousresearch/hermes-4-*", "nousresearch/nous-hermes-4-*"
@@ -142,6 +204,13 @@ class HermesA2AExecutor(AgentExecutor):
     heartbeat:
         Optional ``HeartbeatLoop`` instance used to surface the current
         task description in the platform UI.
+    sampling_params:
+        Optional mapping of sampling overrides (``temperature``, ``top_p``,
+        ``top_k``, ``repetition_penalty``).  Values supplied here take
+        precedence over ``_HERMES_SAMPLING_DEFAULTS``; values absent from
+        both fall back to the provider's own defaults.  Pass
+        ``{"temperature": 1.0}`` to raise the temperature while keeping the
+        other Nous defaults active.  Pass ``{}`` to disable all defaults.
     _client:
         Inject a pre-built ``AsyncOpenAI`` (or compatible mock) — for
         testing only.  When provided, ``base_url`` and ``api_key`` are
@@ -155,12 +224,25 @@ class HermesA2AExecutor(AgentExecutor):
         base_url: str | None = None,
         api_key: str | None = None,
         heartbeat: "HeartbeatLoop | None" = None,
+        sampling_params: dict | None = None,
         _client: Any = None,
     ) -> None:
         self.model = model
         self.system_prompt = system_prompt
         self._heartbeat = heartbeat
         self._provider = ProviderConfig(model)
+        # Merge caller-supplied overrides on top of Nous defaults.
+        # None      → all four defaults applied.
+        # {}        → empty dict explicitly opts out of all defaults.
+        # {k: v, …} → start from defaults, apply the supplied overrides.
+        if sampling_params is None:
+            self._sampling: dict = dict(_HERMES_SAMPLING_DEFAULTS)
+        elif not sampling_params:
+            self._sampling = {}
+        else:
+            merged = dict(_HERMES_SAMPLING_DEFAULTS)
+            merged.update(sampling_params)
+            self._sampling = merged
 
         if _client is not None:
             # Test injection path — skip real AsyncOpenAI construction so
@@ -188,12 +270,27 @@ class HermesA2AExecutor(AgentExecutor):
     # ------------------------------------------------------------------
 
     def _build_messages(self, user_input: str) -> list[dict]:
-        """Assemble the ``messages`` list: optional system prompt then user turn."""
+        """Assemble the ``messages`` list: optional system prompt then user turn.
+
+        After constructing the list, ``_merge_system_messages`` is applied so
+        that any consecutive leading system entries (e.g. from stacked prompts
+        injected by subclasses or future callers) are collapsed into one before
+        the array is forwarded to vLLM.
+        """
         msgs: list[dict] = []
         if self.system_prompt:
             msgs.append({"role": "system", "content": self.system_prompt})
         msgs.append({"role": "user", "content": user_input})
-        return msgs
+        return _merge_system_messages(msgs)
+
+    def _build_sampling_kwargs(self) -> dict:
+        """Return sampling keyword arguments to pass to ``completions.create()``.
+
+        Returns a copy of ``self._sampling`` so the instance dict is never
+        mutated by the caller.  Returns an empty dict when ``self._sampling``
+        is empty (operator explicitly opted out of defaults).
+        """
+        return dict(self._sampling)
 
     def _log_reasoning(
         self,
@@ -268,11 +365,17 @@ class HermesA2AExecutor(AgentExecutor):
         if self._provider.reasoning_supported:
             extra_body = {"reasoning": {"enabled": True}}
 
+        # Apply Nous-recommended sampling defaults (temperature=0.7, top_p=0.9,
+        # top_k=50, repetition_penalty=1.1) unless the caller has supplied
+        # explicit overrides via the ``sampling_params`` constructor argument.
+        sampling_kwargs = self._build_sampling_kwargs()
+
         try:
             response = await self._client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 extra_body=extra_body,
+                **sampling_kwargs,
             )
 
             choice = response.choices[0]
