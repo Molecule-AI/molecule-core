@@ -12,6 +12,7 @@ import { ConfigTab } from "./tabs/ConfigTab";
 import { TerminalTab } from "./tabs/TerminalTab";
 import { FilesTab } from "./tabs/FilesTab";
 import { MemoryInspectorPanel } from "./MemoryInspectorPanel";
+import { AuditTrailPanel } from "./AuditTrailPanel";
 import { TracesTab } from "./tabs/TracesTab";
 import { EventsTab } from "./tabs/EventsTab";
 import { ActivityTab } from "./tabs/ActivityTab";
@@ -36,6 +37,7 @@ const TABS: { id: PanelTab; label: string; icon: string }[] = [
   { id: "memory", label: "Memory", icon: "◇" },
   { id: "traces", label: "Traces", icon: "◎" },
   { id: "events", label: "Events", icon: "◊" },
+  { id: "audit",  label: "Audit",  icon: "⊟" },
 ];
 
 export function SidePanel() {
@@ -246,6 +248,7 @@ export function SidePanel() {
         {panelTab === "memory" && <MemoryInspectorPanel key={selectedNodeId} workspaceId={selectedNodeId} />}
         {panelTab === "traces" && <TracesTab key={selectedNodeId} workspaceId={selectedNodeId} />}
         {panelTab === "events" && <EventsTab key={selectedNodeId} workspaceId={selectedNodeId} />}
+        {panelTab === "audit" && <AuditTrailPanel key={selectedNodeId} workspaceId={selectedNodeId} />}
       </div>
 
       {/* Footer — workspace ID */}
