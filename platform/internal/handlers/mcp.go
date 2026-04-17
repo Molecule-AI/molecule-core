@@ -548,6 +548,12 @@ func (h *MCPHandler) toolDelegateTask(ctx context.Context, callerID string, args
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	// X-Workspace-ID identifies this caller to the A2A proxy. The /workspaces/:id/a2a
+	// endpoint is intentionally outside WorkspaceAuth (agents do not hold bearer tokens
+	// to peer workspaces). Access control is enforced by CanCommunicate above, which
+	// already validated callerID → targetID before this request is constructed.
+	// callerID was authenticated by WorkspaceAuth on the MCP bridge entry point,
+	// so this header reflects a verified caller identity, not a spoofable value.
 	httpReq.Header.Set("X-Workspace-ID", callerID)
 
 	resp, err := http.DefaultClient.Do(httpReq)
@@ -717,6 +723,8 @@ func (h *MCPHandler) toolCommitMemory(ctx context.Context, workspaceID string, a
 	}
 
 	memoryID := uuid.New().String()
+	// TODO(#838): run _redactSecrets(content) before insert — plain-text API keys
+	// from tool responses must not land in the memories table.
 	_, err := h.database.ExecContext(ctx, `
 		INSERT INTO agent_memories (id, workspace_id, content, scope, namespace)
 		VALUES ($1, $2, $3, $4, $5)
