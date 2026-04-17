@@ -1,0 +1,23 @@
+# mcp-eval configuration for @molecule-ai/mcp-server
+# Run: mcp-eval run .mcp-eval/tests/ --json mcp-eval-results.json
+# Docs: https://github.com/lastmile-ai/mcp-eval
+
+provider: anthropic
+model: claude-opus-4-7
+
+mcp:
+  servers:
+    molecule_mcp:
+      command: "npx"
+      args: ["-y", "@molecule-ai/mcp-server"]
+      env:
+        MOLECULE_URL: "${MOLECULE_URL:-http://localhost:8080}"
+
+thresholds:
+  success_rate_min: 0.98       # ≥ 98% tool calls must succeed
+  latency_p95_max_ms: 1000     # P95 latency < 1 s
+  latency_p50_max_ms: 300      # P50 latency < 300 ms
+
+execution:
+  timeout_seconds: 60
+  max_concurrency: 3
