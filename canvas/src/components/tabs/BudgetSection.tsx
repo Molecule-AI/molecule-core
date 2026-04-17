@@ -80,7 +80,9 @@ export function BudgetSection({ workspaceId }: Props) {
     setSaving(true);
     setSaveError(null);
     const raw = limitInput.trim();
-    const parsedLimit = raw ? parseInt(raw, 10) : null;
+    // Use explicit empty-string check (not falsy check) so that a
+    // user-entered "0" is sent as budget_limit: 0, not null (unlimited).
+    const parsedLimit = raw !== "" ? parseInt(raw, 10) : null;
 
     try {
       const updated = await api.patch<BudgetData>(`/workspaces/${workspaceId}/budget`, {
