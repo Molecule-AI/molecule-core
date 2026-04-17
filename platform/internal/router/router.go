@@ -328,13 +328,15 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	}
 
 	// Admin — test token minting (issue #6). Hidden in production via TestTokensEnabled().
-	// AdminAuth is a second defence-in-depth layer: on a fresh install with no tokens yet,
-	// AdminAuth is fail-open (HasAnyLiveTokenGlobal == 0), so the bootstrap still works.
-	// Once any token exists, callers must present a valid bearer — unauthenticated workspace-
-	// UUID enumeration is blocked even on non-production instances.
+	// NOT behind AdminAuth — this is the bootstrap endpoint E2E tests and
+	// fresh installs use to obtain their first admin bearer. Adding AdminAuth
+	// (#612) broke the chicken-and-egg: after first workspace provision creates
+	// a live token in the DB, AdminAuth requires auth for ALL requests, but the
+	// client has no token yet because it needs this endpoint to get one.
+	// The handler itself rejects calls when MOLECULE_ENV=prod (TestTokensEnabled).
 	{
 		tokh := handlers.NewAdminTestTokenHandler()
-		r.GET("/admin/workspaces/:id/test-token", middleware.AdminAuth(db.DB), tokh.GetTestToken)
+		r.GET("/admin/workspaces/:id/test-token", tokh.GetTestToken)
 	}
 
 	// Admin — GitHub App installation token refresh (issue #547).
