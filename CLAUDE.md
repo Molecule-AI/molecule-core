@@ -28,6 +28,12 @@ secrets` on `molecule-cp`), the correct rotation order, and danger cases —
 notably `SECRETS_ENCRYPTION_KEY`, which cannot be rotated without a data
 migration until Phase H lands KMS envelope encryption.
 
+For tenant subdomain routing architecture (why `*.moleculesai.app` uses a
+Cloudflare Worker instead of per-tenant DNS records), read
+**`docs/architecture/wildcard-dns-proxy.md`**. This eliminates DNS
+propagation delays and NXDOMAIN caching that previously caused "site can't
+be reached" errors for new orgs.
+
 When handling a GDPR erasure request (user asks "delete my org and all
 my data"), read **`docs/runbooks/gdpr-erasure.md`** first. It explains the
 4-step cascade in `molecule-controlplane` (Stripe → Redis → Infra → DB
