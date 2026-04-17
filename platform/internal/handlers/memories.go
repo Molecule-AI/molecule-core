@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
@@ -30,10 +32,52 @@ const defaultMemoryNamespace = "general"
 // to nothing in the 'english' config.
 const memoryFTSMinQueryLen = 2
 
-type MemoriesHandler struct{}
+// EmbeddingFunc generates a 1536-dimensional dense-vector embedding for the
+// given text. Must return exactly 1536 float32 values on success.
+// Implementations must honour ctx cancellation.
+// nil is not a valid return on success — return a non-nil error instead.
+type EmbeddingFunc func(ctx context.Context, text string) ([]float32, error)
 
+// MemoriesHandler manages agent memory storage and recall.
+type MemoriesHandler struct {
+	// embed generates vector embeddings for semantic search (issue #576).
+	// nil disables the semantic path — all operations degrade gracefully to
+	// the existing FTS/ILIKE path.
+	embed EmbeddingFunc
+}
+
+// NewMemoriesHandler constructs a handler with FTS-only mode.
+// Wire up semantic search with WithEmbedding.
 func NewMemoriesHandler() *MemoriesHandler {
 	return &MemoriesHandler{}
+}
+
+// WithEmbedding installs a vector-embedding function. Call during router
+// wiring, before the first request. Passing nil is a no-op. Chainable.
+func (h *MemoriesHandler) WithEmbedding(fn EmbeddingFunc) *MemoriesHandler {
+	if fn != nil {
+		h.embed = fn
+	}
+	return h
+}
+
+// formatVector encodes a float32 embedding slice as a pgvector literal
+// suitable for a ::vector cast, e.g. "[0.1,-0.05,0.42]".
+// Returns an empty string for nil/empty slices.
+func formatVector(v []float32) string {
+	if len(v) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteByte('[')
+	for i, x := range v {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, "%g", x)
+	}
+	b.WriteByte(']')
+	return b.String()
 }
 
 // Commit handles POST /workspaces/:id/memories
@@ -41,6 +85,11 @@ func NewMemoriesHandler() *MemoriesHandler {
 // namespace (defaults to "general"). Namespaces implement the Holaboss
 // knowledge/{facts,procedures,blockers,reference}/ pattern so agents can
 // file and recall memories by category.
+//
+// When an EmbeddingFunc is configured, Commit also stores a vector embedding
+// so future Search calls can use cosine-similarity ordering. Embedding
+// failure is non-fatal: the memory is stored without an embedding and the
+// response is still 201.
 func (h *MemoriesHandler) Commit(c *gin.Context) {
 	workspaceID := c.Param("id")
 	ctx := c.Request.Context()
@@ -110,6 +159,24 @@ func (h *MemoriesHandler) Commit(c *gin.Context) {
 		}
 	}
 
+	// Optionally embed and persist the vector. Non-fatal: the memory is
+	// already stored above; a failed embedding just means this record will
+	// be excluded from future cosine-similarity searches.
+	if h.embed != nil {
+		if vec, embedErr := h.embed(ctx, body.Content); embedErr != nil {
+			log.Printf("Commit: embedding failed workspace=%s memory=%s: %v (stored without embedding)",
+				workspaceID, memoryID, embedErr)
+		} else if fmtVec := formatVector(vec); fmtVec != "" {
+			if _, updateErr := db.DB.ExecContext(ctx,
+				`UPDATE agent_memories SET embedding = $1::vector WHERE id = $2`,
+				fmtVec, memoryID,
+			); updateErr != nil {
+				log.Printf("Commit: embedding UPDATE failed workspace=%s memory=%s: %v",
+					workspaceID, memoryID, updateErr)
+			}
+		}
+	}
+
 	c.JSON(http.StatusCreated, gin.H{"id": memoryID, "scope": body.Scope, "namespace": namespace})
 }
 
@@ -122,10 +189,15 @@ const memoryRecallMaxLimit = 50
 //
 // Supports:
 //   - ?scope=LOCAL|TEAM|GLOBAL for access-control slicing
-//   - ?q=... full-text search (ts_rank ordered) when len>=memoryFTSMinQueryLen;
-//     falls back to ILIKE for shorter strings
+//   - ?q=... semantic search (cosine similarity) when an EmbeddingFunc is
+//     configured AND the query can be embedded; falls back to FTS when the
+//     embed call fails or no func is configured.
+//   - ?q=... full-text search (ts_rank ordered) when len>=memoryFTSMinQueryLen
+//     and no embedding is available; falls back to ILIKE for shorter strings.
 //   - ?namespace=... additional filter on the Holaboss-style namespace tag
 //   - ?limit=N max results (1–50); values >50 are silently clamped to 50 (#377)
+//
+// Semantic results include a "similarity_score" field (1 - cosine_distance).
 func (h *MemoriesHandler) Search(c *gin.Context) {
 	workspaceID := c.Param("id")
 	scope := c.DefaultQuery("scope", "")
@@ -147,76 +219,145 @@ func (h *MemoriesHandler) Search(c *gin.Context) {
 	var parentID *string
 	db.DB.QueryRowContext(ctx, `SELECT parent_id FROM workspaces WHERE id = $1`, workspaceID).Scan(&parentID)
 
-	// Build query based on scope and access rules
+	// Try to generate a query embedding for semantic search.
+	// Falls back to the existing FTS/ILIKE path on failure or when no
+	// embedding function is configured.
+	semanticVec := ""
+	if query != "" && h.embed != nil {
+		if vec, err := h.embed(ctx, query); err != nil {
+			log.Printf("Search: embedding failed workspace=%s: %v — falling back to FTS", workspaceID, err)
+		} else {
+			semanticVec = formatVector(vec)
+		}
+	}
+
 	var sqlQuery string
 	var args []interface{}
+	semantic := semanticVec != ""
 
-	switch scope {
-	case "LOCAL":
-		// Only this workspace's memories
-		sqlQuery = `SELECT id, workspace_id, content, scope, namespace, created_at FROM agent_memories WHERE workspace_id = $1 AND scope = 'LOCAL'`
-		args = []interface{}{workspaceID}
+	if semantic {
+		// ── Semantic search path ──────────────────────────────────────────
+		// Build scope-specific WHERE fragment and initial args.
+		isJoin := scope == "TEAM"
+		var baseWhere string
+		switch scope {
+		case "LOCAL":
+			baseWhere = `workspace_id = $1 AND scope = 'LOCAL'`
+			args = []interface{}{workspaceID}
+		case "TEAM":
+			if parentID != nil {
+				baseWhere = `m.scope = 'TEAM' AND w.status != 'removed' AND (w.parent_id = $1 OR w.id = $1)`
+				args = []interface{}{*parentID}
+			} else {
+				baseWhere = `m.scope = 'TEAM' AND w.status != 'removed' AND (w.parent_id = $1 OR w.id = $1)`
+				args = []interface{}{workspaceID}
+			}
+		case "GLOBAL":
+			baseWhere = `scope = 'GLOBAL'`
+			args = []interface{}{}
+		default:
+			baseWhere = `workspace_id = $1`
+			args = []interface{}{workspaceID}
+		}
+		if namespace != "" {
+			nsArg := nextArg(len(args))
+			if isJoin {
+				baseWhere += ` AND m.namespace = ` + nsArg
+			} else {
+				baseWhere += ` AND namespace = ` + nsArg
+			}
+			args = append(args, namespace)
+		}
 
-	case "TEAM":
-		// Team = self + parent + siblings (same parent_id)
-		if parentID != nil {
-			// Child workspace: team is parent + siblings sharing same parent_id
-			sqlQuery = `SELECT m.id, m.workspace_id, m.content, m.scope, m.namespace, m.created_at
-				FROM agent_memories m
-				JOIN workspaces w ON w.id = m.workspace_id
-				WHERE m.scope = 'TEAM' AND w.status != 'removed'
-				AND (w.parent_id = $1 OR w.id = $1)`
-			args = []interface{}{*parentID}
+		// $vecPos appears twice (SELECT + ORDER BY) — PostgreSQL resolves
+		// both to the same bound value, so we append it only once.
+		vecPos := nextArg(len(args))
+		limitPos := nextArg(len(args) + 1)
+
+		if isJoin {
+			sqlQuery = `SELECT m.id, m.workspace_id, m.content, m.scope, m.namespace, m.created_at,` +
+				` 1 - (m.embedding <=> ` + vecPos + `::vector) AS similarity_score` +
+				` FROM agent_memories m JOIN workspaces w ON w.id = m.workspace_id` +
+				` WHERE ` + baseWhere + ` AND m.embedding IS NOT NULL` +
+				` ORDER BY m.embedding <=> ` + vecPos + `::vector` +
+				` LIMIT ` + limitPos
 		} else {
-			// Root workspace: team is self + direct children only
-			sqlQuery = `SELECT m.id, m.workspace_id, m.content, m.scope, m.namespace, m.created_at
+			sqlQuery = `SELECT id, workspace_id, content, scope, namespace, created_at,` +
+				` 1 - (embedding <=> ` + vecPos + `::vector) AS similarity_score` +
+				` FROM agent_memories` +
+				` WHERE ` + baseWhere + ` AND embedding IS NOT NULL` +
+				` ORDER BY embedding <=> ` + vecPos + `::vector` +
+				` LIMIT ` + limitPos
+		}
+		args = append(args, semanticVec, limit)
+
+	} else {
+		// ── FTS / ILIKE / plain path ──────────────────────────────────────
+		switch scope {
+		case "LOCAL":
+			// Only this workspace's memories
+			sqlQuery = `SELECT id, workspace_id, content, scope, namespace, created_at FROM agent_memories WHERE workspace_id = $1 AND scope = 'LOCAL'`
+			args = []interface{}{workspaceID}
+
+		case "TEAM":
+			// Team = self + parent + siblings (same parent_id)
+			if parentID != nil {
+				// Child workspace: team is parent + siblings sharing same parent_id
+				sqlQuery = `SELECT m.id, m.workspace_id, m.content, m.scope, m.namespace, m.created_at
 				FROM agent_memories m
 				JOIN workspaces w ON w.id = m.workspace_id
 				WHERE m.scope = 'TEAM' AND w.status != 'removed'
 				AND (w.parent_id = $1 OR w.id = $1)`
+				args = []interface{}{*parentID}
+			} else {
+				// Root workspace: team is self + direct children only
+				sqlQuery = `SELECT m.id, m.workspace_id, m.content, m.scope, m.namespace, m.created_at
+				FROM agent_memories m
+				JOIN workspaces w ON w.id = m.workspace_id
+				WHERE m.scope = 'TEAM' AND w.status != 'removed'
+				AND (w.parent_id = $1 OR w.id = $1)`
+				args = []interface{}{workspaceID}
+			}
+
+		case "GLOBAL":
+			// All GLOBAL memories (readable by everyone)
+			sqlQuery = `SELECT id, workspace_id, content, scope, namespace, created_at FROM agent_memories WHERE scope = 'GLOBAL'`
+			args = []interface{}{}
+
+		default:
+			// All accessible memories
+			sqlQuery = `SELECT id, workspace_id, content, scope, namespace, created_at FROM agent_memories WHERE workspace_id = $1`
 			args = []interface{}{workspaceID}
 		}
 
-	case "GLOBAL":
-		// All GLOBAL memories (readable by everyone)
-		sqlQuery = `SELECT id, workspace_id, content, scope, namespace, created_at FROM agent_memories WHERE scope = 'GLOBAL'`
-		args = []interface{}{}
+		// Namespace filter (optional) — applies regardless of scope.
+		if namespace != "" {
+			sqlQuery += ` AND namespace = ` + nextArg(len(args))
+			args = append(args, namespace)
+		}
 
-	default:
-		// All accessible memories
-		sqlQuery = `SELECT id, workspace_id, content, scope, namespace, created_at FROM agent_memories WHERE workspace_id = $1`
-		args = []interface{}{workspaceID}
-	}
+		// Text search: FTS with ts_rank ordering for multi-char queries,
+		// ILIKE fallback for 1-char and empty-after-tokenization edge cases.
+		ftsActive := false
+		if len(query) >= memoryFTSMinQueryLen {
+			sqlQuery += ` AND content_tsv @@ plainto_tsquery('english', ` + nextArg(len(args)) + `)`
+			args = append(args, query)
+			ftsActive = true
+		} else if query != "" {
+			sqlQuery += ` AND content ILIKE ` + nextArg(len(args))
+			args = append(args, "%"+query+"%")
+		}
 
-	// Namespace filter (optional) — applies regardless of scope.
-	if namespace != "" {
-		sqlQuery += ` AND namespace = ` + nextArg(len(args))
-		args = append(args, namespace)
+		if ftsActive {
+			// Rank FTS hits first, tie-break by recency.
+			sqlQuery += ` ORDER BY ts_rank(content_tsv, plainto_tsquery('english', ` + nextArg(len(args)) + `)) DESC, created_at DESC`
+			args = append(args, query)
+		} else {
+			sqlQuery += ` ORDER BY created_at DESC`
+		}
+		sqlQuery += ` LIMIT ` + nextArg(len(args))
+		args = append(args, limit)
 	}
-
-	// Text search: FTS with ts_rank ordering for multi-char queries,
-	// ILIKE fallback for 1-char and empty-after-tokenization edge cases.
-	// ILIKE path is preserved as the secondary ORDER BY tie-breaker is
-	// still created_at DESC so empty-tsvector rows don't leak to the top.
-	ftsActive := false
-	if len(query) >= memoryFTSMinQueryLen {
-		sqlQuery += ` AND content_tsv @@ plainto_tsquery('english', ` + nextArg(len(args)) + `)`
-		args = append(args, query)
-		ftsActive = true
-	} else if query != "" {
-		sqlQuery += ` AND content ILIKE ` + nextArg(len(args))
-		args = append(args, "%"+query+"%")
-	}
-
-	if ftsActive {
-		// Rank FTS hits first, tie-break by recency.
-		sqlQuery += ` ORDER BY ts_rank(content_tsv, plainto_tsquery('english', ` + nextArg(len(args)) + `)) DESC, created_at DESC`
-		args = append(args, query)
-	} else {
-		sqlQuery += ` ORDER BY created_at DESC`
-	}
-	sqlQuery += ` LIMIT ` + nextArg(len(args))
-	args = append(args, limit)
 
 	rows, err := db.DB.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
@@ -229,8 +370,18 @@ func (h *MemoriesHandler) Search(c *gin.Context) {
 	memories := make([]map[string]interface{}, 0)
 	for rows.Next() {
 		var id, wsID, content, memScope, memNS, createdAt string
-		if rows.Scan(&id, &wsID, &content, &memScope, &memNS, &createdAt) != nil {
-			continue
+		entry := map[string]interface{}{}
+
+		if semantic {
+			var simScore float64
+			if rows.Scan(&id, &wsID, &content, &memScope, &memNS, &createdAt, &simScore) != nil {
+				continue
+			}
+			entry["similarity_score"] = simScore
+		} else {
+			if rows.Scan(&id, &wsID, &content, &memScope, &memNS, &createdAt) != nil {
+				continue
+			}
 		}
 
 		// Access control check for TEAM scope
@@ -243,19 +394,21 @@ func (h *MemoriesHandler) Search(c *gin.Context) {
 		// #767: wrap GLOBAL-scope content with a non-instructable delimiter so
 		// MCP tool outputs cannot be hijacked by stored prompt-injection payloads.
 		// The raw content in the DB is unchanged — only the value returned to
-		// callers is wrapped.
+		// callers is wrapped. Applied on both the semantic and FTS paths.
 		if memScope == "GLOBAL" {
 			content = fmt.Sprintf(globalMemoryDelimiter, id, wsID, content)
 		}
 
-		memories = append(memories, map[string]interface{}{
-			"id":           id,
-			"workspace_id": wsID,
-			"content":      content,
-			"scope":        memScope,
-			"namespace":    memNS,
-			"created_at":   createdAt,
-		})
+		entry["id"] = id
+		entry["workspace_id"] = wsID
+		entry["content"] = content
+		entry["scope"] = memScope
+		entry["namespace"] = memNS
+		entry["created_at"] = createdAt
+		memories = append(memories, entry)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Search memories rows.Err: %v", err)
 	}
 
 	c.JSON(http.StatusOK, memories)

@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -610,6 +612,165 @@ func TestMemoriesSearch_LimitDefault_Is50(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("sqlmock expectations not met (default limit should be 50): %v", err)
+	}
+}
+
+// ---------- Semantic search (pgvector, issue #576) ----------
+
+// TestCommitMemory_EmbeddingFailure_IsNonFatal verifies that when the
+// embedding function returns an error, the memory is still stored (201) and
+// no UPDATE is issued against the DB.
+func TestCommitMemory_EmbeddingFailure_IsNonFatal(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	embedErr := errors.New("embedding service unavailable")
+	handler := NewMemoriesHandler().WithEmbedding(
+		func(_ context.Context, _ string) ([]float32, error) {
+			return nil, embedErr
+		},
+	)
+
+	// Only the INSERT is expected — no UPDATE because embedding failed.
+	mock.ExpectQuery("INSERT INTO agent_memories").
+		WithArgs("ws-1", "important fact", "LOCAL", "general").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("mem-new"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-1"}}
+	body := `{"content":"important fact","scope":"LOCAL"}`
+	c.Request = httptest.NewRequest("POST", "/", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Commit(c)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("embedding failure must not prevent 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["id"] != "mem-new" {
+		t.Errorf("expected id 'mem-new', got %v", resp["id"])
+	}
+	// All expectations met means the unexpected UPDATE was never issued.
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unexpected DB calls after embedding failure: %v", err)
+	}
+}
+
+// TestRecallMemory_SemanticSearch_ReturnsOrderedByDistance verifies that when
+// an EmbeddingFunc is configured, Search uses the cosine-similarity path and
+// returns results with a similarity_score field ordered highest-first.
+func TestRecallMemory_SemanticSearch_ReturnsOrderedByDistance(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	// Stub embedding: returns a unit vector along dimension 0.
+	knownVec := make([]float32, 1536)
+	knownVec[0] = 1.0
+	embedCalled := false
+	handler := NewMemoriesHandler().WithEmbedding(
+		func(_ context.Context, text string) ([]float32, error) {
+			embedCalled = true
+			return knownVec, nil
+		},
+	)
+
+	// Parent lookup for default scope.
+	mock.ExpectQuery("SELECT parent_id FROM workspaces WHERE id").
+		WithArgs("ws-sem").
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(nil))
+
+	// Semantic search returns two rows pre-ordered by the DB (highest first).
+	semRows := sqlmock.NewRows([]string{
+		"id", "workspace_id", "content", "scope", "namespace", "created_at", "similarity_score",
+	}).
+		AddRow("mem-a", "ws-sem", "dogs are mammals", "LOCAL", "general", "2024-01-02T00:00:00Z", 0.95).
+		AddRow("mem-b", "ws-sem", "chairs have legs", "LOCAL", "general", "2024-01-01T00:00:00Z", 0.42)
+
+	// The semantic SQL contains "similarity_score"; FTS SQL does not.
+	mock.ExpectQuery(`similarity_score`).
+		WillReturnRows(semRows)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-sem"}}
+	c.Request = httptest.NewRequest("GET", "/memories?q=animals", nil)
+	c.Request.URL.RawQuery = "q=animals"
+
+	handler.Search(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !embedCalled {
+		t.Error("expected EmbeddingFunc to be called for semantic search")
+	}
+
+	var result []map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 results, got %d: %s", len(result), w.Body.String())
+	}
+	score0, ok0 := result[0]["similarity_score"].(float64)
+	score1, ok1 := result[1]["similarity_score"].(float64)
+	if !ok0 || !ok1 {
+		t.Fatalf("similarity_score missing or wrong type in results: %v", result)
+	}
+	if score0 <= score1 {
+		t.Errorf("expected result[0].similarity_score (%g) > result[1].similarity_score (%g)", score0, score1)
+	}
+}
+
+// TestRecallMemory_SemanticSearch_FallsBackToFTS_WhenNoEmbedding verifies that
+// when no EmbeddingFunc is configured (or all rows lack embeddings), Search
+// falls back to the standard FTS path without crashing. The response must be
+// 200 and must NOT contain a similarity_score field.
+func TestRecallMemory_SemanticSearch_FallsBackToFTS_WhenNoEmbedding(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	// Plain handler — no embedding function configured.
+	handler := NewMemoriesHandler()
+
+	mock.ExpectQuery("SELECT parent_id FROM workspaces WHERE id").
+		WithArgs("ws-fts").
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(nil))
+
+	// FTS path: 6-column SELECT (no similarity_score).
+	ftsRows := sqlmock.NewRows([]string{
+		"id", "workspace_id", "content", "scope", "namespace", "created_at",
+	}).AddRow("mem-fts", "ws-fts", "knowledge about topics", "LOCAL", "general", "2024-01-01T00:00:00Z")
+
+	mock.ExpectQuery(`SELECT id, workspace_id, content, scope, namespace, created_at FROM agent_memories WHERE workspace_id`).
+		WillReturnRows(ftsRows)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-fts"}}
+	c.Request = httptest.NewRequest("GET", "/memories?q=topics", nil)
+	c.Request.URL.RawQuery = "q=topics"
+
+	handler.Search(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 on FTS fallback, got %d: %s", w.Code, w.Body.String())
+	}
+	var result []map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 FTS result, got %d", len(result))
+	}
+	if _, hasSim := result[0]["similarity_score"]; hasSim {
+		t.Error("FTS path must not include similarity_score field")
+	}
+	if result[0]["id"] != "mem-fts" {
+		t.Errorf("expected id 'mem-fts', got %v", result[0]["id"])
 	}
 }
 
