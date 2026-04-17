@@ -7,7 +7,7 @@
  * and Refresh.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 
 // ── Mocks (must be hoisted before any imports) ────────────────────────────────
 
@@ -398,5 +398,115 @@ describe("MemoryInspectorPanel — Refresh button", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh memory entries" }));
     await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(2));
+  });
+});
+
+// ── Semantic search (issue #783) ──────────────────────────────────────────────
+
+describe("MemoryInspectorPanel — semantic search", () => {
+  // Ensure fake timers never leak into the next test even if a test throws
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("does not call API before 300ms debounce elapses after typing", async () => {
+    vi.useFakeTimers();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue([] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+
+    // Flush initial load — api.get returns an already-resolved Promise
+    // (microtask), so act() drains it without advancing fake timers
+    await act(async () => {});
+
+    mockGet.mockClear();
+
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Search memory entries"), {
+        target: { value: "task queue" },
+      });
+    });
+
+    // 200ms elapsed — debounce has NOT fired yet
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(mockGet).not.toHaveBeenCalled();
+
+    // Another 150ms (total 350ms > 300ms threshold) — debounce fires
+    await act(async () => {
+      vi.advanceTimersByTime(150);
+    });
+    // Flush the async loadEntries that was triggered
+    await act(async () => {});
+
+    expect(mockGet).toHaveBeenCalledWith(
+      "/workspaces/ws-1/memory?q=task%20queue"
+    );
+
+    vi.useRealTimers();
+  });
+
+  it("renders similarity-badge with rounded percentage when entry has similarity_score", async () => {
+    mockGet.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { ...ENTRY_A, similarity_score: 0.87 },
+    ] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+
+    // Wait for the entry key to appear in the header
+    await waitFor(() => screen.getByText("task-queue"));
+
+    const badge = document.querySelector('[data-testid="similarity-badge"]');
+    expect(badge).toBeTruthy();
+    expect(badge?.textContent).toBe("87%");
+  });
+
+  it("does not render similarity-badge when entry has no similarity_score", async () => {
+    // ENTRY_A has no similarity_score field
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue([ENTRY_A] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+
+    await waitFor(() => screen.getByText("task-queue"));
+
+    expect(
+      document.querySelector('[data-testid="similarity-badge"]')
+    ).toBeNull();
+  });
+
+  it("clear button resets debouncedQuery immediately and re-fetches without ?q=", async () => {
+    vi.useFakeTimers();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue([] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+
+    // Flush initial load
+    await act(async () => {});
+
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Search memory entries"), {
+        target: { value: "sessions" },
+      });
+    });
+
+    // Advance past debounce — debouncedQuery becomes "sessions"
+    await act(async () => {
+      vi.advanceTimersByTime(350);
+    });
+    await act(async () => {}); // flush async loadEntries
+    expect(mockGet).toHaveBeenCalledWith("/workspaces/ws-1/memory?q=sessions");
+    mockGet.mockClear();
+
+    // Click × clear button — skips debounce, resets debouncedQuery immediately
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    });
+    await act(async () => {}); // flush state update → loadEntries → api.get
+
+    // Should re-fetch the unfiltered list (no q= parameter)
+    expect(mockGet).toHaveBeenCalledWith("/workspaces/ws-1/memory");
+
+    vi.useRealTimers();
   });
 });
