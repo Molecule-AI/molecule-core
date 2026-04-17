@@ -26,7 +26,8 @@ const hasAnyLiveTokenGlobalQuery = "SELECT COUNT.*FROM workspace_auth_tokens"
 const validateTokenSelectQuery = "SELECT id, workspace_id.*FROM workspace_auth_tokens.*token_hash"
 
 // validateAnyTokenQuery is matched for ValidateAnyToken (SELECT).
-const validateAnyTokenSelectQuery = "SELECT id.*FROM workspace_auth_tokens.*token_hash"
+// The query now JOINs workspaces to enforce w.status != 'removed' (#682 defense-in-depth).
+const validateAnyTokenSelectQuery = "SELECT t\\.id.*FROM workspace_auth_tokens t.*JOIN workspaces"
 
 // validateTokenUpdateQuery is matched for the best-effort last_used_at UPDATE.
 const validateTokenUpdateQuery = "UPDATE workspace_auth_tokens SET last_used_at"

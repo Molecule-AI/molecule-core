@@ -184,6 +184,12 @@ func HasAnyLiveTokenGlobal(ctx context.Context, db *sql.DB) (bool, error) {
 // token (not scoped to a specific workspace). Used for admin/global routes
 // where workspace-scoped auth is not applicable — any authenticated agent may
 // access platform-wide settings.
+//
+// Defense-in-depth (#682): the JOIN against workspaces ensures that even if a
+// token revocation was delayed (e.g. DB error between workspace status='removed'
+// and the token UPDATE), the token still fails validation once the workspace row
+// is marked removed. This closes the theoretical race window in the Delete
+// handler without relying solely on revoked_at being set atomically.
 func ValidateAnyToken(ctx context.Context, db *sql.DB, plaintext string) error {
 	if plaintext == "" {
 		return ErrInvalidToken
@@ -192,8 +198,12 @@ func ValidateAnyToken(ctx context.Context, db *sql.DB, plaintext string) error {
 
 	var tokenID string
 	err := db.QueryRowContext(ctx, `
-		SELECT id FROM workspace_auth_tokens
-		WHERE token_hash = $1 AND revoked_at IS NULL
+		SELECT t.id
+		FROM workspace_auth_tokens t
+		JOIN workspaces w ON w.id = t.workspace_id
+		WHERE t.token_hash = $1
+		  AND t.revoked_at IS NULL
+		  AND w.status != 'removed'
 	`, hash[:]).Scan(&tokenID)
 	if err != nil {
 		return ErrInvalidToken
