@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -503,6 +505,92 @@ func TestResolveAndStage_LocalSchemePathTraversal(t *testing.T) {
 	h := NewPluginsHandler(t.TempDir(), nil, nil)
 	_, err := h.resolveAndStage(context.Background(), installRequest{Source: "local://../../etc/passwd"})
 	assertHTTPErrStatus(t, err, http.StatusBadRequest, "local path traversal")
+}
+
+// ==================== supply-chain hardening (SAFE-T1102) ====================
+
+// TestPluginInstall_SHA256Mismatch_AbortsInstall verifies that when the caller
+// provides a sha256 field that does not match the fetched plugin.yaml, the
+// install is aborted with 422 Unprocessable Entity and the staging dir is cleaned up.
+func TestPluginInstall_SHA256Mismatch_AbortsInstall(t *testing.T) {
+	beforeCount := tempDirCount(t)
+
+	h := NewPluginsHandler(t.TempDir(), nil, nil).WithSourceResolver(&stubResolver{
+		scheme:  "stub",
+		name:    "my-plugin",
+		content: "name: my-plugin\nversion: 1.0.0\n",
+	})
+	_, err := h.resolveAndStage(context.Background(), installRequest{
+		Source: "stub://my-plugin",
+		SHA256: "0000000000000000000000000000000000000000000000000000000000000000", // wrong
+	})
+	assertHTTPErrStatus(t, err, http.StatusUnprocessableEntity, "sha256 mismatch")
+
+	afterCount := tempDirCount(t)
+	if afterCount > beforeCount {
+		t.Errorf("SHA256 mismatch left %d orphaned staging dir(s)", afterCount-beforeCount)
+	}
+}
+
+// TestPluginInstall_SHA256Match_Succeeds verifies that resolveAndStage succeeds
+// when the caller supplies the correct SHA-256 of the fetched plugin.yaml.
+func TestPluginInstall_SHA256Match_Succeeds(t *testing.T) {
+	content := "name: my-plugin\nversion: 1.0.0\n"
+	sum := sha256.Sum256([]byte(content))
+	correctHash := hex.EncodeToString(sum[:])
+
+	h := NewPluginsHandler(t.TempDir(), nil, nil).WithSourceResolver(&stubResolver{
+		scheme:  "stub",
+		name:    "my-plugin",
+		content: content,
+	})
+	result, err := h.resolveAndStage(context.Background(), installRequest{
+		Source: "stub://my-plugin",
+		SHA256: correctHash,
+	})
+	if err != nil {
+		t.Fatalf("expected success when sha256 matches, got: %v", err)
+	}
+	defer os.RemoveAll(result.StagedDir)
+	if result.PluginName != "my-plugin" {
+		t.Errorf("expected PluginName 'my-plugin', got %q", result.PluginName)
+	}
+}
+
+// TestPluginInstall_UnpinnedRef_Rejected verifies that a github:// spec without
+// a #<ref> suffix is rejected with 422 unless PLUGIN_ALLOW_UNPINNED=true.
+func TestPluginInstall_UnpinnedRef_Rejected(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "") // ensure the guard is active
+
+	h := NewPluginsHandler(t.TempDir(), nil, nil).WithSourceResolver(&stubResolver{
+		scheme:  "github",
+		name:    "my-plugin",
+		content: "name: my-plugin\n",
+	})
+	_, err := h.resolveAndStage(context.Background(), installRequest{
+		Source: "github://owner/repo", // no #ref — must be rejected
+	})
+	assertHTTPErrStatus(t, err, http.StatusUnprocessableEntity, "unpinned ref rejected")
+}
+
+// TestPluginInstall_PinnedRef_Accepted verifies that a github:// spec that
+// includes a #<ref> suffix passes the pinned-ref guard and completes normally.
+func TestPluginInstall_PinnedRef_Accepted(t *testing.T) {
+	h := NewPluginsHandler(t.TempDir(), nil, nil).WithSourceResolver(&stubResolver{
+		scheme:  "github",
+		name:    "my-plugin",
+		content: "name: my-plugin\n",
+	})
+	result, err := h.resolveAndStage(context.Background(), installRequest{
+		Source: "github://owner/repo#v1.0.0", // pinned — must be accepted
+	})
+	if err != nil {
+		t.Fatalf("expected success for pinned ref, got: %v", err)
+	}
+	defer os.RemoveAll(result.StagedDir)
+	if result.PluginName != "my-plugin" {
+		t.Errorf("expected PluginName 'my-plugin', got %q", result.PluginName)
+	}
 }
 
 // ==================== helpers ====================
