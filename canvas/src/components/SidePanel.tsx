@@ -11,7 +11,7 @@ import { ChatTab } from "./tabs/ChatTab";
 import { ConfigTab } from "./tabs/ConfigTab";
 import { TerminalTab } from "./tabs/TerminalTab";
 import { FilesTab } from "./tabs/FilesTab";
-import { MemoryTab } from "./tabs/MemoryTab";
+import { MemoryInspectorPanel } from "./MemoryInspectorPanel";
 import { TracesTab } from "./tabs/TracesTab";
 import { EventsTab } from "./tabs/EventsTab";
 import { ActivityTab } from "./tabs/ActivityTab";
@@ -243,7 +243,7 @@ export function SidePanel() {
         {panelTab === "schedule" && <ScheduleTab key={selectedNodeId} workspaceId={selectedNodeId} />}
         {panelTab === "channels" && <ChannelsTab key={selectedNodeId} workspaceId={selectedNodeId} />}
         {panelTab === "files" && <FilesTab key={selectedNodeId} workspaceId={selectedNodeId} />}
-        {panelTab === "memory" && <MemoryTab key={selectedNodeId} workspaceId={selectedNodeId} />}
+        {panelTab === "memory" && <MemoryInspectorPanel key={selectedNodeId} workspaceId={selectedNodeId} />}
         {panelTab === "traces" && <TracesTab key={selectedNodeId} workspaceId={selectedNodeId} />}
         {panelTab === "events" && <EventsTab key={selectedNodeId} workspaceId={selectedNodeId} />}
       </div>
