@@ -195,6 +195,10 @@ class ComplianceConfig:
 class WorkspaceConfig:
     name: str = "Workspace"
     description: str = ""
+    role: str = ""
+    """Human-readable role label for this agent (e.g. 'Senior Code Reviewer').
+    Surfaced in AGENTS.md so peer agents can understand this workspace's purpose
+    without reading the full system prompt. Falls back to description when empty."""
     version: str = "1.0.0"
     tier: int = 1
     model: str = "anthropic:claude-opus-4-7"
@@ -287,6 +291,7 @@ def load_config(config_path: Optional[str] = None) -> WorkspaceConfig:
     return WorkspaceConfig(
         name=raw.get("name", "Workspace"),
         description=raw.get("description", ""),
+        role=raw.get("role", ""),
         version=raw.get("version", "1.0.0"),
         tier=int(raw.get("tier", 1)) if str(raw.get("tier", 1)).isdigit() else 1,
         model=model,
