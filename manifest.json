@@ -3,6 +3,7 @@
   "version": 1,
   "plugins": [
     {"name": "browser-automation", "repo": "Molecule-AI/molecule-ai-plugin-browser-automation", "ref": "main"},
+    {"name": "molecule-browser-use", "repo": "Molecule-AI/molecule-ai-plugin-molecule-browser-use", "ref": "main"},
     {"name": "ecc", "repo": "Molecule-AI/molecule-ai-plugin-ecc", "ref": "main"},
     {"name": "molecule-audit", "repo": "Molecule-AI/molecule-ai-plugin-molecule-audit", "ref": "main"},
     {"name": "molecule-audit-trail", "repo": "Molecule-AI/molecule-ai-plugin-molecule-audit-trail", "ref": "main"},
