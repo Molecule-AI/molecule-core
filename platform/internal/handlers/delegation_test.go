@@ -88,6 +88,37 @@ func TestDelegate_InvalidUUIDTargetID(t *testing.T) {
 	}
 }
 
+// ---------- Delegate: self-delegation → 400 ----------
+
+func TestDelegate_SelfDelegation_Rejected(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	wh := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+	dh := NewDelegationHandler(wh, broadcaster)
+
+	// Use the same UUID for both source and target to trigger the self-delegation guard.
+	selfID := "11111111-2222-3333-4444-555555555555"
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: selfID}}
+	body := `{"target_id":"` + selfID + `","task":"do something"}`
+	c.Request = httptest.NewRequest("POST", "/workspaces/"+selfID+"/delegate", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	dh.Delegate(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "self-delegation not permitted" {
+		t.Errorf("expected 'self-delegation not permitted', got %v", resp["error"])
+	}
+}
+
 // ---------- Delegate: success → 202 with delegation_id ----------
 
 func TestDelegate_Success(t *testing.T) {

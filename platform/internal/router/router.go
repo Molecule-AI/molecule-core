@@ -256,6 +256,14 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		// (mirrors the /workspaces/:id/a2a pattern). Issue #249.
 		r.GET("/workspaces/:id/schedules/health", schedh.Health)
 
+		// Budget — per-workspace spend ceiling and current usage (#541).
+		// GET stays on wsAuth — a workspace agent reading its own budget is legitimate.
+		// PATCH is admin-only — workspace agents must not be able to self-clear their
+		// spending ceiling (that would defeat the entire budget enforcement feature).
+		budgeth := handlers.NewBudgetHandler()
+		wsAuth.GET("/budget", budgeth.GetBudget)
+		r.PATCH("/workspaces/:id/budget", middleware.AdminAuth(db.DB), budgeth.PatchBudget)
+
 		// Token management (user-facing create/list/revoke)
 		tokh := handlers.NewTokenHandler()
 		wsAuth.GET("/tokens", tokh.List)
@@ -279,6 +287,22 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		wsAuth.PUT("/secrets", sech.Set)
 		wsAuth.DELETE("/secrets/:key", sech.Delete)
 		wsAuth.GET("/model", sech.GetModel)
+
+		// Token usage metrics — cost transparency (#593).
+		// WorkspaceAuth middleware (on wsAuth) binds the bearer to :id.
+		mtrh := handlers.NewMetricsHandler()
+		wsAuth.GET("/metrics", mtrh.GetMetrics)
+
+		// Cloudflare Artifacts demo integration (#595).
+		// All four routes require workspace-scoped bearer auth (wsAuth).
+		// CF credentials read from CF_ARTIFACTS_API_TOKEN / CF_ARTIFACTS_NAMESPACE;
+		// missing credentials return 503 so the handler still registers in
+		// every deployment — the demo is gated on env vars, not compilation.
+		arth := handlers.NewArtifactsHandler()
+		wsAuth.POST("/artifacts", arth.Create)
+		wsAuth.GET("/artifacts", arth.Get)
+		wsAuth.POST("/artifacts/fork", arth.Fork)
+		wsAuth.POST("/artifacts/token", arth.Token)
 	}
 
 	// Global secrets — /settings/secrets is the canonical path; /admin/secrets kept for backward compat.
@@ -297,11 +321,24 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	}
 
 	// Admin — test token minting (issue #6). Hidden in production via TestTokensEnabled().
-	// Registered at root (not inside AdminAuth) because it is itself the bootstrap for
-	// acquiring a token, and it's gated on MOLECULE_ENV / MOLECULE_ENABLE_TEST_TOKENS.
+	// AdminAuth is a second defence-in-depth layer: on a fresh install with no tokens yet,
+	// AdminAuth is fail-open (HasAnyLiveTokenGlobal == 0), so the bootstrap still works.
+	// Once any token exists, callers must present a valid bearer — unauthenticated workspace-
+	// UUID enumeration is blocked even on non-production instances.
 	{
 		tokh := handlers.NewAdminTestTokenHandler()
-		r.GET("/admin/workspaces/:id/test-token", tokh.GetTestToken)
+		r.GET("/admin/workspaces/:id/test-token", middleware.AdminAuth(db.DB), tokh.GetTestToken)
+	}
+
+	// Admin — GitHub App installation token refresh (issue #547).
+	// Long-running workspaces (>60 min) use this endpoint to refresh
+	// GH_TOKEN without restarting. Returns the current installation token
+	// from the github-app-auth plugin's in-process cache (which proactively
+	// refreshes 5 min before expiry). 404 when no GitHub App is configured
+	// (dev / self-hosted without GITHUB_APP_ID).
+	{
+		ghTokH := handlers.NewGitHubTokenHandler(wh.TokenRegistry())
+		r.GET("/admin/github-installation-token", middleware.AdminAuth(db.DB), ghTokH.GetInstallationToken)
 	}
 
 	// Terminal — shares Docker client with provisioner
@@ -390,6 +427,16 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// depth keeps the route behind AdminAuth regardless.
 	r.POST("/org/import", middleware.AdminAuth(db.DB), orgh.Import)
 
+	// Org plugin allowlist — tool governance (#591).
+	// Both endpoints are admin-gated: reading the allowlist reveals approved
+	// tooling policy; writing it enforces org-level install governance.
+	{
+		allowlistAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		aplh := handlers.NewOrgPluginAllowlistHandler()
+		allowlistAdmin.GET("/orgs/:id/plugins/allowlist", aplh.GetAllowlist)
+		allowlistAdmin.PUT("/orgs/:id/plugins/allowlist", aplh.PutAllowlist)
+	}
+
 	// Channels (social integrations — Telegram, Slack, Discord, etc.)
 	chh := handlers.NewChannelHandler(channelMgr)
 	r.GET("/channels/adapters", chh.ListAdapters)
@@ -407,6 +454,11 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// platform-operator helper, not a per-workspace route.
 	r.POST("/channels/discover", middleware.AdminAuth(db.DB), chh.Discover)
 	r.POST("/webhooks/:type", chh.Webhook)
+
+	// SSE — AG-UI compatible event stream per workspace (#590).
+	// WorkspaceAuth middleware (on wsAuth) binds the bearer token to :id.
+	sseh := handlers.NewSSEHandler(broadcaster)
+	wsAuth.GET("/events/stream", sseh.StreamEvents)
 
 	// WebSocket
 	sh := handlers.NewSocketHandler(hub)

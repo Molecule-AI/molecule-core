@@ -24,13 +24,15 @@ func TestWorkspaceGet_Success(t *testing.T) {
 		"id", "name", "role", "tier", "status", "agent_card", "url",
 		"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
 		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
+		"budget_limit", "monthly_spend",
 	}
 	mock.ExpectQuery("SELECT w.id, w.name").
 		WithArgs("ws-get-1").
 		WillReturnRows(sqlmock.NewRows(columns).
 			AddRow("ws-get-1", "My Agent", "worker", 1, "online", []byte(`{"name":"test"}`),
 				"http://localhost:8001", nil, 2, 0.05, "", 3600, "working", "langgraph",
-				"", 10.0, 20.0, false))
+				"", 10.0, 20.0, false,
+				nil, 0))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -146,10 +148,12 @@ func TestWorkspaceCreate_DBInsertError(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
-	// Workspace INSERT fails
+	// Transaction begins, workspace INSERT fails, transaction is rolled back.
+	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO workspaces").
-		WithArgs(sqlmock.AnyArg(), "Failing Agent", nil, 1, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none").
+		WithArgs(sqlmock.AnyArg(), "Failing Agent", nil, 1, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
 		WillReturnError(sql.ErrConnDone)
+	mock.ExpectRollback()
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -175,10 +179,13 @@ func TestWorkspaceCreate_DefaultsApplied(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
+	// Transaction wraps the workspace INSERT (no secrets in this request).
+	mock.ExpectBegin()
 	// Expect workspace INSERT with defaulted tier=1, runtime="langgraph"
 	mock.ExpectExec("INSERT INTO workspaces").
-		WithArgs(sqlmock.AnyArg(), "Default Agent", nil, 1, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none").
+		WithArgs(sqlmock.AnyArg(), "Default Agent", nil, 1, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	// Expect canvas_layouts INSERT (x=0, y=0 — defaults)
 	mock.ExpectExec("INSERT INTO canvas_layouts").
@@ -215,6 +222,117 @@ func TestWorkspaceCreate_DefaultsApplied(t *testing.T) {
 	}
 }
 
+// TestWorkspaceCreate_WithSecrets_Persists asserts that secrets in the create
+// payload are written to workspace_secrets inside the same transaction as the
+// workspace row, and that the handler returns 201.
+func TestWorkspaceCreate_WithSecrets_Persists(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	// External workspace: simplest code path — no provisioner goroutine.
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO workspaces").
+		WithArgs(sqlmock.AnyArg(), "Hermes Agent", nil, 1, "hermes", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Secret inserted inside the same transaction.
+	mock.ExpectExec("INSERT INTO workspace_secrets").
+		WithArgs(sqlmock.AnyArg(), "HERMES_API_KEY", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	// canvas_layouts (non-fatal, outside tx)
+	mock.ExpectExec("INSERT INTO canvas_layouts").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	body := `{"name":"Hermes Agent","runtime":"hermes","external":true,"secrets":{"HERMES_API_KEY":"sk-test-123"}}`
+	c.Request = httptest.NewRequest("POST", "/workspaces", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Create(c)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("expected status 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestWorkspaceCreate_SecretPersistFails_RollsBack asserts that a DB error
+// while persisting a secret causes the entire transaction to roll back and
+// the handler to return 500.  The workspace row must NOT be committed.
+func TestWorkspaceCreate_SecretPersistFails_RollsBack(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO workspaces").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO workspace_secrets").
+		WillReturnError(sql.ErrConnDone) // DB failure while writing secret
+	mock.ExpectRollback() // workspace insert must be rolled back
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	body := `{"name":"Rollback Agent","secrets":{"OPENAI_API_KEY":"sk-fail"}}`
+	c.Request = httptest.NewRequest("POST", "/workspaces", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Create(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestWorkspaceCreate_EmptySecrets_OK asserts that an empty secrets map (or
+// no secrets key at all) creates the workspace normally without touching
+// workspace_secrets.
+func TestWorkspaceCreate_EmptySecrets_OK(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO workspaces").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// No ExpectExec for workspace_secrets — empty map must be a no-op.
+	mock.ExpectCommit()
+	mock.ExpectExec("INSERT INTO canvas_layouts").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	body := `{"name":"No Secrets Agent","external":true,"secrets":{}}`
+	c.Request = httptest.NewRequest("POST", "/workspaces", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Create(c)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("expected status 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 // ==================== GET /workspaces (List) ====================
 
 func TestWorkspaceList_Empty(t *testing.T) {
@@ -228,6 +346,7 @@ func TestWorkspaceList_Empty(t *testing.T) {
 			"id", "name", "role", "tier", "status", "agent_card", "url",
 			"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
 			"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
+			"budget_limit", "monthly_spend",
 		}))
 
 	w := httptest.NewRecorder()
@@ -739,5 +858,134 @@ func TestWorkspaceUpdate_SensitiveField_NoTokensYet_FailOpen(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("bootstrap fail-open: got %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+}
+
+// ==================== #611 Security Auditor regressions ====================
+
+// TestWorkspaceGet_FinancialFieldsStripped verifies that GET /workspaces/:id
+// does NOT expose budget_limit or monthly_spend. The endpoint is on the open
+// router — any caller with a UUID would otherwise read billing data. (#611 Fix 2)
+func TestWorkspaceGet_FinancialFieldsStripped(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	columns := []string{
+		"id", "name", "role", "tier", "status", "agent_card", "url",
+		"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
+		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
+		"budget_limit", "monthly_spend",
+	}
+	// Populate with non-zero financial values to confirm they are stripped.
+	mock.ExpectQuery("SELECT w.id, w.name").
+		WithArgs("ws-fin-1").
+		WillReturnRows(sqlmock.NewRows(columns).
+			AddRow("ws-fin-1", "Finance Test", "worker", 1, "online", []byte(`{}`),
+				"http://localhost:9001", nil, 0, 0.0, "", 0, "", "langgraph",
+				"", 0.0, 0.0, false,
+				int64(50000), int64(12500))) // budget_limit=500 USD, spend=125 USD
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-fin-1"}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/ws-fin-1", nil)
+
+	handler.Get(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if _, present := resp["budget_limit"]; present {
+		t.Errorf("budget_limit must not appear in GET /workspaces/:id response (got %v)", resp["budget_limit"])
+	}
+	if _, present := resp["monthly_spend"]; present {
+		t.Errorf("monthly_spend must not appear in GET /workspaces/:id response (got %v)", resp["monthly_spend"])
+	}
+	// Sanity-check that normal fields are still present.
+	if resp["name"] != "Finance Test" {
+		t.Errorf("expected name 'Finance Test', got %v", resp["name"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestWorkspaceUpdate_BudgetLimitIgnored verifies that including budget_limit
+// in a PATCH /workspaces/:id body does NOT trigger a DB write. The only write
+// path for budget_limit is PATCH /workspaces/:id/budget (AdminAuth-gated).
+// Any workspace bearer must not be able to self-clear its spending ceiling.
+// (#611 Fix 1)
+func TestWorkspaceUpdate_BudgetLimitIgnored(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	// Only the existence probe fires — no UPDATE for budget_limit.
+	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
+		WithArgs("ws-budget-test").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	// name update is the only expected write
+	mock.ExpectExec("UPDATE workspaces SET name").
+		WithArgs("ws-budget-test", "Safe Name").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-budget-test"}}
+	// Send budget_limit alongside an innocuous field.
+	body := `{"name":"Safe Name","budget_limit":null}`
+	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-budget-test",
+		bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Update(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// sqlmock will fail if any unexpected DB call was made (e.g. for budget_limit).
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unexpected DB call — budget_limit must not be written via Update: %v", err)
+	}
+}
+
+// TestWorkspaceUpdate_BudgetLimitOnly_Ignored verifies that a body containing
+// ONLY budget_limit results in no DB writes at all (besides the existence probe).
+func TestWorkspaceUpdate_BudgetLimitOnly_Ignored(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
+		WithArgs("ws-budget-only").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	// No UPDATE expected — budget_limit must be silently skipped.
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-budget-only"}}
+	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-budget-only",
+		bytes.NewBufferString(`{"budget_limit":999999}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Update(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unexpected DB call for budget_limit: %v", err)
 	}
 }

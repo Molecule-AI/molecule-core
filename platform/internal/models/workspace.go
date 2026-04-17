@@ -44,6 +44,12 @@ type HeartbeatPayload struct {
 	ActiveTasks   int     `json:"active_tasks"`
 	UptimeSeconds int     `json:"uptime_seconds"`
 	CurrentTask   string  `json:"current_task"`
+	// MonthlySpend is cumulative USD spend for the current calendar month,
+	// denominated in cents (e.g. 1500 = $15.00). Zero means "no update" —
+	// the heartbeat handler never writes zero to avoid accidentally clearing
+	// a previously-reported spend value. Any non-zero value is clamped to
+	// [0, maxMonthlySpend] before the DB write. (#615)
+	MonthlySpend int64 `json:"monthly_spend"`
 }
 
 type UpdateCardPayload struct {
@@ -63,6 +69,13 @@ type CreateWorkspacePayload struct {
 	WorkspaceDir    string  `json:"workspace_dir"`    // host path to mount as /workspace (empty = isolated volume)
 	WorkspaceAccess string  `json:"workspace_access"` // "none" (default), "read_only", or "read_write" — see #65
 	ParentID        *string `json:"parent_id"`
+	// BudgetLimit is the optional monthly spend ceiling in USD cents.
+	// NULL (omitted) means no limit. budget_limit=500 means $5.00/month.
+	BudgetLimit *int64 `json:"budget_limit"`
+	// Secrets is an optional map of key→plaintext-value pairs to persist as
+	// workspace secrets at creation time.  Stored encrypted (same path as
+	// POST /workspaces/:id/secrets).  Nil/empty map is a no-op.
+	Secrets map[string]string `json:"secrets"`
 	Canvas   struct {
 		X float64 `json:"x"`
 		Y float64 `json:"y"`

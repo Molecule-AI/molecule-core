@@ -6,13 +6,16 @@ Coverage targets
 - ProviderConfig                — capability flags derived from model name
 - _validate_response_format()  — valid types, invalid type, missing fields (#498)
 - HermesA2AExecutor.__init__   — field assignment + client injection,
-                                  response_format stored (#498)
+                                  response_format stored (#498), tools (#497)
 - HermesA2AExecutor._build_messages — system prompt + user turn assembly
 - HermesA2AExecutor._log_reasoning  — OTEL span emission + swallowed errors
 - HermesA2AExecutor.execute    — happy path, empty input, API error,
                                   Hermes 4 extra_body, Hermes 3 no extra_body,
                                   reasoning not in reply, reasoning_details,
-                                  response_format forwarded / omitted / invalid (#498)
+                                  response_format forwarded / omitted / invalid (#498),
+                                  tools serialized in request body (#497),
+                                  empty tools → no tools field (#497),
+                                  tool_call response → JSON text (#497)
 - HermesA2AExecutor.cancel     — TaskStatusUpdateEvent emitted
 
 The ``openai`` module is stubbed in sys.modules so no real API call is made.
@@ -847,3 +850,263 @@ async def test_execute_invalid_response_format_returns_error_no_api_call():
 
     # API must NOT have been called
     mock_client.chat.completions.create.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Native tools parameter — issue #497
+# ---------------------------------------------------------------------------
+
+# Minimal OpenAI-format tool definition used across the tools tests.
+_SAMPLE_TOOL: dict = {
+    "type": "function",
+    "function": {
+        "name": "get_weather",
+        "description": "Get current weather for a location.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "location": {"type": "string", "description": "City name"},
+            },
+            "required": ["location"],
+        },
+    },
+}
+
+_SAMPLE_TOOL_2: dict = {
+    "type": "function",
+    "function": {
+        "name": "search_web",
+        "description": "Search the web.",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    },
+}
+
+
+class _FakeFunction:
+    """Stand-in for openai ChatCompletionMessageToolCall.function."""
+
+    def __init__(self, name: str, arguments: str) -> None:
+        self.name = name
+        self.arguments = arguments
+
+
+class _FakeToolCall:
+    """Stand-in for openai ChatCompletionMessageToolCall."""
+
+    def __init__(self, tc_id: str, name: str, arguments: str = "{}") -> None:
+        self.id = tc_id
+        self.type = "function"
+        self.function = _FakeFunction(name=name, arguments=arguments)
+
+
+def _make_tool_call_response(tool_calls: list, content: str = ""):
+    """Build a mock API response that includes tool_calls on the message."""
+
+    class _MsgWithToolCalls:
+        def __init__(self):
+            self.content = content
+            self.tool_calls = tool_calls
+
+    choice = MagicMock()
+    choice.message = _MsgWithToolCalls()
+    response = MagicMock()
+    response.choices = [choice]
+    return response
+
+
+def test_constructor_tools_stored_correctly():
+    """tools list is stored as _tools attribute."""
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        tools=[_SAMPLE_TOOL, _SAMPLE_TOOL_2],
+        _client=MagicMock(),
+    )
+    assert executor._tools == [_SAMPLE_TOOL, _SAMPLE_TOOL_2]
+
+
+def test_constructor_none_tools_stored_as_empty_list():
+    """tools=None → _tools is [] (empty list, not None)."""
+    executor = HermesA2AExecutor(model="hermes-4", tools=None, _client=MagicMock())
+    assert executor._tools == []
+
+
+def test_constructor_empty_list_stored_as_empty_list():
+    """tools=[] → _tools is []."""
+    executor = HermesA2AExecutor(model="hermes-4", tools=[], _client=MagicMock())
+    assert executor._tools == []
+
+
+def test_constructor_tools_is_independent_copy():
+    """_tools is a copy — mutating the input list doesn't affect the executor."""
+    original = [_SAMPLE_TOOL]
+    executor = HermesA2AExecutor(
+        model="hermes-4", tools=original, _client=MagicMock()
+    )
+    original.append(_SAMPLE_TOOL_2)
+    assert executor._tools == [_SAMPLE_TOOL]
+
+
+@pytest.mark.asyncio
+async def test_execute_tools_serialized_in_request_body():
+    """Non-empty tools list is forwarded to chat.completions.create as tools=."""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_api_response("Paris is sunny.")
+    )
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        tools=[_SAMPLE_TOOL],
+        _client=mock_client,
+    )
+
+    await executor.execute(_make_context("weather?"), AsyncMock())
+
+    call_kwargs = mock_client.chat.completions.create.call_args[1]
+    assert "tools" in call_kwargs
+    assert call_kwargs["tools"] == [_SAMPLE_TOOL]
+
+
+@pytest.mark.asyncio
+async def test_execute_multiple_tools_all_forwarded():
+    """All tool definitions are forwarded — not truncated."""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_api_response("ok")
+    )
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        tools=[_SAMPLE_TOOL, _SAMPLE_TOOL_2],
+        _client=mock_client,
+    )
+
+    await executor.execute(_make_context("search?"), AsyncMock())
+
+    call_kwargs = mock_client.chat.completions.create.call_args[1]
+    assert call_kwargs["tools"] == [_SAMPLE_TOOL, _SAMPLE_TOOL_2]
+
+
+@pytest.mark.asyncio
+async def test_execute_empty_tools_no_tools_field_in_request():
+    """Empty tools list → 'tools' key absent from API call (not tools=[])."""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_api_response("ok")
+    )
+    executor = HermesA2AExecutor(model="hermes-4", tools=[], _client=mock_client)
+
+    await executor.execute(_make_context("hello"), AsyncMock())
+
+    call_kwargs = mock_client.chat.completions.create.call_args[1]
+    assert "tools" not in call_kwargs
+
+
+@pytest.mark.asyncio
+async def test_execute_none_tools_no_tools_field_in_request():
+    """tools=None → 'tools' key absent from API call."""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_api_response("ok")
+    )
+    executor = HermesA2AExecutor(model="hermes-4", tools=None, _client=mock_client)
+
+    await executor.execute(_make_context("hello"), AsyncMock())
+
+    call_kwargs = mock_client.chat.completions.create.call_args[1]
+    assert "tools" not in call_kwargs
+
+
+@pytest.mark.asyncio
+async def test_execute_default_no_tools_field_in_request():
+    """Constructor with no tools kwarg → 'tools' key absent from API call."""
+    executor, mock_client = _make_executor(model="hermes-4")
+    mock_client.chat.completions.create.return_value = _make_api_response("ok")
+
+    await executor.execute(_make_context("hello"), AsyncMock())
+
+    call_kwargs = mock_client.chat.completions.create.call_args[1]
+    assert "tools" not in call_kwargs
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_call_response_returns_json():
+    """Model returns tool_calls with no content → reply is JSON-serialised calls."""
+    import json
+
+    mock_client = MagicMock()
+    tc = _FakeToolCall("call_abc123", "get_weather", '{"location":"Paris"}')
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_tool_call_response(tool_calls=[tc], content="")
+    )
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        tools=[_SAMPLE_TOOL],
+        _client=mock_client,
+    )
+
+    eq = AsyncMock()
+    await executor.execute(_make_context("weather in Paris?"), eq)
+
+    eq.enqueue_event.assert_called_once()
+    reply = eq.enqueue_event.call_args[0][0]
+    # Must be valid JSON
+    parsed = json.loads(reply)
+    assert isinstance(parsed, list)
+    assert len(parsed) == 1
+    assert parsed[0]["function"]["name"] == "get_weather"
+    assert parsed[0]["function"]["arguments"] == '{"location":"Paris"}'
+    assert parsed[0]["id"] == "call_abc123"
+    assert parsed[0]["type"] == "function"
+
+
+@pytest.mark.asyncio
+async def test_execute_multiple_tool_calls_all_in_json():
+    """Multiple tool calls are all serialised into the JSON reply."""
+    import json
+
+    mock_client = MagicMock()
+    tc1 = _FakeToolCall("call_1", "get_weather", '{"location":"Paris"}')
+    tc2 = _FakeToolCall("call_2", "search_web", '{"query":"news"}')
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_tool_call_response(tool_calls=[tc1, tc2], content="")
+    )
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        tools=[_SAMPLE_TOOL, _SAMPLE_TOOL_2],
+        _client=mock_client,
+    )
+
+    eq = AsyncMock()
+    await executor.execute(_make_context("do both"), eq)
+
+    reply = eq.enqueue_event.call_args[0][0]
+    parsed = json.loads(reply)
+    assert len(parsed) == 2
+    assert parsed[0]["function"]["name"] == "get_weather"
+    assert parsed[1]["function"]["name"] == "search_web"
+
+
+@pytest.mark.asyncio
+async def test_execute_text_content_wins_over_tool_calls():
+    """When model returns both text content AND tool_calls, text is used."""
+    mock_client = MagicMock()
+    tc = _FakeToolCall("call_xyz", "get_weather", '{"location":"Berlin"}')
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_tool_call_response(
+            tool_calls=[tc], content="The weather is fine."
+        )
+    )
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        tools=[_SAMPLE_TOOL],
+        _client=mock_client,
+    )
+
+    eq = AsyncMock()
+    await executor.execute(_make_context("weather?"), eq)
+
+    reply = eq.enqueue_event.call_args[0][0]
+    assert reply == "The weather is fine."
