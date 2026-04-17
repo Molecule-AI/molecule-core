@@ -497,6 +497,30 @@ snapshots:
       centralized MCP server governance, Kubernetes-native, AGPL-3.0;
       reference design for our plugin registry governance story.
     source_url: https://github.com/archestra-ai/archestra/releases
+
+  - name: GitHub MCP Server
+    slug: github-mcp-server
+    date: "2026-04-17"
+    version: "v1.0.0"
+    stars: "28.9k"
+    threat_level: low
+    notable_changes: >
+      v1.0.0 GA (Apr 16 2026); 60+ tools across 20+ toolsets (repos, issues,
+      PRs, Actions, security, code scanning); GitHub-hosted or local Docker;
+      adopt as workspace plugin source for GitHub-native agent orgs.
+    source_url: https://github.com/github/github-mcp-server/releases
+
+  - name: Skillshare
+    slug: skillshare
+    date: "2026-04-17"
+    version: "v0.19.2"
+    stars: "1.5k"
+    threat_level: low
+    notable_changes: >
+      v0.19.2 (Apr 14 2026); Go binary syncing SKILL.md + agent configs across
+      50+ AI tools (Claude Code, Codex, OpenClaw, Cursor) via symlinks; reference
+      design for cross-tool skill distribution; direct overlap with our plugins/.
+    source_url: https://github.com/runkids/skillshare/releases
 ```
 
 ---
@@ -2178,3 +2202,43 @@ langgraph/crewai adapters.
 **Signals to react to:** If Archestra adds agent-to-agent coordination on top of its MCP gateway → overlap with our platform increases significantly. If enterprise procurement teams start requiring an MCP governance audit trail → our plugin install API needs a formal audit log surface (issue backlog candidate).
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** ~3.6k ⭐, platform v1.2.15, April 16, 2026
+
+---
+
+### GitHub MCP Server — `github/github-mcp-server`
+
+**Pitch:** "GitHub's official MCP Server — connect AI agents and assistants directly to your GitHub repositories, issues, PRs, and workflows."
+
+**Shape:** Go (MIT), ~28.9k ⭐, v1.0.0 April 16, 2026. 60+ tools across 20+ toolsets: repos, issues, PRs, Actions/CI-CD, code security (scanning, Dependabot, secret protection), discussions, gists, git ops, notifications, orgs, projects, labels, users, stargazers. Deployment: GitHub-hosted at `api.githubcopilot.com/mcp/` or local via Docker/compiled binary. Supports dynamic toolset discovery (beta) so hosts can enumerate and enable tools on demand rather than loading all 60+ upfront.
+
+**Overlap with us:** Chrome DevTools MCP (#540) is already tracked as a tool we adopt into workspaces — GitHub MCP Server is the same pattern for GitHub operations. Any Molecule AI workspace doing code review, PR management, issue triage, or CI monitoring would naturally adopt this. Our Technical Researcher, Dev Lead, and Triage Operator workspace types are obvious candidates.
+
+**Differentiation:** Tool provider only — no agent orchestration, no workspace model, no A2A. Designed to be consumed by MCP hosts (Claude Code, Copilot, Cursor etc.), not to compete with orchestration platforms.
+
+**Worth borrowing:** Dynamic toolset discovery (enumerate tools per context, not a monolithic 60-tool blast) — reference design for our workspace plugin `available` endpoint (`GET /workspaces/:id/plugins/available`). Apply the same filtering logic for runtime-aware tool exposure.
+
+**Terminology collisions:** None significant.
+
+**Signals to react to:** If GitHub ships an agent-native event webhook model (not just REST polling) → evaluate as a channel adapter alongside our Telegram/Slack integrations. If GitHub exposes repo-scoped A2A agent cards → direct interop opportunity with our registry.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ~28.9k ⭐, v1.0.0 GA, April 16, 2026
+
+---
+
+### Skillshare — `runkids/skillshare`
+
+**Pitch:** "Sync skills across all AI CLI tools with one command — Claude Code, Codex, OpenClaw, Cursor, and 50+ more."
+
+**Shape:** Go binary (MIT), ~1.5k ⭐, v0.19.2 April 14, 2026. Manages a `~/.config/skillshare/` source-of-truth directory containing SKILL.md files, agent configs, rules, commands, and prompts. Syncs to 50+ AI tool targets via symlinks (macOS/Linux) or NTFS junctions (Windows). Three modes: global (`~/.config/skillshare/`), project (`.skillshare/` per repo, committable), and installable repos (`skillshare install <git-repo>`). Ships a web dashboard UI (`skillshare ui`). Built-in security auditing: scans installed skills for prompt injection and exfiltration patterns.
+
+**Overlap with us:** Directly overlaps with our `plugins/` distribution model and SKILL.md format — Skillshare treats SKILL.md files as the unit of distribution across tools, the same way our plugin system does. The `skillshare install <git-repo>` command is equivalent to our `POST /workspaces/:id/plugins` with a `github://` source. The project mode (`.skillshare/` committed to a repo) maps to our org-template skill defaults in `org.yaml`.
+
+**Differentiation:** Single-user local syncing, not a server-side multi-agent registry. No workspace lifecycle, no per-agent identity, no A2A, no canvas. Designed for individual developer ergonomics across tools, not for governing a fleet of persistent agents.
+
+**Worth borrowing:** The prompt-injection/exfiltration scanner built into `skillshare sync` — we have no equivalent gate in our plugin install path today. Consider adding a static analysis step to `POST /workspaces/:id/plugins` that scans SKILL.md and rules files for injection patterns before activating. The `install <git-repo>` one-command install UX is cleaner than our current `{"source":"github://org/repo"}` JSON body — worth documenting as a `molecli` shorthand.
+
+**Terminology collisions:** "skills" — Skillshare uses this for SKILL.md files that inject instructions into AI tools; we use "skills" for the same concept in our plugin system. Exact collision — no disambiguation needed since we use the same word intentionally.
+
+**Signals to react to:** If Skillshare adds a server-side shared registry (teams publish skills to a central endpoint) → direct overlap with our plugin registry governance gap that Archestra's MCP registry addresses. If it reaches 10k⭐ → signals the SKILL.md format is becoming a community standard; we should ensure full compatibility.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ~1.5k ⭐, v0.19.2, April 14, 2026
