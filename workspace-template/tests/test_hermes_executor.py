@@ -4,12 +4,15 @@ Coverage targets
 ----------------
 - _reasoning_supported()        — model name pattern detection
 - ProviderConfig                — capability flags derived from model name
-- HermesA2AExecutor.__init__   — field assignment, client injection, tools (#497)
+- _validate_response_format()  — valid types, invalid type, missing fields (#498)
+- HermesA2AExecutor.__init__   — field assignment + client injection,
+                                  response_format stored (#498), tools (#497)
 - HermesA2AExecutor._build_messages — system prompt + user turn assembly
 - HermesA2AExecutor._log_reasoning  — OTEL span emission + swallowed errors
 - HermesA2AExecutor.execute    — happy path, empty input, API error,
                                   Hermes 4 extra_body, Hermes 3 no extra_body,
                                   reasoning not in reply, reasoning_details,
+                                  response_format forwarded / omitted / invalid (#498),
                                   tools serialized in request body (#497),
                                   empty tools → no tools field (#497),
                                   tool_call response → JSON text (#497)
@@ -73,6 +76,7 @@ from hermes_executor import (  # noqa: E402
     ProviderConfig,
     _HERMES4_PATTERNS,
     _reasoning_supported,
+    _validate_response_format,
 )
 
 
@@ -702,6 +706,150 @@ async def test_no_system_prompt_only_user_message():
     msgs = mock_client.chat.completions.create.call_args[1]["messages"]
     assert len(msgs) == 1
     assert msgs[0]["role"] == "user"
+
+
+# ---------------------------------------------------------------------------
+# _validate_response_format — issue #498
+# ---------------------------------------------------------------------------
+
+
+def test_validate_response_format_json_schema_valid():
+    """Valid json_schema dict (with name and schema) returns None."""
+    rf = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "my_schema",
+            "schema": {"type": "object", "properties": {}},
+        },
+    }
+    assert _validate_response_format(rf) is None
+
+
+def test_validate_response_format_json_object_valid():
+    """{"type": "json_object"} returns None (no sub-fields required)."""
+    assert _validate_response_format({"type": "json_object"}) is None
+
+
+def test_validate_response_format_text_valid():
+    """{"type": "text"} returns None."""
+    assert _validate_response_format({"type": "text"}) is None
+
+
+def test_validate_response_format_invalid_type():
+    """An unknown type value returns a non-None error string."""
+    result = _validate_response_format({"type": "yaml_schema"})
+    assert result is not None
+    assert isinstance(result, str)
+    assert "yaml_schema" in result
+
+
+def test_validate_response_format_missing_json_schema_key():
+    """type='json_schema' but no 'json_schema' key → error string."""
+    result = _validate_response_format({"type": "json_schema"})
+    assert result is not None
+    assert "json_schema" in result
+
+
+def test_validate_response_format_json_schema_schema_not_dict():
+    """json_schema.schema present but not a dict → error string."""
+    rf = {
+        "type": "json_schema",
+        "json_schema": {"name": "s", "schema": "not-a-dict"},
+    }
+    result = _validate_response_format(rf)
+    assert result is not None
+    assert "schema" in result
+
+
+def test_validate_response_format_json_schema_missing_name():
+    """json_schema present but missing 'name' key → error string."""
+    rf = {
+        "type": "json_schema",
+        "json_schema": {"schema": {"type": "object"}},
+    }
+    result = _validate_response_format(rf)
+    assert result is not None
+    assert "name" in result
+
+
+def test_constructor_response_format_stored():
+    """response_format kwarg is stored as _response_format attribute."""
+    rf = {"type": "json_object"}
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        response_format=rf,
+        _client=MagicMock(),
+    )
+    assert executor._response_format is rf
+
+
+def test_constructor_no_response_format_is_none():
+    """Omitting response_format → _response_format is None."""
+    executor = HermesA2AExecutor(model="hermes-4", _client=MagicMock())
+    assert executor._response_format is None
+
+
+@pytest.mark.asyncio
+async def test_execute_response_format_in_request():
+    """Valid response_format is forwarded as a kwarg to the API call."""
+    rf = {"type": "json_object"}
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_api_response('{"answer": 42}')
+    )
+    executor = HermesA2AExecutor(
+        model="nousresearch/hermes-3-llama-3.1-70b",
+        response_format=rf,
+        _client=mock_client,
+    )
+
+    await executor.execute(_make_context("hello"), AsyncMock())
+
+    call_kwargs = mock_client.chat.completions.create.call_args[1]
+    assert call_kwargs.get("response_format") == rf
+
+
+@pytest.mark.asyncio
+async def test_execute_response_format_omitted_when_none():
+    """When response_format is None, it is NOT present in the API call kwargs."""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_api_response("ok")
+    )
+    executor = HermesA2AExecutor(
+        model="nousresearch/hermes-3-llama-3.1-70b",
+        response_format=None,
+        _client=mock_client,
+    )
+
+    await executor.execute(_make_context("hello"), AsyncMock())
+
+    call_kwargs = mock_client.chat.completions.create.call_args[1]
+    assert "response_format" not in call_kwargs
+
+
+@pytest.mark.asyncio
+async def test_execute_invalid_response_format_returns_error_no_api_call():
+    """Invalid response_format → error enqueued, API create() NOT called."""
+    rf = {"type": "unsupported_format"}
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock()
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        response_format=rf,
+        _client=mock_client,
+    )
+
+    eq = AsyncMock()
+    await executor.execute(_make_context("hello"), eq)
+
+    # Should have enqueued an error message
+    eq.enqueue_event.assert_called_once()
+    enqueued = eq.enqueue_event.call_args[0][0]
+    assert "Error: invalid response_format" in enqueued
+
+    # API must NOT have been called
+    mock_client.chat.completions.create.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
