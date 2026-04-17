@@ -257,10 +257,12 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		r.GET("/workspaces/:id/schedules/health", schedh.Health)
 
 		// Budget — per-workspace spend ceiling and current usage (#541).
-		// GET returns the current state; PATCH sets or clears the ceiling.
+		// GET stays on wsAuth — a workspace agent reading its own budget is legitimate.
+		// PATCH is admin-only — workspace agents must not be able to self-clear their
+		// spending ceiling (that would defeat the entire budget enforcement feature).
 		budgeth := handlers.NewBudgetHandler()
 		wsAuth.GET("/budget", budgeth.GetBudget)
-		wsAuth.PATCH("/budget", budgeth.PatchBudget)
+		r.PATCH("/workspaces/:id/budget", middleware.AdminAuth(db.DB), budgeth.PatchBudget)
 
 		// Token management (user-facing create/list/revoke)
 		tokh := handlers.NewTokenHandler()
