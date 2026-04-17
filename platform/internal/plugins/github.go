@@ -55,6 +55,16 @@ var repoRE = regexp.MustCompile(
 	`^([a-zA-Z0-9][a-zA-Z0-9_.\-]{0,99})/([a-zA-Z0-9][a-zA-Z0-9_.\-]{0,99})(?:#([a-zA-Z0-9_.][a-zA-Z0-9_./\-]{0,254}))?$`,
 )
 
+// pinnedRefRE matches refs that are reproducible:
+//   - Full or abbreviated git SHAs: 7–40 lowercase hex chars
+//   - Semver-style version tags: v<major>[.<minor>[.<patch>]][-prerelease]
+//
+// Branch names ("main", "dev", "feature/foo") are NOT matched — they move
+// between installs and break supply-chain reproducibility (VULN-004 / #815).
+var pinnedRefRE = regexp.MustCompile(
+	`^([0-9a-f]{7,40}|v\d+(\.\d+)*(-[a-zA-Z0-9.]+)?)$`,
+)
+
 // Fetch clones the repository and copies its contents (minus .git) into dst.
 // Returns the repository name (second path segment) as the plugin name.
 func (r *GithubResolver) Fetch(ctx context.Context, spec string, dst string) (string, error) {
@@ -64,6 +74,24 @@ func (r *GithubResolver) Fetch(ctx context.Context, spec string, dst string) (st
 		return "", fmt.Errorf("github resolver: spec %q must be <owner>/<repo>[#<ref>]", spec)
 	}
 	owner, repo, ref := m[1], m[2], m[3]
+
+	// VULN-004 / SAFE-T1102 (#815): reject bare org/repo or branch-only refs.
+	// A pinned ref is either a git SHA (7–40 hex chars) or a semver tag (v1.2.3).
+	// Bare refs ("main", "dev") or missing refs change between installs —
+	// an attacker who compromises the upstream repo gets arbitrary code execution.
+	//
+	// Escape hatch: PLUGIN_ALLOW_UNPINNED=true for local development only.
+	// This env var MUST NOT be set in production.
+	allowUnpinned := os.Getenv("PLUGIN_ALLOW_UNPINNED") == "true"
+	if !allowUnpinned && !pinnedRefRE.MatchString(ref) {
+		return "", fmt.Errorf(
+			"github resolver: spec %q has an unpinned ref %q — "+
+				"plugin installs must use a pinned ref (commit SHA or version tag, e.g. #abc1234 or #v1.2.0) "+
+				"to prevent supply-chain drift (VULN-004). "+
+				"Set PLUGIN_ALLOW_UNPINNED=true to bypass during local development only",
+			spec, ref,
+		)
+	}
 
 	runner := r.GitRunner
 	if runner == nil {

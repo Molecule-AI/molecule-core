@@ -51,6 +51,9 @@ func stubGit(repoContents map[string]string) func(ctx context.Context, dir strin
 }
 
 func TestGithubResolver_ClonesAndStripsGitDir(t *testing.T) {
+	// Bypass the pinned-ref gate — this test covers clone+copy behaviour, not
+	// supply-chain enforcement (see supply_chain_test.go for that).
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true")
 	r := &GithubResolver{
 		GitRunner: stubGit(map[string]string{
 			"plugin.yaml":             "name: demo\n",
@@ -98,6 +101,7 @@ func TestGithubResolver_PassesRefAsBranch(t *testing.T) {
 }
 
 func TestGithubResolver_OmitsBranchFlagWhenNoRef(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // gate bypassed; testing git-arg behaviour
 	var seenArgs []string
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
@@ -136,6 +140,7 @@ func TestGithubResolver_RejectsInvalidSpec(t *testing.T) {
 }
 
 func TestGithubResolver_BubblesUpGitError(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // gate bypassed; testing git-error propagation
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
 			return errors.New("simulated auth failure")
@@ -154,6 +159,7 @@ func TestGithubResolver_UsesDefaultsWhenNilFields(t *testing.T) {
 	// A zero-value GithubResolver should still have defaults filled in
 	// at Fetch time. Verified indirectly: we pass a stub that records
 	// the URL passed to `git clone`.
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // gate bypassed; testing default-field behaviour
 	var seenArgs []string
 	r := &GithubResolver{}
 	r.GitRunner = func(ctx context.Context, dir string, args ...string) error {
@@ -212,6 +218,7 @@ func TestGithubResolver_NilGitRunnerUsesDefault(t *testing.T) {
 	// Passing nil GitRunner should fall back to defaultGitRunner. With no
 	// git on PATH, that fallback errors — we don't need real git here.
 	t.Setenv("PATH", "/nonexistent")
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // gate bypassed; testing nil-runner fallback
 	r := &GithubResolver{GitRunner: nil, BaseURL: "https://example.com"}
 	_, err := r.Fetch(context.Background(), "org/repo", t.TempDir())
 	if err == nil {
@@ -220,6 +227,7 @@ func TestGithubResolver_NilGitRunnerUsesDefault(t *testing.T) {
 }
 
 func TestGithubResolver_CopyToDstFailure(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // gate bypassed; testing copy-failure handling
 	r := &GithubResolver{
 		GitRunner: stubGit(map[string]string{"plugin.yaml": "name: x\n"}),
 	}
@@ -236,6 +244,7 @@ func TestGithubResolver_CopyToDstFailure(t *testing.T) {
 }
 
 func TestGithubResolver_AlwaysPassesDepth1(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // gate bypassed; testing --depth=1 in git args
 	var seenArgs []string
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
@@ -254,7 +263,8 @@ func TestGithubResolver_AlwaysPassesDepth1(t *testing.T) {
 
 func TestGithubResolver_PassesDoubleDashBeforeURL(t *testing.T) {
 	// When a ref is specified, we pass `--` after --branch <ref> as
-	// defense-in-depth against ref-as-flag injection.
+	// defense-in-depth against ref-as-flag injection. Uses a pinned tag
+	// ref so the supply-chain gate passes without an env-var bypass.
 	var seenArgs []string
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
@@ -263,7 +273,7 @@ func TestGithubResolver_PassesDoubleDashBeforeURL(t *testing.T) {
 			return os.MkdirAll(target, 0o755)
 		},
 	}
-	if _, err := r.Fetch(context.Background(), "org/repo#main", t.TempDir()); err != nil {
+	if _, err := r.Fetch(context.Background(), "org/repo#v1.0.0", t.TempDir()); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if !containsArg(seenArgs, "--") {
@@ -280,6 +290,7 @@ func TestGithubResolver_RejectsRefStartingWithHyphen(t *testing.T) {
 }
 
 func TestGithubResolver_MapsRepositoryNotFoundToSentinel(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // gate bypassed; testing ErrPluginNotFound mapping
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
 			return errors.New("remote: Repository not found.\nfatal: repository 'https://github.com/x/y.git' not found")
@@ -292,18 +303,22 @@ func TestGithubResolver_MapsRepositoryNotFoundToSentinel(t *testing.T) {
 }
 
 func TestGithubResolver_MapsMissingBranchToSentinel(t *testing.T) {
+	// Use a pinned tag ref so the supply-chain gate passes. The git error
+	// itself is what we're testing — the tag just happens to be absent from
+	// the (stubbed) remote.
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
 			return errors.New("fatal: Remote branch bogus not found in upstream origin")
 		},
 	}
-	_, err := r.Fetch(context.Background(), "org/repo#bogus", t.TempDir())
+	_, err := r.Fetch(context.Background(), "org/repo#v0.0.1", t.TempDir())
 	if !errors.Is(err, ErrPluginNotFound) {
 		t.Errorf("expected ErrPluginNotFound for missing ref, got %v", err)
 	}
 }
 
 func TestGithubResolver_AuthFailureIsNotErrPluginNotFound(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // gate bypassed; testing auth-failure mapping
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
 			return errors.New("fatal: Authentication failed for 'https://github.com/private/repo.git/'")
