@@ -30,6 +30,11 @@ model_list:
       model: anthropic/claude-sonnet-4-6
       api_key: ${ANTHROPIC_API_KEY}
 
+  - model_name: claude-opus-4-7
+    litellm_params:
+      model: anthropic/claude-opus-4-7
+      api_key: ${ANTHROPIC_API_KEY}
+
   # ── OpenAI ─────────────────────────────────────────────────────────────────
   - model_name: gpt-4o
     litellm_params:

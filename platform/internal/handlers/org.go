@@ -338,7 +338,7 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 		if runtime == "claude-code" {
 			model = "sonnet"
 		} else {
-			model = "anthropic:claude-sonnet-4-6"
+			model = "anthropic:claude-opus-4-7"
 		}
 	}
 	tier := ws.Tier
