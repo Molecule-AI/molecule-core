@@ -137,6 +137,7 @@ func TestWorkspaceBudget_Create_WithLimit(t *testing.T) {
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
 
 	budgetVal := int64(1000) // $10.00
+	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO workspaces").
 		WithArgs(
 			sqlmock.AnyArg(), // id
@@ -148,9 +149,10 @@ func TestWorkspaceBudget_Create_WithLimit(t *testing.T) {
 			(*string)(nil),   // parent_id
 			nil,              // workspace_dir
 			"none",           // workspace_access
-			&budgetVal,       // budget_limit
+			&budgetVal,       // budget_limit ($10)
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 	mock.ExpectExec("INSERT INTO canvas_layouts").
 		WithArgs(sqlmock.AnyArg(), float64(0), float64(0)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
