@@ -32,7 +32,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 HELPER_SCRIPT="${SCRIPT_DIR}/scripts/molecule-git-token-helper.sh"
 RUNTIMES=(langgraph claude-code openclaw crewai autogen deepagents)
 
@@ -77,7 +76,7 @@ log "✓ workspace-template:base built"
 # Build each runtime adapter image
 # ─────────────────────────────────────────────────────
 TMPBASE=$(mktemp -d)
-trap "rm -rf ${TMPBASE}" EXIT
+trap 'rm -rf "${TMPBASE}"' EXIT
 
 SUCCESS=()
 FAILED=()
@@ -86,27 +85,27 @@ for runtime in "${RUNTIMES[@]}"; do
   log "──────────────────────────────────────────"
   log "Building workspace-template:${runtime} ..."
 
-  TMPDIR="${TMPBASE}/${runtime}"
-  mkdir -p "${TMPDIR}"
+  RUNTIME_DIR="${TMPBASE}/${runtime}"
+  mkdir -p "${RUNTIME_DIR}"
 
   # Clone the standalone template repo
   REPO="Molecule-AI/molecule-ai-workspace-template-${runtime}"
   log "  Cloning ${REPO} ..."
-  if ! git clone --depth 1 "https://github.com/${REPO}.git" "${TMPDIR}" 2>&1; then
+  if ! git clone --depth 1 "https://github.com/${REPO}.git" "${RUNTIME_DIR}" 2>&1; then
     err "  Failed to clone ${REPO} — skipping ${runtime}"
     FAILED+=("${runtime}")
     continue
   fi
 
   # Verify a Dockerfile exists
-  if [ ! -f "${TMPDIR}/Dockerfile" ]; then
+  if [ ! -f "${RUNTIME_DIR}/Dockerfile" ]; then
     err "  No Dockerfile in ${REPO} — skipping ${runtime}"
     FAILED+=("${runtime}")
     continue
   fi
 
   # Copy the credential helper into the build context so the Dockerfile can COPY it.
-  cp "${HELPER_SCRIPT}" "${TMPDIR}/molecule-git-token-helper.sh"
+  cp "${HELPER_SCRIPT}" "${RUNTIME_DIR}/molecule-git-token-helper.sh"
 
   # Patch the Dockerfile:
   #   1. COPY the helper script into the image at a predictable path
@@ -118,7 +117,7 @@ for runtime in "${RUNTIMES[@]}"; do
   # We do NOT replace the ENTRYPOINT or CMD — molecule-runtime remains the
   # entry point. The git config --system baked into the image layer means
   # git will call the helper on every push/fetch without any startup script.
-  cat >> "${TMPDIR}/Dockerfile" << 'PATCH'
+  cat >> "${RUNTIME_DIR}/Dockerfile" << 'PATCH'
 
 # ─── git credential helper (issue #613 / PR #640) ───────────────────────────
 # Bake the credential helper into the image so git always has a fresh
@@ -134,15 +133,20 @@ RUN chmod +x /usr/local/bin/molecule-git-credential-helper && \
 PATCH
 
   # Build and tag
+  # Capture docker's exit code via PIPESTATUS[0] before grep's exit code
+  # overwrites $?. Without this, set -o pipefail causes grep's exit (0 = match
+  # found, 1 = no match) to determine success — not docker's exit code.
   log "  Running docker build ..."
-  if docker build \
+  docker build \
       --no-cache \
       -t "workspace-template:${runtime}" \
-      "${TMPDIR}" 2>&1 | grep -E "^(Step|#|---|\[|✓|ERROR|error)" ; then
+      "${RUNTIME_DIR}" 2>&1 | grep -E "^(Step|#|---|\[|✓|ERROR|error)"
+  docker_exit=${PIPESTATUS[0]}
+  if [ "${docker_exit}" -eq 0 ]; then
     log "  ✓ workspace-template:${runtime} built"
     SUCCESS+=("${runtime}")
   else
-    err "  Build failed for ${runtime}"
+    err "  Build failed for ${runtime} (docker exit ${docker_exit})"
     FAILED+=("${runtime}")
   fi
 done
