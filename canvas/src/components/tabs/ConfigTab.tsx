@@ -288,6 +288,7 @@ export function ConfigTab({ workspaceId }: Props) {
                   <option value="medium">medium</option>
                   <option value="high">high</option>
                   <option value="xhigh">xhigh (extended thinking)</option>
+                  <option value="max">max — absolute ceiling</option>
                 </select>
               </div>
               <div>
