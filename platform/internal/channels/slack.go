@@ -334,6 +334,61 @@ func (s *SlackAdapter) ParseWebhook(c *gin.Context, _ map[string]interface{}) (*
 	}, nil
 }
 
+// SlackHistoryMessage represents a single message from conversations.history.
+type SlackHistoryMessage struct {
+	User     string `json:"user"`
+	Username string `json:"username"`
+	Text     string `json:"text"`
+	Ts       string `json:"ts"`
+	BotID    string `json:"bot_id"`
+}
+
+// FetchChannelHistory calls Slack conversations.history and returns the
+// last N messages from the channel, filtering out raw bot messages.
+func FetchChannelHistory(ctx context.Context, botToken, channelID string, limit int) ([]SlackHistoryMessage, error) {
+	if botToken == "" || channelID == "" {
+		return nil, nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		fmt.Sprintf("https://slack.com/api/conversations.history?channel=%s&limit=%d", channelID, limit*2),
+		nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+botToken)
+
+	resp, err := slackHTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 65536))
+	resp.Body.Close()
+
+	var result struct {
+		OK       bool                  `json:"ok"`
+		Messages []SlackHistoryMessage `json:"messages"`
+	}
+	if json.Unmarshal(body, &result) != nil || !result.OK {
+		return nil, fmt.Errorf("slack history API error")
+	}
+
+	var filtered []SlackHistoryMessage
+	for _, m := range result.Messages {
+		if m.BotID != "" && m.Username == "" {
+			continue
+		}
+		filtered = append(filtered, m)
+		if len(filtered) >= limit {
+			break
+		}
+	}
+	// Reverse: oldest first
+	for i, j := 0, len(filtered)-1; i < j; i, j = i+1, j-1 {
+		filtered[i], filtered[j] = filtered[j], filtered[i]
+	}
+	return filtered, nil
+}
+
 // StartPolling returns nil immediately. Slack does not support long-polling
 // for Incoming Webhooks — use the Slack Events API + webhook route instead.
 func (s *SlackAdapter) StartPolling(_ context.Context, _ map[string]interface{}, _ MessageHandler) error {
