@@ -43,3 +43,14 @@ echo "==> Infrastructure ready!"
 echo "    Postgres: localhost:5432"
 echo "    Redis:    localhost:6379"
 echo "    Langfuse: localhost:3001"
+
+# Security check — issue #684 (AdminAuth bearer bypass, PR #729).
+# Without ADMIN_TOKEN, any valid workspace bearer token can call /admin/* routes.
+if [ -z "${ADMIN_TOKEN:-}" ]; then
+  echo ""
+  echo "  ⚠  WARNING: ADMIN_TOKEN is not set."
+  echo "     Until it is, AdminAuth falls back to accepting any workspace bearer token"
+  echo "     — the #684 vulnerability is NOT closed in this deployment."
+  echo "     Generate one:  openssl rand -base64 32"
+  echo "     Then export ADMIN_TOKEN=<value> or add it to your .env before starting the platform."
+fi
