@@ -1,15 +1,49 @@
 'use client';
 
-// WorkspaceUsage — Usage panel for a single workspace.
-// Currently renders placeholder stat rows.
-// TODO: fetch GET /workspaces/:id/metrics when #593 lands and replace
-// placeholder values with real token/cost data from the response.
+import { useState, useEffect } from "react";
+import { api } from "@/lib/api";
 
 export interface WorkspaceUsageProps {
   workspaceId: string;
 }
 
-export function WorkspaceUsage({ workspaceId: _workspaceId }: WorkspaceUsageProps) {
+interface WorkspaceMetrics {
+  input_tokens: number;
+  output_tokens: number;
+  total_calls: number;
+  estimated_cost_usd: string;
+  period_start: string;
+  period_end: string;
+}
+
+export function WorkspaceUsage({ workspaceId }: WorkspaceUsageProps) {
+  const [metrics, setMetrics] = useState<WorkspaceMetrics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let ignore = false;
+    setLoading(true);
+    setError(null);
+
+    api
+      .get<WorkspaceMetrics>(`/workspaces/${workspaceId}/metrics`)
+      .then((data) => {
+        if (!ignore) setMetrics(data);
+      })
+      .catch((e) => {
+        if (!ignore)
+          setError(e instanceof Error ? e.message : "Failed to load metrics");
+      })
+      .finally(() => {
+        if (!ignore) setLoading(false);
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [workspaceId]);
+
   return (
     <div
       className="rounded-md border border-zinc-700 bg-zinc-900 p-3 space-y-2"
@@ -19,20 +53,68 @@ export function WorkspaceUsage({ workspaceId: _workspaceId }: WorkspaceUsageProp
         <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
           Usage
         </h4>
-        <span
-          className="text-[10px] text-zinc-500 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5"
-          data-testid="usage-pending-badge"
-        >
-          pending #593
-        </span>
+        {!loading && metrics && (
+          <span
+            className="text-[10px] text-zinc-600 font-mono"
+            data-testid="usage-period"
+          >
+            {formatPeriod(metrics.period_start, metrics.period_end)}
+          </span>
+        )}
       </div>
 
-      {/* Placeholder stat rows — will be replaced with live data once #593 lands */}
       <div className="space-y-1.5" data-testid="usage-stats">
-        <StatRow label="Input tokens" value="—" testId="usage-input-tokens" />
-        <StatRow label="Output tokens" value="—" testId="usage-output-tokens" />
-        <StatRow label="Estimated cost" value="—" testId="usage-estimated-cost" />
+        {loading ? (
+          <>
+            <SkeletonRow />
+            <SkeletonRow />
+            <SkeletonRow />
+          </>
+        ) : error ? (
+          <p className="text-xs text-red-400" data-testid="usage-error">
+            {error}
+          </p>
+        ) : metrics ? (
+          <>
+            <StatRow
+              label="Input tokens"
+              value={`${metrics.input_tokens.toLocaleString()} tokens`}
+              testId="usage-input-tokens"
+            />
+            <StatRow
+              label="Output tokens"
+              value={`${metrics.output_tokens.toLocaleString()} tokens`}
+              testId="usage-output-tokens"
+            />
+            <StatRow
+              label="Estimated cost"
+              value={`$${parseFloat(metrics.estimated_cost_usd).toFixed(6)}`}
+              testId="usage-estimated-cost"
+            />
+          </>
+        ) : null}
       </div>
+    </div>
+  );
+}
+
+function formatPeriod(start: string, end: string): string {
+  const fmt = (s: string) =>
+    new Date(s).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+  return `${fmt(start)} – ${fmt(end)}`;
+}
+
+function SkeletonRow() {
+  return (
+    <div
+      className="flex justify-between items-center animate-pulse"
+      data-testid="usage-skeleton-row"
+    >
+      <div className="h-3 w-20 rounded bg-zinc-700" />
+      <div className="h-3 w-16 rounded bg-zinc-700" />
     </div>
   );
 }
