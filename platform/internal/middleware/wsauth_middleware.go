@@ -220,19 +220,25 @@ func isSameOriginCanvas(c *gin.Context) bool {
 	if !canvasProxyActive {
 		return false
 	}
-	referer := c.GetHeader("Referer")
-	if referer == "" {
-		return false
-	}
 	host := c.Request.Host
 	if host == "" {
 		return false
 	}
-	// Referer must start with https://<host>/ or http://<host>/ (trailing
-	// slash required to prevent hongming-wang.moleculesai.app.evil.com from
-	// matching hongming-wang.moleculesai.app).
-	return strings.HasPrefix(referer, "https://"+host+"/") ||
-		strings.HasPrefix(referer, "http://"+host+"/") ||
-		referer == "https://"+host ||
-		referer == "http://"+host
+	// Check Referer first (standard browser requests).
+	referer := c.GetHeader("Referer")
+	if referer != "" {
+		// Referer must start with https://<host>/ or http://<host>/ (trailing
+		// slash required to prevent hongming-wang.moleculesai.app.evil.com from
+		// matching hongming-wang.moleculesai.app).
+		if strings.HasPrefix(referer, "https://"+host+"/") ||
+			strings.HasPrefix(referer, "http://"+host+"/") ||
+			referer == "https://"+host ||
+			referer == "http://"+host {
+			return true
+		}
+	}
+	// Fallback: check Origin header (WebSocket upgrade requests may not have
+	// Referer but always send Origin).
+	origin := c.GetHeader("Origin")
+	return origin == "https://"+host || origin == "http://"+host
 }
