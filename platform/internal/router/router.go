@@ -279,6 +279,11 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		wsAuth.PUT("/secrets", sech.Set)
 		wsAuth.DELETE("/secrets/:key", sech.Delete)
 		wsAuth.GET("/model", sech.GetModel)
+
+		// Token usage metrics — cost transparency (#593).
+		// WorkspaceAuth middleware (on wsAuth) binds the bearer to :id.
+		mtrh := handlers.NewMetricsHandler()
+		wsAuth.GET("/metrics", mtrh.GetMetrics)
 	}
 
 	// Global secrets — /settings/secrets is the canonical path; /admin/secrets kept for backward compat.
