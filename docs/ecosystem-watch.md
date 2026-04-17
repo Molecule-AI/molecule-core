@@ -272,6 +272,20 @@ snapshots:
       MEDIUM because it forms a full agent stack with Google ADK + adk-web.
     source_url: https://github.com/google-gemini/gemini-cli/releases
 
+  - name: opencode
+    slug: opencode
+    date: "2026-04-17"
+    version: "v1.4.7"
+    stars: "145k"
+    threat_level: medium
+    notable_changes: >
+      v1.4.7 (Apr 16 2026); 145k★ open-source provider-agnostic coding agent
+      (Claude/OpenAI/Google/local); build+plan dual-mode; no A2A, no multi-agent.
+      Largest open-source coding agent by stars; users outgrowing single-agent
+      model are direct Molecule conversion path. Evaluate as workspace template
+      adapter (GH #720). Escalate to HIGH if A2A or multi-agent coordination added.
+    source_url: https://github.com/anomalyco/opencode/releases
+
   - name: Qwen3.6-35B-A3B
     slug: qwen3-6-agentic
     date: "2026-04-17"
@@ -393,6 +407,19 @@ snapshots:
       including our Claude Code workspace; aligning plugins/ manifest to the
       agentskills.io spec gives us free distribution through this channel.
     source_url: https://github.com/vercel-labs/skills
+
+  - name: pydantic-ai
+    slug: pydantic-ai
+    date: "2026-04-17"
+    version: "active"
+    stars: "16.4k"
+    threat_level: low
+    notable_changes: >
+      Python agent framework with native A2A + MCP + HITL; type-safe structured
+      output via Pydantic validation; FastAPI-like DX. Potential workspace template
+      adapter target (GH #721) — A2A native means zero-shim Molecule peer if
+      a2a-sdk version compatible. Reference: Pydantic Evals for agent quality gates.
+    source_url: https://github.com/pydantic/pydantic-ai/releases
 
   - name: Archon
     slug: archon
@@ -2628,3 +2655,123 @@ langgraph/crewai adapters.
 **Signals to react to:** apm ships a `molecule-ai` source scheme or native Molecule plugin support → strong ecosystem validation, document compatibility immediately. Microsoft positions apm as "npm for agents" in Agent Framework docs → evaluate making `plugin.yaml` apm-compatible. apm reaches 10k★ → evaluate publishing Molecule plugins to the apm marketplace.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 1,766★, v0.8.11 Apr 6 2026, GitHub trending Python today
+
+---
+
+### Cloudflare Agents — `cloudflare/agents`
+
+**Pitch:** "Build and deploy persistent, stateful AI agents on Cloudflare's edge infrastructure — millions of concurrent instances, auto-hibernation, zero idle cost."
+
+**Shape:** TypeScript (99%), Apache-2.0, v0.11.2 (Apr 2026), 4.8k★. Built on Cloudflare Workers + Durable Objects. Core primitives: persistent state synced to clients, cron/one-time scheduling, WebSocket lifecycle hooks, MCP (both server AND client), multi-step durable workflows with HITL approval patterns, email (send/receive/reply via CF Email Routing), and "Code Mode" (LLMs emit TypeScript for orchestration). Agents auto-hibernate when idle — zero infra cost during inactivity.
+
+**Overlap with us:** Near-complete overlap on workspace lifecycle primitives: state persistence (our Redis + Postgres), scheduling (our `workspace_schedules`), WebSocket (our canvas WS hub), MCP client support (our `mcp-connector` #573), HITL approvals (our `approvals.*`). CF's auto-hibernation + one-Durable-Object-per-agent model is architecturally analogous to Molecule's per-workspace Docker container lifecycle.
+
+**Differentiation:** No A2A protocol, no org hierarchy, no visual canvas. TypeScript-only (Molecule is Python-first). Serverless edge vs. Molecule's Docker workspace model. CF scales to millions of concurrent single agents via infrastructure; Molecule's value is the *organizational hierarchy* of collaborating specialists. No governance layer, no RBAC, no audit trail.
+
+**Worth borrowing:** Auto-hibernation — when `active_tasks == 0` for N minutes, auto-pause container; resume on next A2A ping. Closes idle-cost gap; filed as GH #711. "Code Mode" (agent-generated TypeScript orchestration) is a signal that declarative workflow gen will become a table-stakes expectation.
+
+**Terminology collisions:** "workspace" — CF calls the unit an "Agent" (Durable Object); we call it a Workspace (Docker container + config).
+
+**Signals to react to:** CF adds A2A support → escalate to HIGH, evaluate CF Workers as a Molecule workspace runtime target. CF bundles Agents + Artifacts + AI Gateway into a single platform pricing tier → direct positioning threat. Reaches 20k★ → publish a CF Workers org template.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 4,776★, v0.11.2 Apr 2026, TypeScript
+
+---
+
+### cognee — `topoteretes/cognee`
+
+**Pitch:** "Knowledge Engine for AI Agent Memory in 6 lines of code — remember, recall, forget, improve."
+
+**Shape:** Python (87%) + TypeScript (13%), Apache-2.0, v1.0.1.dev1 (Apr 2026), 16.1k★, 6,700+ commits. Hybrid memory architecture: vector search (semantic retrieval) + graph database (entity relationships) + session cache (fast, syncs to graph in background). Four-verb API: `remember`, `recall`, `forget`, `improve`. MCP-compatible (ships a Claude Code plugin + OpenClaw plugin). Native Hermes Agent integration.
+
+**Overlap with us:** (1) `agent_memories` — Molecule's HMA scoped memory (Redis + Postgres) vs. cognee's vector+graph hybrid with auto-routing; cognee is a richer retrieval layer. (2) Hermes workspace template — cognee ships native Hermes Agent support, suggesting direct drop-in compatibility with `molecule-ai-workspace-template-hermes`. (3) MCP plugin — cognee exposes memory as MCP tools, consumable via our `mcp-connector` (#573). Tracked for evaluation in GH #717.
+
+**Differentiation:** cognee is a memory library, not an orchestration platform — no visual canvas, no org hierarchy, no A2A, no scheduling. It augments agent memory; Molecule provides the agent runtime.
+
+**Worth borrowing:** The `remember`/`recall`/`forget`/`improve` verb API as a higher-level abstraction over `GET/POST /workspaces/:id/memories`. Graph-backed relationship tracking (entities, not just key-value) for richer agent knowledge graphs.
+
+**Terminology collisions:** "memory" — same word, different layers (cognee: content/semantic store; Molecule: workspace KV memory). "recall" — cognee verb vs. our memory search.
+
+**Signals to react to:** cognee v1.0.0 stable ships → evaluate as Hermes workspace dep. cognee adds A2A protocol → escalate to MEDIUM.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 16,096★, v1.0.1.dev1 Apr 2026, active (6.7k commits)
+
+---
+
+### opencode — `anomalyco/opencode`
+
+**Pitch:** "The open source coding agent."
+
+**Shape:** TypeScript/MDX, MIT-licensed, CLI + desktop app (beta). 145k★, v1.4.7 (Apr 16 2026), 763 releases — heavily shipped. Provider-agnostic: Claude, OpenAI, Google, local models with no vendor coupling. Two built-in agent modes switchable at runtime: **build** (full read/write/execute access) and **plan** (read-only analysis). Client/server architecture with LSP integration for live diagnostics.
+
+**Overlap with us:** Directly competes with `molecule-ai-workspace-template-claude-code` as the tool developers reach for when they want autonomous full-codebase coding. At 145k★ it is 3× larger than Cline (our prior single-agent coding comparison point). Users who outgrow opencode's single-agent model — needing multi-agent coordination, org hierarchy, or persistent scheduled work — are our conversion path.
+
+**Differentiation:** No A2A protocol, no multi-agent coordination, no visual canvas, no org hierarchy, no scheduling, no Docker workspace isolation. Pure single-agent coding tool. Molecule provides the *platform* layer opencode lacks.
+
+**Worth borrowing:** Build/plan mode toggle — a read-only analysis mode before executing is a safety pattern for workspace config. Provider-agnostic runtime model selection aligns with our multi-runtime workspace architecture.
+
+**Terminology collisions:** "agent" — they call the two modes "agents" (build/plan); we call the container+config unit a "workspace". Risk of developer confusion between "Molecule workspace" and "opencode agent".
+
+**Signals to react to:** opencode ships an MCP server → plug in via `mcp-connector` (#573). opencode ships a REST/WebSocket API → evaluate as `molecule-ai-workspace-template-opencode` (GH #720). opencode adds A2A → could become a direct workspace peer. Hits 200k★ → publish positioning blog: Molecule as the org layer over opencode.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 145k★, v1.4.7 Apr 16 2026, TypeScript, 763 releases
+
+---
+
+### pydantic-ai — `pydantic/pydantic-ai`
+
+**Pitch:** "AI Agent Framework, the Pydantic way — build production-grade agents with type safety."
+
+**Shape:** Python, Apache-2.0, ~16.4k★. Brings Pydantic's validation philosophy to agents: type-safe structured output, dependency injection, Pydantic model validation throughout the tool layer. Ships native A2A protocol support, MCP client, HITL approval gates, durable execution across transient failures, graph-based workflows, Logfire observability, and Pydantic Evals systematic evaluation. Multi-model (OpenAI, Anthropic, Gemini, DeepSeek, Grok, Cohere, Mistral, 15+ others). Supports declarative YAML/JSON agent definitions.
+
+**Overlap with us:** (1) **A2A protocol** — pydantic-ai agents speak native A2A, making them potential first-class Molecule workspace peers with zero shim; (2) **MCP client** — native MCP consumption; could use our `@molecule-ai/mcp-server` toolset directly; (3) **HITL approvals** — tool approval gates overlap our `approvals` API; (4) **adapter candidate** — same adapter-target profile as LangGraph but with native A2A. Filed as GH #721.
+
+**Differentiation:** Library, not platform. No visual canvas, no org hierarchy, no Docker workspace isolation, no scheduling/cron, no registry. Molecule provides the runtime + orchestration + governance layer; pydantic-ai provides the agent logic inside a workspace.
+
+**Worth borrowing:** Dependency injection for agent tools — clean testability pattern vs. our current tool registration. Pydantic Evals framework as reference design for systematic agent quality gates. YAML-defined agents aligns with our `config.yaml` declarative philosophy.
+
+**Terminology collisions:** "agent" — pydantic-ai's `Agent` is a Python class; ours is a Docker workspace. "tools" — pydantic-ai tools ≈ our `builtin_tools`/plugins.
+
+**Signals to react to:** pydantic-ai surpasses LangGraph in GitHub stars → prioritize `molecule-ai-workspace-template-pydantic-ai` (GH #721). A2A version confirmed compatible with our a2a-sdk==0.3.25 → validate zero-shim interop. pydantic-ai ships a Molecule adapter → zero-effort integration.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ~16.4k★, Python, Apache-2.0, active
+
+---
+
+### goose (AAIF) — `aaif-goose/goose`
+
+**Pitch:** "An open source, extensible AI agent that goes beyond code suggestions — install, execute, edit, and test with any LLM."
+
+**Shape:** Rust, Apache-2.0, ~5k★ (moved Apr 2026 from `block/goose` to Agentic AI Foundation / Linux Foundation). Desktop app (macOS, Linux, Windows) + CLI + embeddable API. 15+ LLM providers: Anthropic, OpenAI, Google, Ollama, Azure, Bedrock, OpenRouter. Single-agent, local-machine focus. Extensible via "extensions" (MCP-compatible tool plugins). Bundled with an `AGENTS.md` agent-description standard, now donated to AAIF alongside MCP.
+
+**Overlap with us:** (1) Both are general-purpose AI agent execution environments with plugin/extension ecosystems. (2) MCP tool support — goose extensions map to our MCP connector. (3) **AGENTS.md** — Block donated this agent-description standard to the Linux Foundation's AAIF alongside MCP; if it gains traction, workspace templates should include a generated `AGENTS.md` for discoverability. (4) Goose's embedding API could make it a `molecule-ai-workspace-template-goose` candidate.
+
+**Differentiation:** Goose is single-agent, local-machine execution. No multi-agent coordination, no org hierarchy, no visual canvas, no A2A protocol, no Docker workspace isolation, no scheduling. Molecule is the orchestration platform layer goose lacks.
+
+**Worth borrowing:** `AGENTS.md` agent-description standard — a human+machine readable file describing an agent's capabilities, limitations, and invocation contract. Aligns with our `config.yaml` philosophy and could become an AAIF interop requirement. Multi-provider Rust runtime (performance reference for future Go workspace provisioner work).
+
+**Terminology collisions:** "extensions" (goose) ≈ "plugins" (Molecule). "recipes" (goose) = reusable workflow scripts ≈ our org template `initial_prompt` patterns.
+
+**Signals to react to:** AGENTS.md becomes an AAIF / industry standard → add auto-generated `AGENTS.md` to workspace-template build (see GH issue filed). Goose embedding API matures → evaluate `molecule-ai-workspace-template-goose`. Goose ships A2A → could register as a Molecule workspace peer.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ~5k★ (aaif-goose fork, Apr 2026), Rust, Apache-2.0, Linux Foundation / AAIF
+
+---
+
+### GitHub Awesome Copilot — `github/awesome-copilot`
+
+**Pitch:** Community-curated marketplace of GitHub Copilot agents, skills, instructions, plugins, hooks, and agentic workflows — installable via `copilot plugin install <name>@awesome-copilot`.
+
+**Shape:** Python (69%) + TypeScript (5%) + Markdown, MIT, 30.2k★, 1,600+ commits, actively maintained by GitHub. Six artifact types: **agents** (MCP-connected Copilot extensions), **instructions** (file-pattern scoped rules), **skills** (self-contained instruction + asset bundles), **plugins** (curated agent+skill bundles), **hooks** (session-triggered automations), **agentic workflows** (AI GitHub Actions written in Markdown). Pre-registered as default install source in Copilot CLI and VS Code.
+
+**Overlap with us:** Direct structural parallel to our plugin+skill ecosystem. "Skills" = our `.claude/skills/`; "Plugins" = our `plugins/`; "Hooks" = our `.claude/settings.json` hooks; "Agents" = our workspace roles. The named community registry pattern (`@awesome-copilot`) mirrors what a `@molecule-ai` plugin registry would look like. Agentic Workflows (AI GitHub Actions in Markdown) = our cron/schedule workflow plugins.
+
+**Differentiation:** Awesome-Copilot is a curated list for a single agent (Copilot), not an orchestration platform. No inter-agent comms, no canvas, no A2A, no Docker isolation, no hierarchy. Molecule provides the multi-agent coordination layer this ecosystem lacks.
+
+**Worth borrowing:** Named community registry as default install source — `copilot plugin install name@awesome-copilot` pattern is a UX model for `molecule plugin install name@molecule-hub`. Hooks-as-first-class-artifacts pattern validates our `settings.json` hook approach. The six-type taxonomy (agents / instructions / skills / plugins / hooks / workflows) is a clean conceptual frame.
+
+**Terminology collisions:** **HIGH RISK.** "Skills", "Plugins", "Agents", "Hooks" — every term overlaps with Molecule's vocabulary. If Molecule publishes to both ecosystems, users will conflate them. Recommend explicit disambiguation note in `docs/glossary.md`.
+
+**Signals to react to:** GitHub publishes a formal plugin schema spec → evaluate cross-compatibility with our `plugin.yaml` format. Awesome-Copilot plugin format adopted by other tools → position Molecule plugins as cross-compatible. Copilot adds MCP server support → Molecule's `@molecule-ai/mcp-server` becomes directly installable as a Copilot plugin.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 30,211★, Python/TS, MIT, GitHub-maintained, 1,600+ commits
