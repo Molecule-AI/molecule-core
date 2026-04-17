@@ -25,6 +25,9 @@ opentelemetry-sdk>=1.24.0
 # OTLP/HTTP exporter: sends spans to any OTEL collector and to Langfuse ≥4
 opentelemetry-exporter-otlp-proto-http>=1.24.0
 
+# SQLAlchemy — used by molecule_audit ledger (EU AI Act Annex III compliance)
+sqlalchemy>=2.0.0
+
 # Temporal durable execution (optional)
 # tools/temporal_workflow.py wraps task execution in Temporal workflows so
 # tasks survive crashes and can resume.  The module and TemporalWorkflowWrapper
