@@ -73,6 +73,36 @@ enqueues an error message and returns early without calling the API.
 When ``response_format`` is ``None`` (the default) the kwarg is omitted
 entirely from the API call so older / strict providers do not receive an
 unexpected field.
+
+Stacked system messages (#499)
+-------------------------------
+Hermes recommends separating system context into distinct ``role=system``
+messages rather than concatenating everything into a single string.  Pass
+``system_blocks`` to ``HermesA2AExecutor`` to use this mode::
+
+    executor = HermesA2AExecutor(
+        model="nousresearch/hermes-4-0",
+        system_blocks=[
+            persona_prompt,       # who the agent is
+            tools_context,        # available tools / MCP context
+            reasoning_policy,     # chain-of-thought / output-format rules
+        ],
+    )
+
+Each non-empty, non-None block is emitted as a separate
+``{"role": "system", "content": block}`` entry, in the order supplied,
+before the user turn.  The canonical Hermes ordering is:
+
+    1. Persona / identity
+    2. Tools context (function schemas, MCP capabilities)
+    3. Reasoning policy (think-step, output format constraints)
+
+Empty strings and ``None`` entries are silently skipped so callers can
+pass ``None`` for optional blocks without special-casing.
+
+When ``system_blocks`` is provided it takes precedence over
+``system_prompt``.  Existing code that passes a single ``system_prompt``
+string continues to work identically (backward compatible).
 """
 
 from __future__ import annotations
@@ -229,6 +259,12 @@ class HermesA2AExecutor(AgentExecutor):
         Used to select the upstream model AND detect reasoning support.
     system_prompt:
         Optional system prompt prepended to every conversation.
+    system_blocks:
+        Ordered list of system message blocks in Hermes-recommended order:
+        persona, tools context, reasoning policy.  Each non-empty block
+        becomes a separate ``{"role": "system"}`` message.  None/empty-string
+        blocks are skipped.  When provided, takes precedence over
+        ``system_prompt``.
     base_url:
         OpenAI-compat endpoint base URL.  Defaults to
         ``OPENAI_BASE_URL`` env var, then ``https://openrouter.ai/api/v1``.
@@ -262,6 +298,7 @@ class HermesA2AExecutor(AgentExecutor):
         self,
         model: str,
         system_prompt: str | None = None,
+        system_blocks: "list[str | None] | None" = None,
         base_url: str | None = None,
         api_key: str | None = None,
         heartbeat: "HeartbeatLoop | None" = None,
@@ -271,6 +308,9 @@ class HermesA2AExecutor(AgentExecutor):
     ) -> None:
         self.model = model
         self.system_prompt = system_prompt
+        self._system_blocks: list[str | None] | None = (
+            list(system_blocks) if system_blocks is not None else None
+        )
         self._heartbeat = heartbeat
         self._response_format = response_format
         self._provider = ProviderConfig(model)
@@ -306,7 +346,15 @@ class HermesA2AExecutor(AgentExecutor):
     def _build_messages(self, user_input: str) -> list[dict]:
         """Assemble the ``messages`` list: optional system prompt then user turn."""
         msgs: list[dict] = []
-        if self.system_prompt:
+        if self._system_blocks is not None:
+            # Stacked mode: Hermes-recommended ordering:
+            # persona → tools context → reasoning policy.
+            # Empty/None blocks are skipped.
+            for block in self._system_blocks:
+                if block:
+                    msgs.append({"role": "system", "content": block})
+        elif self.system_prompt:
+            # Legacy single-string mode — backward compatible.
             msgs.append({"role": "system", "content": self.system_prompt})
         msgs.append({"role": "user", "content": user_input})
         return msgs
