@@ -292,6 +292,17 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		// WorkspaceAuth middleware (on wsAuth) binds the bearer to :id.
 		mtrh := handlers.NewMetricsHandler()
 		wsAuth.GET("/metrics", mtrh.GetMetrics)
+
+		// Cloudflare Artifacts demo integration (#595).
+		// All four routes require workspace-scoped bearer auth (wsAuth).
+		// CF credentials read from CF_ARTIFACTS_API_TOKEN / CF_ARTIFACTS_NAMESPACE;
+		// missing credentials return 503 so the handler still registers in
+		// every deployment — the demo is gated on env vars, not compilation.
+		arth := handlers.NewArtifactsHandler()
+		wsAuth.POST("/artifacts", arth.Create)
+		wsAuth.GET("/artifacts", arth.Get)
+		wsAuth.POST("/artifacts/fork", arth.Fork)
+		wsAuth.POST("/artifacts/token", arth.Token)
 	}
 
 	// Global secrets — /settings/secrets is the canonical path; /admin/secrets kept for backward compat.
@@ -453,12 +464,6 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// platform-operator helper, not a per-workspace route.
 	r.POST("/channels/discover", middleware.AdminAuth(db.DB), chh.Discover)
 	r.POST("/webhooks/:type", chh.Webhook)
-
-	// Audit — EU AI Act Annex III compliance endpoint (#594).
-	// Returns append-only HMAC-chained agent event log with optional inline
-	// chain verification when AUDIT_LEDGER_SALT is configured.
-	audh := handlers.NewAuditHandler()
-	wsAuth.GET("/audit", audh.Query)
 
 	// SSE — AG-UI compatible event stream per workspace (#590).
 	// WorkspaceAuth middleware (on wsAuth) binds the bearer token to :id.
