@@ -1,6 +1,6 @@
 -- Per-workspace monthly budget limit (#541).
 -- NULL means no limit. When monthly_spend reaches budget_limit, the A2A
--- proxy returns 429 {"error":"workspace budget limit exceeded"} and rejects
+-- proxy returns 402 {"error":"workspace budget limit exceeded"} and rejects
 -- further A2A calls until budget_limit is raised or monthly_spend is reset.
 --
 -- Units: USD cents (integer). budget_limit=500 means $5.00/month.

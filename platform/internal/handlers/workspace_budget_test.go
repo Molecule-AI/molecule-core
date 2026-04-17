@@ -230,10 +230,10 @@ func TestWorkspaceBudget_Update_ClearLimit(t *testing.T) {
 
 // ==================== A2A enforcement ====================
 
-// TestWorkspaceBudget_A2A_ExceededReturns429 verifies that the A2A proxy
-// returns HTTP 429 {"error":"workspace budget limit exceeded"} when
+// TestWorkspaceBudget_A2A_ExceededReturns402 verifies that the A2A proxy
+// returns HTTP 402 {"error":"workspace budget limit exceeded"} when
 // monthly_spend equals budget_limit.
-func TestWorkspaceBudget_A2A_ExceededReturns429(t *testing.T) {
+func TestWorkspaceBudget_A2A_ExceededReturns402(t *testing.T) {
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -255,8 +255,8 @@ func TestWorkspaceBudget_A2A_ExceededReturns429(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	handler.ProxyA2A(c)
 
-	if w.Code != http.StatusTooManyRequests {
-		t.Errorf("expected 429 when budget exceeded, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusPaymentRequired {
+		t.Errorf("expected 402 when budget exceeded, got %d: %s", w.Code, w.Body.String())
 	}
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
@@ -268,8 +268,8 @@ func TestWorkspaceBudget_A2A_ExceededReturns429(t *testing.T) {
 	}
 }
 
-// TestWorkspaceBudget_A2A_AboveLimitReturns429 verifies 429 when spend > limit.
-func TestWorkspaceBudget_A2A_AboveLimitReturns429(t *testing.T) {
+// TestWorkspaceBudget_A2A_AboveLimitReturns402 verifies 402 when spend > limit.
+func TestWorkspaceBudget_A2A_AboveLimitReturns402(t *testing.T) {
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -290,8 +290,8 @@ func TestWorkspaceBudget_A2A_AboveLimitReturns429(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	handler.ProxyA2A(c)
 
-	if w.Code != http.StatusTooManyRequests {
-		t.Errorf("expected 429 when spend > limit, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusPaymentRequired {
+		t.Errorf("expected 402 when spend > limit, got %d: %s", w.Code, w.Body.String())
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("sqlmock expectations not met: %v", err)
