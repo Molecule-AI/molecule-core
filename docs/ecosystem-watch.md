@@ -92,10 +92,13 @@ snapshots:
     stars: "48k"
     threat_level: high
     notable_changes: >
-      v1.14.1 (Apr 8 2026) adds async checkpoint TUI browser; 1.4B agentic
-      automations logged, 60% Fortune 500 adoption, and $18M Insight-led round
-      make CrewAI Enterprise the dominant multi-agent framework in our target
-      enterprise segment.
+      Deep-dive 2026-04-17: Crew Studio is a real node-and-edge drag-and-drop
+      canvas (workflow design paradigm, not governance — no org hierarchy, no
+      auth audit trail). AMP Factory self-hosted confirmed: on-prem/private VPC,
+      K8s, FedRAMP High certified. A2A first-class at v0.8/v0.9 (client+server)
+      — CrewAI agents are recruitable as workers in Molecule AI orgs today.
+      ICP unchanged: moat is governance-layer canvas (#582), not visual canvas
+      alone. File FedRAMP gap as enterprise procurement tracking issue.
     source_url: https://github.com/crewAIInc/crewAI/releases
 
   - name: Google ADK
