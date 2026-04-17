@@ -2305,17 +2305,21 @@ langgraph/crewai adapters.
 
 **Pitch:** "One plugin, 12 runtimes — a CLI that converts a single engineering workflow plugin (brainstorm → plan → work → review) into the correct format for Claude Code, Cursor, Codex, OpenClaw, Gemini CLI, Kiro, Windsurf, Factory Droid, Pi, GitHub Copilot, Qwen, and more simultaneously."
 
-**Shape:** TypeScript (MIT), ~14.5k ⭐, v2.66.1 April 16, 2026. 97 total releases — high-cadence active project. Core mechanism: single `plugin.yaml`-style source → CLI transpiles to each runtime's native config format on `compound install`.
+**Shape:** TypeScript (MIT), ~14.5k ⭐, v2.66.1 April 16, 2026. 97 total releases — high-cadence active project. **Source format: `.claude-plugin/` (Claude Code format) is the canonical input — all other runtimes are generated from it.** `bunx @every-env/compound-plugin install <name> --to <target>` transpiles to target-specific output via one `.ts` file per runtime in `src/targets/`. Current 11 targets: `codex`, `copilot`, `droid`, `gemini`, `kiro`, `openclaw`, `opencode`, `pi`, `qwen`, `windsurf` + Claude Code source. 12th slot likely Cursor (in-progress).
 
-**Overlap with us:** Direct overlap with our plugin portability strategy and `agentskills.io` multi-runtime adapter pattern. We use per-runtime `adapters/<runtime>.py` files inside each plugin; Compound uses a CLI converter to generate runtime-native output from one source file. Both solve "write once, run on any agent runtime." If Compound's converter becomes the community standard distribution path, plugin authors may bypass the Molecule AI registry entirely and publish via Compound's 12-runtime CLI instead.
+**Molecule AI is not on the list.** Adding us requires: (1) `src/targets/molecule-ai.ts` — one `.ts` file handling tool-name mapping and output path generation; (2) one-line export in `index.ts`. Estimated effort: **2–4 hours** (upstream PR to EveryInc/compound-engineering-plugin). Since our `.claude-plugin/` format already matches their source format exactly, this is zero-cost compatibility.
 
-**Differentiation:** Compound is a distribution/packaging tool, not an orchestration platform. No A2A, no workspace lifecycle, no cron, no canvas. Purely a plugin publishing mechanism.
+**Overlap with us:** Distribution-layer overlap with our `agentskills.io` multi-runtime adapter pattern. Compound uses a CLI transpiler (authors run one command); we embed per-runtime `adapters/<runtime>.py` files inside each plugin (authors maintain adapters). Compound is strictly more ergonomic for authors. The two mechanisms are complementary layers, not in conflict — but if Compound becomes the community standard, absent Molecule AI support means silent bypass of our registry.
 
-**Worth borrowing:** The `compound install <repo>` one-command UX — simpler than our `{"source":"github://org/repo"}` JSON body. Consider adding a `molecli plugin install <github-url>` shorthand that accepts the same GitHub URLs Compound uses.
+**Differentiation:** Distribution/packaging tool only. No A2A, no workspace lifecycle, no cron, no canvas. Not an orchestration competitor.
 
-**Signals to react to:** If Compound adds a server-side plugin registry (publish once, discoverable by runtime) → direct threat to our `plugins/` registry as the canonical source. If the 12-runtime list adds `molecule-ai` → free inbound distribution channel; reach out to EveryInc.
+**Worth borrowing:** The `compound install <repo>` one-command UX. Consider a `molecli plugin install <github-url>` shorthand. Also: their per-runtime `.ts` target file pattern is cleaner than our `adapters/<runtime>.py` per-plugin approach — evaluate adopting it for the plugin SDK.
 
-**Last reviewed:** 2026-04-17 · **Stars / activity:** ~14.5k ⭐, v2.66.1, April 16, 2026
+**Action (time-sensitive):** Open upstream PR to add `molecule-ai.ts` target to EveryInc/compound-engineering-plugin **before the Cursor slot lands** — being 12th (not 13th) matters for perception. This is a ~2-4h Dev Lead task; file as external contribution issue when GH_TOKEN rotates.
+
+**Signals to react to:** If Compound adds a server-side plugin registry → direct threat to our `plugins/` registry as canonical source. If `molecule-ai.ts` PR is rejected → reassess whether to maintain a Compound-compatible fork.
+
+**Last reviewed:** 2026-04-17 (CI deep-dive) · **Stars / activity:** ~14.5k ⭐, v2.66.1, April 16, 2026
 
 ---
 
