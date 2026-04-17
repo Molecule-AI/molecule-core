@@ -43,9 +43,10 @@ type scheduleRow struct {
 	Prompt      string
 }
 
-// ChannelBroadcaster posts messages to a workspace's configured social channels.
+// ChannelBroadcaster posts messages to and reads context from workspace channels.
 type ChannelBroadcaster interface {
 	BroadcastToWorkspaceChannels(ctx context.Context, workspaceID, text string)
+	FetchWorkspaceChannelContext(ctx context.Context, workspaceID string) string
 }
 
 // Scheduler polls the workspace_schedules table and fires A2A messages
@@ -260,6 +261,17 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 	fireCtx, cancel := context.WithTimeout(ctx, fireTimeout)
 	defer cancel()
 
+	// Level 3: inject ambient Slack channel context into the cron prompt.
+	// The agent sees recent peer messages before acting, enabling cross-agent
+	// awareness without explicit A2A delegation. Best-effort — if the fetch
+	// fails or the workspace has no Slack channels, the prompt is unchanged.
+	prompt := sched.Prompt
+	if s.channels != nil {
+		if channelCtx := s.channels.FetchWorkspaceChannelContext(fireCtx, sched.WorkspaceID); channelCtx != "" {
+			prompt = channelCtx + "\n" + prompt
+		}
+	}
+
 	msgID := fmt.Sprintf("cron-%s-%s", short(sched.ID, 8), uuid.New().String()[:8])
 
 	a2aBody, _ := json.Marshal(map[string]interface{}{
@@ -268,7 +280,7 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 			"message": map[string]interface{}{
 				"role":      "user",
 				"messageId": msgID,
-				"parts":     []map[string]interface{}{{"kind": "text", "text": sched.Prompt}},
+				"parts":     []map[string]interface{}{{"kind": "text", "text": prompt}},
 			},
 		},
 	})
