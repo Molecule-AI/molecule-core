@@ -50,6 +50,8 @@ import uuid
 from datetime import timedelta
 from typing import Any, Optional
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -80,6 +82,7 @@ class AgentTaskInput:
     model: str
     workspace_id: str
     history: list  # [[role, content], ...] — tuples converted to lists
+    resume_from_step: int = 0  # skip stages with step_index < this value on resume
 
 
 @dataclasses.dataclass
@@ -101,6 +104,80 @@ class LLMResult:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _task_registry: dict[str, dict[str, Any]] = {}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Checkpoint helpers
+#
+# These functions talk to the platform checkpoint API (#788 / #789).
+# Both are non-fatal: network errors are caught and swallowed so that a
+# missing or unreachable platform never blocks workflow execution.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _save_checkpoint(
+    workflow_id: str,
+    step_name: str,
+    step_index: int,
+    payload: Optional[dict] = None,
+) -> None:
+    """POST step completion to the platform checkpoint API.
+
+    Called after each activity completes inside ``MoleculeAIAgentWorkflow.run()``.
+    Non-fatal: any network or platform error is silently ignored so that
+    checkpoint writes never block or crash workflow execution.
+
+    Args:
+        workflow_id: Temporal workflow / task ID (``molecule-{task_id}``).
+        step_name:   Activity name matching the platform step enum.
+        step_index:  0-based ordinal (task_receive=0, llm_call=1, task_complete=2).
+        payload:     Optional JSON-serialisable dict to persist alongside the step.
+    """
+    base = os.environ.get("PLATFORM_URL", "http://platform:8080")
+    ws_id = os.environ.get("WORKSPACE_ID")
+    if not ws_id:
+        return
+    try:
+        httpx.post(
+            f"{base}/workspaces/{ws_id}/checkpoints",
+            json={
+                "workflow_id": workflow_id,
+                "step_name": step_name,
+                "step_index": step_index,
+                "payload": payload,
+            },
+            timeout=3,
+        )
+    except Exception:
+        pass  # non-fatal — never block execution on checkpoint write
+
+
+def _resume_checkpoint(workflow_id: str) -> Optional[dict]:
+    """GET the highest-index checkpoint for a workflow from the platform API.
+
+    Returns the checkpoint dict (keys: ``step_index``, ``step_name``, …) for
+    the most recently completed step, or ``None`` when no checkpoint exists or
+    the API call fails.  The caller uses ``step_index`` to compute
+    ``resume_from_step = checkpoint['step_index'] + 1`` and skips already-done
+    stages in ``MoleculeAIAgentWorkflow.run()``.
+
+    Non-fatal: returns ``None`` on any network, decode, or platform error.
+    """
+    base = os.environ.get("PLATFORM_URL", "http://platform:8080")
+    ws_id = os.environ.get("WORKSPACE_ID")
+    if not ws_id:
+        return None
+    try:
+        r = httpx.get(
+            f"{base}/workspaces/{ws_id}/checkpoints/{workflow_id}",
+            timeout=3,
+        )
+        if r.status_code == 404:
+            return None
+        steps = r.json()
+        return steps[0] if steps else None
+    except Exception:
+        return None  # non-fatal
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -235,17 +312,28 @@ try:
             opts: dict[str, Any] = {
                 "start_to_close_timeout": _ACTIVITY_START_TO_CLOSE_TIMEOUT,
             }
+            # Default result — used when llm_call is skipped on resume.
+            result: LLMResult = LLMResult(final_text="", success=True)
 
-            # Stage 1 — acknowledge receipt (lightweight checkpoint)
-            await workflow.execute_activity(task_receive_activity, inp, **opts)
+            # Stage 1 — acknowledge receipt (step_index=0)
+            # Skipped when resuming past this stage.
+            if inp.resume_from_step <= 0:
+                await workflow.execute_activity(task_receive_activity, inp, **opts)
+                _save_checkpoint(inp.task_id, "task_receive", 0)
 
-            # Stage 2 — LLM execution (main work; retryable on crash/timeout)
-            result: LLMResult = await workflow.execute_activity(
-                llm_call_activity, inp, **opts
-            )
+            # Stage 2 — LLM execution (step_index=1; main work, retryable)
+            # Skipped when resuming past this stage.
+            if inp.resume_from_step <= 1:
+                result = await workflow.execute_activity(
+                    llm_call_activity, inp, **opts
+                )
+                _save_checkpoint(inp.task_id, "llm_call", 1)
 
-            # Stage 3 — record completion (lightweight checkpoint)
-            await workflow.execute_activity(task_complete_activity, result, **opts)
+            # Stage 3 — record completion (step_index=2)
+            # Skipped when resuming past this stage.
+            if inp.resume_from_step <= 2:
+                await workflow.execute_activity(task_complete_activity, result, **opts)
+                _save_checkpoint(inp.task_id, "task_complete", 2)
 
             return result
 
@@ -432,6 +520,20 @@ class TemporalWorkflowWrapper:
             await executor._core_execute(context, event_queue)
             return
 
+        # Check for an existing checkpoint so we can skip already-completed stages.
+        checkpoint = _resume_checkpoint(task_id)
+        resume_from_step = 0
+        if checkpoint is not None:
+            resume_from_step = checkpoint.get("step_index", -1) + 1
+            logger.info(
+                "Temporal: resuming workflow molecule-%s from step %d "
+                "(last completed: %s at step_index=%d)",
+                task_id,
+                resume_from_step,
+                checkpoint.get("step_name"),
+                checkpoint.get("step_index", -1),
+            )
+
         inp = AgentTaskInput(
             task_id=task_id,
             context_id=context_id,
@@ -439,6 +541,7 @@ class TemporalWorkflowWrapper:
             model=getattr(executor, "_model", "unknown"),
             workspace_id=os.environ.get("WORKSPACE_ID", "unknown"),
             history=history,
+            resume_from_step=resume_from_step,
         )
 
         # Register non-serialisable in-process state for activities to access

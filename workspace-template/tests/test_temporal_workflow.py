@@ -639,3 +639,337 @@ async def test_molecule_workflow_run_method(real_temporal_with_temporalio):
 
     assert result is mock_llm_result
     assert call_count["n"] == 3  # three stages called
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests for _save_checkpoint and _resume_checkpoint (#789)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_save_checkpoint_posts_to_platform(real_temporal, monkeypatch):
+    """_save_checkpoint POSTs to /workspaces/{ws_id}/checkpoints with correct args."""
+    mod, _ = real_temporal
+    monkeypatch.setenv("PLATFORM_URL", "http://platform:8080")
+    monkeypatch.setenv("WORKSPACE_ID", "ws-123")
+
+    posted = {}
+
+    def fake_post(url, *, json=None, timeout=None):
+        posted["url"] = url
+        posted["json"] = json
+        return MagicMock(status_code=201)
+
+    monkeypatch.setattr(mod.httpx, "post", fake_post)
+
+    mod._save_checkpoint("wf-abc", "llm_call", 1, {"result": "ok"})
+
+    assert posted["url"] == "http://platform:8080/workspaces/ws-123/checkpoints"
+    assert posted["json"]["workflow_id"] == "wf-abc"
+    assert posted["json"]["step_name"] == "llm_call"
+    assert posted["json"]["step_index"] == 1
+    assert posted["json"]["payload"] == {"result": "ok"}
+
+
+def test_save_checkpoint_swallows_network_error(real_temporal, monkeypatch):
+    """_save_checkpoint catches exceptions and never propagates them."""
+    mod, _ = real_temporal
+    monkeypatch.setenv("WORKSPACE_ID", "ws-123")
+
+    def exploding_post(*args, **kwargs):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(mod.httpx, "post", exploding_post)
+
+    # Must not raise
+    mod._save_checkpoint("wf-x", "task_receive", 0)
+
+
+def test_save_checkpoint_noop_when_no_workspace_id(real_temporal, monkeypatch):
+    """_save_checkpoint is a no-op and makes no HTTP call when WORKSPACE_ID unset."""
+    mod, _ = real_temporal
+    monkeypatch.delenv("WORKSPACE_ID", raising=False)
+
+    call_count = {"n": 0}
+
+    def counting_post(*args, **kwargs):
+        call_count["n"] += 1
+
+    monkeypatch.setattr(mod.httpx, "post", counting_post)
+
+    mod._save_checkpoint("wf-x", "task_receive", 0)
+
+    assert call_count["n"] == 0
+
+
+def test_resume_checkpoint_returns_first_step(real_temporal, monkeypatch):
+    """_resume_checkpoint returns the first element (highest step_index) from the API."""
+    mod, _ = real_temporal
+    monkeypatch.setenv("PLATFORM_URL", "http://platform:8080")
+    monkeypatch.setenv("WORKSPACE_ID", "ws-123")
+
+    steps = [
+        {"step_index": 1, "step_name": "llm_call"},
+        {"step_index": 0, "step_name": "task_receive"},
+    ]
+
+    def fake_get(url, *, timeout=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = steps
+        return resp
+
+    monkeypatch.setattr(mod.httpx, "get", fake_get)
+
+    result = mod._resume_checkpoint("wf-abc")
+
+    assert result == steps[0]
+    assert result["step_index"] == 1
+    assert result["step_name"] == "llm_call"
+
+
+def test_resume_checkpoint_returns_none_on_404(real_temporal, monkeypatch):
+    """_resume_checkpoint returns None when the platform returns 404."""
+    mod, _ = real_temporal
+    monkeypatch.setenv("WORKSPACE_ID", "ws-123")
+
+    def fake_get(url, *, timeout=None):
+        resp = MagicMock()
+        resp.status_code = 404
+        return resp
+
+    monkeypatch.setattr(mod.httpx, "get", fake_get)
+
+    assert mod._resume_checkpoint("wf-missing") is None
+
+
+def test_resume_checkpoint_returns_none_on_exception(real_temporal, monkeypatch):
+    """_resume_checkpoint catches exceptions and returns None."""
+    mod, _ = real_temporal
+    monkeypatch.setenv("WORKSPACE_ID", "ws-123")
+
+    def exploding_get(*args, **kwargs):
+        raise OSError("timeout")
+
+    monkeypatch.setattr(mod.httpx, "get", exploding_get)
+
+    assert mod._resume_checkpoint("wf-x") is None
+
+
+def test_resume_checkpoint_returns_none_when_no_workspace_id(real_temporal, monkeypatch):
+    """_resume_checkpoint returns None and makes no HTTP call when WORKSPACE_ID unset."""
+    mod, _ = real_temporal
+    monkeypatch.delenv("WORKSPACE_ID", raising=False)
+
+    call_count = {"n": 0}
+
+    def counting_get(*args, **kwargs):
+        call_count["n"] += 1
+
+    monkeypatch.setattr(mod.httpx, "get", counting_get)
+
+    assert mod._resume_checkpoint("wf-x") is None
+    assert call_count["n"] == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests for resume + checkpoint save in MoleculeAIAgentWorkflow.run() (#789)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_workflow_run_saves_checkpoint_after_each_stage(
+    real_temporal_with_temporalio, monkeypatch
+):
+    """_save_checkpoint is called once after each of the 3 stages."""
+    mod, mocks, _ = real_temporal_with_temporalio
+
+    saved: list[tuple] = []
+
+    def mock_save(workflow_id, step_name, step_index, payload=None):
+        saved.append((step_name, step_index))
+
+    monkeypatch.setattr(mod, "_save_checkpoint", mock_save)
+
+    mock_llm_result = mod.LLMResult(final_text="done", success=True)
+    call_count = {"n": 0}
+
+    async def mock_execute_activity(activity_fn, inp, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            return mock_llm_result
+        return {"task_id": getattr(inp, "task_id", "t"), "status": "ok"}
+
+    mocks["_workflow_mod"].execute_activity = mock_execute_activity
+
+    wf = mod.MoleculeAIAgentWorkflow()
+    inp = mod.AgentTaskInput(
+        task_id="wf-save", context_id="c1", user_input="hi",
+        model="test", workspace_id="ws", history=[], resume_from_step=0,
+    )
+    await wf.run(inp)
+
+    assert len(saved) == 3
+    assert saved[0] == ("task_receive", 0)
+    assert saved[1] == ("llm_call", 1)
+    assert saved[2] == ("task_complete", 2)
+
+
+@pytest.mark.asyncio
+async def test_workflow_run_skips_stage_0_when_resume_from_1(
+    real_temporal_with_temporalio, monkeypatch
+):
+    """Stages with step_index < resume_from_step (1) are skipped; llm_call + task_complete run."""
+    mod, mocks, _ = real_temporal_with_temporalio
+
+    saved: list[str] = []
+    monkeypatch.setattr(mod, "_save_checkpoint", lambda wid, sn, si, p=None: saved.append(sn))
+
+    mock_llm_result = mod.LLMResult(final_text="resumed", success=True)
+    activity_calls: list[str] = []
+
+    async def mock_execute_activity(activity_fn, inp, **kwargs):
+        name = getattr(activity_fn, "__name__", str(activity_fn))
+        activity_calls.append(name)
+        return mock_llm_result
+
+    mocks["_workflow_mod"].execute_activity = mock_execute_activity
+
+    wf = mod.MoleculeAIAgentWorkflow()
+    inp = mod.AgentTaskInput(
+        task_id="wf-resume-1", context_id="c1", user_input="hi",
+        model="test", workspace_id="ws", history=[], resume_from_step=1,
+    )
+    await wf.run(inp)
+
+    # task_receive (step_index=0) must NOT be called or checkpointed
+    assert "task_receive_activity" not in activity_calls
+    assert "task_receive" not in saved
+    # llm_call and task_complete must run
+    assert "llm_call_activity" in activity_calls
+    assert "task_complete_activity" in activity_calls
+    assert "llm_call" in saved
+    assert "task_complete" in saved
+
+
+@pytest.mark.asyncio
+async def test_workflow_run_skips_stages_0_and_1_when_resume_from_2(
+    real_temporal_with_temporalio, monkeypatch
+):
+    """resume_from_step=2 skips task_receive and llm_call; only task_complete runs."""
+    mod, mocks, _ = real_temporal_with_temporalio
+
+    saved: list[str] = []
+    monkeypatch.setattr(mod, "_save_checkpoint", lambda wid, sn, si, p=None: saved.append(sn))
+
+    activity_calls: list[str] = []
+
+    async def mock_execute_activity(activity_fn, inp, **kwargs):
+        name = getattr(activity_fn, "__name__", str(activity_fn))
+        activity_calls.append(name)
+        return None
+
+    mocks["_workflow_mod"].execute_activity = mock_execute_activity
+
+    wf = mod.MoleculeAIAgentWorkflow()
+    inp = mod.AgentTaskInput(
+        task_id="wf-resume-2", context_id="c1", user_input="hi",
+        model="test", workspace_id="ws", history=[], resume_from_step=2,
+    )
+    await wf.run(inp)
+
+    assert "task_receive_activity" not in activity_calls
+    assert "llm_call_activity" not in activity_calls
+    assert "task_complete_activity" in activity_calls
+    assert "task_complete" in saved
+    assert "task_receive" not in saved
+    assert "llm_call" not in saved
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests for TemporalWorkflowWrapper.run() resume integration (#789)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_wrapper_run_sets_resume_from_step_when_checkpoint_exists(
+    real_temporal, monkeypatch
+):
+    """run() reads the checkpoint and sets resume_from_step = step_index + 1 on AgentTaskInput."""
+    mod, mock_shared = real_temporal
+
+    # Inject a placeholder so the execute_workflow call doesn't NameError.
+    mock_workflow_cls = MagicMock()
+    mock_workflow_cls.run = MagicMock()
+    mod.MoleculeAIAgentWorkflow = mock_workflow_cls
+
+    # Simulate checkpoint at step 0 (task_receive done) → resume_from_step = 1
+    monkeypatch.setattr(
+        mod,
+        "_resume_checkpoint",
+        lambda wid: {"step_index": 0, "step_name": "task_receive"},
+    )
+
+    captured_inp = {}
+
+    wrapper = mod.TemporalWorkflowWrapper()
+    wrapper._available = True
+    mock_client = AsyncMock()
+
+    async def capturing_execute_workflow(run_fn, inp, **kwargs):
+        captured_inp["resume_from_step"] = inp.resume_from_step
+
+    mock_client.execute_workflow = capturing_execute_workflow
+    wrapper._client = mock_client
+
+    mock_executor = MagicMock()
+    mock_executor._model = "anthropic:test"
+    mock_executor._core_execute = AsyncMock(return_value="ok")
+
+    mock_context = MagicMock()
+    mock_context.task_id = "task-resume"
+    mock_context.context_id = "ctx-resume"
+    mock_eq = MagicMock()
+
+    await wrapper.run(mock_executor, mock_context, mock_eq)
+
+    assert captured_inp["resume_from_step"] == 1  # step_index(0) + 1
+
+
+@pytest.mark.asyncio
+async def test_wrapper_run_sets_resume_from_step_zero_when_no_checkpoint(
+    real_temporal, monkeypatch
+):
+    """run() sets resume_from_step=0 (start fresh) when _resume_checkpoint returns None."""
+    mod, mock_shared = real_temporal
+
+    # Inject a placeholder so the execute_workflow call doesn't NameError.
+    mock_workflow_cls = MagicMock()
+    mock_workflow_cls.run = MagicMock()
+    mod.MoleculeAIAgentWorkflow = mock_workflow_cls
+
+    monkeypatch.setattr(mod, "_resume_checkpoint", lambda wid: None)
+
+    captured_inp = {}
+
+    wrapper = mod.TemporalWorkflowWrapper()
+    wrapper._available = True
+    mock_client = AsyncMock()
+
+    async def capturing_execute_workflow(run_fn, inp, **kwargs):
+        captured_inp["resume_from_step"] = inp.resume_from_step
+
+    mock_client.execute_workflow = capturing_execute_workflow
+    wrapper._client = mock_client
+
+    mock_executor = MagicMock()
+    mock_executor._model = "anthropic:test"
+    mock_executor._core_execute = AsyncMock(return_value="ok")
+
+    mock_context = MagicMock()
+    mock_context.task_id = "task-fresh"
+    mock_context.context_id = "ctx-fresh"
+    mock_eq = MagicMock()
+
+    await wrapper.run(mock_executor, mock_context, mock_eq)
+
+    assert captured_inp["resume_from_step"] == 0
