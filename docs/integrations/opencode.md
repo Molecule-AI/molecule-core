@@ -16,7 +16,7 @@ Create (or extend) `opencode.json` in your project root:
   "mcpServers": {
     "molecule": {
       "type": "remote",
-      "url": "${MOLECULE_MCP_URL}",
+      "url": "${MOLECULE_MCP_URL}/workspaces/${WORKSPACE_ID}/mcp",
       "headers": { "Authorization": "Bearer ${MOLECULE_MCP_TOKEN}" },
       "description": "Molecule AI A2A orchestration — delegate_task, list_peers, check_task_status"
     }
@@ -89,6 +89,8 @@ Add to your `.env`:
 ```bash
 MOLECULE_MCP_URL=https://api.molecule.ai   # or http://localhost:8080 for local dev
 MOLECULE_MCP_TOKEN=                         # workspace-scoped bearer token from step 2
+WORKSPACE_ID=                               # UUID of the agent workspace opencode acts as
+                                            # find it in Canvas sidebar or GET /workspaces
 ```
 
 See `.env.example` for the canonical reference.
