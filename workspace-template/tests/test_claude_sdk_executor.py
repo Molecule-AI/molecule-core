@@ -1071,3 +1071,138 @@ def test_execute_clears_session_between_retries_on_process_error(caplog):
     # INFO log confirms the reset fired
     info_messages = " | ".join(r.message for r in caplog.records if r.levelname == "INFO")
     assert "SDK session reset after FakeProcessError" in info_messages
+
+
+# ---------------------------------------------------------------------------
+# _build_options — issue #652: effort + task_budget output_config wiring
+# ---------------------------------------------------------------------------
+
+
+def _build_options_with_config(config: dict):
+    """Helper: build ClaudeAgentOptions with the given config.yaml values.
+
+    Stubs out all I/O helpers so only the output_config wiring logic is tested.
+    """
+    e = ClaudeSDKExecutor(system_prompt=None, config_path="/tmp", heartbeat=None)
+    with patch.object(e, "_load_config_dict", return_value=config), \
+         patch.object(e, "_resolve_cwd", return_value="/workspace"), \
+         patch.object(e, "_build_system_prompt", return_value=None), \
+         patch("claude_sdk_executor.get_mcp_server_path", return_value="/mcp.py"):
+        return e._build_options()
+
+
+def test_build_options_effort_only_sets_output_config_no_beta():
+    """effort='xhigh', no task_budget → output_config={'effort':'xhigh'}, no betas.
+
+    Acceptance criterion: effort field wired into output_config without adding
+    the task-budgets beta header (beta is only required for task_budget).
+    """
+    opts = _build_options_with_config({"effort": "xhigh"})
+    assert opts.kwargs.get("output_config") == {"effort": "xhigh"}
+    assert "betas" not in opts.kwargs
+
+
+def test_build_options_task_budget_sets_output_config_and_beta():
+    """task_budget=128000 → output_config with token budget struct + beta header.
+
+    Acceptance criterion: task_budget >= 20000 writes the nested
+    {'type':'tokens','total':N} struct and adds 'task-budgets-2026-03-13' to betas.
+    """
+    opts = _build_options_with_config({"task_budget": 128000})
+    assert opts.kwargs.get("output_config") == {
+        "task_budget": {"type": "tokens", "total": 128000}
+    }
+    assert "task-budgets-2026-03-13" in opts.kwargs.get("betas", [])
+
+
+def test_build_options_both_effort_and_task_budget():
+    """Both effort and task_budget → combined output_config + beta header.
+
+    Acceptance criterion: both keys present in the single output_config dict;
+    betas includes the task-budget feature flag.
+    """
+    opts = _build_options_with_config({"effort": "high", "task_budget": 50000})
+    assert opts.kwargs.get("output_config") == {
+        "effort": "high",
+        "task_budget": {"type": "tokens", "total": 50000},
+    }
+    assert "task-budgets-2026-03-13" in opts.kwargs.get("betas", [])
+
+
+def test_build_options_neither_effort_nor_task_budget_no_output_config():
+    """Empty config (effort='', task_budget=0) → output_config absent, no betas.
+
+    Acceptance criterion: when neither field is configured the SDK options
+    are unchanged — no spurious output_config or betas keys.
+    """
+    opts = _build_options_with_config({})
+    assert "output_config" not in opts.kwargs
+    assert "betas" not in opts.kwargs
+
+
+def test_build_options_task_budget_below_minimum_raises_value_error():
+    """task_budget=5000 (below 20000 API minimum) → ValueError before any API call.
+
+    Acceptance criterion: the executor must refuse to build options when
+    task_budget is set but too small, so no invalid request reaches the API.
+    """
+    e = ClaudeSDKExecutor(system_prompt=None, config_path="/tmp", heartbeat=None)
+    with patch.object(e, "_load_config_dict", return_value={"task_budget": 5000}), \
+         patch.object(e, "_resolve_cwd", return_value="/workspace"), \
+         patch.object(e, "_build_system_prompt", return_value=None), \
+         patch("claude_sdk_executor.get_mcp_server_path", return_value="/mcp.py"):
+        with pytest.raises(ValueError, match="task_budget must be >= 20000"):
+            e._build_options()
+
+
+# ---------------------------------------------------------------------------
+# _load_config_dict — exception-safety and happy-path (issue #652)
+# ---------------------------------------------------------------------------
+
+
+def test_load_config_dict_reads_valid_yaml(tmp_path):
+    """Valid config.yaml → returns the parsed dict.
+
+    Acceptance criterion: normal I/O path returns the YAML contents as a dict.
+    """
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("effort: xhigh\ntask_budget: 50000\n")
+    e = ClaudeSDKExecutor(system_prompt=None, config_path=str(tmp_path), heartbeat=None)
+    result = e._load_config_dict()
+    assert result == {"effort": "xhigh", "task_budget": 50000}
+
+
+def test_load_config_dict_missing_file_returns_empty(tmp_path):
+    """Missing config.yaml → returns {} without raising.
+
+    Acceptance criterion: FileNotFoundError is swallowed; callers can safely
+    use .get() without guards.
+    """
+    e = ClaudeSDKExecutor(system_prompt=None, config_path=str(tmp_path), heartbeat=None)
+    result = e._load_config_dict()
+    assert result == {}
+
+
+def test_load_config_dict_invalid_yaml_returns_empty(tmp_path):
+    """Malformed YAML → returns {} without raising.
+
+    Acceptance criterion: a YAML parse error is swallowed; callers never see
+    an exception from _load_config_dict.
+    """
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("effort: [unclosed\n")
+    e = ClaudeSDKExecutor(system_prompt=None, config_path=str(tmp_path), heartbeat=None)
+    result = e._load_config_dict()
+    assert result == {}
+
+
+def test_load_config_dict_empty_file_returns_empty(tmp_path):
+    """Empty config.yaml (yaml.safe_load returns None) → returns {} via `or {}`.
+
+    Acceptance criterion: None from safe_load is normalised to an empty dict.
+    """
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("")
+    e = ClaudeSDKExecutor(system_prompt=None, config_path=str(tmp_path), heartbeat=None)
+    result = e._load_config_dict()
+    assert result == {}
