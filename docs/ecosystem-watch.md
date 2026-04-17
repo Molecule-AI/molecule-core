@@ -2593,3 +2593,23 @@ langgraph/crewai adapters.
 **Signals to react to:** apm ships a `molecule-ai` source scheme or native Molecule plugin support → strong ecosystem validation, document compatibility immediately. Microsoft positions apm as "npm for agents" in Agent Framework docs → evaluate making `plugin.yaml` apm-compatible. apm reaches 10k★ → evaluate publishing Molecule plugins to the apm marketplace.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 1,766★, v0.8.11 Apr 6 2026, GitHub trending Python today
+
+---
+
+### Cloudflare Agents — `cloudflare/agents`
+
+**Pitch:** "Build and deploy persistent, stateful AI agents on Cloudflare's edge infrastructure — millions of concurrent instances, auto-hibernation, zero idle cost."
+
+**Shape:** TypeScript (99%), Apache-2.0, v0.11.2 (Apr 2026), 4.8k★. Built on Cloudflare Workers + Durable Objects. Core primitives: persistent state synced to clients, cron/one-time scheduling, WebSocket lifecycle hooks, MCP (both server AND client), multi-step durable workflows with HITL approval patterns, email (send/receive/reply via CF Email Routing), and "Code Mode" (LLMs emit TypeScript for orchestration). Agents auto-hibernate when idle — zero infra cost during inactivity.
+
+**Overlap with us:** Near-complete overlap on workspace lifecycle primitives: state persistence (our Redis + Postgres), scheduling (our `workspace_schedules`), WebSocket (our canvas WS hub), MCP client support (our `mcp-connector` #573), HITL approvals (our `approvals.*`). CF's auto-hibernation + one-Durable-Object-per-agent model is architecturally analogous to Molecule's per-workspace Docker container lifecycle.
+
+**Differentiation:** No A2A protocol, no org hierarchy, no visual canvas. TypeScript-only (Molecule is Python-first). Serverless edge vs. Molecule's Docker workspace model. CF scales to millions of concurrent single agents via infrastructure; Molecule's value is the *organizational hierarchy* of collaborating specialists. No governance layer, no RBAC, no audit trail.
+
+**Worth borrowing:** Auto-hibernation — when `active_tasks == 0` for N minutes, auto-pause container; resume on next A2A ping. Closes idle-cost gap; filed as GH #711. "Code Mode" (agent-generated TypeScript orchestration) is a signal that declarative workflow gen will become a table-stakes expectation.
+
+**Terminology collisions:** "workspace" — CF calls the unit an "Agent" (Durable Object); we call it a Workspace (Docker container + config).
+
+**Signals to react to:** CF adds A2A support → escalate to HIGH, evaluate CF Workers as a Molecule workspace runtime target. CF bundles Agents + Artifacts + AI Gateway into a single platform pricing tier → direct positioning threat. Reaches 20k★ → publish a CF Workers org template.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 4,776★, v0.11.2 Apr 2026, TypeScript
