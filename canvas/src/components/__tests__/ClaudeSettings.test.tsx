@@ -75,6 +75,11 @@ describe("toYaml — effort field", () => {
     const cfg: ConfigData = { ...DEFAULT_CONFIG, effort: "xhigh" };
     expect(toYaml(cfg)).toContain("effort: xhigh");
   });
+
+  it("serializes effort: max", () => {
+    const cfg: ConfigData = { ...DEFAULT_CONFIG, effort: "max" };
+    expect(toYaml(cfg)).toContain("effort: max");
+  });
 });
 
 describe("toYaml — task_budget field", () => {
@@ -179,7 +184,7 @@ describe("ConfigTab source — Claude Settings section", () => {
     expect(src).toContain('data-testid="task-budget-input"');
   });
 
-  it("ConfigTab.tsx effort dropdown has all four Claude values", async () => {
+  it("ConfigTab.tsx effort dropdown has all five Claude values", async () => {
     const { readFileSync } = await import("fs");
     const { join } = await import("path");
     const src = readFileSync(join(__dirname, "../../components/tabs/ConfigTab.tsx"), "utf8");
@@ -187,6 +192,7 @@ describe("ConfigTab source — Claude Settings section", () => {
     expect(src).toContain('"medium"');
     expect(src).toContain('"high"');
     expect(src).toContain('"xhigh"');
+    expect(src).toContain('"max"');
   });
 
   it("ConfigTab.tsx section is guarded by claude-code runtime check", async () => {
