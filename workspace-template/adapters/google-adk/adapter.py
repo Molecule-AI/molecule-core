@@ -230,7 +230,6 @@ class GoogleADKA2AExecutor(AgentExecutor):
                 "GoogleADKA2AExecutor: execution error [model=%s]: %s",
                 self.model,
                 type(exc).__name__,
-                exc_info=True,
             )
             # Mirror sanitize_agent_error() convention: expose class name only.
             await event_queue.enqueue_event(
