@@ -26,6 +26,22 @@ Hermes 3 / unknown models
 No ``extra_body`` is sent.  The response is processed identically to any
 other OpenAI-compat model call.  The Hermes 3 path is exercised by the
 existing adapter test suite and must remain unchanged.
+
+response_format / structured output (#498)
+------------------------------------------
+Pass ``response_format={"type": "json_schema", "json_schema": {...}}`` (or
+``{"type": "json_object"}`` / ``{"type": "text"}``) to request structured
+output from the upstream provider.  The value is forwarded verbatim as the
+``response_format=`` kwarg on ``chat.completions.create()``.
+
+Validation is performed **before** the API call via
+``_validate_response_format()``.  If the dict is invalid (unknown type,
+missing ``json_schema`` key for ``type="json_schema"``, etc.) the executor
+enqueues an error message and returns early without calling the API.
+
+When ``response_format`` is ``None`` (the default) the kwarg is omitted
+entirely from the API call so older / strict providers do not receive an
+unexpected field.
 """
 
 from __future__ import annotations
@@ -75,6 +91,53 @@ def _reasoning_supported(model: str) -> bool:
     """
     model_lower = model.lower()
     return any(pat in model_lower for pat in _HERMES4_PATTERNS)
+
+
+# ---------------------------------------------------------------------------
+# response_format validation (#498)
+# ---------------------------------------------------------------------------
+
+_VALID_RESPONSE_FORMAT_TYPES: frozenset[str] = frozenset(
+    {"json_schema", "json_object", "text"}
+)
+
+
+def _validate_response_format(rf: dict) -> "str | None":
+    """Validate a ``response_format`` dict before forwarding to the API.
+
+    Returns ``None`` if *rf* is valid, or an error message string describing
+    the first validation failure found.
+
+    Valid ``type`` values are ``"json_schema"``, ``"json_object"``, and
+    ``"text"``.  For ``type="json_schema"``, the dict must also contain a
+    ``"json_schema"`` key whose value is a dict with at least a ``"name"``
+    key (str).  If ``json_schema.schema`` is present it must be a dict.
+
+    Examples::
+
+        >>> _validate_response_format({"type": "json_object"}) is None
+        True
+        >>> _validate_response_format({"type": "bad"}) is not None
+        True
+    """
+    rf_type = rf.get("type")
+    if rf_type not in _VALID_RESPONSE_FORMAT_TYPES:
+        return (
+            f"type must be one of {sorted(_VALID_RESPONSE_FORMAT_TYPES)!r}, "
+            f"got {rf_type!r}"
+        )
+
+    if rf_type == "json_schema":
+        js = rf.get("json_schema")
+        if not isinstance(js, dict):
+            return "json_schema must be a dict when type='json_schema'"
+        if not isinstance(js.get("name"), str):
+            return "json_schema.name must be a string"
+        schema = js.get("schema")
+        if schema is not None and not isinstance(schema, dict):
+            return "json_schema.schema must be a dict if present"
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +205,16 @@ class HermesA2AExecutor(AgentExecutor):
     heartbeat:
         Optional ``HeartbeatLoop`` instance used to surface the current
         task description in the platform UI.
+    response_format:
+        Optional OpenAI-native ``response_format`` dict forwarded verbatim
+        to ``chat.completions.create()``.  Supported types:
+        ``{"type": "json_schema", "json_schema": {"name": ..., "schema": {...}}}
+``
+        ``{"type": "json_object"}``
+        ``{"type": "text"}``
+        When ``None`` (default) the parameter is omitted from the API call.
+        Invalid dicts cause ``execute()`` to enqueue an error and return
+        early without calling the API.
     _client:
         Inject a pre-built ``AsyncOpenAI`` (or compatible mock) — for
         testing only.  When provided, ``base_url`` and ``api_key`` are
@@ -155,11 +228,13 @@ class HermesA2AExecutor(AgentExecutor):
         base_url: str | None = None,
         api_key: str | None = None,
         heartbeat: "HeartbeatLoop | None" = None,
+        response_format: "dict | None" = None,
         _client: Any = None,
     ) -> None:
         self.model = model
         self.system_prompt = system_prompt
         self._heartbeat = heartbeat
+        self._response_format = response_format
         self._provider = ProviderConfig(model)
 
         if _client is not None:
@@ -262,18 +337,34 @@ class HermesA2AExecutor(AgentExecutor):
 
         messages = self._build_messages(user_input)
 
+        # Validate response_format before hitting the API — invalid dicts
+        # enqueue an error and return early without making an API call.
+        if self._response_format is not None:
+            detail = _validate_response_format(self._response_format)
+            if detail is not None:
+                await event_queue.enqueue_event(
+                    new_agent_text_message(f"Error: invalid response_format — {detail}")
+                )
+                return
+
         # Only Hermes 4 entries get extra_body — sending it to Hermes 3
         # or other models is a no-op at best; a 400 at worst.
         extra_body: dict | None = None
         if self._provider.reasoning_supported:
             extra_body = {"reasoning": {"enabled": True}}
 
+        # Build create() kwargs; omit response_format entirely when None so
+        # strict / older providers do not receive an unexpected field.
+        create_kwargs: dict = {
+            "model": self.model,
+            "messages": messages,
+            "extra_body": extra_body,
+        }
+        if self._response_format is not None:
+            create_kwargs["response_format"] = self._response_format
+
         try:
-            response = await self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                extra_body=extra_body,
-            )
+            response = await self._client.chat.completions.create(**create_kwargs)
 
             choice = response.choices[0]
             content: str = choice.message.content or ""
