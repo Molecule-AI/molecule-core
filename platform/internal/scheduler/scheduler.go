@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -264,7 +265,7 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 
 	// Empty callerID = canvas-style request (bypasses access control, source_id=NULL in activity log).
 	// "system:scheduler" was invalid — source_id column is UUID and rejects non-UUID strings.
-	statusCode, _, proxyErr := s.proxy.ProxyA2ARequest(fireCtx, sched.WorkspaceID, a2aBody, "", true)
+	statusCode, respBody, proxyErr := s.proxy.ProxyA2ARequest(fireCtx, sched.WorkspaceID, a2aBody, "", true)
 
 	lastStatus := "ok"
 	lastError := ""
@@ -278,6 +279,34 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 		log.Printf("Scheduler: '%s' non-2xx: %d", sched.Name, statusCode)
 	} else {
 		log.Printf("Scheduler: '%s' completed (HTTP %d)", sched.Name, statusCode)
+	}
+
+	// #795: detect phantom-producing schedules — cron fires successfully
+	// but the agent returns empty or "(no response generated)". Track
+	// consecutive empties and escalate to 'stale' after 3 in a row.
+	isEmpty := isEmptyResponse(respBody)
+	if lastStatus == "ok" && isEmpty {
+		db.DB.ExecContext(ctx, `
+			UPDATE workspace_schedules
+			SET consecutive_empty_runs = consecutive_empty_runs + 1,
+			    updated_at = now()
+			WHERE id = $1`, sched.ID)
+		// Check if we've crossed the stale threshold
+		var consecEmpty int
+		db.DB.QueryRowContext(ctx, `SELECT consecutive_empty_runs FROM workspace_schedules WHERE id = $1`, sched.ID).Scan(&consecEmpty)
+		if consecEmpty >= 3 {
+			lastStatus = "stale"
+			lastError = fmt.Sprintf("empty response %d consecutive times — agent may be phantom-producing (#795)", consecEmpty)
+			log.Printf("Scheduler: '%s' STALE — %d consecutive empty responses (workspace %s)",
+				sched.Name, consecEmpty, short(sched.WorkspaceID, 12))
+		}
+	} else if lastStatus == "ok" {
+		// Non-empty success — reset the counter
+		db.DB.ExecContext(ctx, `
+			UPDATE workspace_schedules
+			SET consecutive_empty_runs = 0,
+			    updated_at = now()
+			WHERE id = $1`, sched.ID)
 	}
 
 	nextRun, nextErr := ComputeNextRun(sched.CronExpr, sched.Timezone, time.Now())
@@ -440,6 +469,30 @@ func (s *Scheduler) repairNullNextRunAt(ctx context.Context) {
 	if repaired > 0 || failed > 0 {
 		log.Printf("Scheduler: startup repair: %d schedule(s) repaired, %d skipped (bad cron/tz)", repaired, failed)
 	}
+}
+
+// isEmptyResponse checks if an A2A response body indicates the agent
+// produced no meaningful output. Catches "(no response generated)" from
+// the workspace runtime + genuinely empty/null responses. Used by the
+// consecutive-empty tracker (#795) to detect phantom-producing crons.
+func isEmptyResponse(body []byte) bool {
+	if len(body) == 0 {
+		return true
+	}
+	s := string(body)
+	// The A2A response wraps the agent text in {"result":{"parts":[{"text":"..."}]}}
+	// Check for the sentinel the workspace runtime emits when the agent produces nothing.
+	for _, marker := range []string{
+		`(no response generated)`,
+		`"text": "(no response generated)"`,
+		`"text":""`,
+		`"text": ""`,
+	} {
+		if strings.Contains(s, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func truncate(s string, maxLen int) string {
