@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback, useId } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { api } from "@/lib/api";
 
@@ -42,6 +42,7 @@ export function CreateWorkspaceButton() {
   const [tier, setTier] = useState(1);
   const [template, setTemplate] = useState("");
   const [parentId, setParentId] = useState("");
+  const [budgetLimit, setBudgetLimit] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
@@ -49,6 +50,33 @@ export function CreateWorkspaceButton() {
   // Hermes-specific state
   const [hermesProvider, setHermesProvider] = useState("anthropic");
   const [hermesApiKey, setHermesApiKey] = useState("");
+
+  // Refs for roving tabIndex on the tier radio group (WCAG 2.1 arrow-key nav)
+  const radioRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const TIERS = [
+    { value: 1, label: "T1", desc: "Sandboxed" },
+    { value: 2, label: "T2", desc: "Standard" },
+    { value: 3, label: "T3", desc: "Full Access" },
+  ];
+
+  const handleRadioKeyDown = useCallback(
+    (e: React.KeyboardEvent, currentIndex: number) => {
+      if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+        e.preventDefault();
+        const next = (currentIndex + 1) % TIERS.length;
+        setTier(TIERS[next].value);
+        radioRefs.current[next]?.focus();
+      } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+        e.preventDefault();
+        const prev = (currentIndex - 1 + TIERS.length) % TIERS.length;
+        setTier(TIERS[prev].value);
+        radioRefs.current[prev]?.focus();
+      }
+    },
+    // TIERS is stable (module-level constant pattern), setTier is stable from useState
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   const isHermes = template.trim().toLowerCase() === "hermes";
 
@@ -60,6 +88,7 @@ export function CreateWorkspaceButton() {
     setTier(1);
     setTemplate("");
     setParentId("");
+    setBudgetLimit("");
     setError(null);
     setHermesProvider("anthropic");
     setHermesApiKey("");
@@ -86,12 +115,17 @@ export function CreateWorkspaceButton() {
       : undefined;
 
     try {
+      const parsedBudget = budgetLimit.trim()
+        ? parseFloat(budgetLimit)
+        : null;
+
       await api.post("/workspaces", {
         name: name.trim(),
         role: role.trim() || undefined,
         template: template.trim() || undefined,
         tier,
         parent_id: parentId || undefined,
+        budget_limit: parsedBudget,
         canvas: { x: Math.random() * 400 + 100, y: Math.random() * 300 + 100 },
         ...(isHermes && provider
           ? { secrets: { [provider.envVar]: hermesApiKey.trim() } }
@@ -156,6 +190,14 @@ export function CreateWorkspaceButton() {
               placeholder="e.g. SEO Specialist"
             />
             <InputField
+              label="Budget limit (USD)"
+              value={budgetLimit}
+              onChange={setBudgetLimit}
+              placeholder="e.g. 100"
+              type="number"
+              helper="Leave blank for unlimited"
+            />
+            <InputField
               label="Template"
               value={template}
               onChange={setTemplate}
@@ -172,16 +214,15 @@ export function CreateWorkspaceButton() {
                 <div className="col-span-3 text-[11px] text-zinc-400 mb-1">
                   Tier
                 </div>
-                {[
-                  { value: 1, label: "T1", desc: "Sandboxed" },
-                  { value: 2, label: "T2", desc: "Standard" },
-                  { value: 3, label: "T3", desc: "Full Access" },
-                ].map((t) => (
+                {TIERS.map((t, idx) => (
                   <button
                     key={t.value}
+                    ref={(el) => { radioRefs.current[idx] = el; }}
                     role="radio"
                     aria-checked={tier === t.value}
+                    tabIndex={tier === t.value ? 0 : -1}
                     onClick={() => setTier(t.value)}
+                    onKeyDown={(e) => handleRadioKeyDown(e, idx)}
                     className={`py-2 rounded-lg text-center transition-colors ${
                       tier === t.value
                         ? "bg-blue-600/20 border border-blue-500/50 text-blue-300"
@@ -315,6 +356,8 @@ function InputField({
   placeholder,
   required,
   mono,
+  type = "text",
+  helper,
 }: {
   label: string;
   value: string;
@@ -322,10 +365,16 @@ function InputField({
   placeholder?: string;
   required?: boolean;
   mono?: boolean;
+  type?: string;
+  helper?: string;
 }) {
+  // useId() generates a stable, unique ID for the label↔input association,
+  // satisfying WCAG 2.1 SC 1.3.1 (Info and Relationships, Level A).
+  const inputId = useId();
+
   return (
     <div>
-      <label className="text-[11px] text-zinc-400 block mb-1">
+      <label htmlFor={inputId} className="text-[11px] text-zinc-400 block mb-1">
         {label}{" "}
         {required && (
           <>
@@ -337,11 +386,18 @@ function InputField({
         )}
       </label>
       <input
+        id={inputId}
+        type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className={`w-full bg-zinc-800/60 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/20 transition-colors ${mono ? "font-mono text-xs" : ""}`}
+        min={type === "number" ? "0" : undefined}
+        step={type === "number" ? "0.01" : undefined}
+        className={`w-full bg-zinc-800/60 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/20 transition-colors ${mono ? "font-mono text-xs" : ""}`}
       />
+      {helper && (
+        <p className="mt-1 text-xs text-zinc-500">{helper}</p>
+      )}
     </div>
   );
 }

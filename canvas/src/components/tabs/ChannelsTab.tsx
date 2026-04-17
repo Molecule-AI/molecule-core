@@ -141,19 +141,29 @@ export function ChannelsTab({ workspaceId }: Props) {
     }
   };
 
+  const [error, setError] = useState("");
+
   const handleToggle = async (ch: Channel) => {
-    await api.patch(`/workspaces/${workspaceId}/channels/${ch.id}`, {
-      enabled: !ch.enabled,
-    });
-    load();
+    try {
+      await api.patch(`/workspaces/${workspaceId}/channels/${ch.id}`, {
+        enabled: !ch.enabled,
+      });
+      load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to toggle channel");
+    }
   };
 
   const confirmDelete = async () => {
     if (!pendingDelete) return;
     const ch = pendingDelete;
     setPendingDelete(null);
-    await api.del(`/workspaces/${workspaceId}/channels/${ch.id}`);
-    load();
+    try {
+      await api.del(`/workspaces/${workspaceId}/channels/${ch.id}`);
+      load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to delete channel");
+    }
   };
 
   const handleTest = async (ch: Channel) => {
@@ -187,6 +197,12 @@ export function ChannelsTab({ workspaceId }: Props) {
           {showForm ? "Cancel" : "+ Connect"}
         </button>
       </div>
+
+      {error && (
+        <div className="px-3 py-1.5 bg-red-900/30 border border-red-800 rounded text-xs text-red-400">
+          {error}
+        </div>
+      )}
 
       {/* Create form */}
       {showForm && (

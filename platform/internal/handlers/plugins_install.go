@@ -63,6 +63,14 @@ func (h *PluginsHandler) Install(c *gin.Context) {
 	// has already cleaned it up (and its returned result is nil).
 	defer os.RemoveAll(result.StagedDir)
 
+	// Org plugin allowlist gate (#591).
+	// If the workspace's org has a non-empty allowlist, the plugin must be
+	// on it. An empty allowlist means allow-all (backward compat).
+	if blocked, reason := checkOrgPluginAllowlist(ctx, workspaceID, result.PluginName); blocked {
+		c.JSON(http.StatusForbidden, gin.H{"error": reason})
+		return
+	}
+
 	if err := h.deliverToContainer(ctx, workspaceID, result); err != nil {
 		var he *httpErr
 		if errors.As(err, &he) {

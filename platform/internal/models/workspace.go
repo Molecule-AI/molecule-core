@@ -69,6 +69,13 @@ type CreateWorkspacePayload struct {
 	WorkspaceDir    string  `json:"workspace_dir"`    // host path to mount as /workspace (empty = isolated volume)
 	WorkspaceAccess string  `json:"workspace_access"` // "none" (default), "read_only", or "read_write" — see #65
 	ParentID        *string `json:"parent_id"`
+	// BudgetLimit is the optional monthly spend ceiling in USD cents.
+	// NULL (omitted) means no limit. budget_limit=500 means $5.00/month.
+	BudgetLimit *int64 `json:"budget_limit"`
+	// Secrets is an optional map of key→plaintext-value pairs to persist as
+	// workspace secrets at creation time.  Stored encrypted (same path as
+	// POST /workspaces/:id/secrets).  Nil/empty map is a no-op.
+	Secrets map[string]string `json:"secrets"`
 	Canvas   struct {
 		X float64 `json:"x"`
 		Y float64 `json:"y"`

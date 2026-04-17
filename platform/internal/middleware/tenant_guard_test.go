@@ -133,6 +133,64 @@ func TestOrgIDFromReplaySrc(t *testing.T) {
 	}
 }
 
+// Same-origin Canvas bypass: when CANVAS_PROXY_URL is set and Referer matches
+// Host, the request is from the co-served Canvas and should pass through.
+func TestTenantGuard_SameOriginCanvasBypass(t *testing.T) {
+	origActive := canvasProxyActive
+	canvasProxyActive = true
+	defer func() { canvasProxyActive = origActive }()
+
+	r := newGuardedRouter("org-abc")
+
+	req := httptest.NewRequest("GET", "/workspaces", nil)
+	req.Host = "molecule1.moleculesai.app"
+	req.Header.Set("Referer", "https://molecule1.moleculesai.app/")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("same-origin canvas: expected 200, got %d", w.Code)
+	}
+}
+
+// Same-origin Canvas bypass via Origin header (WebSocket upgrade path).
+func TestTenantGuard_SameOriginCanvasViaOrigin(t *testing.T) {
+	origActive := canvasProxyActive
+	canvasProxyActive = true
+	defer func() { canvasProxyActive = origActive }()
+
+	r := newGuardedRouter("org-abc")
+
+	req := httptest.NewRequest("GET", "/workspaces", nil)
+	req.Host = "molecule1.moleculesai.app"
+	req.Header.Set("Origin", "https://molecule1.moleculesai.app")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("same-origin canvas via Origin: expected 200, got %d", w.Code)
+	}
+}
+
+// Same-origin Canvas bypass must NOT work when CANVAS_PROXY_URL is unset.
+func TestTenantGuard_SameOriginCanvasInactiveWithoutEnv(t *testing.T) {
+	origActive := canvasProxyActive
+	canvasProxyActive = false
+	defer func() { canvasProxyActive = origActive }()
+
+	r := newGuardedRouter("org-abc")
+
+	req := httptest.NewRequest("GET", "/workspaces", nil)
+	req.Host = "molecule1.moleculesai.app"
+	req.Header.Set("Referer", "https://molecule1.moleculesai.app/")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 404 {
+		t.Errorf("same-origin canvas without CANVAS_PROXY_URL: expected 404, got %d", w.Code)
+	}
+}
+
 // The allowlist is exact-match, not prefix. "/health/debug" must NOT bypass.
 func TestTenantGuard_AllowlistIsExactMatch(t *testing.T) {
 	gin.SetMode(gin.TestMode)

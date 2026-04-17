@@ -55,6 +55,31 @@ else:
 echo "=== Molecule AI Workspace ==="
 echo "Runtime: $RUNTIME"
 
+# ──────────────────────────────────────────────────────────
+# GitHub credential helper — issue #547
+# ──────────────────────────────────────────────────────────
+# GitHub App installation tokens expire after ~60 min.  The platform
+# exposes GET /admin/github-installation-token (backed by the plugin's
+# in-process refreshing cache) so workspaces can always get a valid
+# token without restarting.
+#
+# Register molecule-git-token-helper.sh as the git credential helper for
+# github.com.  git calls it on every push/fetch; it hits the platform
+# endpoint and emits a fresh token.  Falls through to any existing
+# credential helper (e.g. operator .env PAT) if the platform is
+# unreachable.
+#
+# Idempotent — safe to re-run on restart.
+HELPER_SCRIPT="/workspace-template/scripts/molecule-git-token-helper.sh"
+if [ -f "${HELPER_SCRIPT}" ]; then
+    git config --global \
+        "credential.https://github.com.helper" \
+        "!${HELPER_SCRIPT}" 2>/dev/null || true
+    echo "[entrypoint] git credential helper registered (molecule-git-token-helper)"
+else
+    echo "[entrypoint] WARNING: molecule-git-token-helper.sh not found at ${HELPER_SCRIPT} — GitHub tokens may expire after 60 min"
+fi
+
 # NOTE: Adapter-specific deps are now pre-installed in each adapter's Docker image
 # (standalone template repos). Each image installs molecule-ai-workspace-runtime
 # from PyPI plus the adapter-specific requirements. No per-runtime pip install needed here.

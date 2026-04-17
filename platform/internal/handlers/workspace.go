@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/crypto"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/middleware"
@@ -57,6 +58,14 @@ func (h *WorkspaceHandler) SetCPProvisioner(cp *provisioner.CPProvisioner) {
 // provisions — only invoke during single-threaded init.
 func (h *WorkspaceHandler) SetEnvMutators(r *provisionhook.Registry) {
 	h.envMutators = r
+}
+
+// TokenRegistry returns the provisionhook.Registry so the router can
+// wire the GET /admin/github-installation-token handler without coupling
+// to WorkspaceHandler's internals. Returns nil when no plugin has been
+// registered (dev / self-hosted deployments without a GitHub App).
+func (h *WorkspaceHandler) TokenRegistry() *provisionhook.Registry {
+	return h.envMutators
 }
 
 // Create handles POST /workspaces
@@ -129,13 +138,55 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Insert workspace with runtime persisted in DB
-	_, err := db.DB.ExecContext(ctx, `
-		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access)
-		VALUES ($1, $2, $3, $4, $5, $6, 'provisioning', $7, $8, $9)
-	`, id, payload.Name, role, payload.Tier, payload.Runtime, awarenessNamespace, payload.ParentID, workspaceDir, workspaceAccess)
+	// Begin a transaction so the workspace row and any initial secrets are
+	// committed atomically.  A secret-encrypt or DB error rolls back the
+	// workspace insert so we never leave a workspace row with missing secrets.
+	tx, txErr := db.DB.BeginTx(ctx, nil)
+	if txErr != nil {
+		log.Printf("Create workspace: begin tx error: %v", txErr)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create workspace"})
+		return
+	}
+
+	// Insert workspace with runtime persisted in DB (inside transaction)
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access, budget_limit)
+		VALUES ($1, $2, $3, $4, $5, $6, 'provisioning', $7, $8, $9, $10)
+	`, id, payload.Name, role, payload.Tier, payload.Runtime, awarenessNamespace, payload.ParentID, workspaceDir, workspaceAccess, payload.BudgetLimit)
 	if err != nil {
+		tx.Rollback() //nolint:errcheck
 		log.Printf("Create workspace error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create workspace"})
+		return
+	}
+
+	// Persist initial secrets from the create payload (inside same transaction).
+	// nil/empty map is a no-op.  Any failure rolls back the workspace insert
+	// so we never have a workspace row without its intended secrets.
+	for k, v := range payload.Secrets {
+		encrypted, encErr := crypto.Encrypt([]byte(v))
+		if encErr != nil {
+			tx.Rollback() //nolint:errcheck
+			log.Printf("Create workspace %s: failed to encrypt secret %q: %v", id, k, encErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encrypt secret: " + k})
+			return
+		}
+		version := crypto.CurrentEncryptionVersion()
+		if _, dbErr := tx.ExecContext(ctx, `
+			INSERT INTO workspace_secrets (workspace_id, key, encrypted_value, encryption_version)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (workspace_id, key) DO UPDATE
+				SET encrypted_value = $3, encryption_version = $4, updated_at = now()
+		`, id, k, encrypted, version); dbErr != nil {
+			tx.Rollback() //nolint:errcheck
+			log.Printf("Create workspace %s: failed to persist secret %q: %v", id, k, dbErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save secret: " + k})
+			return
+		}
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		log.Printf("Create workspace %s: transaction commit failed: %v", id, commitErr)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create workspace"})
 		return
 	}
@@ -242,10 +293,13 @@ func scanWorkspaceRow(rows interface {
 	var collapsed bool
 	var parentID *string
 	var agentCard []byte
+	var budgetLimit sql.NullInt64
+	var monthlySpend int64
 
 	err := rows.Scan(&id, &name, &role, &tier, &status, &agentCard, &url,
 		&parentID, &activeTasks, &errorRate, &sampleError, &uptimeSeconds,
-		&currentTask, &runtime, &workspaceDir, &x, &y, &collapsed)
+		&currentTask, &runtime, &workspaceDir, &x, &y, &collapsed,
+		&budgetLimit, &monthlySpend)
 	if err != nil {
 		return nil, err
 	}
@@ -264,9 +318,17 @@ func scanWorkspaceRow(rows interface {
 		"current_task":      currentTask,
 		"runtime":           runtime,
 		"workspace_dir":     nilIfEmpty(workspaceDir),
+		"monthly_spend":     monthlySpend,
 		"x":                 x,
 		"y":                 y,
 		"collapsed":         collapsed,
+	}
+
+	// budget_limit: nil when no limit set, int64 otherwise
+	if budgetLimit.Valid {
+		ws["budget_limit"] = budgetLimit.Int64
+	} else {
+		ws["budget_limit"] = nil
 	}
 
 	// Only include non-empty values
@@ -293,7 +355,8 @@ const workspaceListQuery = `
 		   COALESCE(w.last_sample_error, ''), w.uptime_seconds,
 		   COALESCE(w.current_task, ''), COALESCE(w.runtime, 'langgraph'),
 		   COALESCE(w.workspace_dir, ''),
-		   COALESCE(cl.x, 0), COALESCE(cl.y, 0), COALESCE(cl.collapsed, false)
+		   COALESCE(cl.x, 0), COALESCE(cl.y, 0), COALESCE(cl.collapsed, false),
+		   w.budget_limit, COALESCE(w.monthly_spend, 0)
 	FROM workspaces w
 	LEFT JOIN canvas_layouts cl ON cl.workspace_id = w.id
 	WHERE w.status != 'removed'
@@ -338,7 +401,8 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 			   COALESCE(w.last_sample_error, ''), w.uptime_seconds,
 			   COALESCE(w.current_task, ''), COALESCE(w.runtime, 'langgraph'),
 			   COALESCE(w.workspace_dir, ''),
-			   COALESCE(cl.x, 0), COALESCE(cl.y, 0), COALESCE(cl.collapsed, false)
+			   COALESCE(cl.x, 0), COALESCE(cl.y, 0), COALESCE(cl.collapsed, false),
+			   w.budget_limit, COALESCE(w.monthly_spend, 0)
 		FROM workspaces w
 		LEFT JOIN canvas_layouts cl ON cl.workspace_id = w.id
 		WHERE w.id = $1
@@ -354,6 +418,12 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
+
+	// Strip financial fields — GET /workspaces/:id is on the open router.
+	// Any caller with a valid UUID would otherwise read billing data.
+	// The dedicated budget/spend endpoints are AdminAuth-gated. (#611)
+	delete(ws, "budget_limit")
+	delete(ws, "monthly_spend")
 
 	c.JSON(http.StatusOK, ws)
 }
@@ -455,6 +525,10 @@ var sensitiveUpdateFields = map[string]struct{}{
 	"parent_id":     {},
 	"runtime":       {},
 	"workspace_dir": {},
+	// budget_limit is intentionally NOT here. The dedicated
+	// PATCH /workspaces/:id/budget (AdminAuth) is the only write path.
+	// Accepting it here — even behind ValidateAnyToken — lets workspace agents
+	// self-clear their own spending ceiling. (#611 Security Auditor finding)
 }
 
 // Update handles PATCH /workspaces/:id
@@ -552,6 +626,10 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 		}
 		needsRestart = true
 	}
+	// NOTE: budget_limit is intentionally NOT handled here. The dedicated
+	// PATCH /workspaces/:id/budget (AdminAuth) is the only write path.
+	// This endpoint uses ValidateAnyToken — any enrolled workspace bearer
+	// could otherwise self-clear its own spending ceiling. (#611 Security Auditor)
 
 	// Update canvas position if both x and y provided
 	if x, xOk := body["x"]; xOk {

@@ -68,11 +68,14 @@ export function TracesTab({ workspaceId }: Props) {
 
       {traces.length === 0 && !error ? (
         <div className="text-center py-8">
-          <div className="text-2xl opacity-20 mb-2">📊</div>
+          <div className="text-2xl opacity-20 mb-2" aria-hidden="true">--</div>
           <p className="text-xs text-zinc-600">No traces yet</p>
-          <p className="text-[10px] text-zinc-700 mt-1">
-            Set LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY to enable tracing
-          </p>
+          <details className="mt-2 text-[10px] text-zinc-700">
+            <summary className="cursor-pointer text-zinc-500 hover:text-zinc-400">How to enable tracing</summary>
+            <p className="mt-1">
+              Set <code className="font-mono text-zinc-400">LANGFUSE_HOST</code>, <code className="font-mono text-zinc-400">LANGFUSE_PUBLIC_KEY</code>, <code className="font-mono text-zinc-400">LANGFUSE_SECRET_KEY</code> as workspace secrets to enable tracing.
+            </p>
+          </details>
         </div>
       ) : (
         <div className="space-y-1">
