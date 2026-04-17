@@ -37,6 +37,446 @@ about where our differentiation actually is.
 
 ---
 
+## Competitor Snapshot
+
+> **Machine-readable index for PMM cron diffing.** One YAML entry per competitor —
+> the cron diffs this block to detect version bumps, threat escalations, and new
+> `notable_changes`, then updates `docs/marketing/competitors.md`.
+>
+> **Maintenance rule:** whenever you update a narrative entry below, also bump the
+> corresponding `date`, `version`, and `notable_changes` fields here.
+>
+> Fields: `name` · `slug` · `date` (last reviewed) · `version` · `stars` ·
+> `threat_level` (high / medium / low) · `notable_changes` (≤ 2 sentences) · `source_url`
+
+```yaml
+# competitor-snapshot
+# Generated: 2026-04-17 | Maintainer: Research Lead
+# PMM cron reads this block, diffs vs. previous commit, updates docs/marketing/competitors.md.
+# Update date + version + notable_changes whenever a competitor ships something significant.
+
+snapshots:
+
+  # ── HIGH THREAT ────────────────────────────────────────────────────────────────────
+  # Direct substitutes or major market-erosion risk for Molecule AI.
+
+  - name: Paperclip
+    slug: paperclip
+    date: "2026-04-17"
+    version: "v2026.416.0"
+    stars: "54.8k"
+    threat_level: high
+    notable_changes: >
+      v2026.416.0 (Apr 16 2026) ships assistant-ui chat threads for agent
+      transcripts, execution policies for multi-stage approvals, and blocker
+      dependencies with auto wake-on-resolve — mirrors our PM→Dev→Eng
+      delegation model with "zero-human companies" framing; 54.8k ⭐ in 6 weeks.
+    source_url: https://github.com/paperclipai/paperclip/releases
+
+  - name: OpenAI Agents SDK
+    slug: openai-agents-sdk
+    date: "2026-04-17"
+    version: "v0.14.1"
+    stars: "14k"
+    threat_level: high
+    notable_changes: >
+      v0.14.1 (Apr 15 2026) patches tracing export on top of v0.14.0's
+      SandboxAgent beta — persistent isolated workspaces, snapshot/resume,
+      and sandbox memory directly competing with our workspace lifecycle model.
+    source_url: https://github.com/openai/openai-agents-python/releases
+
+  - name: CrewAI
+    slug: crewai
+    date: "2026-04-17"
+    version: "v1.14.1"
+    stars: "48k"
+    threat_level: high
+    notable_changes: >
+      v1.14.1 (Apr 8 2026) adds async checkpoint TUI browser; 1.4B agentic
+      automations logged, 60% Fortune 500 adoption, and $18M Insight-led round
+      make CrewAI Enterprise the dominant multi-agent framework in our target
+      enterprise segment.
+    source_url: https://github.com/crewAIInc/crewAI/releases
+
+  - name: Google ADK
+    slug: google-adk
+    date: "2026-04-17"
+    version: "v1.30.0"
+    stars: "19k"
+    threat_level: high
+    notable_changes: >
+      v1.30.0 (Apr 13 2026) adds Auth Provider support to the agent registry,
+      Parameter Manager integration, and Gemma 4 model support; v2.0.0a3
+      pre-release introduces a graph-based execution engine.
+    source_url: https://github.com/google/adk-python/releases
+
+  - name: Microsoft Agent Framework
+    slug: microsoft-agent-framework
+    date: "2026-04-17"
+    version: "python-1.0.1"
+    stars: "9.5k"
+    threat_level: high
+    notable_changes: >
+      python-1.0.1 (Apr 10 2026) ships FileCheckpointStorage security hardening;
+      v1.0 GA is the official AutoGen successor with SOC 2/HIPAA compliance,
+      .NET + Python support, and a Process Framework GA planned for Q2 2026.
+    source_url: https://github.com/microsoft/agent-framework/releases
+
+  # ── MEDIUM THREAT ──────────────────────────────────────────────────────────────────
+  # Significant overlap in adjacent space; no direct substitution risk today.
+
+  - name: Dify
+    slug: dify
+    date: "2026-04-17"
+    version: "v1.13.3"
+    stars: "60k"
+    threat_level: medium
+    notable_changes: >
+      Latest stable is v1.13.3 (Mar 27 2026); v1.14.0 RC adds Human Input
+      node (HITL); raised $30M Pre-A (Mar 2026, $180M valuation) with
+      280 enterprise deployments — no-code positioning targets business users,
+      not our developer audience.
+    source_url: https://github.com/langgenius/dify/releases
+
+  - name: LangGraph
+    slug: langgraph
+    date: "2026-04-17"
+    version: "v1.1.6"
+    stars: "29k"
+    threat_level: medium
+    notable_changes: >
+      langgraph-cli v0.4.22 (Apr 16 2026) adds deploy source tracking;
+      core v1.1.6 (Apr 10 2026) ships LangGraph 2.0 declarative guardrail nodes;
+      LangGraph Cloud hosted execution competes with our scheduler.
+    source_url: https://github.com/langchain-ai/langgraph/releases
+
+  - name: VoltAgent
+    slug: voltagent
+    date: "2026-04-17"
+    version: "server-elysia@2.0.7"
+    stars: "8.2k"
+    threat_level: medium
+    notable_changes: >
+      @voltagent/server-elysia v2.0.7 (Apr 11 2026) fixes A2A agent card
+      endpoints to advertise correct absolute URLs; VoltOps Console is the
+      closest Canvas analogue in the TypeScript ecosystem.
+    source_url: https://github.com/VoltAgent/voltagent/releases
+
+  - name: n8n
+    slug: n8n
+    date: "2026-04-17"
+    version: "v2.17.2"
+    stars: "50k"
+    threat_level: medium
+    notable_changes: >
+      v2.17.2 (Apr 16 2026) improves AI Gateway credentials endpoint;
+      n8n 2.0 (Dec 2025) added enterprise-grade AI Agent nodes, RBAC, SSO,
+      and 400+ channel integrations — direct overlap with our workspace_channels.
+    source_url: https://github.com/n8n-io/n8n/releases
+
+  - name: Claude Code Routines
+    slug: claude-code-routines
+    date: "2026-04-17"
+    version: "cloud-feature"
+    stars: "n/a"
+    threat_level: medium
+    notable_changes: >
+      Launched Apr 14 2026 (research preview): Anthropic-hosted cron + GitHub-
+      event-triggered Claude Code sessions running on Anthropic cloud; competes
+      with our workspace_schedules; single-model, no org canvas.
+    source_url: https://code.claude.com/docs/en/routines
+
+  - name: Scion
+    slug: scion
+    date: "2026-04-17"
+    version: "active"
+    stars: "early"
+    threat_level: medium
+    notable_changes: >
+      Launched Apr 8 2026 — GCP experimental container-per-agent harness for
+      Claude Code/Gemini CLI with parallel isolated workspaces and markdown
+      workflow definitions; escalation risk to HIGH if productized by Google.
+    source_url: https://github.com/GoogleCloudPlatform/scion
+
+  - name: Multica
+    slug: multica
+    date: "2026-04-17"
+    version: "active-36-releases"
+    stars: "12.8k"
+    threat_level: medium
+    notable_changes: >
+      Positioned as open-source Claude Managed Agents alternative (Apr 2026);
+      local daemon + central backend with pgvector semantic skill compounding;
+      +1,503 stars/day at launch — no A2A or org canvas but similar architecture.
+    source_url: https://github.com/multica-ai/multica/releases
+
+  - name: Cline
+    slug: cline
+    date: "2026-04-17"
+    version: "active"
+    stars: "44k"
+    threat_level: medium
+    notable_changes: >
+      VS Code Claude Code extension with 44k ⭐ and MCP support; primary user
+      overlap with our Claude Code workspace — developers who outgrow Cline's
+      single-session model are our conversion path.
+    source_url: https://github.com/cline/cline/releases
+
+  - name: ClawRun
+    slug: clawrun
+    date: "2026-04-17"
+    version: "active-45-releases"
+    stars: "84"
+    threat_level: medium
+    notable_changes: >
+      Closest architectural match tracked — sandbox/heartbeat/snapshot-resume/
+      channels/cost-tracking feature parity with us; 84 ⭐ but 45 releases
+      shows active shipping; adding A2A would make this a direct lightweight
+      competitor.
+    source_url: https://github.com/clawrun-sh/clawrun/releases
+
+  - name: Gemini CLI
+    slug: gemini-cli
+    date: "2026-04-17"
+    version: "v0.38.1"
+    stars: "101k"
+    threat_level: medium
+    notable_changes: >
+      v0.38.1 (Apr 15 2026) is a cherry-pick stability patch; 1M-token context
+      + MCP support; runtime candidate for our workspace adapter — elevated to
+      MEDIUM because it forms a full agent stack with Google ADK + adk-web.
+    source_url: https://github.com/google-gemini/gemini-cli/releases
+
+  # ── LOW THREAT ─────────────────────────────────────────────────────────────────────
+  # Tools, infra layers, single-agent tools, or products we use — not substitutes.
+
+  - name: Hermes Agent
+    slug: hermes-agent
+    date: "2026-04-17"
+    version: "v0.10.0"
+    stars: "61k"
+    threat_level: low
+    notable_changes: >
+      v0.10.0 (Apr 16 2026) launches Tool Gateway giving paid Portal subscribers
+      built-in web search, image generation, TTS, and browser automation; no
+      multi-agent or org hierarchy — personal AI shape, not platform competitor.
+    source_url: https://github.com/NousResearch/hermes-agent/releases
+
+  - name: gstack
+    slug: gstack
+    date: "2026-04-17"
+    version: "active"
+    stars: "70k"
+    threat_level: low
+    notable_changes: >
+      Viral Claude Code skills bundle with 70k ⭐; sequential single-session
+      persona-switching — no persistent infra, Docker isolation, or A2A protocol;
+      differentiation holds unless multi-session execution is added.
+    source_url: https://github.com/garrytan/gstack
+
+  - name: Flowise
+    slug: flowise
+    date: "2026-04-17"
+    version: "flowise@3.1.2"
+    stars: "30k"
+    threat_level: low
+    notable_changes: >
+      v3.1.2 (Apr 14 2026) delivers security hardening (CORS abuse, credential
+      leaks, unauthorized access); acquired by Workday (Aug 2025) — repositioned
+      for HR/finance enterprise, narrowing its developer-team market.
+    source_url: https://github.com/FlowiseAI/Flowise/releases
+
+  - name: OpenHands
+    slug: openhands
+    date: "2026-04-17"
+    version: "v1.6.0"
+    stars: "47k"
+    threat_level: low
+    notable_changes: >
+      v1.6.0 (Mar 30 2026) adds hook support and /clear command preserving
+      sandbox runtime; jumped to v1.x series (was v0.39.0); SWE-Bench top
+      open-source rank — single-agent software engineer, not a platform.
+    source_url: https://github.com/All-Hands-AI/OpenHands/releases
+
+  - name: Temporal
+    slug: temporal
+    date: "2026-04-17"
+    version: "v1.30.4"
+    stars: "13k"
+    threat_level: low
+    notable_changes: >
+      v1.30.4 (Apr 10 2026) patches CVE-2026-5724 MEDIUM authorization
+      vulnerability; $300M Series D (Feb 2026, $5B valuation); we integrate
+      Temporal as infra via workspace-template/builtin_tools/temporal_workflow.py.
+    source_url: https://github.com/temporalio/temporal/releases
+
+  - name: Chrome DevTools MCP
+    slug: chrome-devtools-mcp
+    date: "2026-04-17"
+    version: "active"
+    stars: "35.5k"
+    threat_level: low
+    notable_changes: >
+      Official ChromeDevTools org MCP server with 23 browser-control tools;
+      replaces our bespoke Puppeteer CDP plugin — we adopt it as of issue #540.
+    source_url: https://github.com/ChromeDevTools/chrome-devtools-mcp
+
+  - name: Composio
+    slug: composio
+    date: "2026-04-17"
+    version: "active"
+    stars: "18k"
+    threat_level: low
+    notable_changes: >
+      250+ tool integrations with managed auth; potential skill-pack dependency
+      for workspace channel integrations rather than a competing platform.
+    source_url: https://github.com/composio-dev/composio/releases
+
+  - name: AgentScope
+    slug: agentscope
+    date: "2026-04-17"
+    version: "v1.0.18"
+    stars: "23.8k"
+    threat_level: low
+    notable_changes: >
+      v1.0.18 (Mar 26 2026) from Alibaba/ModelScope with MsgHub typed routing
+      and OpenTelemetry; MCP integration; no deployment layer — framework only.
+    source_url: https://github.com/modelscope/agentscope/releases
+
+  - name: Skills CLI
+    slug: skills-cli
+    date: "2026-04-17"
+    version: "active"
+    stars: "14.2k"
+    threat_level: low
+    notable_changes: >
+      Vercel-backed canonical agentskills.io install CLI covering 45+ agents
+      including our Claude Code workspace; aligning plugins/ manifest to the
+      agentskills.io spec gives us free distribution through this channel.
+    source_url: https://github.com/vercel-labs/skills
+
+  - name: Archon
+    slug: archon
+    date: "2026-04-17"
+    version: "v0.3.6"
+    stars: "18.1k"
+    threat_level: low
+    notable_changes: >
+      v0.3.6 active; YAML-DAG coding workflow with mixed AI/deterministic nodes
+      and human approval gates; reference design for our workspace delivery
+      pipelines — no multi-agent coordination.
+    source_url: https://github.com/coleam00/Archon/releases
+
+  - name: Tencent AI-Infra-Guard
+    slug: tencent-ai-infra-guard
+    date: "2026-04-17"
+    version: "v4.1.3"
+    stars: "3.5k"
+    threat_level: low
+    notable_changes: >
+      v4.1.3 (Apr 9 2026); red team platform scanning MCP server and skills
+      surfaces — use as security compliance checklist for our MCP server and
+      plugin registry hardening; not a runtime competitor.
+    source_url: https://github.com/Tencent/AI-Infra-Guard/releases
+
+  - name: Holaboss
+    slug: holaboss
+    date: "2026-04-17"
+    version: "active"
+    stars: "1.7k"
+    threat_level: low
+    notable_changes: >
+      Desktop "AI employee" with filesystem-as-memory and compaction boundaries;
+      single-agent, no A2A — primary concern is terminology collisions
+      (workspace / MEMORY.md / SKILL.md / agentskills.io).
+    source_url: https://github.com/holaboss-ai/holaboss-ai
+
+  - name: claude-mem
+    slug: claude-mem
+    date: "2026-04-17"
+    version: "active"
+    stars: "56k"
+    threat_level: low
+    notable_changes: >
+      SQLite FTS5 + Chroma hybrid cross-session memory with lifecycle hooks;
+      56k ⭐ signals strong demand for the gap we need to close in agent_memories
+      — adopt PostToolUse + SessionEnd observation pipeline.
+    source_url: https://github.com/thedotmack/claude-mem
+
+  - name: Plannotator
+    slug: plannotator
+    date: "2026-04-17"
+    version: "v0.17.10"
+    stars: "4.3k"
+    threat_level: low
+    notable_changes: >
+      v0.17.10 (Apr 13 2026); HITL plan annotation UX with structured feedback
+      types (delete/insert/replace/comment); reference design for improving our
+      approvals API response schema.
+    source_url: https://github.com/backnotprop/plannotator/releases
+
+  - name: open-multi-agent
+    slug: open-multi-agent
+    date: "2026-04-17"
+    version: "v1.1.0"
+    stars: "5.7k"
+    threat_level: low
+    notable_changes: >
+      v1.1.0 (Apr 1 2026); TypeScript multi-agent with runtime goal-to-DAG
+      decomposition in 3 deps; ephemeral per-run — no persistent identity,
+      no canvas, no scheduling.
+    source_url: https://github.com/JackChen-me/open-multi-agent/releases
+
+  - name: Open Agents (Vercel)
+    slug: open-agents-vercel
+    date: "2026-04-17"
+    version: "active"
+    stars: "2.2k"
+    threat_level: low
+    notable_changes: >
+      +1,020 stars in one day (Apr 15 2026); Vercel Labs reference app for
+      background coding agents with snapshot-based VM resumption; no multi-
+      agent coordination — reference template, not a platform.
+    source_url: https://github.com/vercel-labs/open-agents
+
+  - name: GenericAgent
+    slug: generic-agent
+    date: "2026-04-17"
+    version: "v1.0"
+    stars: "2.1k"
+    threat_level: low
+    notable_changes: >
+      v1.0 (Jan 16 2026); self-evolving skill tree with four-tier memory
+      hierarchy (L0 rules → L4 session archives); single-agent, no A2A —
+      memory taxonomy worth borrowing for agent_memories scopes.
+    source_url: https://github.com/lsdefine/GenericAgent/releases
+
+  - name: OpenSRE
+    slug: opensre
+    date: "2026-04-17"
+    version: "active"
+    stars: "900"
+    threat_level: low
+    notable_changes: >
+      AI SRE toolkit with 40+ observability integrations (Grafana/Datadog/
+      K8s/AWS/GCP/PagerDuty); potential DevOps workspace skill-pack source
+      rather than a competing platform.
+    source_url: https://github.com/Tracer-Cloud/opensre
+
+  - name: AMD GAIA
+    slug: amd-gaia
+    date: "2026-04-17"
+    version: "v0.17.2"
+    stars: "1.2k"
+    threat_level: low
+    notable_changes: >
+      v0.17.2 (Apr 10 2026); AMD-backed local agent framework hardware-locked
+      to Ryzen AI 300+ NPU; MCP support; not general-purpose.
+    source_url: https://github.com/amd/gaia/releases
+```
+
+---
+
 ## Entries
 
 ### Holaboss — `holaboss-ai/holaboss-ai`
