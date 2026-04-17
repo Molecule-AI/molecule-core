@@ -122,16 +122,16 @@ func TestWorkspaceUpdate_ParentID(t *testing.T) {
 	// #125 guard: handler now verifies the workspace exists before applying
 	// the UPDATE. Each PATCH test must mock the EXISTS probe first.
 	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
-		WithArgs("ws-child").
+		WithArgs("dddddddd-0001-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectExec("UPDATE workspaces SET parent_id").
-		WithArgs("ws-child", "ws-parent").
+		WithArgs("dddddddd-0001-0000-0000-000000000000", "dddddddd-0002-0000-0000-000000000000").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-child"}}
-	body := `{"parent_id":"ws-parent"}`
+	c.Params = gin.Params{{Key: "id", Value: "dddddddd-0001-0000-0000-000000000000"}}
+	body := `{"parent_id":"dddddddd-0002-0000-0000-000000000000"}`
 	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-child", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -154,15 +154,15 @@ func TestWorkspaceUpdate_NameOnly(t *testing.T) {
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
 	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
-		WithArgs("ws-rename").
+		WithArgs("dddddddd-0003-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectExec("UPDATE workspaces SET name").
-		WithArgs("ws-rename", "New Name").
+		WithArgs("dddddddd-0003-0000-0000-000000000000", "New Name").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-rename"}}
+	c.Params = gin.Params{{Key: "id", Value: "dddddddd-0003-0000-0000-000000000000"}}
 	body := `{"name":"New Name"}`
 	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-rename", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -604,15 +604,15 @@ func TestCheckAccess_ParentChildAllowed(t *testing.T) {
 	handler := NewDiscoveryHandler()
 
 	mock.ExpectQuery("SELECT id, parent_id FROM workspaces WHERE id =").
-		WithArgs("ws-parent").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id"}).AddRow("ws-parent", nil))
+		WithArgs("dddddddd-0002-0000-0000-000000000000").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id"}).AddRow("dddddddd-0002-0000-0000-000000000000", nil))
 	mock.ExpectQuery("SELECT id, parent_id FROM workspaces WHERE id =").
 		WithArgs("ws-kid").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id"}).AddRow("ws-kid", "ws-parent"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id"}).AddRow("ws-kid", "dddddddd-0002-0000-0000-000000000000"))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	body := `{"caller_id":"ws-parent","target_id":"ws-kid"}`
+	body := `{"caller_id":"dddddddd-0002-0000-0000-000000000000","target_id":"ws-kid"}`
 	c.Request = httptest.NewRequest("POST", "/registry/check-access", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -826,23 +826,23 @@ func TestRestart_ParentPaused(t *testing.T) {
 
 	// Workspace lookup succeeds
 	mock.ExpectQuery("SELECT status, name, tier").
-		WithArgs("ws-child").
+		WithArgs("dddddddd-0001-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows([]string{"status", "name", "tier", "runtime"}).
 			AddRow("offline", "Child Agent", 1, "langgraph"))
 
 	// isParentPaused: get parent_id
 	mock.ExpectQuery("SELECT parent_id FROM workspaces WHERE id").
-		WithArgs("ws-child").
-		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow("ws-parent"))
+		WithArgs("dddddddd-0001-0000-0000-000000000000").
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow("dddddddd-0002-0000-0000-000000000000"))
 
 	// isParentPaused: check parent status
 	mock.ExpectQuery("SELECT status, name FROM workspaces WHERE id").
-		WithArgs("ws-parent").
+		WithArgs("dddddddd-0002-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows([]string{"status", "name"}).AddRow("paused", "Parent Agent"))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-child"}}
+	c.Params = gin.Params{{Key: "id", Value: "dddddddd-0001-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("POST", "/workspaces/ws-child/restart", nil)
 
 	handler.Restart(c)
