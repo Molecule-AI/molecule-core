@@ -203,6 +203,33 @@ func (h *WorkspaceHandler) ProxyA2A(c *gin.Context) {
 	c.Data(status, "application/json", respBody)
 }
 
+// checkWorkspaceBudget returns a proxyA2AError with 429 when the workspace
+// has a budget_limit set and monthly_spend has reached or exceeded it.
+// DB errors are logged and treated as fail-open — a budget check failure
+// must not block legitimate A2A traffic.
+func (h *WorkspaceHandler) checkWorkspaceBudget(ctx context.Context, workspaceID string) *proxyA2AError {
+	var budgetLimit sql.NullInt64
+	var monthlySpend int64
+	err := db.DB.QueryRowContext(ctx,
+		`SELECT budget_limit, COALESCE(monthly_spend, 0) FROM workspaces WHERE id = $1`,
+		workspaceID,
+	).Scan(&budgetLimit, &monthlySpend)
+	if err != nil {
+		if err != sql.ErrNoRows {
+			log.Printf("ProxyA2A: budget check failed for %s: %v", workspaceID, err)
+		}
+		return nil // fail-open
+	}
+	if budgetLimit.Valid && monthlySpend >= budgetLimit.Int64 {
+		log.Printf("ProxyA2A: budget exceeded for %s (spend=%d limit=%d)", workspaceID, monthlySpend, budgetLimit.Int64)
+		return &proxyA2AError{
+			Status:   http.StatusTooManyRequests,
+			Response: gin.H{"error": "workspace budget limit exceeded"},
+		}
+	}
+	return nil
+}
+
 func (h *WorkspaceHandler) proxyA2ARequest(ctx context.Context, workspaceID string, body []byte, callerID string, logActivity bool) (int, []byte, *proxyA2AError) {
 	// Access control: workspace-to-workspace requests must pass CanCommunicate check.
 	// Canvas requests (callerID == "") and system callers (webhook:*, system:*, test:*)
@@ -215,6 +242,14 @@ func (h *WorkspaceHandler) proxyA2ARequest(ctx context.Context, workspaceID stri
 				Response: gin.H{"error": "access denied: workspaces cannot communicate per hierarchy rules"},
 			}
 		}
+	}
+
+	// Budget enforcement: reject A2A calls when the workspace has exceeded its
+	// monthly spend ceiling. Checked after access control so unauthorized calls
+	// are rejected first (403 > 429 in the denial hierarchy). Fail-open on DB
+	// errors so a budget check failure never blocks legitimate traffic.
+	if proxyErr := h.checkWorkspaceBudget(ctx, workspaceID); proxyErr != nil {
+		return 0, nil, proxyErr
 	}
 
 	agentURL, proxyErr := h.resolveAgentURL(ctx, workspaceID)

@@ -150,9 +150,9 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 
 	// Insert workspace with runtime persisted in DB (inside transaction)
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access)
-		VALUES ($1, $2, $3, $4, $5, $6, 'provisioning', $7, $8, $9)
-	`, id, payload.Name, role, payload.Tier, payload.Runtime, awarenessNamespace, payload.ParentID, workspaceDir, workspaceAccess)
+		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access, budget_limit)
+		VALUES ($1, $2, $3, $4, $5, $6, 'provisioning', $7, $8, $9, $10)
+	`, id, payload.Name, role, payload.Tier, payload.Runtime, awarenessNamespace, payload.ParentID, workspaceDir, workspaceAccess, payload.BudgetLimit)
 	if err != nil {
 		tx.Rollback() //nolint:errcheck
 		log.Printf("Create workspace error: %v", err)
@@ -293,10 +293,13 @@ func scanWorkspaceRow(rows interface {
 	var collapsed bool
 	var parentID *string
 	var agentCard []byte
+	var budgetLimit sql.NullInt64
+	var monthlySpend int64
 
 	err := rows.Scan(&id, &name, &role, &tier, &status, &agentCard, &url,
 		&parentID, &activeTasks, &errorRate, &sampleError, &uptimeSeconds,
-		&currentTask, &runtime, &workspaceDir, &x, &y, &collapsed)
+		&currentTask, &runtime, &workspaceDir, &x, &y, &collapsed,
+		&budgetLimit, &monthlySpend)
 	if err != nil {
 		return nil, err
 	}
@@ -315,9 +318,17 @@ func scanWorkspaceRow(rows interface {
 		"current_task":      currentTask,
 		"runtime":           runtime,
 		"workspace_dir":     nilIfEmpty(workspaceDir),
+		"monthly_spend":     monthlySpend,
 		"x":                 x,
 		"y":                 y,
 		"collapsed":         collapsed,
+	}
+
+	// budget_limit: nil when no limit set, int64 otherwise
+	if budgetLimit.Valid {
+		ws["budget_limit"] = budgetLimit.Int64
+	} else {
+		ws["budget_limit"] = nil
 	}
 
 	// Only include non-empty values
@@ -344,7 +355,8 @@ const workspaceListQuery = `
 		   COALESCE(w.last_sample_error, ''), w.uptime_seconds,
 		   COALESCE(w.current_task, ''), COALESCE(w.runtime, 'langgraph'),
 		   COALESCE(w.workspace_dir, ''),
-		   COALESCE(cl.x, 0), COALESCE(cl.y, 0), COALESCE(cl.collapsed, false)
+		   COALESCE(cl.x, 0), COALESCE(cl.y, 0), COALESCE(cl.collapsed, false),
+		   w.budget_limit, COALESCE(w.monthly_spend, 0)
 	FROM workspaces w
 	LEFT JOIN canvas_layouts cl ON cl.workspace_id = w.id
 	WHERE w.status != 'removed'
@@ -389,7 +401,8 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 			   COALESCE(w.last_sample_error, ''), w.uptime_seconds,
 			   COALESCE(w.current_task, ''), COALESCE(w.runtime, 'langgraph'),
 			   COALESCE(w.workspace_dir, ''),
-			   COALESCE(cl.x, 0), COALESCE(cl.y, 0), COALESCE(cl.collapsed, false)
+			   COALESCE(cl.x, 0), COALESCE(cl.y, 0), COALESCE(cl.collapsed, false),
+			   w.budget_limit, COALESCE(w.monthly_spend, 0)
 		FROM workspaces w
 		LEFT JOIN canvas_layouts cl ON cl.workspace_id = w.id
 		WHERE w.id = $1
@@ -506,6 +519,7 @@ var sensitiveUpdateFields = map[string]struct{}{
 	"parent_id":     {},
 	"runtime":       {},
 	"workspace_dir": {},
+	"budget_limit":  {}, // cost-control ceiling — requires admin auth to change
 }
 
 // Update handles PATCH /workspaces/:id
@@ -602,6 +616,26 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 			log.Printf("Update workspace_dir error for %s: %v", id, err)
 		}
 		needsRestart = true
+	}
+	if budgetLimitVal, ok := body["budget_limit"]; ok {
+		// Allow null to clear (remove) the budget ceiling.
+		// Non-null values come in as JSON float64 from map[string]interface{}
+		// — convert to int64 for storage (USD cents).
+		var budgetArg interface{}
+		if budgetLimitVal != nil {
+			switch v := budgetLimitVal.(type) {
+			case float64:
+				budgetArg = int64(v)
+			case int64:
+				budgetArg = v
+			default:
+				c.JSON(http.StatusBadRequest, gin.H{"error": "budget_limit must be an integer (USD cents) or null"})
+				return
+			}
+		}
+		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET budget_limit = $2, updated_at = now() WHERE id = $1`, id, budgetArg); err != nil {
+			log.Printf("Update budget_limit error for %s: %v", id, err)
+		}
 	}
 
 	// Update canvas position if both x and y provided
