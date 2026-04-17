@@ -7,7 +7,7 @@
 -- enabled_by records the workspace ID of the admin who added the entry.
 CREATE TABLE IF NOT EXISTS org_plugin_allowlist (
   id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id      TEXT        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  org_id      UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   plugin_name TEXT        NOT NULL,
   enabled_by  TEXT        NOT NULL,
   enabled_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
