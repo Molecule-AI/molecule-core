@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -800,6 +801,173 @@ func TestCfErrToHTTP(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("cfErrToHTTP(%v) = %d, want %d", tc.err, got, tc.want)
 		}
+	}
+}
+
+// ============================= Security fix tests ============================
+
+// TestCfErrMessage_5xxReturnsGeneric verifies that CF 5xx errors return a
+// generic message instead of leaking CF internals.
+func TestCfErrMessage_5xxReturnsGeneric(t *testing.T) {
+	err := &artifacts.APIError{StatusCode: http.StatusInternalServerError, Message: "internal CF detail"}
+	got := cfErrMessage(err)
+	if got != "upstream service error" {
+		t.Errorf("cfErrMessage(500) = %q, want %q", got, "upstream service error")
+	}
+}
+
+// TestCfErrMessage_502ReturnsGeneric verifies that CF 502 (bad gateway) is also masked.
+func TestCfErrMessage_502ReturnsGeneric(t *testing.T) {
+	err := &artifacts.APIError{StatusCode: http.StatusBadGateway, Message: "gateway detail"}
+	got := cfErrMessage(err)
+	if got != "upstream service error" {
+		t.Errorf("cfErrMessage(502) = %q, want %q", got, "upstream service error")
+	}
+}
+
+// TestCfErrMessage_4xxPassesThrough verifies that CF 4xx messages are surfaced.
+func TestCfErrMessage_4xxPassesThrough(t *testing.T) {
+	msg := "repo name already taken"
+	err := &artifacts.APIError{StatusCode: http.StatusConflict, Message: msg}
+	got := cfErrMessage(err)
+	if got != msg {
+		t.Errorf("cfErrMessage(409) = %q, want %q", got, msg)
+	}
+}
+
+// TestCfErrMessage_NonAPIErrorReturnsGeneric verifies that non-CF errors return generic message.
+func TestCfErrMessage_NonAPIErrorReturnsGeneric(t *testing.T) {
+	err := fmt.Errorf("some network error")
+	got := cfErrMessage(err)
+	if got != "upstream service error" {
+		t.Errorf("cfErrMessage(non-API) = %q, want %q", got, "upstream service error")
+	}
+}
+
+// TestArtifactsCreate_ImportURLNonHTTPS verifies that a non-HTTPS import_url
+// is rejected with 400.
+func TestArtifactsCreate_ImportURLNonHTTPS(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	mock.ExpectQuery(`SELECT EXISTS`).
+		WithArgs("ws-badurl").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	h := newArtifactsHandlerWithClient(
+		artifacts.NewWithBaseURL("tok", "test-ns", "http://unused"),
+		"test-ns",
+	)
+
+	cases := []string{
+		"http://github.com/org/repo.git",
+		"git://github.com/org/repo.git",
+		"ssh://git@github.com/org/repo.git",
+		"file:///etc/passwd",
+	}
+	for _, url := range cases {
+		t.Run(url, func(t *testing.T) {
+			// Re-register the EXISTS probe expectation for each sub-test case.
+			mock.ExpectQuery(`SELECT EXISTS`).
+				WithArgs("ws-badurl").
+				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Params = gin.Params{{Key: "id", Value: "ws-badurl"}}
+			body, _ := json.Marshal(map[string]interface{}{
+				"name":       "my-repo",
+				"import_url": url,
+			})
+			c.Request = httptest.NewRequest("POST", "/workspaces/ws-badurl/artifacts",
+				bytes.NewBuffer(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			h.Create(c)
+
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("import_url=%q: expected 400, got %d: %s", url, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestArtifactsCreate_InvalidRepoName verifies that invalid repo names return 400.
+func TestArtifactsCreate_InvalidRepoName(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	h := newArtifactsHandlerWithClient(
+		artifacts.NewWithBaseURL("tok", "test-ns", "http://unused"),
+		"test-ns",
+	)
+
+	invalidNames := []string{
+		"-starts-with-dash",
+		"_starts-with-underscore",
+		"has spaces",
+		"has/slash",
+		"has.dot",
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", // 64 chars
+	}
+	for _, name := range invalidNames {
+		t.Run(name, func(t *testing.T) {
+			mock.ExpectQuery(`SELECT EXISTS`).
+				WithArgs("ws-badname").
+				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Params = gin.Params{{Key: "id", Value: "ws-badname"}}
+			body, _ := json.Marshal(map[string]interface{}{"name": name})
+			c.Request = httptest.NewRequest("POST", "/workspaces/ws-badname/artifacts",
+				bytes.NewBuffer(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			h.Create(c)
+
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("name=%q: expected 400, got %d: %s", name, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestArtifactsFork_InvalidRepoName verifies that invalid fork names return 400.
+func TestArtifactsFork_InvalidRepoName(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	h := newArtifactsHandlerWithClient(
+		artifacts.NewWithBaseURL("tok", "test-ns", "http://unused"),
+		"test-ns",
+	)
+
+	invalidNames := []string{
+		"-bad-start",
+		"has spaces",
+		"../traversal",
+	}
+	for _, name := range invalidNames {
+		t.Run(name, func(t *testing.T) {
+			mock.ExpectQuery(`SELECT cf_repo_name FROM workspace_artifacts WHERE workspace_id`).
+				WithArgs("ws-forknm").
+				WillReturnRows(sqlmock.NewRows([]string{"cf_repo_name"}).AddRow("src"))
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Params = gin.Params{{Key: "id", Value: "ws-forknm"}}
+			body, _ := json.Marshal(map[string]interface{}{"name": name})
+			c.Request = httptest.NewRequest("POST", "/workspaces/ws-forknm/artifacts/fork",
+				bytes.NewBuffer(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			h.Fork(c)
+
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("fork name=%q: expected 400, got %d: %s", name, w.Code, w.Body.String())
+			}
+		})
 	}
 }
 

@@ -174,7 +174,8 @@ func (c *Client) do(ctx context.Context, method, path string, body, out interfac
 	}
 	defer resp.Body.Close()
 
-	// Decode the Cloudflare v4 envelope.
+	// Decode the Cloudflare v4 envelope. Cap at 1 MiB to prevent a
+	// malicious or runaway upstream response from exhausting memory.
 	var envelope struct {
 		Result  json.RawMessage `json:"result"`
 		Success bool            `json:"success"`
@@ -183,7 +184,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out interfac
 			Message string `json:"message"`
 		} `json:"errors"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&envelope); err != nil {
 		// Non-JSON body (network error page, etc.)
 		return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("non-JSON body (status %d)", resp.StatusCode)}
 	}

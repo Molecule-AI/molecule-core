@@ -24,6 +24,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -31,6 +32,21 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/gin-gonic/gin"
 )
+
+// repoNameRE validates CF Artifacts repo names: start with alphanumeric,
+// then up to 62 alphanumeric/hyphen/underscore chars (63 total max).
+var repoNameRE = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$`)
+
+// cfErrMessage returns a safe error message for CF API errors.
+// For CF 5xx errors (or non-CF errors), returns a generic "upstream service error"
+// to avoid leaking internal CF error details to clients.
+func cfErrMessage(err error) string {
+	apiErr, ok := err.(*artifacts.APIError)
+	if !ok || apiErr.StatusCode >= 500 {
+		return "upstream service error"
+	}
+	return apiErr.Message
+}
 
 // ArtifactsHandler holds a pre-built CF Artifacts client.
 // The client is nil when CF_ARTIFACTS_API_TOKEN / CF_ARTIFACTS_NAMESPACE are unset.
@@ -138,11 +154,22 @@ func (h *ArtifactsHandler) Create(c *gin.Context) {
 		}
 	}
 
+	// Validate explicit repo names; auto-generated names are always safe.
+	if req.Name != "" && !repoNameRE.MatchString(req.Name) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "repo name must match ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$"})
+		return
+	}
+
 	var (
 		repo *artifacts.Repo
 		err  error
 	)
 	if req.ImportURL != "" {
+		// Fix 1: require HTTPS for import URLs to prevent SSRF via non-HTTPS schemes.
+		if !strings.HasPrefix(req.ImportURL, "https://") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "import_url must use https://"})
+			return
+		}
 		repo, err = h.client.ImportRepo(ctx, repoName, artifacts.ImportRepoRequest{
 			URL:      req.ImportURL,
 			Branch:   req.ImportBranch,
@@ -158,7 +185,7 @@ func (h *ArtifactsHandler) Create(c *gin.Context) {
 	}
 	if err != nil {
 		log.Printf("artifacts: CreateRepo/ImportRepo failed for workspace %s: %v", workspaceID, err)
-		c.JSON(cfErrToHTTP(err), gin.H{"error": err.Error()})
+		c.JSON(cfErrToHTTP(err), gin.H{"error": cfErrMessage(err)})
 		return
 	}
 
@@ -222,7 +249,7 @@ func (h *ArtifactsHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"artifact": row,
 			"cf_status": "unavailable",
-			"cf_error":  err.Error(),
+			"cf_error":  cfErrMessage(err),
 		})
 		return
 	}
@@ -279,6 +306,11 @@ func (h *ArtifactsHandler) Fork(c *gin.Context) {
 		return
 	}
 
+	if req.Name != "" && !repoNameRE.MatchString(req.Name) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "repo name must match ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$"})
+		return
+	}
+
 	result, err := h.client.ForkRepo(ctx, cfRepoName, artifacts.ForkRepoRequest{
 		Name:              req.Name,
 		Description:       req.Description,
@@ -287,7 +319,7 @@ func (h *ArtifactsHandler) Fork(c *gin.Context) {
 	})
 	if err != nil {
 		log.Printf("artifacts: ForkRepo failed for workspace %s: %v", workspaceID, err)
-		c.JSON(cfErrToHTTP(err), gin.H{"error": err.Error()})
+		c.JSON(cfErrToHTTP(err), gin.H{"error": cfErrMessage(err)})
 		return
 	}
 
@@ -363,7 +395,7 @@ func (h *ArtifactsHandler) Token(c *gin.Context) {
 	})
 	if err != nil {
 		log.Printf("artifacts: CreateToken failed for workspace %s: %v", workspaceID, err)
-		c.JSON(cfErrToHTTP(err), gin.H{"error": err.Error()})
+		c.JSON(cfErrToHTTP(err), gin.H{"error": cfErrMessage(err)})
 		return
 	}
 
