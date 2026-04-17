@@ -35,19 +35,92 @@ func (s *SlackAdapter) DisplayName() string { return "Slack" }
 // Returns an error whose message becomes part of the 400 response body so
 // keep it human-readable for the canvas UI.
 func (s *SlackAdapter) ValidateConfig(config map[string]interface{}) error {
+	botToken, _ := config["bot_token"].(string)
 	webhookURL, _ := config["webhook_url"].(string)
-	if webhookURL == "" {
-		return fmt.Errorf("missing required field: webhook_url")
+	if botToken == "" && webhookURL == "" {
+		return fmt.Errorf("missing required field: bot_token or webhook_url")
 	}
-	if !strings.HasPrefix(webhookURL, slackWebhookPrefix) {
+	if botToken != "" {
+		if cid, _ := config["channel_id"].(string); cid == "" {
+			return fmt.Errorf("bot_token mode requires channel_id")
+		}
+	}
+	if webhookURL != "" && !strings.HasPrefix(webhookURL, slackWebhookPrefix) {
 		return fmt.Errorf("invalid Slack webhook URL")
 	}
 	return nil
 }
 
-// SendMessage posts text to the configured Slack Incoming Webhook.
-// chatID is ignored for Slack webhooks — the channel is encoded in the URL.
-func (s *SlackAdapter) SendMessage(ctx context.Context, config map[string]interface{}, _ string, text string) error {
+// SendMessage posts text to Slack. Supports two modes:
+//
+//   - Bot API (bot_token set): uses chat.postMessage with per-agent identity
+//     via chat:write.customize scope. Supports username + icon_emoji overrides.
+//   - Webhook (webhook_url set, legacy): simple POST, no identity override.
+//
+// chatID overrides channel_id from config if non-empty (for multi-channel routing).
+func (s *SlackAdapter) SendMessage(ctx context.Context, config map[string]interface{}, chatID string, text string) error {
+	botToken, _ := config["bot_token"].(string)
+	if botToken != "" {
+		return s.sendBotMessage(ctx, config, chatID, text)
+	}
+	return s.sendWebhookMessage(ctx, config, text)
+}
+
+func (s *SlackAdapter) sendBotMessage(ctx context.Context, config map[string]interface{}, chatID, text string) error {
+	botToken, _ := config["bot_token"].(string)
+	channelID := chatID
+	if channelID == "" {
+		channelID, _ = config["channel_id"].(string)
+	}
+	if channelID == "" {
+		return fmt.Errorf("slack: no channel_id")
+	}
+
+	username, _ := config["username"].(string)
+	iconEmoji, _ := config["icon_emoji"].(string)
+
+	// Split long messages at newline boundaries
+	chunks := slackSplitMessage(text, 3000)
+	for _, chunk := range chunks {
+		payload := map[string]interface{}{
+			"channel": channelID,
+			"text":    chunk,
+		}
+		if username != "" {
+			payload["username"] = username
+		}
+		if iconEmoji != "" {
+			payload["icon_emoji"] = iconEmoji
+		}
+
+		body, _ := json.Marshal(payload)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://slack.com/api/chat.postMessage", bytes.NewReader(body))
+		if err != nil {
+			return fmt.Errorf("slack: build request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json; charset=utf-8")
+		req.Header.Set("Authorization", "Bearer "+botToken)
+
+		client := &http.Client{Timeout: slackHTTPTimeout}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("slack: send: %w", err)
+		}
+		defer resp.Body.Close()
+
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		var result struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(respBody, &result) == nil && !result.OK {
+			return fmt.Errorf("slack: API error: %s", result.Error)
+		}
+	}
+	return nil
+}
+
+func (s *SlackAdapter) sendWebhookMessage(ctx context.Context, config map[string]interface{}, text string) error {
 	webhookURL, _ := config["webhook_url"].(string)
 	if webhookURL == "" {
 		return fmt.Errorf("webhook_url not configured")
@@ -79,6 +152,27 @@ func (s *SlackAdapter) SendMessage(ctx context.Context, config map[string]interf
 		return fmt.Errorf("slack: webhook returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return nil
+}
+
+func slackSplitMessage(text string, maxLen int) []string {
+	if len(text) <= maxLen {
+		return []string{text}
+	}
+	var chunks []string
+	for len(text) > 0 {
+		end := maxLen
+		if end > len(text) {
+			end = len(text)
+		}
+		if end < len(text) {
+			if idx := strings.LastIndex(text[:end], "\n"); idx > 0 {
+				end = idx + 1
+			}
+		}
+		chunks = append(chunks, text[:end])
+		text = text[end:]
+	}
+	return chunks
 }
 
 // ParseWebhook handles a Slack slash command or event API POST.

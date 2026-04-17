@@ -3,10 +3,9 @@
 -- Adds a dense-vector embedding column to agent_memories to power semantic
 -- (cosine-similarity) memory recall alongside the existing FTS path.
 --
--- Requires the pgvector Postgres extension. The entire migration is wrapped
--- in a single DO block so if pgvector is unavailable, ALL statements are
--- skipped (not just CREATE EXTENSION). This prevents "type vector does not
--- exist" errors on the ALTER TABLE / CREATE INDEX that follow.
+-- Requires the pgvector Postgres extension. The DO block is a no-op guard:
+-- if the extension is unavailable this migration exits early so a boot
+-- without pgvector installed does not break the migration sweep.
 --
 -- Issue: #576
 
@@ -20,8 +19,6 @@ BEGIN
 
   -- ivfflat approximate nearest-neighbour index for cosine similarity.
   -- lists=100 is a reasonable default for tables up to ~1M rows.
-  -- Partial index (WHERE embedding IS NOT NULL) keeps it lean — unembedded
-  -- rows are skipped entirely.
   CREATE INDEX IF NOT EXISTS agent_memories_embedding_idx
     ON agent_memories USING ivfflat (embedding vector_cosine_ops)
     WHERE embedding IS NOT NULL;
