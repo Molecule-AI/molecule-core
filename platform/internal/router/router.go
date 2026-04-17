@@ -297,11 +297,13 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	}
 
 	// Admin — test token minting (issue #6). Hidden in production via TestTokensEnabled().
-	// Registered at root (not inside AdminAuth) because it is itself the bootstrap for
-	// acquiring a token, and it's gated on MOLECULE_ENV / MOLECULE_ENABLE_TEST_TOKENS.
+	// AdminAuth is a second defence-in-depth layer: on a fresh install with no tokens yet,
+	// AdminAuth is fail-open (HasAnyLiveTokenGlobal == 0), so the bootstrap still works.
+	// Once any token exists, callers must present a valid bearer — unauthenticated workspace-
+	// UUID enumeration is blocked even on non-production instances.
 	{
 		tokh := handlers.NewAdminTestTokenHandler()
-		r.GET("/admin/workspaces/:id/test-token", tokh.GetTestToken)
+		r.GET("/admin/workspaces/:id/test-token", middleware.AdminAuth(db.DB), tokh.GetTestToken)
 	}
 
 	// Terminal — shares Docker client with provisioner
