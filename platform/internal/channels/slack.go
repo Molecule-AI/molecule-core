@@ -89,6 +89,17 @@ func (s *SlackAdapter) sendBotMessage(ctx context.Context, config map[string]int
 		payload := map[string]interface{}{
 			"channel": channelID,
 			"text":    chunk,
+			// Use blocks with mrkdwn type for rich formatting.
+			// The "text" field is the fallback for notifications/previews.
+			"blocks": []map[string]interface{}{
+				{
+					"type": "section",
+					"text": map[string]interface{}{
+						"type": "mrkdwn",
+						"text": chunk,
+					},
+				},
+			},
 		}
 		if username != "" {
 			payload["username"] = username
