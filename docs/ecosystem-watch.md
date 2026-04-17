@@ -65,12 +65,15 @@ snapshots:
     date: "2026-04-17"
     version: "v2026.416.0"
     stars: "54.8k"
-    threat_level: high
+    threat_level: medium
     notable_changes: >
-      v2026.416.0 (Apr 16 2026) ships assistant-ui chat threads for agent
-      transcripts, execution policies for multi-stage approvals, and blocker
-      dependencies with auto wake-on-resolve — mirrors our PM→Dev→Eng
-      delegation model with "zero-human companies" framing; 54.8k ⭐ in 6 weeks.
+      Downgraded HIGH → MEDIUM (2026-04-17, deep-dive #571): no A2A protocol,
+      no visual canvas, no org-chart UI on roadmap. Blocker dependencies are
+      single-process task-graph DAG, not inter-agent coordination. Execution
+      policies are budget ceilings, not tool restrictions. Only capability gap
+      vs Molecule AI is per-workspace budget limits (tracked #541). Brand/
+      framing threat ("zero-human companies") but not a technical substitute.
+      v2026.416.0 (Apr 16) ships chat threads + execution policies.
     source_url: https://github.com/paperclipai/paperclip/releases
 
   - name: OpenAI Agents SDK
