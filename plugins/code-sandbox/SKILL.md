@@ -15,9 +15,8 @@ Wraps `workspace-template/sandbox.py`. Selects backend based on `SANDBOX_BACKEND
 - `e2b` — runs in an E2B cloud sandbox (requires E2B_API_KEY)
 
 ## Examples
-```python
-from sandbox import Sandbox
 
+```python
 async with Sandbox(language="python") as sb:
     result = await sb.run("print('hello world')")
     print(result.stdout)  # "hello world\n"
