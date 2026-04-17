@@ -566,6 +566,37 @@ snapshots:
       infrastructure watch — escalate to MEDIUM if Cloudflare Agents SDK
       integrates Artifacts as a managed workspace-persistence layer.
     source_url: https://blog.cloudflare.com/artifacts-git-for-agents-beta/
+
+  - name: dimos
+    slug: dimos
+    date: "2026-04-17"
+    version: "v0.0.11"
+    stars: "2.9k"
+    threat_level: low
+    notable_changes: >
+      GitHub trending Apr 17 2026 (+137 today); agentic OS for robotics
+      (humanoids, quadrupeds, drones, robotic arms) via natural language;
+      MCP as primary agent interface; module/blueprint architecture with
+      typed stream passing; spatial+temporal memory (SLAM + spatio-temporal
+      RAG); hardware: Unitree, AgileX, DJI, MAVLink. Python/MIT. Watch for
+      A2A support — would make robot workspaces first-class Molecule AI peers.
+    source_url: https://github.com/dimensionalOS/dimos
+
+  - name: Cloudflare Workers AI
+    slug: cloudflare-workers-ai
+    date: "2026-04-17"
+    version: "Agents Week 2026"
+    stars: "N/A"
+    threat_level: low
+    notable_changes: >
+      Agents Week Apr 2026; unified inference layer for agents: 70+ models,
+      14+ providers (OpenAI, Anthropic, Google), auto-failover, streaming
+      resilience, 330 global PoPs. Complements Cloudflare Durable Objects
+      (agent state), Artifacts (versioned storage), and Agents SDK (multi-step
+      orchestration). Cloudflare assembling full-stack agent platform.
+      Escalate to MEDIUM if Agents SDK integrates all four primitives into
+      one-click multi-agent deployment.
+    source_url: https://blog.cloudflare.com/ai-platform/
 ```
 
 ---
@@ -2356,3 +2387,43 @@ langgraph/crewai adapters.
 **Signals to react to:** If Cloudflare Agents SDK integrates Artifacts as a built-in workspace-persistence layer → escalate to MEDIUM; Cloudflare would then offer a managed Docker+Git workspace alternative to Molecule AI. If `snapshot_id` semantics become standard across the ecosystem → accelerate #583.
 
 **Last reviewed:** 2026-04-17 (private beta announcement) · **Stars / activity:** infrastructure service, ArtifactFS driver OSS
+
+---
+
+### dimos — `dimensionalOS/dimos`
+
+**Pitch:** "Agentic OS for physical space — control humanoids, quadrupeds, drones, and robotic arms via natural language. Python SDK, MCP-native, zero ROS dependency."
+
+**Shape:** Python (MIT), ~2.9k ⭐, v0.0.11, March 2026. Module-based architecture: components expose typed input/output streams; `autoconnect()` wires them by name+type into a "blueprint." Multiple transports: LCM, shared memory, DDS, ROS 2. Spatial memory via SLAM; temporal memory via spatio-temporal RAG (object permanence across sessions). Hardware support: Unitree Go2/B1/G1, AgileX Piper, Xarm, DJI Mavic, MAVLink drones. MCP is the primary agent-control interface — robots are addressed as MCP tool endpoints.
+
+**Overlap with us:** Any MCP-capable Molecule AI workspace could issue commands to dimos-managed hardware via the standard MCP tool surface. Spatio-temporal RAG for memory is adjacent to our `agent_memories` approach.
+
+**Differentiation:** Hardware/robotics domain only — no workspace lifecycle, no A2A, no canvas, no SaaS orchestration. Not a software agent competitor; 278 open issues suggests pre-stability.
+
+**Worth borrowing:** The `autoconnect()` blueprint wiring (match streams by name+type, not hardcoded edges) is a clean low-ceremony graph composition pattern — applicable to our workflow plugin composition system.
+
+**Terminology collisions:** "blueprint" = their module-wiring config; we'd call this a workflow or pipeline.
+
+**Signals to react to:** If dimos ships A2A support → robot-controlling workspaces become first-class Molecule AI peers. If spatio-temporal RAG pattern gains traction in non-hardware agents → revisit `agent_memories` retrieval architecture.
+
+**Last reviewed:** 2026-04-17 (GitHub trending) · **Stars / activity:** ~2.9k ⭐, v0.0.11, March 2026
+
+---
+
+### Cloudflare Workers AI — `cloudflare.com/ai-platform`
+
+**Pitch:** "One API to access any AI model from any provider — built to be fast and reliable. Unified inference layer for agent-native apps with auto-failover and streaming resilience across 330 global PoPs."
+
+**Shape:** Cloudflare proprietary platform (infrastructure service, some OSS components). Part of Cloudflare "Agents Week" 2026. 70+ models across 14+ providers (OpenAI, Anthropic, Google, etc.). Key capabilities for agents: automatic multi-provider failover, streaming response buffering independent of agent lifetime (reconnect without reprocessing), unified billing + monitoring across all model calls, custom model bring-your-own via Replicate Cog. Part of a broader Cloudflare agent stack: Durable Objects (state), Artifacts (versioned storage, tracked separately), Agents SDK (multi-step orchestration), AI Search (hybrid RAG for agents).
+
+**Overlap with us:** Cloudflare is assembling a complete managed agent platform: inference + state + storage + orchestration + search. Collectively a competing infrastructure story to Molecule AI's self-hosted model. Neither product has canvas, visual org hierarchy, A2A, or governance tooling.
+
+**Differentiation:** Pure infrastructure primitives — no agent identity model, no workspace lifecycle, no compliance/governance. Requires Cloudflare Workers (not self-hostable on arbitrary infra). Each piece is standalone; the "platform" is integration, not a packaged product. No pricing announced for full stack.
+
+**Worth borrowing:** Streaming resilience pattern — buffer streaming LLM responses independently of agent process lifetime, allow graceful reconnection. Apply to our A2A response streaming. Multi-provider failover model — reference design for our model-agnostic workspace layer (`runtime:` field).
+
+**Terminology collisions:** "Workers" = Cloudflare serverless compute; we call these "workspaces". "Bindings" = their service-to-service connector; we use A2A protocol for agent-to-agent calls.
+
+**Signals to react to:** If Cloudflare Agents SDK integrates all four primitives (Workers AI + Durable Objects + Artifacts + AI Search) into a one-click multi-agent deployment → escalate to MEDIUM; would offer a competing managed workspace alternative at Cloudflare global scale. Watch for per-agent billing or workspace lifecycle management announcements.
+
+**Last reviewed:** 2026-04-17 (Agents Week 2026, HN 248pts) · **Stars / activity:** infrastructure service, no public GitHub repo
