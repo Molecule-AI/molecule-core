@@ -344,9 +344,19 @@ func TestIsTransientProxyError_RetriesOnRestartRaceStatuses(t *testing.T) {
 		expect bool
 	}{
 		{"nil", nil, false},
-		{"503 service unavailable (container restart triggered)",
-			&proxyA2AError{Status: http.StatusServiceUnavailable}, true},
-		{"502 bad gateway (connection refused)",
+		// 503 with restarting:true — container was dead; restart triggered.
+		// Message was NOT delivered (dead container). Safe to retry (#74).
+		{"503 container restart triggered — retry",
+			&proxyA2AError{Status: http.StatusServiceUnavailable, Response: gin.H{"restarting": true}}, true},
+		// 503 with busy:true — agent is alive, mid-synthesis on the delivered
+		// message. Retrying would double-deliver (#689). Must NOT retry.
+		{"503 agent busy (double-delivery risk) — no retry",
+			&proxyA2AError{Status: http.StatusServiceUnavailable, Response: gin.H{"busy": true, "retry_after": 30}}, false},
+		// 503 with no qualifying flag — conservative: don't retry.
+		{"503 plain (no restarting flag) — no retry",
+			&proxyA2AError{Status: http.StatusServiceUnavailable}, false},
+		// 502 = connection refused = message not delivered → safe to retry.
+		{"502 bad gateway (connection refused) — retry",
 			&proxyA2AError{Status: http.StatusBadGateway}, true},
 		{"404 workspace not found",
 			&proxyA2AError{Status: http.StatusNotFound}, false},
