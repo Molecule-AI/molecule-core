@@ -26,18 +26,19 @@ func TestWorkspaceGet_Success(t *testing.T) {
 		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
 		"budget_limit", "monthly_spend",
 	}
+	const wsGetID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 	mock.ExpectQuery("SELECT w.id, w.name").
-		WithArgs("ws-get-1").
+		WithArgs(wsGetID).
 		WillReturnRows(sqlmock.NewRows(columns).
-			AddRow("ws-get-1", "My Agent", "worker", 1, "online", []byte(`{"name":"test"}`),
+			AddRow(wsGetID, "My Agent", "worker", 1, "online", []byte(`{"name":"test"}`),
 				"http://localhost:8001", nil, 2, 0.05, "", 3600, "working", "langgraph",
 				"", 10.0, 20.0, false,
 				nil, 0))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-get-1"}}
-	c.Request = httptest.NewRequest("GET", "/workspaces/ws-get-1", nil)
+	c.Params = gin.Params{{Key: "id", Value: wsGetID}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/"+wsGetID, nil)
 
 	handler.Get(c)
 
@@ -73,14 +74,15 @@ func TestWorkspaceGet_NotFound(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
+	const wsNotFoundID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 	mock.ExpectQuery("SELECT w.id, w.name").
-		WithArgs("ws-nonexistent").
+		WithArgs(wsNotFoundID).
 		WillReturnError(sql.ErrNoRows)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-nonexistent"}}
-	c.Request = httptest.NewRequest("GET", "/workspaces/ws-nonexistent", nil)
+	c.Params = gin.Params{{Key: "id", Value: wsNotFoundID}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/"+wsNotFoundID, nil)
 
 	handler.Get(c)
 
@@ -99,14 +101,15 @@ func TestWorkspaceGet_DBError(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
+	const wsDBErrID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 	mock.ExpectQuery("SELECT w.id, w.name").
-		WithArgs("ws-dberr").
+		WithArgs(wsDBErrID).
 		WillReturnError(sql.ErrConnDone)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-dberr"}}
-	c.Request = httptest.NewRequest("GET", "/workspaces/ws-dberr", nil)
+	c.Params = gin.Params{{Key: "id", Value: wsDBErrID}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/"+wsDBErrID, nil)
 
 	handler.Get(c)
 
@@ -116,6 +119,42 @@ func TestWorkspaceGet_DBError(t *testing.T) {
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestWorkspaceGet_InvalidUUID_Returns400 verifies that GET /workspaces/:id
+// returns 400 — not 500 — when the :id segment is not a valid UUID. Previously,
+// double-percent-encoded path traversal strings (e.g. ..%252f..%252fetc%252fpasswd)
+// decoded to non-UUID values that reached the DB, causing PostgreSQL's UUID parser
+// to fail with an internal error that propagated as HTTP 500 (#687 fix).
+func TestWorkspaceGet_InvalidUUID_Returns400(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	// No DB expectations — UUID validation fires before any query.
+
+	for _, badID := range []string{
+		"not-a-uuid",
+		"..%2f..%2fetc%2fpasswd", // decoded path traversal
+		"ws-bootstrap",           // legacy non-UUID workspace ID
+		"",                       // empty string (edge case)
+	} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Params = gin.Params{{Key: "id", Value: badID}}
+		c.Request = httptest.NewRequest("GET", "/workspaces/"+badID, nil)
+
+		handler.Get(c)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("invalid UUID %q: expected 400, got %d: %s", badID, w.Code, w.Body.String())
+		}
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock: unexpected DB calls on invalid UUID: %v", err)
 	}
 }
 
@@ -865,18 +904,19 @@ func TestWorkspaceGet_FinancialFieldsStripped(t *testing.T) {
 		"budget_limit", "monthly_spend",
 	}
 	// Populate with non-zero financial values to confirm they are stripped.
+	const wsFinID = "f1f1f1f1-f1f1-f1f1-f1f1-f1f1f1f1f1f1"
 	mock.ExpectQuery("SELECT w.id, w.name").
-		WithArgs("ws-fin-1").
+		WithArgs(wsFinID).
 		WillReturnRows(sqlmock.NewRows(columns).
-			AddRow("ws-fin-1", "Finance Test", "worker", 1, "online", []byte(`{}`),
+			AddRow(wsFinID, "Finance Test", "worker", 1, "online", []byte(`{}`),
 				"http://localhost:9001", nil, 0, 0.0, "", 0, "", "langgraph",
 				"", 0.0, 0.0, false,
 				int64(50000), int64(12500))) // budget_limit=500 USD, spend=125 USD
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-fin-1"}}
-	c.Request = httptest.NewRequest("GET", "/workspaces/ws-fin-1", nil)
+	c.Params = gin.Params{{Key: "id", Value: wsFinID}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/"+wsFinID, nil)
 
 	handler.Get(c)
 

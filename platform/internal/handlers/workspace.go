@@ -392,6 +392,15 @@ func (h *WorkspaceHandler) List(c *gin.Context) {
 // Get handles GET /workspaces/:id
 func (h *WorkspaceHandler) Get(c *gin.Context) {
 	id := c.Param("id")
+	// Validate UUID format before touching the DB (#687). This route is on the
+	// open router (no WorkspaceAuth), so an attacker can send double-percent-
+	// encoded path traversal strings (e.g. ..%252f..%252fetc%252fpasswd) that
+	// decode to a non-UUID value. PostgreSQL's UUID parser would reject it with
+	// an error that previously surfaced as HTTP 500. Return 400 instead.
+	if _, err := uuid.Parse(id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace ID"})
+		return
+	}
 
 	row := db.DB.QueryRowContext(c.Request.Context(), `
 		SELECT w.id, w.name, COALESCE(w.role, ''), w.tier, w.status,
