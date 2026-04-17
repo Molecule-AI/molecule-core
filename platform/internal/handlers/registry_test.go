@@ -654,3 +654,184 @@ func TestRegister_DBErrorResponseIsOpaque(t *testing.T) {
 		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
 }
+
+// ==================== #615 — monthly_spend clamping ====================
+
+// TestHeartbeat_MonthlySpend_WithinBounds verifies that a valid positive
+// monthly_spend is written to the DB unchanged (no clamping needed).
+func TestHeartbeat_MonthlySpend_WithinBounds(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewRegistryHandler(newTestBroadcaster())
+
+	mock.ExpectQuery("SELECT COALESCE\\(current_task").
+		WithArgs("ws-spend-ok").
+		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
+
+	// Expect the 7-argument UPDATE (with monthly_spend = $7).
+	mock.ExpectExec("UPDATE workspaces SET").
+		WithArgs("ws-spend-ok", 0.0, "", 0, 0, "", int64(15000)). // $150.00
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	mock.ExpectQuery("SELECT status FROM workspaces WHERE id").
+		WithArgs("ws-spend-ok").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("online"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"workspace_id":"ws-spend-ok","monthly_spend":15000}`
+	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	handler.Heartbeat(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestHeartbeat_MonthlySpend_NegativeClamped verifies that a negative
+// monthly_spend value (invalid) is clamped to 0 before the DB write,
+// which means the no-spend UPDATE path is taken (zero is "no update"). (#615)
+func TestHeartbeat_MonthlySpend_NegativeClamped(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewRegistryHandler(newTestBroadcaster())
+
+	mock.ExpectQuery("SELECT COALESCE\\(current_task").
+		WithArgs("ws-spend-neg").
+		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
+
+	// Clamped to 0 → no monthly_spend field → 6-argument UPDATE.
+	mock.ExpectExec("UPDATE workspaces SET").
+		WithArgs("ws-spend-neg", 0.0, "", 0, 0, "").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	mock.ExpectQuery("SELECT status FROM workspaces WHERE id").
+		WithArgs("ws-spend-neg").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("online"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"workspace_id":"ws-spend-neg","monthly_spend":-9999}`
+	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	handler.Heartbeat(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("negative monthly_spend must be clamped to 0 (no-spend UPDATE path): %v", err)
+	}
+}
+
+// TestHeartbeat_MonthlySpend_OverflowClamped verifies that an astronomically
+// large monthly_spend is clamped to maxMonthlySpend ($10B in cents) rather
+// than written raw to the DB, preventing NUMERIC overflow. (#615)
+func TestHeartbeat_MonthlySpend_OverflowClamped(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewRegistryHandler(newTestBroadcaster())
+
+	mock.ExpectQuery("SELECT COALESCE\\(current_task").
+		WithArgs("ws-spend-overflow").
+		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
+
+	// Expect the 7-argument UPDATE with monthly_spend clamped to 1_000_000_000_000.
+	mock.ExpectExec("UPDATE workspaces SET").
+		WithArgs("ws-spend-overflow", 0.0, "", 0, 0, "", int64(1_000_000_000_000)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	mock.ExpectQuery("SELECT status FROM workspaces WHERE id").
+		WithArgs("ws-spend-overflow").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("online"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	// Simulate a misbehaving agent reporting math.MaxInt64.
+	body := `{"workspace_id":"ws-spend-overflow","monthly_spend":9223372036854775807}`
+	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	handler.Heartbeat(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("math.MaxInt64 monthly_spend must be clamped to maxMonthlySpend: %v", err)
+	}
+}
+
+// TestHeartbeat_MonthlySpend_ExactCap verifies the boundary: a value exactly
+// equal to maxMonthlySpend ($10B) passes through without modification.
+func TestHeartbeat_MonthlySpend_ExactCap(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewRegistryHandler(newTestBroadcaster())
+
+	mock.ExpectQuery("SELECT COALESCE\\(current_task").
+		WithArgs("ws-spend-cap").
+		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
+
+	mock.ExpectExec("UPDATE workspaces SET").
+		WithArgs("ws-spend-cap", 0.0, "", 0, 0, "", int64(1_000_000_000_000)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	mock.ExpectQuery("SELECT status FROM workspaces WHERE id").
+		WithArgs("ws-spend-cap").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("online"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"workspace_id":"ws-spend-cap","monthly_spend":1000000000000}`
+	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	handler.Heartbeat(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("exact-cap monthly_spend should pass through unmodified: %v", err)
+	}
+}
+
+// TestHeartbeat_MonthlySpend_Zero_NoUpdate verifies that monthly_spend=0 (or
+// omitted) does NOT write monthly_spend to the DB — zero means "no update",
+// never write zero to avoid clearing a previously-reported spend value.
+func TestHeartbeat_MonthlySpend_Zero_NoUpdate(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewRegistryHandler(newTestBroadcaster())
+
+	mock.ExpectQuery("SELECT COALESCE\\(current_task").
+		WithArgs("ws-spend-zero").
+		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
+
+	// 6-argument UPDATE — monthly_spend NOT included.
+	mock.ExpectExec("UPDATE workspaces SET").
+		WithArgs("ws-spend-zero", 0.0, "", 0, 0, "").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	mock.ExpectQuery("SELECT status FROM workspaces WHERE id").
+		WithArgs("ws-spend-zero").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("online"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	// Explicitly set monthly_spend = 0.
+	body := `{"workspace_id":"ws-spend-zero","monthly_spend":0}`
+	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	handler.Heartbeat(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("monthly_spend=0 must not trigger a DB write for spend: %v", err)
+	}
+}
