@@ -320,6 +320,16 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		adminAuth.DELETE("/admin/secrets/:key", sechGlobal.DeleteGlobal)
 	}
 
+	// Admin — cross-workspace schedule health monitoring (issue #618).
+	// Lets cron-audit agents and operators detect silent schedule failures
+	// across all workspaces without holding individual workspace bearer tokens.
+	// AdminAuth mirrors the /admin/liveness gate — fail-open on fresh install,
+	// strict bearer-only once any token exists.
+	{
+		asHealth := handlers.NewAdminSchedulesHealthHandler()
+		r.GET("/admin/schedules/health", middleware.AdminAuth(db.DB), asHealth.Health)
+	}
+
 	// Admin — test token minting (issue #6). Hidden in production via TestTokensEnabled().
 	// AdminAuth is a second defence-in-depth layer: on a fresh install with no tokens yet,
 	// AdminAuth is fail-open (HasAnyLiveTokenGlobal == 0), so the bootstrap still works.
