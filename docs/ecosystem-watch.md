@@ -95,8 +95,10 @@ snapshots:
       Deep-dive 2026-04-17: Crew Studio is a real node-and-edge drag-and-drop
       canvas (workflow design paradigm, not governance — no org hierarchy, no
       auth audit trail). AMP Factory self-hosted confirmed: on-prem/private VPC,
-      K8s, FedRAMP High certified. A2A first-class at v0.8/v0.9 (client+server)
-      — CrewAI agents are recruitable as workers in Molecule AI orgs today.
+      K8s, FedRAMP High certified. A2A spec v0.3.0 first-class (client+server,
+      matches Molecule AI a2a-sdk==0.3.25) — zero-shim interop confirmed;
+      CrewAI agents recruitable as Molecule AI workers today. v1.0.0 migration
+      (Mar 2026 spec) not yet adopted by either side — shared upgrade clock.
       ICP unchanged: moat is governance-layer canvas (#582), not visual canvas
       alone. File FedRAMP gap as enterprise procurement tracking issue.
     source_url: https://github.com/crewAIInc/crewAI/releases
@@ -1843,16 +1845,20 @@ and coordinates via our A2A protocol — capabilities CrewAI alone does not prov
 - "task" — their atomic unit of work assigned to an agent; our `current_task`
   heartbeat field. Same word, different scope.
 
+**A2A interop (confirmed 2026-04-17):** CrewAI implements A2A spec v0.3.0 (client + server), matching Molecule AI's `a2a-sdk[http-server]==0.3.25`. **Zero-shim interop confirmed today** — a Molecule AI org can delegate to a CrewAI A2A endpoint, and CrewAI agents can be registered as worker nodes in a Molecule AI hierarchy without any protocol shim. The shared upgrade clock: A2A spec v1.0.0 (March 12 2026) has breaking wire-format changes (`extendedAgentCard` → `AgentCapabilities`, OAuth flow restructure). Neither side has migrated yet. Schedule a coordinated v1.0.0 migration before either platform upgrades unilaterally.
+
 **Signals to react to:**
 - If CrewAI ships persistent agent state between crew runs → closes primary gap with
   our workspace model; ~48k ⭐ means it would land with significant reach.
-- If CrewAI Enterprise adds visual org-chart canvas or A2A-style inter-crew
-  communication → direct platform competitor.
+- If CrewAI Enterprise adds visual org-chart canvas → direct platform competitor (Crew
+  Studio is workflow-only, not governance org-chart — our Canvas moat intact today).
 - If the 2026 State of Agentic AI survey (65% of orgs using agents) accelerates
   CrewAI Enterprise sales → their enterprise positioning competes directly with ours;
   update ICP messaging.
+- If either side upgrades to A2A v1.0.0 before the other → breaking interop; watch
+  crewAIInc/crewAI CHANGELOG for `protocol_version` bump.
 
-**Last reviewed:** 2026-04-16 · **Stars / activity:** ~48k ⭐, v1.14.2 April 8 2026, very active
+**Last reviewed:** 2026-04-17 (A2A interop confirmed) · **Stars / activity:** ~48k ⭐, v1.14.2 April 8 2026, very active
 
 ---
 
