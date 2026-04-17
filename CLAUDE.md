@@ -34,6 +34,11 @@ Cloudflare Worker instead of per-tenant DNS records), read
 propagation delays and NXDOMAIN caching that previously caused "site can't
 be reached" errors for new orgs.
 
+For partner/programmatic API access (creating orgs without a browser session),
+read **`docs/architecture/partner-api-keys.md`**. Partners authenticate with
+`Authorization: Bearer mol_pk_*` API keys — scoped, rate-limited, revocable.
+Phase 34 in PLAN.md.
+
 When handling a GDPR erasure request (user asks "delete my org and all
 my data"), read **`docs/runbooks/gdpr-erasure.md`** first. It explains the
 4-step cascade in `molecule-controlplane` (Stripe → Redis → Infra → DB
