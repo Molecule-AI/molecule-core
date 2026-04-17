@@ -8,14 +8,18 @@ afterEach(() => {
 });
 
 // ── Mocks (defined before dynamic import of component) ───────────────────────
-let mockFetchSession: ReturnType<typeof vi.fn>;
-let mockRedirectToLogin: ReturnType<typeof vi.fn>;
-let mockGetTenantSlug: ReturnType<typeof vi.fn>;
+// Use a function type so TypeScript accepts the mock as callable in vi.mock factories.
+// ReturnType<typeof vi.fn> resolves to Mock<Procedure|Constructable> in newer Vitest
+// type defs, which TS no longer considers directly callable. Casting to a plain
+// function type avoids the TS2348 error while keeping full mock API (mockReturnValue etc.).
+let mockFetchSession: ((...args: unknown[]) => unknown) & ReturnType<typeof vi.fn>;
+let mockRedirectToLogin: ((...args: unknown[]) => unknown) & ReturnType<typeof vi.fn>;
+let mockGetTenantSlug: ((...args: unknown[]) => unknown) & ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  mockFetchSession = vi.fn();
-  mockRedirectToLogin = vi.fn();
-  mockGetTenantSlug = vi.fn(() => null); // default: non-SaaS (pass-through)
+  mockFetchSession = vi.fn() as typeof mockFetchSession;
+  mockRedirectToLogin = vi.fn() as typeof mockRedirectToLogin;
+  mockGetTenantSlug = vi.fn(() => null) as typeof mockGetTenantSlug;
 });
 
 vi.mock("@/lib/auth", () => ({
