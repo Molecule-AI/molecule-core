@@ -1153,3 +1153,56 @@ def test_build_options_task_budget_below_minimum_raises_value_error():
          patch("claude_sdk_executor.get_mcp_server_path", return_value="/mcp.py"):
         with pytest.raises(ValueError, match="task_budget must be >= 20000"):
             e._build_options()
+
+
+# ---------------------------------------------------------------------------
+# _load_config_dict — exception-safety and happy-path (issue #652)
+# ---------------------------------------------------------------------------
+
+
+def test_load_config_dict_reads_valid_yaml(tmp_path):
+    """Valid config.yaml → returns the parsed dict.
+
+    Acceptance criterion: normal I/O path returns the YAML contents as a dict.
+    """
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("effort: xhigh\ntask_budget: 50000\n")
+    e = ClaudeSDKExecutor(system_prompt=None, config_path=str(tmp_path), heartbeat=None)
+    result = e._load_config_dict()
+    assert result == {"effort": "xhigh", "task_budget": 50000}
+
+
+def test_load_config_dict_missing_file_returns_empty(tmp_path):
+    """Missing config.yaml → returns {} without raising.
+
+    Acceptance criterion: FileNotFoundError is swallowed; callers can safely
+    use .get() without guards.
+    """
+    e = ClaudeSDKExecutor(system_prompt=None, config_path=str(tmp_path), heartbeat=None)
+    result = e._load_config_dict()
+    assert result == {}
+
+
+def test_load_config_dict_invalid_yaml_returns_empty(tmp_path):
+    """Malformed YAML → returns {} without raising.
+
+    Acceptance criterion: a YAML parse error is swallowed; callers never see
+    an exception from _load_config_dict.
+    """
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("effort: [unclosed\n")
+    e = ClaudeSDKExecutor(system_prompt=None, config_path=str(tmp_path), heartbeat=None)
+    result = e._load_config_dict()
+    assert result == {}
+
+
+def test_load_config_dict_empty_file_returns_empty(tmp_path):
+    """Empty config.yaml (yaml.safe_load returns None) → returns {} via `or {}`.
+
+    Acceptance criterion: None from safe_load is normalised to an empty dict.
+    """
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("")
+    e = ClaudeSDKExecutor(system_prompt=None, config_path=str(tmp_path), heartbeat=None)
+    result = e._load_config_dict()
+    assert result == {}
