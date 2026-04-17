@@ -73,6 +73,12 @@ func IssueToken(ctx context.Context, db *sql.DB, workspaceID string) (string, er
 // The expectedWorkspaceID binding is required because a token is only
 // valid for the workspace it was issued to. A compromised token from
 // workspace A must never authenticate workspace B.
+//
+// Defense-in-depth (#697): the JOIN against workspaces filters out rows
+// whose workspace has status='removed'. RevokeAllForWorkspace is called
+// on deletion so tokens are normally revoked before the workspace is
+// marked removed; this guard closes the race window between the two DB
+// writes and also covers any missed revocation from an earlier bug.
 func ValidateToken(ctx context.Context, db *sql.DB, expectedWorkspaceID, plaintext string) error {
 	if plaintext == "" || expectedWorkspaceID == "" {
 		return ErrInvalidToken
@@ -81,14 +87,17 @@ func ValidateToken(ctx context.Context, db *sql.DB, expectedWorkspaceID, plainte
 
 	var tokenID, workspaceID string
 	err := db.QueryRowContext(ctx, `
-		SELECT id, workspace_id
-		FROM workspace_auth_tokens
-		WHERE token_hash = $1 AND revoked_at IS NULL
+		SELECT t.id, t.workspace_id
+		FROM workspace_auth_tokens t
+		JOIN workspaces w ON w.id = t.workspace_id
+		WHERE t.token_hash = $1
+		  AND t.revoked_at IS NULL
+		  AND w.status != 'removed'
 	`, hash[:]).Scan(&tokenID, &workspaceID)
 	if err != nil {
 		// Includes sql.ErrNoRows — collapse to a single public-facing error
 		// so the handler can't accidentally leak which half of the check
-		// failed (bad token vs. wrong workspace).
+		// failed (bad token vs. wrong workspace vs. removed workspace).
 		return ErrInvalidToken
 	}
 	if workspaceID != expectedWorkspaceID {

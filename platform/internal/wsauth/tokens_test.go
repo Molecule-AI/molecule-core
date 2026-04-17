@@ -76,8 +76,8 @@ func TestValidateToken_HappyPath(t *testing.T) {
 		t.Fatalf("IssueToken: %v", err)
 	}
 
-	// Validate: lookup by hash returns matching workspace.
-	mock.ExpectQuery(`SELECT id, workspace_id FROM workspace_auth_tokens`).
+	// Validate: lookup by hash + JOIN returns matching workspace.
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id\s+FROM workspace_auth_tokens t\s+JOIN workspaces`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("tok-id-1", "ws-xyz"))
 	// Best-effort last_used_at update.
@@ -94,7 +94,7 @@ func TestValidateToken_WrongWorkspaceRejected(t *testing.T) {
 	db, mock := setupMock(t)
 
 	// Token belongs to ws-owner; caller claims to be ws-attacker.
-	mock.ExpectQuery(`SELECT id, workspace_id FROM workspace_auth_tokens`).
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id\s+FROM workspace_auth_tokens t\s+JOIN workspaces`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("tok-id-2", "ws-owner"))
 
 	err := ValidateToken(context.Background(), db, "ws-attacker", "some-token")
@@ -115,11 +115,28 @@ func TestValidateToken_RejectsEmptyInputs(t *testing.T) {
 
 func TestValidateToken_UnknownTokenRejected(t *testing.T) {
 	db, mock := setupMock(t)
-	mock.ExpectQuery(`SELECT id, workspace_id FROM workspace_auth_tokens`).
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id\s+FROM workspace_auth_tokens t\s+JOIN workspaces`).
 		WillReturnError(sql.ErrNoRows)
 
 	if err := ValidateToken(context.Background(), db, "ws-a", "not-a-real-token"); err != ErrInvalidToken {
 		t.Errorf("got %v, want ErrInvalidToken", err)
+	}
+}
+
+func TestValidateToken_RemovedWorkspaceRejected(t *testing.T) {
+	db, mock := setupMock(t)
+
+	// The JOIN on w.status != 'removed' filters the row out entirely,
+	// so the DB returns ErrNoRows even though the token hash matches.
+	// This is the #697 defence-in-depth case: workspace deleted but token
+	// not yet revoked (race window between RevokeAllForWorkspace and the
+	// status update).
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id\s+FROM workspace_auth_tokens t\s+JOIN workspaces`).
+		WillReturnError(sql.ErrNoRows)
+
+	err := ValidateToken(context.Background(), db, "ws-removed", "some-token")
+	if err != ErrInvalidToken {
+		t.Errorf("expected ErrInvalidToken for removed workspace, got %v", err)
 	}
 }
 
