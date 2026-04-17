@@ -781,13 +781,15 @@ func TestWorkspaceState_ValidTokenReturnsStatus(t *testing.T) {
 // without a bearer token. Sensitive fields (tier/parent_id/runtime/
 // workspace_dir) require a valid admin bearer once any live token exists.
 
-func TestWorkspaceUpdate_CosmeticField_NoBearer_FailOpen_NoTokens(t *testing.T) {
+// TestWorkspaceUpdate_CosmeticField_Passthrough verifies that a cosmetic-field
+// PATCH (name, role, x, y) is processed by the handler without any DB auth query.
+// Auth is fully enforced by WorkspaceAuth middleware before the handler runs (#680).
+func TestWorkspaceUpdate_CosmeticField_Passthrough(t *testing.T) {
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
-	// Body contains only cosmetic field → no wsauth probe ever fires.
 	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
 		WithArgs("ws-cosmetic").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -804,60 +806,44 @@ func TestWorkspaceUpdate_CosmeticField_NoBearer_FailOpen_NoTokens(t *testing.T) 
 	handler.Update(c)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("cosmetic PATCH (no bearer) should pass; got %d: %s", w.Code, w.Body.String())
+		t.Errorf("cosmetic PATCH: got %d, want 200: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestWorkspaceUpdate_SensitiveField_NoBearer_TokensExist_Rejected(t *testing.T) {
+// TestWorkspaceUpdate_SensitiveField_AuthEnforcedByMiddleware documents the #680 fix:
+// auth for PATCH /workspaces/:id is now enforced by WorkspaceAuth middleware (router
+// layer), not inside the handler. The handler processes sensitive fields (tier,
+// parent_id, runtime, workspace_dir) directly — WorkspaceAuth has already verified
+// the caller holds a valid bearer token for this specific workspace before the handler
+// runs. No in-handler wsauth DB probe fires.
+func TestWorkspaceUpdate_SensitiveField_AuthEnforcedByMiddleware(t *testing.T) {
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
-	// HasAnyLiveTokenGlobal returns 1 — tokens exist on the platform.
-	mock.ExpectQuery("SELECT COUNT.*FROM workspace_auth_tokens").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-sensitive"}}
-	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-sensitive",
-		bytes.NewBufferString(`{"tier":4}`))
-	c.Request.Header.Set("Content-Type", "application/json")
-	// No Authorization header — must fail closed.
-	handler.Update(c)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("sensitive PATCH without bearer: got %d, want 401 (%s)", w.Code, w.Body.String())
-	}
-}
-
-func TestWorkspaceUpdate_SensitiveField_NoTokensYet_FailOpen(t *testing.T) {
-	mock := setupTestDB(t)
-	setupTestRedis(t)
-	broadcaster := newTestBroadcaster()
-	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
-
-	// HasAnyLiveTokenGlobal returns 0 — fresh install, fail-open.
-	mock.ExpectQuery("SELECT COUNT.*FROM workspace_auth_tokens").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	// No workspace_auth_tokens query expected — auth is middleware's responsibility.
 	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
-		WithArgs("ws-bootstrap").
+		WithArgs("ws-owned").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectExec("UPDATE workspaces SET tier").
-		WithArgs("ws-bootstrap", float64(4)).
+		WithArgs("ws-owned", float64(3)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-bootstrap"}}
-	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-bootstrap",
-		bytes.NewBufferString(`{"tier":4}`))
+	c.Params = gin.Params{{Key: "id", Value: "ws-owned"}}
+	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-owned",
+		bytes.NewBufferString(`{"tier":3}`))
 	c.Request.Header.Set("Content-Type", "application/json")
+	// WorkspaceAuth middleware would have validated the bearer before this runs.
 	handler.Update(c)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("bootstrap fail-open: got %d, want 200 (%s)", w.Code, w.Body.String())
+		t.Errorf("sensitive PATCH (auth at middleware): got %d, want 200: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
 }
 

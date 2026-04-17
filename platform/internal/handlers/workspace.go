@@ -13,7 +13,6 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/crypto"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
-	"github.com/Molecule-AI/molecule-monorepo/platform/internal/middleware"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/models"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
@@ -513,22 +512,19 @@ func (h *WorkspaceHandler) State(c *gin.Context) {
 	})
 }
 
-// sensitiveUpdateFields gates the #120/#138 field-level auth check inside
-// Update. Any key in this set requires a valid bearer token even when the
-// rest of the route is open — tier is a resource-escalation vector,
-// parent_id rewrites the A2A hierarchy, runtime swaps the container image
-// on next restart, workspace_dir redirects host bind-mounts. Cosmetic
-// fields (name, role, x, y, canvas) do not appear here and pass through
-// unauthenticated so canvas drag-reposition and inline rename keep working.
+// sensitiveUpdateFields documents fields that carry elevated risk — kept as
+// an explicit list for code readability and future audits. Auth is now fully
+// enforced at the router layer (WorkspaceAuth middleware, #680 IDOR fix);
+// this map is no longer used for in-handler gate logic but is preserved to
+// surface the risk classification clearly.
+//
+// budget_limit is intentionally NOT here — the dedicated PATCH
+// /workspaces/:id/budget (AdminAuth) is the only write path (#611).
 var sensitiveUpdateFields = map[string]struct{}{
 	"tier":          {},
 	"parent_id":     {},
 	"runtime":       {},
 	"workspace_dir": {},
-	// budget_limit is intentionally NOT here. The dedicated
-	// PATCH /workspaces/:id/budget (AdminAuth) is the only write path.
-	// Accepting it here — even behind ValidateAnyToken — lets workspace agents
-	// self-clear their own spending ceiling. (#611 Security Auditor finding)
 }
 
 // Update handles PATCH /workspaces/:id
@@ -543,37 +539,11 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
-	// #138 field-level authz: PATCH /workspaces/:id is on the open router so
-	// canvas drag-reposition (cookie-based, no bearer token) keeps working,
-	// BUT the sensitive fields below require a valid bearer via the usual
-	// admin-token check. Lazy-bootstrap: if no live admin tokens exist at all
-	// (fresh install) the check is a no-op and everyone passes through.
-	for field := range body {
-		if _, sensitive := sensitiveUpdateFields[field]; !sensitive {
-			continue
-		}
-		hasLive, hlErr := wsauth.HasAnyLiveTokenGlobal(ctx, db.DB)
-		if hlErr != nil {
-			log.Printf("wsauth: Update HasAnyLiveTokenGlobal failed: %v — allowing request", hlErr)
-			break
-		}
-		if !hasLive {
-			break // fresh install — fail-open
-		}
-		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
-		if tok == "" {
-			if middleware.IsSameOriginCanvas(c) {
-				break // tenant canvas — trusted same-origin
-			}
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "admin auth required for field: " + field})
-			return
-		}
-		if err := wsauth.ValidateAnyToken(ctx, db.DB, tok); err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
-			return
-		}
-		break // one successful validation covers the whole body
-	}
+	// Auth is fully enforced at the router layer (WorkspaceAuth middleware, #680).
+	// WorkspaceAuth validates that the caller holds a valid bearer token for this
+	// specific workspace — no additional auth gate is needed here. The
+	// sensitiveUpdateFields map above documents the risk classification for
+	// auditors but is no longer used as a runtime gate.
 
 	// #120: guard — return 404 for nonexistent workspace IDs instead of
 	// silently applying zero-row UPDATEs and returning 200.
