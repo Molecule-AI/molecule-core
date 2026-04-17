@@ -419,6 +419,12 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 		return
 	}
 
+	// Strip financial fields — GET /workspaces/:id is on the open router.
+	// Any caller with a valid UUID would otherwise read billing data.
+	// The dedicated budget/spend endpoints are AdminAuth-gated. (#611)
+	delete(ws, "budget_limit")
+	delete(ws, "monthly_spend")
+
 	c.JSON(http.StatusOK, ws)
 }
 
@@ -519,7 +525,10 @@ var sensitiveUpdateFields = map[string]struct{}{
 	"parent_id":     {},
 	"runtime":       {},
 	"workspace_dir": {},
-	"budget_limit":  {}, // cost-control ceiling — requires admin auth to change
+	// budget_limit is intentionally NOT here. The dedicated
+	// PATCH /workspaces/:id/budget (AdminAuth) is the only write path.
+	// Accepting it here — even behind ValidateAnyToken — lets workspace agents
+	// self-clear their own spending ceiling. (#611 Security Auditor finding)
 }
 
 // Update handles PATCH /workspaces/:id
@@ -617,26 +626,10 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 		}
 		needsRestart = true
 	}
-	if budgetLimitVal, ok := body["budget_limit"]; ok {
-		// Allow null to clear (remove) the budget ceiling.
-		// Non-null values come in as JSON float64 from map[string]interface{}
-		// — convert to int64 for storage (USD cents).
-		var budgetArg interface{}
-		if budgetLimitVal != nil {
-			switch v := budgetLimitVal.(type) {
-			case float64:
-				budgetArg = int64(v)
-			case int64:
-				budgetArg = v
-			default:
-				c.JSON(http.StatusBadRequest, gin.H{"error": "budget_limit must be an integer (USD cents) or null"})
-				return
-			}
-		}
-		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET budget_limit = $2, updated_at = now() WHERE id = $1`, id, budgetArg); err != nil {
-			log.Printf("Update budget_limit error for %s: %v", id, err)
-		}
-	}
+	// NOTE: budget_limit is intentionally NOT handled here. The dedicated
+	// PATCH /workspaces/:id/budget (AdminAuth) is the only write path.
+	// This endpoint uses ValidateAnyToken — any enrolled workspace bearer
+	// could otherwise self-clear its own spending ceiling. (#611 Security Auditor)
 
 	// Update canvas position if both x and y provided
 	if x, xOk := body["x"]; xOk {
