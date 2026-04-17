@@ -19,6 +19,8 @@ const (
 	slackHTTPTimeout   = 10 * time.Second
 )
 
+var slackHTTPClient = &http.Client{Timeout: slackHTTPTimeout}
+
 // SlackAdapter implements ChannelAdapter for Slack Incoming Webhooks.
 //
 // Outbound messages are sent via Slack Incoming Webhooks (the simple,
@@ -101,14 +103,12 @@ func (s *SlackAdapter) sendBotMessage(ctx context.Context, config map[string]int
 		req.Header.Set("Content-Type", "application/json; charset=utf-8")
 		req.Header.Set("Authorization", "Bearer "+botToken)
 
-		client := &http.Client{Timeout: slackHTTPTimeout}
-		resp, err := client.Do(req)
+		resp, err := slackHTTPClient.Do(req)
 		if err != nil {
 			return fmt.Errorf("slack: send: %w", err)
 		}
-		defer resp.Body.Close()
-
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
 		var result struct {
 			OK    bool   `json:"ok"`
 			Error string `json:"error"`
@@ -140,12 +140,10 @@ func (s *SlackAdapter) sendWebhookMessage(ctx context.Context, config map[string
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: slackHTTPTimeout}
-	resp, err := client.Do(req)
+	resp, err := slackHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("slack: send: %w", err)
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -206,27 +204,34 @@ func (s *SlackAdapter) ParseWebhook(c *gin.Context, _ map[string]interface{}) (*
 
 		var payload struct {
 			Type      string `json:"type"`
-			Challenge string `json:"challenge"` // url_verification
+			Challenge string `json:"challenge"`
 			Event     struct {
 				Type    string `json:"type"`
 				User    string `json:"user"`
 				Text    string `json:"text"`
 				Channel string `json:"channel"`
 				Ts      string `json:"ts"`
+				BotID   string `json:"bot_id"`
+				Subtype string `json:"subtype"`
 			} `json:"event"`
 		}
 		if err := json.Unmarshal(body, &payload); err != nil {
 			return nil, fmt.Errorf("slack: parse event: %w", err)
 		}
 
-		// url_verification handshake — no message, respond via the handler layer
+		// url_verification handshake — respond with challenge directly
 		if payload.Type == "url_verification" {
-			log.Printf("Channels: Slack url_verification challenge (not handled by ParseWebhook)")
+			c.JSON(200, gin.H{"challenge": payload.Challenge})
 			return nil, nil
 		}
 
+		// Ignore bot messages to prevent echo loops. Our own auto-posts
+		// via chat.postMessage fire Events API callbacks with bot_id set.
+		if payload.Event.BotID != "" || payload.Event.Subtype == "bot_message" {
+			return nil, nil
+		}
 		if payload.Event.Type != "message" || payload.Event.Text == "" {
-			return nil, nil // Ignore non-message events
+			return nil, nil
 		}
 
 		text = payload.Event.Text

@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -449,12 +450,16 @@ func (h *ChannelHandler) Webhook(c *gin.Context) {
 	// in a shared channel and route to a specific agent.
 	targetSlug := ""
 	routedText := msg.Text
+	validSlugRe := regexp.MustCompile(`^[a-zA-Z0-9 _-]+$`)
 	if len(msg.Text) > 2 && msg.Text[0] == '[' {
 		if idx := strings.Index(msg.Text, "]"); idx > 1 && idx < 40 {
-			targetSlug = strings.ToLower(strings.TrimSpace(msg.Text[1:idx]))
-			routedText = strings.TrimSpace(msg.Text[idx+1:])
-			if routedText == "" {
-				routedText = msg.Text // Don't send empty — keep original
+			candidate := strings.ToLower(strings.TrimSpace(msg.Text[1:idx]))
+			if validSlugRe.MatchString(candidate) {
+				targetSlug = candidate
+				routedText = strings.TrimSpace(msg.Text[idx+1:])
+				if routedText == "" {
+					routedText = msg.Text
+				}
 			}
 		}
 	}
@@ -543,7 +548,9 @@ func (h *ChannelHandler) Webhook(c *gin.Context) {
 	// Process asynchronously — don't block the webhook response
 	go func() {
 		bgCtx := context.Background()
-		_ = h.manager.HandleInbound(bgCtx, ch, msg)
+		if err := h.manager.HandleInbound(bgCtx, ch, msg); err != nil {
+			log.Printf("Channels: async HandleInbound error for workspace %s: %v", ch.WorkspaceID[:12], err)
+		}
 	}()
 
 	c.JSON(http.StatusOK, gin.H{"status": "accepted"})

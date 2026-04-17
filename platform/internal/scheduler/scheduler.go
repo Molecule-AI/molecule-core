@@ -379,7 +379,11 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 	if s.channels != nil && lastStatus == "ok" && !isEmpty {
 		summary := s.extractResponseSummary(respBody)
 		if summary != "" {
-			go s.channels.BroadcastToWorkspaceChannels(ctx, sched.WorkspaceID, summary)
+			go func(wsID, text string) {
+				postCtx, postCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer postCancel()
+				s.channels.BroadcastToWorkspaceChannels(postCtx, wsID, text)
+			}(sched.WorkspaceID, summary)
 		}
 	}
 }

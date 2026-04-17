@@ -449,9 +449,10 @@ func (m *Manager) BroadcastToWorkspaceChannels(ctx context.Context, workspaceID,
 	if text == "" || db.DB == nil {
 		return
 	}
-	// Truncate to keep Slack messages digestible
-	if len(text) > 500 {
-		text = text[:497] + "..."
+	// Truncate to keep Slack messages digestible (rune-safe for CJK/emoji)
+	runes := []rune(text)
+	if len(runes) > 500 {
+		text = string(runes[:497]) + "..."
 	}
 	rows, err := db.DB.QueryContext(ctx, `
 		SELECT id FROM workspace_channels
