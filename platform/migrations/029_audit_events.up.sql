@@ -1,4 +1,4 @@
--- 028_audit_events.up.sql
+-- 029_audit_events.up.sql
 -- Append-only HMAC-chained agent event log for EU AI Act Annex III compliance.
 -- Art. 12 record-keeping + Art. 13 transparency.
 --
