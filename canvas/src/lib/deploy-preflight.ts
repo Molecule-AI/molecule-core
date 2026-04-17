@@ -17,6 +17,8 @@ export const RUNTIME_REQUIRED_KEYS: Record<string, string[]> = {
   deepagents: ["OPENAI_API_KEY"],
   crewai: ["OPENAI_API_KEY"],
   autogen: ["OPENAI_API_KEY"],
+  hermes: ["OPENROUTER_API_KEY"],
+  "gemini-cli": ["GOOGLE_API_KEY"],
 };
 
 /** Human-readable labels for common secret keys */
@@ -26,6 +28,8 @@ export const KEY_LABELS: Record<string, string> = {
   GOOGLE_API_KEY: "Google AI API Key",
   SERP_API_KEY: "SERP API Key",
   OPENROUTER_API_KEY: "OpenRouter API Key",
+  HERMES_API_KEY: "Nous Research API Key",
+  DEEPSEEK_API_KEY: "DeepSeek API Key",
 };
 
 /* ---------- Types ---------- */
