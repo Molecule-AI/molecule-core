@@ -7,8 +7,41 @@ on:
     branches: [main]
 
 jobs:
+  # Detect which paths changed so downstream jobs can skip when only
+  # docs/markdown files were modified. Saves ~15 min of runner time per
+  # docs-only PR.
+  changes:
+    name: Detect changes
+    runs-on: [self-hosted, macos, arm64]
+    outputs:
+      platform: ${{ steps.filter.outputs.platform }}
+      canvas: ${{ steps.filter.outputs.canvas }}
+      python: ${{ steps.filter.outputs.python }}
+      scripts: ${{ steps.filter.outputs.scripts }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            platform:
+              - 'platform/**'
+              - '.github/workflows/ci.yml'
+            canvas:
+              - 'canvas/**'
+              - '.github/workflows/ci.yml'
+            python:
+              - 'workspace-template/**'
+              - '.github/workflows/ci.yml'
+            scripts:
+              - 'tests/e2e/**'
+              - 'scripts/**'
+              - '.github/workflows/ci.yml'
+
   platform-build:
     name: Platform (Go)
+    needs: changes
+    if: needs.changes.outputs.platform == 'true'
     runs-on: [self-hosted, macos, arm64]
     defaults:
       run:
@@ -43,6 +76,8 @@ jobs:
 
   canvas-build:
     name: Canvas (Next.js)
+    needs: changes
+    if: needs.changes.outputs.canvas == 'true'
     runs-on: [self-hosted, macos, arm64]
     defaults:
       run:
@@ -67,6 +102,8 @@ jobs:
 
   shellcheck:
     name: Shellcheck (E2E scripts)
+    needs: changes
+    if: needs.changes.outputs.scripts == 'true'
     runs-on: [self-hosted, macos, arm64]
     steps:
       - uses: actions/checkout@v4
@@ -84,7 +121,8 @@ jobs:
   canvas-deploy-reminder:
     name: Canvas Deploy Reminder
     runs-on: [self-hosted, macos, arm64]
-    needs: canvas-build
+    needs: [changes, canvas-build]
+    if: needs.changes.outputs.canvas == 'true'
     # Only fires on direct pushes to main (i.e. after a PR merges).
     # PRs get canvas-build CI but no reminder — no deployment happens on PRs.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -128,6 +166,8 @@ jobs:
 
   python-lint:
     name: Python Lint & Test
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
     runs-on: [self-hosted, macos, arm64]
     defaults:
       run:
