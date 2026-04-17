@@ -299,3 +299,85 @@ describe("CreateWorkspaceDialog — Hermes provider picker", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// budget_limit field tests (#541)
+// ---------------------------------------------------------------------------
+
+describe("CreateWorkspaceDialog — budget_limit field", () => {
+  it("renders a Budget limit (USD) input", async () => {
+    await openDialog();
+    const budgetInput = screen.getByPlaceholderText("e.g. 100");
+    expect(budgetInput).toBeTruthy();
+  });
+
+  it("renders helper text 'Leave blank for unlimited'", async () => {
+    await openDialog();
+    expect(screen.getByText("Leave blank for unlimited")).toBeTruthy();
+  });
+
+  it("sends budget_limit as a number when a value is entered", async () => {
+    await openDialog();
+    fireEvent.change(screen.getByPlaceholderText("e.g. SEO Agent"), {
+      target: { value: "Budget Agent" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("e.g. 100"), {
+      target: { value: "250" },
+    });
+    const createBtn = screen.getAllByRole("button").find((b) => b.textContent === "Create");
+    fireEvent.click(createBtn!);
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    const body = mockPost.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.budget_limit).toBe(250);
+  });
+
+  it("sends budget_limit as null when the field is left blank", async () => {
+    await openDialog();
+    fireEvent.change(screen.getByPlaceholderText("e.g. SEO Agent"), {
+      target: { value: "Unlimited Agent" },
+    });
+    // Leave budget_limit empty
+    const createBtn = screen.getAllByRole("button").find((b) => b.textContent === "Create");
+    fireEvent.click(createBtn!);
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    const body = mockPost.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.budget_limit).toBeNull();
+  });
+
+  it("sends budget_limit as a float when a decimal value is entered", async () => {
+    await openDialog();
+    fireEvent.change(screen.getByPlaceholderText("e.g. SEO Agent"), {
+      target: { value: "Float Budget Agent" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("e.g. 100"), {
+      target: { value: "49.99" },
+    });
+    const createBtn = screen.getAllByRole("button").find((b) => b.textContent === "Create");
+    fireEvent.click(createBtn!);
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    const body = mockPost.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.budget_limit).toBeCloseTo(49.99);
+  });
+
+  it("resets budget_limit to empty when dialog is reopened", async () => {
+    await openDialog();
+    fireEvent.change(screen.getByPlaceholderText("e.g. 100"), {
+      target: { value: "500" },
+    });
+
+    // Close dialog
+    const cancelBtn = screen.getAllByRole("button").find((b) =>
+      b.textContent === "Cancel"
+    );
+    fireEvent.click(cancelBtn!);
+    cleanup();
+
+    // Re-open
+    await openDialog();
+    const budgetInput = screen.getByPlaceholderText("e.g. 100") as HTMLInputElement;
+    expect(budgetInput.value).toBe("");
+  });
+});
