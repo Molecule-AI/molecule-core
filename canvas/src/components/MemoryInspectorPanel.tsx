@@ -13,6 +13,12 @@ interface MemoryEntry {
   /** Omitted by the API when there is no TTL (Go omitempty) */
   expires_at?: string;
   updated_at: string;
+  /**
+   * Semantic similarity score (0–1). Only present when the API is queried
+   * with ?q=<query> and the pgvector backend has been deployed (issue #776).
+   * Absent on plain list fetches — renders gracefully without a badge.
+   */
+  similarity_score?: number;
 }
 
 interface WriteResult {
@@ -35,6 +41,28 @@ function formatRelativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+// ── Skeleton rows — shown during re-fetches when entries already exist ────────
+
+function MemorySkeletonRows() {
+  return (
+    <div className="space-y-1.5" aria-busy="true" aria-label="Loading entries">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div
+          key={i}
+          className="rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-3 py-3 animate-pulse"
+        >
+          <div className="flex items-center gap-2">
+            <div className="h-2 rounded bg-zinc-700/50 flex-1" />
+            <div className="h-2 rounded bg-zinc-700/50 w-8" />
+            <div className="h-2 rounded bg-zinc-700/50 w-6" />
+            <div className="h-2 rounded bg-zinc-700/50 w-10" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function MemoryInspectorPanel({ workspaceId }: Props) {
@@ -42,7 +70,26 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Expand/edit/delete state — keyed by entry.key (string primitive, no new objects)
+  // ── Search state ────────────────────────────────────────────────────────────
+  /** Raw input value — updated on every keystroke. */
+  const [searchQuery, setSearchQuery] = useState("");
+  /**
+   * Debounced value — drives the API fetch.
+   * Lags searchQuery by 300 ms to avoid hammering the endpoint on every key.
+   */
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+
+  // 300 ms debounce: cancel previous timer whenever searchQuery changes.
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setDebouncedQuery(searchQuery.trim()),
+      300
+    );
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // ── Expand/edit/delete state (keyed by entry.key — primitives, no new objects)
+
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -56,16 +103,25 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
     setLoading(true);
     setError(null);
     try {
-      // API returns MemoryEntry[] (flat array, never wrapped, never null)
-      const data = await api.get<MemoryEntry[]>(`/workspaces/${workspaceId}/memory`);
-      setEntries(data);
+      const url = debouncedQuery
+        ? `/workspaces/${workspaceId}/memory?q=${encodeURIComponent(debouncedQuery)}`
+        : `/workspaces/${workspaceId}/memory`;
+      const data = await api.get<MemoryEntry[]>(url);
+      // When a semantic query is active, sort by similarity_score descending.
+      // Entries without a score (older backend) fall to the end gracefully.
+      const sorted = debouncedQuery
+        ? [...data].sort(
+            (a, b) => (b.similarity_score ?? 0) - (a.similarity_score ?? 0)
+          )
+        : data;
+      setEntries(sorted);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load memory entries");
       setEntries([]);
     } finally {
       setLoading(false);
     }
-  }, [workspaceId]);
+  }, [workspaceId, debouncedQuery]);
 
   useEffect(() => {
     loadEntries();
@@ -87,7 +143,6 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
 
   const saveEdit = useCallback(
     async (entry: MemoryEntry) => {
-      // Validate JSON before touching network
       let parsed: unknown;
       try {
         parsed = JSON.parse(editValue);
@@ -129,7 +184,9 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
         setEditValue(JSON.stringify(entry.value, null, 2));
         const msg = e instanceof Error ? e.message : "Save failed";
         if (msg.includes("409") || msg.toLowerCase().includes("mismatch")) {
-          setEditError("Version conflict — entry changed elsewhere. Reload to see latest.");
+          setEditError(
+            "Version conflict — entry changed elsewhere. Reload to see latest."
+          );
         } else {
           setEditError(msg);
         }
@@ -152,9 +209,10 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
     if (expandedKey === key) setExpandedKey(null);
 
     try {
-      await api.del(`/workspaces/${workspaceId}/memory/${encodeURIComponent(key)}`);
+      await api.del(
+        `/workspaces/${workspaceId}/memory/${encodeURIComponent(key)}`
+      );
     } catch (e) {
-      // On failure, reload to restore the true state
       setError(e instanceof Error ? e.message : "Delete failed — reloading...");
       await loadEntries();
     }
@@ -162,7 +220,8 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
-  if (loading) {
+  // Full-screen loader — only on the very first fetch (no entries cached yet).
+  if (loading && entries.length === 0 && !error) {
     return (
       <div className="flex items-center justify-center h-32">
         <span className="text-xs text-zinc-500">Loading memory…</span>
@@ -172,10 +231,54 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Search bar */}
+      <div className="px-4 pt-3 pb-2 border-b border-zinc-800/40 shrink-0">
+        <div className="relative flex items-center">
+          {/* Magnifying glass icon */}
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 16 16"
+            fill="none"
+            className="absolute left-2.5 text-zinc-500 pointer-events-none shrink-0"
+            aria-hidden="true"
+          >
+            <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Semantic search…"
+            aria-label="Search memory entries"
+            className="w-full bg-zinc-900 border border-zinc-700/60 focus:border-blue-500/60 rounded-lg pl-8 pr-7 py-1.5 text-[11px] text-zinc-200 placeholder-zinc-600 focus:outline-none transition-colors"
+          />
+          {/* Clear button — only shown when there is a query */}
+          {searchQuery && (
+            <button
+              onClick={() => {
+                setSearchQuery("");
+                // Skip the debounce delay for clear — reset immediately
+                setDebouncedQuery("");
+              }}
+              aria-label="Clear search"
+              className="absolute right-2 text-zinc-500 hover:text-zinc-200 transition-colors text-sm leading-none"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Toolbar */}
-      <div className="px-4 py-3 border-b border-zinc-800/40 flex items-center justify-between shrink-0">
+      <div className="px-4 py-2.5 border-b border-zinc-800/40 flex items-center justify-between shrink-0">
         <span className="text-[11px] text-zinc-500">
-          {entries.length === 1 ? "1 entry" : `${entries.length} entries`}
+          {debouncedQuery
+            ? `${entries.length} result${entries.length !== 1 ? "s" : ""}`
+            : entries.length === 1
+            ? "1 entry"
+            : `${entries.length} entries`}
         </span>
         <button
           onClick={loadEntries}
@@ -188,22 +291,49 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
 
       {/* Error banner */}
       {error && (
-        <div className="mx-4 mt-3 px-3 py-2 bg-red-950/30 border border-red-800/40 rounded text-xs text-red-400">
+        <div className="mx-4 mt-3 px-3 py-2 bg-red-950/30 border border-red-800/40 rounded text-xs text-red-400 shrink-0">
           {error}
         </div>
       )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
-        {entries.length === 0 ? (
-          /* Empty state */
-          <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
-            <span className="text-4xl text-zinc-700" aria-hidden="true">◇</span>
-            <p className="text-sm font-medium text-zinc-400">No memory entries yet</p>
-            <p className="text-[11px] text-zinc-600 max-w-[200px] leading-relaxed">
-              Memory entries will appear here when the workspace writes to its KV store.
-            </p>
-          </div>
+        {loading ? (
+          /* Skeleton rows — visible during search-transition re-fetches */
+          <MemorySkeletonRows />
+        ) : entries.length === 0 ? (
+          debouncedQuery ? (
+            /* Search-specific empty state */
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+              <span className="text-4xl text-zinc-700" aria-hidden="true">◇</span>
+              <p className="text-sm font-medium text-zinc-400">
+                No memories match your search
+              </p>
+              <p className="text-[11px] text-zinc-600 max-w-[200px] leading-relaxed">
+                Try a different query or{" "}
+                <button
+                  onClick={() => {
+                    setSearchQuery("");
+                    setDebouncedQuery("");
+                  }}
+                  className="text-blue-500 hover:text-blue-400 underline transition-colors"
+                >
+                  clear the search
+                </button>
+                .
+              </p>
+            </div>
+          ) : (
+            /* Default empty state */
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+              <span className="text-4xl text-zinc-700" aria-hidden="true">◇</span>
+              <p className="text-sm font-medium text-zinc-400">No memory entries yet</p>
+              <p className="text-[11px] text-zinc-600 max-w-[200px] leading-relaxed">
+                Memory entries will appear here when the workspace writes to its KV
+                store.
+              </p>
+            </div>
+          )
         ) : (
           <div className="space-y-1.5">
             {entries.map((entry) => {
@@ -294,6 +424,16 @@ function MemoryEntryRow({
         <span className="text-[9px] text-zinc-600 shrink-0 font-mono">
           v{entry.version}
         </span>
+        {/* Similarity score badge — only rendered when backend provides a score */}
+        {entry.similarity_score != null && (
+          <span
+            className="text-[9px] text-zinc-500 shrink-0 font-mono tabular-nums"
+            title={`Similarity: ${(entry.similarity_score * 100).toFixed(1)}%`}
+            data-testid="similarity-badge"
+          >
+            {Math.round(entry.similarity_score * 100)}%
+          </span>
+        )}
         <span className="text-[9px] text-zinc-600 shrink-0">
           {formatRelativeTime(entry.updated_at)}
         </span>
