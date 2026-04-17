@@ -33,7 +33,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HELPER_SCRIPT="${SCRIPT_DIR}/scripts/molecule-git-token-helper.sh"
-RUNTIMES=(langgraph claude-code openclaw crewai autogen deepagents)
+VALID_RUNTIMES=(langgraph claude-code openclaw crewai autogen deepagents)
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -45,9 +45,21 @@ err()  { echo -e "${RED}[rebuild]${NC} $1"; }
 
 # ─────────────────────────────────────────────────────
 # Argument: optional single runtime to rebuild
+# Allowlist-validated: $1 must be one of VALID_RUNTIMES.
+# Prevents path traversal and unexpected Docker tag injection.
 # ─────────────────────────────────────────────────────
-if [ "${1:-}" != "" ]; then
+if [ -n "${1:-}" ]; then
+  valid=0
+  for v in "${VALID_RUNTIMES[@]}"; do
+    [ "$1" = "$v" ] && valid=1 && break
+  done
+  if [ "${valid}" -eq 0 ]; then
+    err "Unknown runtime '${1}'. Valid: ${VALID_RUNTIMES[*]}"
+    exit 1
+  fi
   RUNTIMES=("$1")
+else
+  RUNTIMES=("${VALID_RUNTIMES[@]}")
 fi
 
 # ─────────────────────────────────────────────────────
