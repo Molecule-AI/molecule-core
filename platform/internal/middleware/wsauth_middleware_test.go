@@ -23,7 +23,7 @@ import (
 const hasAnyLiveTokenGlobalQuery = "SELECT COUNT.*FROM workspace_auth_tokens"
 
 // validateTokenQuery is matched for ValidateToken (SELECT).
-const validateTokenSelectQuery = "SELECT id, workspace_id.*FROM workspace_auth_tokens.*token_hash"
+const validateTokenSelectQuery = "SELECT t\\.id, t\\.workspace_id.*FROM workspace_auth_tokens t.*JOIN workspaces"
 
 // validateAnyTokenQuery is matched for ValidateAnyToken (SELECT).
 const validateAnyTokenSelectQuery = "SELECT id.*FROM workspace_auth_tokens.*token_hash"

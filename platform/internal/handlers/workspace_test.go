@@ -752,7 +752,7 @@ func TestWorkspaceState_ValidTokenReturnsStatus(t *testing.T) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM workspace_auth_tokens`).
 		WithArgs(stateWsID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery(`SELECT id, workspace_id FROM workspace_auth_tokens`).
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id.*FROM workspace_auth_tokens t.*JOIN workspaces`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("t1", stateWsID))
 	mock.ExpectExec(`UPDATE workspace_auth_tokens SET last_used_at`).

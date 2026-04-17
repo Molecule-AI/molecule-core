@@ -76,8 +76,8 @@ func TestValidateToken_HappyPath(t *testing.T) {
 		t.Fatalf("IssueToken: %v", err)
 	}
 
-	// Validate: lookup by hash returns matching workspace.
-	mock.ExpectQuery(`SELECT id, workspace_id FROM workspace_auth_tokens`).
+	// Validate: lookup by hash with removed-workspace JOIN returns matching row.
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id.*FROM workspace_auth_tokens t.*JOIN workspaces`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("tok-id-1", "ws-xyz"))
 	// Best-effort last_used_at update.
@@ -94,7 +94,7 @@ func TestValidateToken_WrongWorkspaceRejected(t *testing.T) {
 	db, mock := setupMock(t)
 
 	// Token belongs to ws-owner; caller claims to be ws-attacker.
-	mock.ExpectQuery(`SELECT id, workspace_id FROM workspace_auth_tokens`).
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id.*FROM workspace_auth_tokens t.*JOIN workspaces`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("tok-id-2", "ws-owner"))
 
 	err := ValidateToken(context.Background(), db, "ws-attacker", "some-token")
@@ -115,11 +115,30 @@ func TestValidateToken_RejectsEmptyInputs(t *testing.T) {
 
 func TestValidateToken_UnknownTokenRejected(t *testing.T) {
 	db, mock := setupMock(t)
-	mock.ExpectQuery(`SELECT id, workspace_id FROM workspace_auth_tokens`).
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id.*FROM workspace_auth_tokens t.*JOIN workspaces`).
 		WillReturnError(sql.ErrNoRows)
 
 	if err := ValidateToken(context.Background(), db, "ws-a", "not-a-real-token"); err != ErrInvalidToken {
 		t.Errorf("got %v, want ErrInvalidToken", err)
+	}
+}
+
+// TestValidateToken_RemovedWorkspaceRejected — defense-in-depth (#697):
+// a token belonging to a workspace with status='removed' must be rejected
+// even when the token row itself is still live (revoked_at IS NULL).
+// The JOIN on workspaces with AND w.status != 'removed' filters the row
+// out at the DB layer, returning ErrNoRows which collapses to ErrInvalidToken.
+func TestValidateToken_RemovedWorkspaceRejected(t *testing.T) {
+	db, mock := setupMock(t)
+
+	// JOIN with w.status != 'removed' causes no rows — same path as ErrNoRows.
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id.*FROM workspace_auth_tokens t.*JOIN workspaces`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"})) // empty: workspace removed
+
+	err := ValidateToken(context.Background(), db, "ws-removed", "token-for-removed-workspace")
+	if err != ErrInvalidToken {
+		t.Errorf("removed workspace token: expected ErrInvalidToken, got %v", err)
 	}
 }
 
