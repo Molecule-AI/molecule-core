@@ -501,7 +501,7 @@ describe("MemoryInspectorPanel — semantic search", () => {
     expect(badge?.className).not.toContain("text-zinc-600");
   });
 
-  it("colors similarity-badge zinc-600 when score is below 0.5", async () => {
+  it("colors similarity-badge zinc-400 italic with tilde prefix when score is below 0.5", async () => {
     mockGet.mockResolvedValue([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       { ...ENTRY_A, similarity_score: 0.31 },
@@ -509,9 +509,11 @@ describe("MemoryInspectorPanel — semantic search", () => {
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
     await waitFor(() => screen.getByText("task-queue"));
     const badge = document.querySelector('[data-testid="similarity-badge"]');
-    expect(badge?.className).toContain("text-zinc-600");
+    expect(badge?.className).toContain("text-zinc-400");
+    expect(badge?.className).toContain("italic");
     expect(badge?.className).not.toContain("text-blue-500");
-    expect(badge?.className).not.toContain("text-zinc-400");
+    expect(badge?.className).not.toContain("text-zinc-600");
+    expect(badge?.textContent).toBe("~31%");
   });
 
   it("clear button resets debouncedQuery immediately and re-fetches without ?q=", async () => {
