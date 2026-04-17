@@ -14,6 +14,8 @@ export function Toolbar() {
   const wsStatus = useCanvasStore((s) => s.wsStatus);
   const showA2AEdges = useCanvasStore((s) => s.showA2AEdges);
   const setShowA2AEdges = useCanvasStore((s) => s.setShowA2AEdges);
+  const selectedNodeId = useCanvasStore((s) => s.selectedNodeId);
+  const setPanelTab = useCanvasStore((s) => s.setPanelTab);
 
   const [stopping, setStopping] = useState(false);
   const [restartingAll, setRestartingAll] = useState(false);
@@ -214,6 +216,34 @@ export function Toolbar() {
           />
         </svg>
         <span className="text-[10px] font-medium">A2A</span>
+      </button>
+
+      {/* Audit trail shortcut — switches selected workspace's panel to the Audit tab */}
+      <button
+        onClick={() => {
+          if (selectedNodeId) {
+            setPanelTab("audit");
+          } else {
+            showToast("Select a workspace to view its audit trail", "info");
+          }
+        }}
+        aria-label="Open audit trail for selected workspace"
+        title="View audit ledger for the selected workspace"
+        className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-700/40 rounded-lg transition-colors text-zinc-500 hover:text-zinc-300"
+      >
+        {/* Scroll / ledger icon */}
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 16 16"
+          fill="none"
+          className="shrink-0"
+          aria-hidden="true"
+        >
+          <rect x="3" y="2" width="10" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+          <path d="M6 5.5h4M6 8h4M6 10.5h2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+        </svg>
+        <span className="text-[10px] font-medium">Audit</span>
       </button>
 
       {/* Search shortcut */}

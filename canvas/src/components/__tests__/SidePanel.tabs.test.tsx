@@ -19,6 +19,7 @@ vi.mock("../tabs/EventsTab", () => ({ EventsTab: () => null }));
 vi.mock("../tabs/ActivityTab", () => ({ ActivityTab: () => null }));
 vi.mock("../tabs/ScheduleTab", () => ({ ScheduleTab: () => null }));
 vi.mock("../tabs/ChannelsTab", () => ({ ChannelsTab: () => null }));
+vi.mock("../AuditTrailPanel", () => ({ AuditTrailPanel: () => null }));
 
 // ── Mock StatusDot and Tooltip ───────────────────────────────────────────────
 vi.mock("../StatusDot", () => ({ StatusDot: () => null }));
@@ -67,7 +68,7 @@ import { SidePanel } from "../SidePanel";
 
 const TABS = [
   "chat", "activity", "details", "skills", "terminal",
-  "config", "schedule", "channels", "files", "memory", "traces", "events",
+  "config", "schedule", "channels", "files", "memory", "traces", "events", "audit",
 ];
 
 describe("SidePanel — ARIA tablist pattern", () => {
@@ -78,10 +79,10 @@ describe("SidePanel — ARIA tablist pattern", () => {
     expect(tablist.getAttribute("aria-label")).toBe("Workspace panel tabs");
   });
 
-  it("renders exactly 12 tab buttons", () => {
+  it("renders exactly 13 tab buttons", () => {
     render(<SidePanel />);
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.length).toBe(12);
+    expect(tabs.length).toBe(13);
   });
 
   it("active tab (chat) has aria-selected='true'", () => {
@@ -92,11 +93,11 @@ describe("SidePanel — ARIA tablist pattern", () => {
     expect(chatTab?.getAttribute("aria-selected")).toBe("true");
   });
 
-  it("all other 11 tabs have aria-selected='false'", () => {
+  it("all other 12 tabs have aria-selected='false'", () => {
     render(<SidePanel />);
     const tabs = screen.getAllByRole("tab");
     const inactive = tabs.filter((t) => t.id !== "tab-chat");
-    expect(inactive.length).toBe(11);
+    expect(inactive.length).toBe(12);
     for (const tab of inactive) {
       expect(tab.getAttribute("aria-selected")).toBe("false");
     }
@@ -109,7 +110,7 @@ describe("SidePanel — ARIA tablist pattern", () => {
     const minusOnes = tabs.filter((t) => t.getAttribute("tabindex") === "-1");
     expect(zeros.length).toBe(1);
     expect(zeros[0].id).toBe("tab-chat");
-    expect(minusOnes.length).toBe(11);
+    expect(minusOnes.length).toBe(12);
   });
 
   it("active tab has aria-controls='panel-chat' and id='tab-chat'", () => {
@@ -139,11 +140,11 @@ describe("SidePanel — ARIA tablist pattern", () => {
     expect(mockSetPanelTab).toHaveBeenCalledWith("activity");
   });
 
-  it("ArrowLeft from 'chat' (first) wraps to 'events' (last)", () => {
+  it("ArrowLeft from 'chat' (first) wraps to 'audit' (last)", () => {
     render(<SidePanel />);
     const tablist = screen.getByRole("tablist");
     fireEvent.keyDown(tablist, { key: "ArrowLeft" });
-    expect(mockSetPanelTab).toHaveBeenCalledWith("events");
+    expect(mockSetPanelTab).toHaveBeenCalledWith("audit");
   });
 
   it("Home key calls setPanelTab with 'chat' (first tab)", () => {
@@ -153,11 +154,11 @@ describe("SidePanel — ARIA tablist pattern", () => {
     expect(mockSetPanelTab).toHaveBeenCalledWith("chat");
   });
 
-  it("End key calls setPanelTab with 'events' (last tab)", () => {
+  it("End key calls setPanelTab with 'audit' (last tab)", () => {
     render(<SidePanel />);
     const tablist = screen.getByRole("tablist");
     fireEvent.keyDown(tablist, { key: "End" });
-    expect(mockSetPanelTab).toHaveBeenCalledWith("events");
+    expect(mockSetPanelTab).toHaveBeenCalledWith("audit");
   });
 });
 
