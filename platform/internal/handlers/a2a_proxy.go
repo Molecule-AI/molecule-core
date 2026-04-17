@@ -175,17 +175,31 @@ func (h *WorkspaceHandler) ProxyA2A(c *gin.Context) {
 
 	callerID := c.GetHeader("X-Workspace-ID")
 
+	// #761 SECURITY: reject requests where the client-supplied X-Workspace-ID
+	// contains a system-caller prefix. isSystemCaller() bypasses both token
+	// validation and CanCommunicate. On the public /a2a endpoint, system-caller
+	// semantics only apply to callerIDs set by trusted server-side code
+	// (ProxyA2ARequest), never to HTTP header values. Legitimate system callers
+	// (webhooks, scheduler, restart_context) call proxyA2ARequest directly and
+	// never go through this HTTP handler.
+	if isSystemCaller(callerID) {
+		log.Printf("security: system-caller prefix forge attempt — remote=%q header=%q",
+			c.ClientIP(), callerID)
+		c.JSON(http.StatusForbidden, gin.H{"error": "invalid caller ID"})
+		return
+	}
+
 	// Phase 30.5 — validate the caller's auth token when the caller IS
 	// a workspace (not canvas or a system caller). Canvas requests have
 	// no X-Workspace-ID so they bypass this check (the existing
 	// access-control layer already trusts them). System callers
-	// (webhook:* / system:* / test:*) also bypass — they never hold a
-	// workspace token.
+	// (webhook:* / system:* / test:*) only reach proxyA2ARequest via
+	// the server-side ProxyA2ARequest wrapper, never via this HTTP path.
 	//
 	// The bind is strict: the token must match `callerID`, not
 	// `workspaceID` (the target). A compromised token from workspace A
 	// must never authenticate calls from A pretending to be B.
-	if callerID != "" && !isSystemCaller(callerID) && callerID != workspaceID {
+	if callerID != "" && callerID != workspaceID {
 		if err := validateCallerToken(ctx, c, callerID); err != nil {
 			return // response already written with 401
 		}
