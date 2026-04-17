@@ -12,6 +12,8 @@ import { statusDotClass } from "@/lib/design-tokens";
 export function Toolbar() {
   const nodes = useCanvasStore((s) => s.nodes);
   const wsStatus = useCanvasStore((s) => s.wsStatus);
+  const showA2AEdges = useCanvasStore((s) => s.showA2AEdges);
+  const setShowA2AEdges = useCanvasStore((s) => s.setShowA2AEdges);
 
   const [stopping, setStopping] = useState(false);
   const [restartingAll, setRestartingAll] = useState(false);
@@ -179,6 +181,40 @@ export function Toolbar() {
           </span>
         </button>
       )}
+
+      {/* A2A topology overlay toggle */}
+      <button
+        onClick={() => setShowA2AEdges(!showA2AEdges)}
+        aria-pressed={showA2AEdges}
+        aria-label={showA2AEdges ? "Hide A2A edges" : "Show A2A edges"}
+        title={showA2AEdges ? "Hide A2A delegation edges" : "Show A2A delegation edges (last 60 min)"}
+        className={`flex items-center gap-1.5 px-2.5 py-1 border rounded-lg transition-colors ${
+          showA2AEdges
+            ? "bg-blue-950/50 hover:bg-blue-900/50 border-blue-800/40 text-blue-300"
+            : "bg-zinc-800/50 hover:bg-zinc-700/50 border-zinc-700/40 text-zinc-500 hover:text-zinc-300"
+        }`}
+      >
+        {/* Mesh / network icon */}
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 16 16"
+          fill="none"
+          className="shrink-0"
+          aria-hidden="true"
+        >
+          <circle cx="3" cy="3" r="2" stroke="currentColor" strokeWidth="1.4" />
+          <circle cx="13" cy="3" r="2" stroke="currentColor" strokeWidth="1.4" />
+          <circle cx="8" cy="13" r="2" stroke="currentColor" strokeWidth="1.4" />
+          <path
+            d="M5 3h6M3.7 5l3.3 6M12.3 5l-3.3 6"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+          />
+        </svg>
+        <span className="text-[10px] font-medium">A2A</span>
+      </button>
 
       {/* Search shortcut */}
       <button
