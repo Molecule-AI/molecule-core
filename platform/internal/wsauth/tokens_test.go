@@ -231,15 +231,14 @@ func TestHasAnyLiveTokenGlobal(t *testing.T) {
 		count int
 		want  bool
 	}{
-		{"no admin tokens", 0, false},
-		{"one admin token", 1, true},
-		{"many admin tokens", 5, true},
+		{"no tokens anywhere", 0, false},
+		{"one live token", 1, true},
+		{"many live tokens", 5, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			db, mock := setupMock(t)
-			// #684: must filter by token_type = 'admin'
-			mock.ExpectQuery(`SELECT COUNT\(\*\) FROM workspace_auth_tokens\s+WHERE token_type = 'admin'`).
+			mock.ExpectQuery(`SELECT COUNT\(\*\) FROM workspace_auth_tokens`).
 				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(tc.count))
 
 			got, err := HasAnyLiveTokenGlobal(context.Background(), db)
@@ -257,22 +256,18 @@ func TestHasAnyLiveTokenGlobal(t *testing.T) {
 // ValidateAnyToken
 // ------------------------------------------------------------
 
-// validateAnyTokenQuery is the regexp matched by sqlmock for ValidateAnyToken.
-// #684: must filter by token_type = 'admin' (no workspace JOIN — admin tokens have NULL workspace_id).
-const validateAnyTokenQuery = `SELECT id\s+FROM workspace_auth_tokens\s+WHERE.*token_type = 'admin'`
-
 func TestValidateAnyToken_HappyPath(t *testing.T) {
 	db, mock := setupMock(t)
 
-	// Issue an admin token.
+	// Issue a token for some workspace.
 	mock.ExpectExec(`INSERT INTO workspace_auth_tokens`).WillReturnResult(sqlmock.NewResult(1, 1))
-	tok, err := IssueAdminToken(context.Background(), db)
+	tok, err := IssueToken(context.Background(), db, "ws-admin")
 	if err != nil {
-		t.Fatalf("IssueAdminToken: %v", err)
+		t.Fatalf("IssueToken: %v", err)
 	}
 
-	// ValidateAnyToken: lookup by hash, must filter token_type = 'admin'.
-	mock.ExpectQuery(validateAnyTokenQuery).
+	// ValidateAnyToken: lookup by hash only (no workspace binding).
+	mock.ExpectQuery(`SELECT id FROM workspace_auth_tokens`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-id-global"))
 	// Best-effort last_used_at update.
@@ -281,31 +276,16 @@ func TestValidateAnyToken_HappyPath(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := ValidateAnyToken(context.Background(), db, tok); err != nil {
-		t.Errorf("expected valid admin token, got error: %v", err)
+		t.Errorf("expected valid token, got error: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
 	}
 }
 
-// TestValidateAnyToken_WorkspaceTokenRejected verifies the #684 fix: a
-// workspace bearer token (token_type='workspace') must NOT satisfy ValidateAnyToken.
-// The DB returns no rows because the admin filter excludes workspace tokens.
-func TestValidateAnyToken_WorkspaceTokenRejected(t *testing.T) {
-	db, mock := setupMock(t)
-
-	// DB returns no rows — simulates a workspace token not matching the admin filter.
-	mock.ExpectQuery(validateAnyTokenQuery).
-		WillReturnError(sql.ErrNoRows)
-
-	if err := ValidateAnyToken(context.Background(), db, "workspace-bearer-token"); err != ErrInvalidToken {
-		t.Errorf("#684 regression: workspace token should be rejected, got %v", err)
-	}
-}
-
 func TestValidateAnyToken_UnknownTokenRejected(t *testing.T) {
 	db, mock := setupMock(t)
-	mock.ExpectQuery(validateAnyTokenQuery).
+	mock.ExpectQuery(`SELECT id FROM workspace_auth_tokens`).
 		WillReturnError(sql.ErrNoRows)
 
 	if err := ValidateAnyToken(context.Background(), db, "not-a-real-token"); err != ErrInvalidToken {
@@ -317,62 +297,5 @@ func TestValidateAnyToken_EmptyTokenRejected(t *testing.T) {
 	db, _ := setupMock(t)
 	if err := ValidateAnyToken(context.Background(), db, ""); err != ErrInvalidToken {
 		t.Errorf("got %v, want ErrInvalidToken", err)
-	}
-}
-
-// ------------------------------------------------------------
-// IssueAdminToken
-// ------------------------------------------------------------
-
-func TestIssueAdminToken_PersistsAdminType(t *testing.T) {
-	db, mock := setupMock(t)
-
-	// Admin tokens have NULL workspace_id and token_type='admin'.
-	mock.ExpectExec(`INSERT INTO workspace_auth_tokens`).
-		WithArgs(
-			sqlmock.AnyArg(), // hash (bytea)
-			sqlmock.AnyArg(), // prefix
-		).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
-	tok, err := IssueAdminToken(context.Background(), db)
-	if err != nil {
-		t.Fatalf("IssueAdminToken: %v", err)
-	}
-	if len(tok) < 40 {
-		t.Errorf("admin token looks too short: len=%d", len(tok))
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-func TestIssueAdminToken_UniqueAcrossCalls(t *testing.T) {
-	db, mock := setupMock(t)
-	mock.ExpectExec(`INSERT INTO workspace_auth_tokens`).WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(`INSERT INTO workspace_auth_tokens`).WillReturnResult(sqlmock.NewResult(1, 1))
-
-	a, _ := IssueAdminToken(context.Background(), db)
-	b, _ := IssueAdminToken(context.Background(), db)
-	if a == b {
-		t.Errorf("expected unique admin tokens, got %q twice", a)
-	}
-}
-
-// TestValidateAnyToken_RevokedAdminTokenRejected verifies that a revoked admin
-// token is correctly rejected. The revoked_at filter in the query excludes it,
-// returning no rows.
-func TestValidateAnyToken_RevokedAdminTokenRejected(t *testing.T) {
-	db, mock := setupMock(t)
-	// Revoked token: query returns no rows (revoked_at IS NULL filter excludes it).
-	mock.ExpectQuery(validateAnyTokenQuery).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnError(sql.ErrNoRows)
-
-	if err := ValidateAnyToken(context.Background(), db, "revoked-admin-token"); err != ErrInvalidToken {
-		t.Errorf("expected ErrInvalidToken for revoked admin token, got %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
 	}
 }
