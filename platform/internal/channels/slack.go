@@ -177,6 +177,10 @@ func (s *SlackAdapter) sendWebhookMessage(ctx context.Context, config map[string
 //	MD `code` → mrkdwn `code` (same)
 //	MD ```block``` → mrkdwn ```block``` (same)
 func markdownToMrkdwn(text string) string {
+	// First pass: convert markdown tables to aligned plain text.
+	// Slack has no table support — render as monospace columns.
+	text = convertTables(text)
+
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -190,10 +194,22 @@ func markdownToMrkdwn(text string) string {
 			}
 		}
 
-		// Horizontal rules
+		// Horizontal rules → simple dashes (no unicode em-dash)
 		if trimmed == "---" || trimmed == "***" || trimmed == "___" {
-			lines[i] = "———"
+			lines[i] = "----------"
 			continue
+		}
+
+		// Strikethrough: ~~text~~ → ~text~ (Slack uses single tilde)
+		for strings.Contains(lines[i], "~~") {
+			first := strings.Index(lines[i], "~~")
+			second := strings.Index(lines[i][first+2:], "~~")
+			if second < 0 {
+				break
+			}
+			second += first + 2
+			inner := lines[i][first+2 : second]
+			lines[i] = lines[i][:first] + "~" + inner + "~" + lines[i][second+2:]
 		}
 
 		// Links: [text](url) → <url|text>
@@ -230,6 +246,102 @@ func markdownToMrkdwn(text string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// convertTables finds markdown tables and renders them as monospace blocks.
+// Input:  | Col A | Col B |
+//         |-------|-------|
+//         | val1  | val2  |
+// Output: ```
+//         Col A     Col B
+//         val1      val2
+//         ```
+func convertTables(text string) string {
+	lines := strings.Split(text, "\n")
+	var result []string
+	i := 0
+	for i < len(lines) {
+		// Detect table start: line with | and next line is separator |---|
+		if strings.Contains(lines[i], "|") && i+1 < len(lines) && isTableSeparator(lines[i+1]) {
+			// Collect all table rows
+			var headers []string
+			var rows [][]string
+
+			headers = parseTableRow(lines[i])
+			i += 2 // skip header + separator
+
+			for i < len(lines) && strings.Contains(lines[i], "|") && !isTableSeparator(lines[i]) {
+				rows = append(rows, parseTableRow(lines[i]))
+				i++
+			}
+
+			// Calculate column widths
+			colWidths := make([]int, len(headers))
+			for j, h := range headers {
+				if len(h) > colWidths[j] {
+					colWidths[j] = len(h)
+				}
+			}
+			for _, row := range rows {
+				for j, cell := range row {
+					if j < len(colWidths) && len(cell) > colWidths[j] {
+						colWidths[j] = len(cell)
+					}
+				}
+			}
+
+			// Render as monospace block
+			result = append(result, "```")
+			headerLine := ""
+			for j, h := range headers {
+				headerLine += padRight(h, colWidths[j]) + "  "
+			}
+			result = append(result, strings.TrimRight(headerLine, " "))
+			// Separator
+			sepLine := ""
+			for j := range headers {
+				sepLine += strings.Repeat("-", colWidths[j]) + "  "
+			}
+			result = append(result, strings.TrimRight(sepLine, " "))
+			for _, row := range rows {
+				rowLine := ""
+				for j, cell := range row {
+					if j < len(colWidths) {
+						rowLine += padRight(cell, colWidths[j]) + "  "
+					}
+				}
+				result = append(result, strings.TrimRight(rowLine, " "))
+			}
+			result = append(result, "```")
+		} else {
+			result = append(result, lines[i])
+			i++
+		}
+	}
+	return strings.Join(result, "\n")
+}
+
+func isTableSeparator(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.Contains(trimmed, "|") && strings.Contains(trimmed, "---")
+}
+
+func parseTableRow(line string) []string {
+	line = strings.TrimSpace(line)
+	line = strings.Trim(line, "|")
+	parts := strings.Split(line, "|")
+	var cells []string
+	for _, p := range parts {
+		cells = append(cells, strings.TrimSpace(p))
+	}
+	return cells
+}
+
+func padRight(s string, width int) string {
+	if len(s) >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-len(s))
 }
 
 func slackSplitMessage(text string, maxLen int) []string {
