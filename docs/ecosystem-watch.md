@@ -88,6 +88,20 @@ snapshots:
       and sandbox memory directly competing with our workspace lifecycle model.
     source_url: https://github.com/openai/openai-agents-python/releases
 
+  - name: OpenAI Codex Agent
+    slug: openai-codex-agent
+    date: "2026-04-17"
+    version: "2026-04-17-launch"
+    stars: "N/A"
+    threat_level: high
+    notable_changes: >
+      Relaunched Apr 17 2026 as a full autonomous agent product (HN #2, 769 pts):
+      parallel subagent orchestration, cross-session project memory, autonomous
+      self-wake scheduling, macOS computer control, inline image generation —
+      distinct threat surface from openai-agents-sdk; directly overlaps our
+      workspace lifecycle, agent_memories, and workspace_schedules.
+    source_url: https://openai.com/index/codex-for-almost-everything/
+
   - name: CrewAI
     slug: crewai
     date: "2026-04-17"
@@ -95,10 +109,15 @@ snapshots:
     stars: "48k"
     threat_level: high
     notable_changes: >
-      v1.14.1 (Apr 8 2026) adds async checkpoint TUI browser; 1.4B agentic
-      automations logged, 60% Fortune 500 adoption, and $18M Insight-led round
-      make CrewAI Enterprise the dominant multi-agent framework in our target
-      enterprise segment.
+      Deep-dive 2026-04-17: Crew Studio is a real node-and-edge drag-and-drop
+      canvas (workflow design paradigm, not governance — no org hierarchy, no
+      auth audit trail). AMP Factory self-hosted confirmed: on-prem/private VPC,
+      K8s, FedRAMP High certified. A2A spec v0.3.0 first-class (client+server,
+      matches Molecule AI a2a-sdk==0.3.25) — zero-shim interop confirmed;
+      CrewAI agents recruitable as Molecule AI workers today. v1.0.0 migration
+      (Mar 2026 spec) not yet adopted by either side — shared upgrade clock.
+      ICP unchanged: moat is governance-layer canvas (#582), not visual canvas
+      alone. File FedRAMP gap as enterprise procurement tracking issue.
     source_url: https://github.com/crewAIInc/crewAI/releases
 
   - name: Google ADK
@@ -252,6 +271,20 @@ snapshots:
       + MCP support; runtime candidate for our workspace adapter — elevated to
       MEDIUM because it forms a full agent stack with Google ADK + adk-web.
     source_url: https://github.com/google-gemini/gemini-cli/releases
+
+  - name: Qwen3.6-35B-A3B
+    slug: qwen3-6-agentic
+    date: "2026-04-17"
+    version: "3.6-35B-A3B"
+    stars: "N/A"
+    threat_level: medium
+    notable_changes: >
+      Launched Apr 17 2026 (HN #1, 984 pts): open-weight MoE model (35B total,
+      3B active/token) purpose-built for agentic coding loops; frictionless
+      self-hosted adoption commoditizes the model layer for multi-agent stacks;
+      erodes API-cost moat for cloud-dependent competitors; watch VoltAgent +
+      Paperclip BYO-model builds for first-mover Qwen3.6 integration.
+    source_url: https://qwen.ai/blog?id=qwen3.6-35b-a3b
 
   # ── LOW THREAT ─────────────────────────────────────────────────────────────────────
   # Tools, infra layers, single-agent tools, or products we use — not substitutes.
@@ -479,6 +512,141 @@ snapshots:
       v0.17.2 (Apr 10 2026); AMD-backed local agent framework hardware-locked
       to Ryzen AI 300+ NPU; MCP support; not general-purpose.
     source_url: https://github.com/amd/gaia/releases
+
+  - name: Cognee
+    slug: cognee
+    date: "2026-04-17"
+    version: "v1.0.1.dev1"
+    stars: "15.8k"
+    threat_level: low
+    notable_changes: >
+      Hybrid graph+vector knowledge engine for agent memory; claude-code plugin
+      + Hermes Agent native integration; cross-agent knowledge sharing with
+      tenant isolation; reference design for closing our agent_memories gap.
+    source_url: https://github.com/topoteretes/cognee/releases
+
+  - name: Archestra
+    slug: archestra
+    date: "2026-04-17"
+    version: "platform-v1.2.15"
+    stars: "3.6k"
+    threat_level: low
+    notable_changes: >
+      Enterprise MCP registry + dual-LLM security gateway (Apr 16 2026);
+      centralized MCP server governance, Kubernetes-native, AGPL-3.0;
+      reference design for our plugin registry governance story.
+    source_url: https://github.com/archestra-ai/archestra/releases
+
+  - name: GitHub MCP Server
+    slug: github-mcp-server
+    date: "2026-04-17"
+    version: "v1.0.0"
+    stars: "28.9k"
+    threat_level: low
+    notable_changes: >
+      v1.0.0 GA (Apr 16 2026); 60+ tools across 20+ toolsets (repos, issues,
+      PRs, Actions, security, code scanning); GitHub-hosted or local Docker;
+      adopt as workspace plugin source for GitHub-native agent orgs.
+    source_url: https://github.com/github/github-mcp-server/releases
+
+  - name: Skillshare
+    slug: skillshare
+    date: "2026-04-17"
+    version: "v0.19.2"
+    stars: "1.5k"
+    threat_level: low
+    notable_changes: >
+      v0.19.2 (Apr 14 2026); Go binary syncing SKILL.md + agent configs across
+      50+ AI tools (Claude Code, Codex, OpenClaw, Cursor) via symlinks; reference
+      design for cross-tool skill distribution; direct overlap with our plugins/.
+    source_url: https://github.com/runkids/skillshare/releases
+
+  - name: Compound Engineering Plugin
+    slug: compound-engineering-plugin
+    date: "2026-04-17"
+    version: "v2.66.1"
+    stars: "14.5k"
+    threat_level: low
+    notable_changes: >
+      v2.66.1 (Apr 16 2026); TypeScript CLI distributes one plugin to 12 AI
+      runtimes simultaneously (Claude Code, Cursor, Codex, OpenClaw, Gemini,
+      Kiro, Windsurf, etc.); competing multi-runtime distribution mechanism
+      vs. our agentskills.io plugin portability strategy; 103 stars gained today.
+    source_url: https://github.com/EveryInc/compound-engineering-plugin/releases
+
+  - name: EDDI
+    slug: eddi
+    date: "2026-04-17"
+    version: "v6.0.1"
+    stars: "296"
+    threat_level: low
+    notable_changes: >
+      Show HN Apr 17 2026; config-driven multi-agent orchestration (Java/Quarkus)
+      with A2A, cron scheduling, Ed25519 cryptographic agent identity,
+      GDPR/HIPAA posture, HMAC-SHA256 immutable audit ledger, 12 LLM providers +
+      MCP; reference design for compliance-guardrails audit trail posture.
+    source_url: https://github.com/labsai/EDDI/releases
+
+  - name: Cloudflare Artifacts
+    slug: cloudflare-artifacts
+    date: "2026-04-17"
+    version: "beta"
+    stars: "N/A"
+    threat_level: low
+    notable_changes: >
+      Apr 16 2026 private beta; Git-compatible versioned workspace storage
+      for agents (programmatic repo create/fork/clone/diff, ~100KB Zig+WASM
+      Git engine) on Cloudflare Durable Objects; ArtifactFS driver open-sourced;
+      infrastructure watch — escalate to MEDIUM if Cloudflare Agents SDK
+      integrates Artifacts as a managed workspace-persistence layer.
+    source_url: https://blog.cloudflare.com/artifacts-git-for-agents-beta/
+
+  - name: dimos
+    slug: dimos
+    date: "2026-04-17"
+    version: "v0.0.11"
+    stars: "2.9k"
+    threat_level: low
+    notable_changes: >
+      GitHub trending Apr 17 2026 (+137 today); agentic OS for robotics
+      (humanoids, quadrupeds, drones, robotic arms) via natural language;
+      MCP as primary agent interface; module/blueprint architecture with
+      typed stream passing; spatial+temporal memory (SLAM + spatio-temporal
+      RAG); hardware: Unitree, AgileX, DJI, MAVLink. Python/MIT. Watch for
+      A2A support — would make robot workspaces first-class Molecule AI peers.
+    source_url: https://github.com/dimensionalOS/dimos
+
+  - name: Cloudflare Workers AI
+    slug: cloudflare-workers-ai
+    date: "2026-04-17"
+    version: "Agents Week 2026"
+    stars: "N/A"
+    threat_level: low
+    notable_changes: >
+      Agents Week Apr 2026; unified inference layer for agents: 70+ models,
+      14+ providers (OpenAI, Anthropic, Google), auto-failover, streaming
+      resilience, 330 global PoPs. Complements Cloudflare Durable Objects
+      (agent state), Artifacts (versioned storage), and Agents SDK (multi-step
+      orchestration). Cloudflare assembling full-stack agent platform.
+      Escalate to MEDIUM if Agents SDK integrates all four primitives into
+      one-click multi-agent deployment.
+    source_url: https://blog.cloudflare.com/ai-platform/
+
+  - name: EvoMap Evolver
+    slug: evomap-evolver
+    date: "2026-04-17"
+    version: "v1.67.1"
+    stars: "3.3k"
+    threat_level: low
+    notable_changes: >
+      v1.67.1 (Apr 17 2026, +812 stars today); GEP-powered A2A-native agent
+      self-evolution engine (JavaScript/GPL-3.0); worker nodes advertise
+      capability domains on A2A Hub, heartbeat every 6 min, compatible with
+      our A2A protocol; SKILL.md + networked Skill Store natively align with
+      agentskills.io; immutable EvolutionEvent JSONL is the closest open-source
+      audit ledger reference for governance canvas (#582). Integration
+      opportunity — not a direct competitor.
+    source_url: https://github.com/EvoMap/evolver/releases
 ```
 
 ---
@@ -1758,16 +1926,20 @@ and coordinates via our A2A protocol — capabilities CrewAI alone does not prov
 - "task" — their atomic unit of work assigned to an agent; our `current_task`
   heartbeat field. Same word, different scope.
 
+**A2A interop (confirmed 2026-04-17):** CrewAI implements A2A spec v0.3.0 (client + server), matching Molecule AI's `a2a-sdk[http-server]==0.3.25`. **Zero-shim interop confirmed today** — a Molecule AI org can delegate to a CrewAI A2A endpoint, and CrewAI agents can be registered as worker nodes in a Molecule AI hierarchy without any protocol shim. The shared upgrade clock: A2A spec v1.0.0 (March 12 2026) has breaking wire-format changes (`extendedAgentCard` → `AgentCapabilities`, OAuth flow restructure). Neither side has migrated yet. Schedule a coordinated v1.0.0 migration before either platform upgrades unilaterally.
+
 **Signals to react to:**
 - If CrewAI ships persistent agent state between crew runs → closes primary gap with
   our workspace model; ~48k ⭐ means it would land with significant reach.
-- If CrewAI Enterprise adds visual org-chart canvas or A2A-style inter-crew
-  communication → direct platform competitor.
+- If CrewAI Enterprise adds visual org-chart canvas → direct platform competitor (Crew
+  Studio is workflow-only, not governance org-chart — our Canvas moat intact today).
 - If the 2026 State of Agentic AI survey (65% of orgs using agents) accelerates
   CrewAI Enterprise sales → their enterprise positioning competes directly with ours;
   update ICP messaging.
+- If either side upgrades to A2A v1.0.0 before the other → breaking interop; watch
+  crewAIInc/crewAI CHANGELOG for `protocol_version` bump.
 
-**Last reviewed:** 2026-04-16 · **Stars / activity:** ~48k ⭐, v1.14.2 April 8 2026, very active
+**Last reviewed:** 2026-04-17 (A2A interop confirmed) · **Stars / activity:** ~48k ⭐, v1.14.2 April 8 2026, very active
 
 ---
 
@@ -2120,3 +2292,246 @@ consider shipping an official Molecule AI VoltAgent runtime adapter alongside ou
 langgraph/crewai adapters.
 
 **Last reviewed:** 2026-04-16 · **Stars / activity:** ~8.2k ⭐, 668 releases, latest April 11, 2026
+
+---
+
+### Cognee — `topoteretes/cognee`
+
+**Pitch:** "Knowledge Engine for AI Agent Memory in 6 lines of code — hybrid graph + vector search, runs locally, multimodal."
+
+**Shape:** Python library (Apache 2.0), ~15.8k ⭐, v1.0.1.dev1 April 15, 2026. Six-stage ingest pipeline (`cognify`): classify → permissions → chunk → LLM entity/relationship extraction → LLM summarise → embed into vector + commit graph edges. 14 retrieval modes from top-k cosine up to `GRAPH_COMPLETION` (vector → graph traversal → structured context). Default backends are file-local, zero-config: LanceDB (vectors), KuzuDB (graph), SQLite (metadata). Production upgrade path: Postgres + pgvector or Neo4j via pip extras. Enterprise tier adds cross-agent knowledge sharing with tenant isolation and OTEL tracing.
+
+**Overlap with us:** Directly addresses the same gap our `agent_memories` table targets — persistent, queryable agent knowledge across sessions. Ships a `claude-code-plugin` for session memory injection (same use case as `claude-mem`'s 56k⭐ demand signal). Native integration with Hermes Agent. The hybrid graph+vector approach (knowledge graph for relationships, vector for semantic recall) is materially more sophisticated than our current key-value `agent_memories` model.
+
+**Differentiation:** Pure memory library — no workspace lifecycle, no agent orchestration, no A2A, no canvas. Intended to be embedded into any agent framework, including Molecule AI workspaces, not to replace them.
+
+**Integration path (TR eval 2026-04-17):** **Augment, not replace** the existing key-value `agent_memories` path.
+- `cognify` fires 2–5 LLM calls per ingest — must be **async/batched** (on session flush), not inline per-turn.
+- `cognee_search (GRAPH_COMPLETION)` latency ~200–500 ms — acceptable for explicit semantic queries, not per-turn default.
+- Existing key-value path stays as primary per-turn read (10–50 ms).
+- MVP deployment: `pip install cognee` + `LLM_API_KEY` (already supplied as `ANTHROPIC_API_KEY`) + `/configs/cognee/` volume mount. **Zero new containers.**
+- Build estimate for `molecule-cognee` plugin: **~3 days** (async ingest wrapper + search skill + plugin.yaml/rules/CI). Recommended sequence: **after #573 (mcp-connector) and #574 (code-sandbox)** land.
+
+**Worth borrowing:** The four-operation memory API (`remember` / `recall` / `forget` / `improve`) is a clean contract worth adopting in our `agent_memories` API surface. The tenant-isolated cross-agent knowledge graph model (agents share a knowledge base scoped to their org) maps well to our workspace hierarchy.
+
+**Terminology collisions:** "cognify" — their ingest verb; we'd call this "index" or "ingest". "prune" — their delete; we use `DELETE /workspaces/:id/memories/:id`.
+
+**Signals to react to:** If Cognee ships a first-class MCP server → immediately relevant as a drop-in memory backend for any MCP-capable workspace. If 56k⭐ `claude-mem` users migrate to Cognee for graph-based recall → validates gap and urgency.
+
+**Last reviewed:** 2026-04-17 (TR integration eval) · **Stars / activity:** ~15.8k ⭐, v1.0.1.dev1, April 15, 2026
+
+---
+
+### Archestra — `archestra-ai/archestra`
+
+**Pitch:** "End the MCP chaos — a self-hosted enterprise platform for governing, securing, and monitoring your organization's MCP servers."
+
+**Shape:** TypeScript (AGPL-3.0), ~3.6k ⭐, platform v1.2.15 April 16, 2026. Kubernetes-native. Two main surfaces: (1) **MCP Registry** — private, shared MCP server catalog for teams; OAuth + API key management; governance controls on which teams can access which tools. (2) **Security Gateway** — dual-LLM architecture where a security sub-agent intercepts tool responses to block prompt injection and data exfiltration before results reach the primary agent. Also: per-team cost monitoring, ChatGPT-style chat UI with private prompt registry, Terraform provider + Helm chart.
+
+**Overlap with us:** Our `plugins/` registry and per-workspace plugin install system serve a similar "shared tools across an agent org" purpose. Archestra's MCP governance story (who can call which tools, cost per team, audit trail) is a more formal version of what our `POST /workspaces/:id/plugins` API provides informally. The dual-LLM security gateway pattern is novel and directly applicable to our A2A proxy hardening.
+
+**Differentiation:** Archestra governs MCP servers, not agent workspaces — it has no multi-agent orchestration, no workspace lifecycle, no A2A protocol, no canvas. It's an MCP-specific control plane, not an agent orchestration platform. Could complement Molecule AI rather than replace it.
+
+**Worth borrowing:** Dual-LLM security gateway pattern — intercept tool responses with a fast security model before they reach the primary agent. Apply to our A2A proxy (`a2a_proxy.go`) for tool-response sanitisation. Per-team MCP cost attribution model — maps naturally to our workspace tier billing.
+
+**Terminology collisions:** "orchestrator" — Archestra means "MCP server lifecycle manager"; we mean "multi-agent coordinator". Both use the word for very different things.
+
+**Signals to react to:** If Archestra adds agent-to-agent coordination on top of its MCP gateway → overlap with our platform increases significantly. If enterprise procurement teams start requiring an MCP governance audit trail → our plugin install API needs a formal audit log surface (issue backlog candidate).
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ~3.6k ⭐, platform v1.2.15, April 16, 2026
+
+---
+
+### GitHub MCP Server — `github/github-mcp-server`
+
+**Pitch:** "GitHub's official MCP Server — connect AI agents and assistants directly to your GitHub repositories, issues, PRs, and workflows."
+
+**Shape:** Go (MIT), ~28.9k ⭐, v1.0.0 April 16, 2026. 60+ tools across 20+ toolsets: repos, issues, PRs, Actions/CI-CD, code security (scanning, Dependabot, secret protection), discussions, gists, git ops, notifications, orgs, projects, labels, users, stargazers. Deployment: GitHub-hosted at `api.githubcopilot.com/mcp/` or local via Docker/compiled binary. Supports dynamic toolset discovery (beta) so hosts can enumerate and enable tools on demand rather than loading all 60+ upfront.
+
+**Overlap with us:** Chrome DevTools MCP (#540) is already tracked as a tool we adopt into workspaces — GitHub MCP Server is the same pattern for GitHub operations. Any Molecule AI workspace doing code review, PR management, issue triage, or CI monitoring would naturally adopt this. Our Technical Researcher, Dev Lead, and Triage Operator workspace types are obvious candidates.
+
+**Differentiation:** Tool provider only — no agent orchestration, no workspace model, no A2A. Designed to be consumed by MCP hosts (Claude Code, Copilot, Cursor etc.), not to compete with orchestration platforms.
+
+**Worth borrowing:** Dynamic toolset discovery (enumerate tools per context, not a monolithic 60-tool blast) — reference design for our workspace plugin `available` endpoint (`GET /workspaces/:id/plugins/available`). Apply the same filtering logic for runtime-aware tool exposure.
+
+**Terminology collisions:** None significant.
+
+**Signals to react to:** If GitHub ships an agent-native event webhook model (not just REST polling) → evaluate as a channel adapter alongside our Telegram/Slack integrations. If GitHub exposes repo-scoped A2A agent cards → direct interop opportunity with our registry.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ~28.9k ⭐, v1.0.0 GA, April 16, 2026
+
+---
+
+### Skillshare — `runkids/skillshare`
+
+**Pitch:** "Sync skills across all AI CLI tools with one command — Claude Code, Codex, OpenClaw, Cursor, and 50+ more."
+
+**Shape:** Go binary (MIT), ~1.5k ⭐, v0.19.2 April 14, 2026. Manages a `~/.config/skillshare/` source-of-truth directory containing SKILL.md files, agent configs, rules, commands, and prompts. Syncs to 50+ AI tool targets via symlinks (macOS/Linux) or NTFS junctions (Windows). Three modes: global (`~/.config/skillshare/`), project (`.skillshare/` per repo, committable), and installable repos (`skillshare install <git-repo>`). Ships a web dashboard UI (`skillshare ui`). Built-in security auditing: scans installed skills for prompt injection and exfiltration patterns.
+
+**Overlap with us:** Directly overlaps with our `plugins/` distribution model and SKILL.md format — Skillshare treats SKILL.md files as the unit of distribution across tools, the same way our plugin system does. The `skillshare install <git-repo>` command is equivalent to our `POST /workspaces/:id/plugins` with a `github://` source. The project mode (`.skillshare/` committed to a repo) maps to our org-template skill defaults in `org.yaml`.
+
+**Differentiation:** Single-user local syncing, not a server-side multi-agent registry. No workspace lifecycle, no per-agent identity, no A2A, no canvas. Designed for individual developer ergonomics across tools, not for governing a fleet of persistent agents.
+
+**Worth borrowing:** The prompt-injection/exfiltration scanner built into `skillshare sync` — we have no equivalent gate in our plugin install path today. Consider adding a static analysis step to `POST /workspaces/:id/plugins` that scans SKILL.md and rules files for injection patterns before activating. The `install <git-repo>` one-command install UX is cleaner than our current `{"source":"github://org/repo"}` JSON body — worth documenting as a `molecli` shorthand.
+
+**Terminology collisions:** "skills" — Skillshare uses this for SKILL.md files that inject instructions into AI tools; we use "skills" for the same concept in our plugin system. Exact collision — no disambiguation needed since we use the same word intentionally.
+
+**Signals to react to:** If Skillshare adds a server-side shared registry (teams publish skills to a central endpoint) → direct overlap with our plugin registry governance gap that Archestra's MCP registry addresses. If it reaches 10k⭐ → signals the SKILL.md format is becoming a community standard; we should ensure full compatibility.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** ~1.5k ⭐, v0.19.2, April 14, 2026
+
+---
+
+### Compound Engineering Plugin — `EveryInc/compound-engineering-plugin`
+
+**Pitch:** "One plugin, 12 runtimes — a CLI that converts a single engineering workflow plugin (brainstorm → plan → work → review) into the correct format for Claude Code, Cursor, Codex, OpenClaw, Gemini CLI, Kiro, Windsurf, Factory Droid, Pi, GitHub Copilot, Qwen, and more simultaneously."
+
+**Shape:** TypeScript (MIT), ~14.5k ⭐, v2.66.1 April 16, 2026. 97 total releases — high-cadence active project. **Source format: `.claude-plugin/` (Claude Code format) is the canonical input — all other runtimes are generated from it.** `bunx @every-env/compound-plugin install <name> --to <target>` transpiles to target-specific output via one `.ts` file per runtime in `src/targets/`. Current 11 targets: `codex`, `copilot`, `droid`, `gemini`, `kiro`, `openclaw`, `opencode`, `pi`, `qwen`, `windsurf` + Claude Code source. 12th slot likely Cursor (in-progress).
+
+**Molecule AI is not on the list.** Adding us requires: (1) `src/targets/molecule-ai.ts` — one `.ts` file handling tool-name mapping and output path generation; (2) one-line export in `index.ts`. Estimated effort: **2–4 hours** (upstream PR to EveryInc/compound-engineering-plugin). Since our `.claude-plugin/` format already matches their source format exactly, this is zero-cost compatibility.
+
+**Overlap with us:** Distribution-layer overlap with our `agentskills.io` multi-runtime adapter pattern. Compound uses a CLI transpiler (authors run one command); we embed per-runtime `adapters/<runtime>.py` files inside each plugin (authors maintain adapters). Compound is strictly more ergonomic for authors. The two mechanisms are complementary layers, not in conflict — but if Compound becomes the community standard, absent Molecule AI support means silent bypass of our registry.
+
+**Differentiation:** Distribution/packaging tool only. No A2A, no workspace lifecycle, no cron, no canvas. Not an orchestration competitor.
+
+**Worth borrowing:** The `compound install <repo>` one-command UX. Consider a `molecli plugin install <github-url>` shorthand. Also: their per-runtime `.ts` target file pattern is cleaner than our `adapters/<runtime>.py` per-plugin approach — evaluate adopting it for the plugin SDK.
+
+**Action (time-sensitive):** Open upstream PR to add `molecule-ai.ts` target to EveryInc/compound-engineering-plugin **before the Cursor slot lands** — being 12th (not 13th) matters for perception. This is a ~2-4h Dev Lead task; file as external contribution issue when GH_TOKEN rotates.
+
+**Signals to react to:** If Compound adds a server-side plugin registry → direct threat to our `plugins/` registry as canonical source. If `molecule-ai.ts` PR is rejected → reassess whether to maintain a Compound-compatible fork.
+
+**Last reviewed:** 2026-04-17 (CI deep-dive) · **Stars / activity:** ~14.5k ⭐, v2.66.1, April 16, 2026
+
+---
+
+### EDDI — `labsai/EDDI`
+
+**Pitch:** "Config-driven multi-agent orchestration middleware — intelligent routing between users, agents, and business systems where agent logic lives in JSON, not code."
+
+**Shape:** Java 25 + Quarkus (Apache 2.0), ~296 ⭐, v6.0.1, 44 releases. Ships as Docker Compose + Kubernetes manifests. First HN exposure April 17, 2026 (Show HN, early traction). Five enterprise-grade capabilities: Ed25519 cryptographic agent identity per agent, HMAC-SHA256 immutable audit ledger, GDPR/HIPAA-compliant infrastructure, secrets vault with envelope encryption, group conversations with 5 configurable discussion styles.
+
+**Overlap with us:** Hits five of six Molecule AI orchestration criteria — A2A, cron scheduling, persistent agent identity, self-hostable, model-agnostic (12 LLM providers + MCP). Only gap: no visual canvas. The immutable HMAC audit ledger and GDPR/HIPAA posture directly target the regulated-vertical ICP we sharpened in the #572/#582 market research.
+
+**Differentiation:** Config-only (JSON) — no graph UI, no org-chart canvas, no Docker workspace isolation per agent. Java stack limits the overlap community; 296 stars = low current traction. Not a near-term competitive threat.
+
+**Worth borrowing:** The HMAC-SHA256 immutable audit ledger design — every agent action is cryptographically chained so no event can be silently deleted. Relevant to the `compliance-guardrails` plugin spec (staged issue C) and enterprise procurement posture. Also: Ed25519 per-agent signing as a stronger identity mechanism than our current bearer token model.
+
+**Signals to react to:** If EDDI gains traction (>5k⭐) or ships a visual canvas → reassess threat level. If the HMAC audit ledger pattern gets cited by enterprise compliance auditors as a requirement → accelerate `compliance-guardrails` plugin and add cryptographic chaining to `activity_logs`.
+
+**Last reviewed:** 2026-04-17 (Show HN) · **Stars / activity:** ~296 ⭐, v6.0.1, Java/Quarkus
+
+---
+
+### Cloudflare Artifacts — `blog.cloudflare.com/artifacts-git-for-agents-beta`
+
+**Pitch:** "Git for agents — programmatic versioned storage built for agentic workflows: create repos, fork, clone, diff, and branch from code, with Durable Objects durability and ~100KB Zig+WASM Git engine."
+
+**Shape:** Cloudflare proprietary service (ArtifactFS driver open-sourced), private beta April 16, 2026 — public beta targeted early May 2026. Pricing: $0.15/1k ops (10k/month free), $0.50/GB-month (1 GB free). Not a framework — an infrastructure primitive.
+
+**Overlap with us:** Not an orchestration platform and does not compete with Molecule AI directly today. Relevant as a new workspace-persistence primitive: any competitor (Paperclip, Scion, VoltAgent) could wire Cloudflare Artifacts into their agent workspace layer to get Git-semantics workspace snapshots cheaper than our current Docker volume + CLAUDE.md prose approach. The fork/clone/diff semantics are a more principled snapshot model than our current `snapshot_id` pattern.
+
+**Differentiation:** Storage primitive only — no agent identity, no A2A, no scheduling, no canvas. Requires Cloudflare Workers; not self-hostable on arbitrary infra.
+
+**Worth borrowing:** The `fork()` → `work` → `diff()` → `merge()` lifecycle as a model for workspace snapshot/resume — cleaner than our current lossy prose injection into CLAUDE.md (#583). If ArtifactFS driver becomes usable standalone (non-Cloudflare backend), consider as a replacement for Docker volume snapshots.
+
+**Signals to react to:** If Cloudflare Agents SDK integrates Artifacts as a built-in workspace-persistence layer → escalate to MEDIUM; Cloudflare would then offer a managed Docker+Git workspace alternative to Molecule AI. If `snapshot_id` semantics become standard across the ecosystem → accelerate #583.
+
+**Last reviewed:** 2026-04-17 (private beta announcement) · **Stars / activity:** infrastructure service, ArtifactFS driver OSS
+
+---
+
+### dimos — `dimensionalOS/dimos`
+
+**Pitch:** "Agentic OS for physical space — control humanoids, quadrupeds, drones, and robotic arms via natural language. Python SDK, MCP-native, zero ROS dependency."
+
+**Shape:** Python (MIT), ~2.9k ⭐, v0.0.11, March 2026. Module-based architecture: components expose typed input/output streams; `autoconnect()` wires them by name+type into a "blueprint." Multiple transports: LCM, shared memory, DDS, ROS 2. Spatial memory via SLAM; temporal memory via spatio-temporal RAG (object permanence across sessions). Hardware support: Unitree Go2/B1/G1, AgileX Piper, Xarm, DJI Mavic, MAVLink drones. MCP is the primary agent-control interface — robots are addressed as MCP tool endpoints.
+
+**Overlap with us:** Any MCP-capable Molecule AI workspace could issue commands to dimos-managed hardware via the standard MCP tool surface. Spatio-temporal RAG for memory is adjacent to our `agent_memories` approach.
+
+**Differentiation:** Hardware/robotics domain only — no workspace lifecycle, no A2A, no canvas, no SaaS orchestration. Not a software agent competitor; 278 open issues suggests pre-stability.
+
+**Worth borrowing:** The `autoconnect()` blueprint wiring (match streams by name+type, not hardcoded edges) is a clean low-ceremony graph composition pattern — applicable to our workflow plugin composition system.
+
+**Terminology collisions:** "blueprint" = their module-wiring config; we'd call this a workflow or pipeline.
+
+**Signals to react to:** If dimos ships A2A support → robot-controlling workspaces become first-class Molecule AI peers. If spatio-temporal RAG pattern gains traction in non-hardware agents → revisit `agent_memories` retrieval architecture.
+
+**Last reviewed:** 2026-04-17 (GitHub trending) · **Stars / activity:** ~2.9k ⭐, v0.0.11, March 2026
+
+---
+
+### Cloudflare Workers AI — `cloudflare.com/ai-platform`
+
+**Pitch:** "One API to access any AI model from any provider — built to be fast and reliable. Unified inference layer for agent-native apps with auto-failover and streaming resilience across 330 global PoPs."
+
+**Shape:** Cloudflare proprietary platform (infrastructure service, some OSS components). Part of Cloudflare "Agents Week" 2026. 70+ models across 14+ providers (OpenAI, Anthropic, Google, etc.). Key capabilities for agents: automatic multi-provider failover, streaming response buffering independent of agent lifetime (reconnect without reprocessing), unified billing + monitoring across all model calls, custom model bring-your-own via Replicate Cog. Part of a broader Cloudflare agent stack: Durable Objects (state), Artifacts (versioned storage, tracked separately), Agents SDK (multi-step orchestration), AI Search (hybrid RAG for agents).
+
+**Overlap with us:** Cloudflare is assembling a complete managed agent platform: inference + state + storage + orchestration + search. Collectively a competing infrastructure story to Molecule AI's self-hosted model. Neither product has canvas, visual org hierarchy, A2A, or governance tooling.
+
+**Differentiation:** Pure infrastructure primitives — no agent identity model, no workspace lifecycle, no compliance/governance. Requires Cloudflare Workers (not self-hostable on arbitrary infra). Each piece is standalone; the "platform" is integration, not a packaged product. No pricing announced for full stack.
+
+**Worth borrowing:** Streaming resilience pattern — buffer streaming LLM responses independently of agent process lifetime, allow graceful reconnection. Apply to our A2A response streaming. Multi-provider failover model — reference design for our model-agnostic workspace layer (`runtime:` field).
+
+**Terminology collisions:** "Workers" = Cloudflare serverless compute; we call these "workspaces". "Bindings" = their service-to-service connector; we use A2A protocol for agent-to-agent calls.
+
+**Signals to react to:** If Cloudflare Agents SDK integrates all four primitives (Workers AI + Durable Objects + Artifacts + AI Search) into a one-click multi-agent deployment → escalate to MEDIUM; would offer a competing managed workspace alternative at Cloudflare global scale. Watch for per-agent billing or workspace lifecycle management announcements.
+
+**Last reviewed:** 2026-04-17 (Agents Week 2026, HN 248pts) · **Stars / activity:** infrastructure service, no public GitHub repo
+
+---
+
+### OpenAI Codex Agent — `openai.com/codex-for-almost-everything`
+
+**Pitch:** "Codex is an autonomous AI agent — runs parallel subagents, remembers your projects across sessions, controls your desktop, and schedules its own follow-up tasks."
+
+**Shape:** Proprietary OpenAI product (not open-source), rolling out to ChatGPT desktop users April 17 2026. macOS computer control at launch, Windows forthcoming. Part of ChatGPT subscription. **Distinct from `openai-agents-sdk`** (developer API) — this is the consumer/prosumer agent product.
+
+**Overlap with us:** The three core features directly mirror Molecule AI: (1) parallel subagent orchestration for write/debug/test ≈ our multi-workspace org hierarchy; (2) cross-session project memory ≈ `agent_memories`; (3) autonomous self-wake scheduling ≈ `workspace_schedules`. Computer use overlaps with our browser-automation plugin.
+
+**Differentiation:** No org canvas, no multi-tenant governance, no Docker isolation, no custom runtime (OpenAI-only), no A2A, no plugin registry. Single-user prosumer — not an enterprise platform. Our moat: org hierarchy, governance canvas (#582), runtime flexibility, self-hosted deployment.
+
+**Worth borrowing:** Scheduling UX framing — "schedule a follow-up task" is cleaner than raw cron config. Consider exposing `workspace_schedules` as "follow-up tasks" in the Canvas Config tab.
+
+**Terminology collisions:** "Projects" = their cross-session persistence unit; we call these "workspaces". "Subagents" = parallel execution units; we call these worker workspaces.
+
+**Signals to react to:** If subagent API opens to third-party orchestrators → Molecule AI could orchestrate Codex as a specialist worker. If computer control expands to web + Windows → revisit threat level.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** N/A (proprietary) — HN 769 pts / 387 comments at launch
+
+---
+
+### Qwen3.6-35B-A3B — `qwen.ai/blog`
+
+**Pitch:** "35B MoE model, 3B active parameters per token — agentic coding power, now open to all."
+
+**Shape:** Open-weight model from Alibaba/Qwen, immediately downloadable. 35B total / 3B active per token via mixture-of-experts routing. Purpose-built for agentic coding loops: tight feedback cycles, low latency, low cost per token. Not an orchestration framework — a model that competitors can wire into their own stacks.
+
+**Overlap with us:** Indirect. Commoditizes the LLM layer for self-hosted orchestrators. Any competitor (VoltAgent, Paperclip, LangGraph self-hosted) can now offer near-zero API cost for coding agents using Qwen3.6. Erodes the cost argument for cloud-API-locked platforms more than it threatens us (we're already model-agnostic).
+
+**Differentiation:** Our `runtime:` field is already model-agnostic. Qwen3.6 doesn't threaten our orchestration layer; it pressures cloud-model-dependent competitors. Our cost position is neutral to positive.
+
+**Worth borrowing:** Add `qwen3.6-35b-a3b` as a documented supported model in workspace config docs before competitors do. Cost-sensitive enterprise buyers wanting self-hosted inference are our conversion path.
+
+**Terminology collisions:** "Agentic coding" = their framing for autonomous dev-loop use; our framing is "coding workspace."
+
+**Signals to react to:** If top-tier SWE-bench/Aider benchmark confirms → document as supported model immediately. If VoltAgent or Paperclip ship native Qwen3.6 integration → publish ours first or same day.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** HN #1 story (984 pts / 430 comments); open weights on qwen.ai
+
+---
+
+### EvoMap Evolver — `EvoMap/evolver`
+
+**Pitch:** "A GEP-powered self-evolution engine for AI agents — turns ad hoc prompt tweaks into auditable, reusable evolution assets with A2A-compatible distributed worker nodes."
+
+**Shape:** JavaScript (Node.js), GPL-3.0, ~3.3k ⭐, v1.67.1 April 17 2026. Not a general-purpose orchestrator. Deterministic, log-driven prompt-evolution engine: scans `memory/` for error signals → selects Genes/Capsules from local asset library → emits a structured GEP directive → records an immutable `EvolutionEvent` JSONL entry. Three run modes: standalone, `--review` (HITL gate), `--loop` (daemon). Connects to EvoMap Hub via `A2A_HUB_URL` + `A2A_NODE_ID` for distributed worker networks with capability-domain task routing and Evolution Circles (collaborative agent groups with shared context).
+
+**Overlap with us:** (1) A2A worker pool explicitly uses `A2A_HUB_URL`/`A2A_NODE_ID` — EvoMap nodes can be wired as a specialist `repair`/`harden` role inside a Molecule AI org hierarchy today. (2) Networked Skill Store ships `SKILL.md` natively compatible with agentskills.io. (3) Immutable `EvolutionEvent` JSONL (18 fields: identifiers + execution context + data + HMAC integrity) is the closest open-source implementation of the audit ledger needed by our governance canvas (#582).
+
+**Differentiation:** No visual canvas, no Docker isolation, no org hierarchy, no scheduling, no multi-runtime. Specialist tool, not a competing platform. GPL-3.0 copyleft: direct code embedding requires legal review; design inspiration is unrestricted.
+
+**Worth borrowing:** `EvolutionEvent` 18-field JSONL schema as reference for `molecule-audit-ledger` (see also EDDI audit ledger research). `--review` HITL gate pattern for surfacing agent self-edits to the governance canvas approvals UI.
+
+**Signals to react to:** EvoMap Hub paid-tier adoption → agentskills.io competitive signal. Docker container isolation added → escalate to MEDIUM.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 3,327 ⭐, +812 today, v1.67.1, 351 forks
