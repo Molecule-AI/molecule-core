@@ -1,0 +1,20 @@
+name: molecule-context7
+version: 0.1.0
+description: >
+  Context7 MCP integration — fetch up-to-date library documentation directly
+  from mcp.context7.com and inject it into the agent's context window.
+  Provides two tools: resolve_library_id and query_docs.
+author: Molecule AI
+tags: [docs, context7, mcp, libraries, llm-context]
+runtimes: [claude_code, langgraph, deepagents]
+
+# Security: CONTEXT7_API_KEY is issued per workspace — never shared globally.
+# See README.md §"Key Management" for rotation and scope guidance.
+secrets_required:
+  - name: CONTEXT7_API_KEY
+    scope: workspace
+    description: >
+      Context7 API key for mcp.context7.com.  Issued per workspace.
+      Generate at https://context7.com/dashboard → API Keys.
+      Set as a workspace secret (never a global secret) so each workspace
+      has an independently-revocable credential.

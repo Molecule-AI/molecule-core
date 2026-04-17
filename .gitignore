@@ -136,4 +136,6 @@ org-templates/**/.auth-token
 /plugins/*
 # Exception: molecule-medo lives here until it gets its own standalone repo.
 !/plugins/molecule-medo/
+# Exception: molecule-context7 — new plugin (#725).
+!/plugins/molecule-context7/
 /workspace-configs-templates/

@@ -27,9 +27,44 @@ RBAC denials emit ``rbac / rbac.deny / denied`` events instead.
 
 import json
 import os
+import re
 import uuid
 from types import SimpleNamespace
 from typing import Any
+
+# ---------------------------------------------------------------------------
+# Secret scrubbing (#834 — C2 HIGH, platform-wide)
+# ---------------------------------------------------------------------------
+# Applied to every memory write BEFORE content reaches the platform so that
+# accidentally-pasted API keys, bearer tokens, or env assignments are not
+# stored in the ``agent_memories`` table.
+#
+# Pattern coverage:
+#   ctx7_*              — Context7 API keys (molecule-context7 plugin)
+#   sk-*                — OpenAI / Anthropic secret keys
+#   ghp_*               — GitHub personal access tokens
+#   Bearer <token>      — HTTP Authorization header values
+#   FOO_API_KEY=<val>   — Shell-style env-var assignments for any *_API_KEY
+
+_SECRET_PATTERNS = [
+    re.compile(r'ctx7_[A-Za-z0-9_\-]{8,}'),
+    re.compile(r'sk-[A-Za-z0-9]{20,}'),
+    re.compile(r'ghp_[A-Za-z0-9]{36,}'),
+    re.compile(r'Bearer [A-Za-z0-9\-._~+/]{20,}'),
+    re.compile(r'[A-Z_]{5,}_API_KEY=[A-Za-z0-9+/]{10,}'),
+]
+
+
+def _redact_secrets(text: str) -> str:
+    """Replace known secret patterns with ``[REDACTED]``.
+
+    Called once per ``commit_memory`` invocation before the content is
+    serialised and sent to the platform.  Idempotent — already-redacted
+    text passes through unchanged.
+    """
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub('[REDACTED]', text)
+    return text
 
 from langchain_core.tools import tool
 from builtin_tools.awareness_client import build_awareness_client
@@ -57,6 +92,9 @@ async def commit_memory(content: str, scope: str = "LOCAL") -> dict:
     scope = scope.upper()
     if scope not in ("LOCAL", "TEAM", "GLOBAL"):
         return {"error": "scope must be LOCAL, TEAM, or GLOBAL"}
+
+    # Scrub secrets before any persistence or logging (#834).
+    content = _redact_secrets(content)
 
     # --- RBAC check -----------------------------------------------------------
     roles, custom_perms = get_workspace_roles()
