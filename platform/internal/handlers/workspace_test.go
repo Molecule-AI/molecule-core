@@ -27,16 +27,16 @@ func TestWorkspaceGet_Success(t *testing.T) {
 		"budget_limit", "monthly_spend",
 	}
 	mock.ExpectQuery("SELECT w.id, w.name").
-		WithArgs("ws-get-1").
+		WithArgs("cccccccc-0001-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows(columns).
-			AddRow("ws-get-1", "My Agent", "worker", 1, "online", []byte(`{"name":"test"}`),
+			AddRow("cccccccc-0001-0000-0000-000000000000", "My Agent", "worker", 1, "online", []byte(`{"name":"test"}`),
 				"http://localhost:8001", nil, 2, 0.05, "", 3600, "working", "langgraph",
 				"", 10.0, 20.0, false,
 				nil, 0))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-get-1"}}
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0001-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("GET", "/workspaces/ws-get-1", nil)
 
 	handler.Get(c)
@@ -74,12 +74,12 @@ func TestWorkspaceGet_NotFound(t *testing.T) {
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
 	mock.ExpectQuery("SELECT w.id, w.name").
-		WithArgs("ws-nonexistent").
+		WithArgs("cccccccc-0002-0000-0000-000000000000").
 		WillReturnError(sql.ErrNoRows)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-nonexistent"}}
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0002-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("GET", "/workspaces/ws-nonexistent", nil)
 
 	handler.Get(c)
@@ -100,12 +100,12 @@ func TestWorkspaceGet_DBError(t *testing.T) {
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
 	mock.ExpectQuery("SELECT w.id, w.name").
-		WithArgs("ws-dberr").
+		WithArgs("cccccccc-0003-0000-0000-000000000000").
 		WillReturnError(sql.ErrConnDone)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-dberr"}}
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0003-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("GET", "/workspaces/ws-dberr", nil)
 
 	handler.Get(c)
@@ -406,7 +406,7 @@ func TestWorkspaceUpdate_BadJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-upd"}}
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0004-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-upd", bytes.NewBufferString("not json"))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -425,22 +425,22 @@ func TestWorkspaceUpdate_MultipleFields(t *testing.T) {
 
 	// #125: existence probe fires once before any field update.
 	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
-		WithArgs("ws-multi").
+		WithArgs("cccccccc-0005-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// Expect name, role, and tier updates
 	mock.ExpectExec("UPDATE workspaces SET name").
-		WithArgs("ws-multi", "Updated Agent").
+		WithArgs("cccccccc-0005-0000-0000-000000000000", "Updated Agent").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE workspaces SET role").
-		WithArgs("ws-multi", "manager").
+		WithArgs("cccccccc-0005-0000-0000-000000000000", "manager").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE workspaces SET tier").
-		WithArgs("ws-multi", float64(3)).
+		WithArgs("cccccccc-0005-0000-0000-000000000000", float64(3)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-multi"}}
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0005-0000-0000-000000000000"}}
 
 	body := `{"name":"Updated Agent","role":"manager","tier":3}`
 	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-multi", bytes.NewBufferString(body))
@@ -472,15 +472,15 @@ func TestWorkspaceUpdate_RuntimeField(t *testing.T) {
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
 	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
-		WithArgs("ws-rt").
+		WithArgs("cccccccc-0006-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectExec("UPDATE workspaces SET runtime").
-		WithArgs("ws-rt", "claude-code").
+		WithArgs("cccccccc-0006-0000-0000-000000000000", "claude-code").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-rt"}}
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0006-0000-0000-000000000000"}}
 
 	body := `{"runtime":"claude-code"}`
 	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-rt", bytes.NewBufferString(body))
@@ -507,14 +507,14 @@ func TestWorkspaceDelete_ConfirmationRequired(t *testing.T) {
 
 	// Children query returns 2 children
 	mock.ExpectQuery("SELECT id, name FROM workspaces WHERE parent_id").
-		WithArgs("ws-parent").
+		WithArgs("cccccccc-0007-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).
-			AddRow("ws-child-1", "Child One").
-			AddRow("ws-child-2", "Child Two"))
+			AddRow("cccccccc-0008-0000-0000-000000000000", "Child One").
+			AddRow("cccccccc-0009-0000-0000-000000000000", "Child Two"))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-parent"}}
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0007-0000-0000-000000000000"}}
 	// No ?confirm=true
 	c.Request = httptest.NewRequest("DELETE", "/workspaces/ws-parent", nil)
 
@@ -552,14 +552,14 @@ func TestWorkspaceDelete_CascadeWithChildren(t *testing.T) {
 
 	// Children query returns 1 child
 	mock.ExpectQuery("SELECT id, name FROM workspaces WHERE parent_id").
-		WithArgs("ws-parent-del").
+		WithArgs("cccccccc-000a-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).
-			AddRow("ws-child-del", "Child Agent"))
+			AddRow("cccccccc-000b-0000-0000-000000000000", "Child Agent"))
 
 	// Descendant CTE query returns the recursive set (1 descendant: ws-child-del)
 	mock.ExpectQuery("WITH RECURSIVE descendants").
-		WithArgs("ws-parent-del").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ws-child-del"))
+		WithArgs("cccccccc-000a-0000-0000-000000000000").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("cccccccc-000b-0000-0000-000000000000"))
 
 	// #73: single batch UPDATE covering [self + descendants] BEFORE stopping
 	// containers (prevents heartbeat/restart resurrection races).
@@ -580,7 +580,7 @@ func TestWorkspaceDelete_CascadeWithChildren(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-parent-del"}}
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-000a-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("DELETE", "/workspaces/ws-parent-del?confirm=true", nil)
 
 	handler.Delete(c)
@@ -612,12 +612,12 @@ func TestWorkspaceDelete_ChildrenQueryError(t *testing.T) {
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
 	mock.ExpectQuery("SELECT id, name FROM workspaces WHERE parent_id").
-		WithArgs("ws-err-del").
+		WithArgs("cccccccc-000c-0000-0000-000000000000").
 		WillReturnError(sql.ErrConnDone)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-err-del"}}
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-000c-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("DELETE", "/workspaces/ws-err-del?confirm=true", nil)
 
 	handler.Delete(c)
@@ -781,69 +781,83 @@ func TestWorkspaceState_ValidTokenReturnsStatus(t *testing.T) {
 // without a bearer token. Sensitive fields (tier/parent_id/runtime/
 // workspace_dir) require a valid admin bearer once any live token exists.
 
-// TestWorkspaceUpdate_CosmeticField_Passthrough verifies that a cosmetic-field
-// PATCH (name, role, x, y) is processed by the handler without any DB auth query.
-// Auth is fully enforced by WorkspaceAuth middleware before the handler runs (#680).
-func TestWorkspaceUpdate_CosmeticField_Passthrough(t *testing.T) {
+func TestWorkspaceUpdate_CosmeticField_NoBearer_FailOpen_NoTokens(t *testing.T) {
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
+	// Body contains only cosmetic field → no wsauth probe ever fires.
 	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
-		WithArgs("ws-cosmetic").
+		WithArgs("cccccccc-000d-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectExec("UPDATE workspaces SET name").
-		WithArgs("ws-cosmetic", "Cosmetic").
+		WithArgs("cccccccc-000d-0000-0000-000000000000", "Cosmetic").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-cosmetic"}}
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-000d-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-cosmetic",
 		bytes.NewBufferString(`{"name":"Cosmetic"}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 	handler.Update(c)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("cosmetic PATCH: got %d, want 200: %s", w.Code, w.Body.String())
+		t.Errorf("cosmetic PATCH (no bearer) should pass; got %d: %s", w.Code, w.Body.String())
 	}
 }
 
-// TestWorkspaceUpdate_SensitiveField_AuthEnforcedByMiddleware documents the #680 fix:
-// auth for PATCH /workspaces/:id is now enforced by WorkspaceAuth middleware (router
-// layer), not inside the handler. The handler processes sensitive fields (tier,
-// parent_id, runtime, workspace_dir) directly — WorkspaceAuth has already verified
-// the caller holds a valid bearer token for this specific workspace before the handler
-// runs. No in-handler wsauth DB probe fires.
-func TestWorkspaceUpdate_SensitiveField_AuthEnforcedByMiddleware(t *testing.T) {
+func TestWorkspaceUpdate_SensitiveField_NoBearer_TokensExist_Rejected(t *testing.T) {
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
-	// No workspace_auth_tokens query expected — auth is middleware's responsibility.
+	// HasAnyLiveTokenGlobal returns 1 — tokens exist on the platform.
+	mock.ExpectQuery("SELECT COUNT.*FROM workspace_auth_tokens").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-000e-0000-0000-000000000000"}}
+	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-sensitive",
+		bytes.NewBufferString(`{"tier":4}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	// No Authorization header — must fail closed.
+	handler.Update(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("sensitive PATCH without bearer: got %d, want 401 (%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestWorkspaceUpdate_SensitiveField_NoTokensYet_FailOpen(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	// HasAnyLiveTokenGlobal returns 0 — fresh install, fail-open.
+	mock.ExpectQuery("SELECT COUNT.*FROM workspace_auth_tokens").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
-		WithArgs("ws-owned").
+		WithArgs("cccccccc-000f-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectExec("UPDATE workspaces SET tier").
-		WithArgs("ws-owned", float64(3)).
+		WithArgs("cccccccc-000f-0000-0000-000000000000", float64(4)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-owned"}}
-	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-owned",
-		bytes.NewBufferString(`{"tier":3}`))
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-000f-0000-0000-000000000000"}}
+	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-bootstrap",
+		bytes.NewBufferString(`{"tier":4}`))
 	c.Request.Header.Set("Content-Type", "application/json")
-	// WorkspaceAuth middleware would have validated the bearer before this runs.
 	handler.Update(c)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("sensitive PATCH (auth at middleware): got %d, want 200: %s", w.Code, w.Body.String())
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
+		t.Errorf("bootstrap fail-open: got %d, want 200 (%s)", w.Code, w.Body.String())
 	}
 }
 
@@ -866,16 +880,16 @@ func TestWorkspaceGet_FinancialFieldsStripped(t *testing.T) {
 	}
 	// Populate with non-zero financial values to confirm they are stripped.
 	mock.ExpectQuery("SELECT w.id, w.name").
-		WithArgs("ws-fin-1").
+		WithArgs("cccccccc-0010-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows(columns).
-			AddRow("ws-fin-1", "Finance Test", "worker", 1, "online", []byte(`{}`),
+			AddRow("cccccccc-0010-0000-0000-000000000000", "Finance Test", "worker", 1, "online", []byte(`{}`),
 				"http://localhost:9001", nil, 0, 0.0, "", 0, "", "langgraph",
 				"", 0.0, 0.0, false,
 				int64(50000), int64(12500))) // budget_limit=500 USD, spend=125 USD
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-fin-1"}}
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0010-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("GET", "/workspaces/ws-fin-1", nil)
 
 	handler.Get(c)
@@ -917,16 +931,16 @@ func TestWorkspaceUpdate_BudgetLimitIgnored(t *testing.T) {
 
 	// Only the existence probe fires — no UPDATE for budget_limit.
 	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
-		WithArgs("ws-budget-test").
+		WithArgs("cccccccc-0011-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// name update is the only expected write
 	mock.ExpectExec("UPDATE workspaces SET name").
-		WithArgs("ws-budget-test", "Safe Name").
+		WithArgs("cccccccc-0011-0000-0000-000000000000", "Safe Name").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-budget-test"}}
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0011-0000-0000-000000000000"}}
 	// Send budget_limit alongside an innocuous field.
 	body := `{"name":"Safe Name","budget_limit":null}`
 	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-budget-test",
@@ -954,13 +968,13 @@ func TestWorkspaceUpdate_BudgetLimitOnly_Ignored(t *testing.T) {
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
 	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
-		WithArgs("ws-budget-only").
+		WithArgs("cccccccc-0012-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// No UPDATE expected — budget_limit must be silently skipped.
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-budget-only"}}
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0012-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-budget-only",
 		bytes.NewBufferString(`{"budget_limit":999999}`))
 	c.Request.Header.Set("Content-Type", "application/json")

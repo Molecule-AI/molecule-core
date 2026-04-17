@@ -110,6 +110,16 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// without a token (used by WorkspaceNode polling and health checks).
 	r.GET("/workspaces/:id", wh.Get)
 
+	// PATCH /workspaces/:id — back on the open router per #138. Canvas
+	// drag-reposition uses session cookies not bearer tokens; gating the
+	// whole route behind AdminAuth broke drag-to-reposition and inline
+	// rename. Field-level authz lives inside WorkspaceHandler.Update:
+	//   - {x, y, canvas} only → passthrough (canvas position persist)
+	//   - name / role       → passthrough (inline rename)
+	//   - tier / parent_id / runtime / workspace_dir → require bearer token
+	// The #120 escalation vectors stay locked; only cosmetic fields are open.
+	r.PATCH("/workspaces/:id", wh.Update)
+
 	// C1 + C20: workspace list and life-cycle mutations gated behind AdminAuth.
 	// Fail-open when no tokens exist anywhere (fresh install / pre-Phase-30).
 	// Blocks:
@@ -132,13 +142,6 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// Legacy workspaces (no token) are grandfathered to allow rolling upgrades.
 	wsAuth := r.Group("/workspaces/:id", middleware.WorkspaceAuth(db.DB))
 	{
-		// #680: PATCH /workspaces/:id moved under WorkspaceAuth (#680 IDOR fix).
-		// WorkspaceAuth enforces that the caller holds a valid bearer token for
-		// this specific workspace — both auth AND ownership in one check. Cosmetic
-		// updates (x/y drag-reposition, inline rename) from the combined tenant
-		// image canvas still pass via the isSameOriginCanvas bypass in WorkspaceAuth.
-		wsAuth.PATCH("", wh.Update)
-
 		// Lifecycle
 		wsAuth.GET("/state", wh.State)
 		wsAuth.POST("/restart", wh.Restart)
@@ -317,16 +320,6 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		adminAuth.DELETE("/admin/secrets/:key", sechGlobal.DeleteGlobal)
 	}
 
-	// Admin — cross-workspace schedule health monitoring (issue #618).
-	// Lets cron-audit agents and operators detect silent schedule failures
-	// across all workspaces without holding individual workspace bearer tokens.
-	// AdminAuth mirrors the /admin/liveness gate — fail-open on fresh install,
-	// strict bearer-only once any token exists.
-	{
-		asHealth := handlers.NewAdminSchedulesHealthHandler()
-		r.GET("/admin/schedules/health", middleware.AdminAuth(db.DB), asHealth.Health)
-	}
-
 	// Admin — test token minting (issue #6). Hidden in production via TestTokensEnabled().
 	// AdminAuth is a second defence-in-depth layer: on a fresh install with no tokens yet,
 	// AdminAuth is fail-open (HasAnyLiveTokenGlobal == 0), so the bootstrap still works.
@@ -370,11 +363,14 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 
 	// Templates
 	tmplh := handlers.NewTemplatesHandler(configsDir, dockerCli)
-	r.GET("/templates", tmplh.List)
-	// #190: POST /templates/import writes arbitrary files into configsDir.
-	// Must be admin-gated — same class as /bundles/import (#164) and /org/import.
+	// #686: GET /templates lists all template names+metadata from configsDir.
+	// Open access lets unauthenticated callers enumerate org configurations and
+	// installed plugins. AdminAuth-gate it alongside POST /templates/import.
 	{
 		tmplAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		tmplAdmin.GET("/templates", tmplh.List)
+		// #190: POST /templates/import writes arbitrary files into configsDir.
+		// Must be admin-gated — same class as /bundles/import (#164) and /org/import.
 		tmplAdmin.POST("/templates/import", tmplh.Import)
 	}
 	wsAuth.GET("/shared-context", tmplh.SharedContext)
@@ -427,7 +423,9 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// Org Templates
 	orgDir := findOrgDir(configsDir)
 	orgh := handlers.NewOrgHandler(wh, broadcaster, prov, channelMgr, configsDir, orgDir)
-	r.GET("/org/templates", orgh.ListTemplates)
+	// #686: GET /org/templates exposes the org template catalogue (names, roles,
+	// configured system prompts). AdminAuth-gate to match /org/import.
+	r.GET("/org/templates", middleware.AdminAuth(db.DB), orgh.ListTemplates)
 	// /org/import can create arbitrary workspaces from an uploaded YAML — it
 	// must be an admin-gated route. The handler also path-sanitizes
 	// `dir`/`template`/`files_dir` via resolveInsideRoot, but defence-in-
