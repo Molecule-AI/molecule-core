@@ -4,7 +4,7 @@
 -- (default: Claude Sonnet input $3/1M, output $15/1M).
 CREATE TABLE IF NOT EXISTS workspace_token_usage (
   id                 UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id       TEXT         NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  workspace_id       UUID         NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   period_start       TIMESTAMPTZ  NOT NULL,
   input_tokens       BIGINT       NOT NULL DEFAULT 0,
   output_tokens      BIGINT       NOT NULL DEFAULT 0,
