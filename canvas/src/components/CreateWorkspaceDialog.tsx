@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useId } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { api } from "@/lib/api";
 
@@ -368,9 +368,13 @@ function InputField({
   type?: string;
   helper?: string;
 }) {
+  // useId() generates a stable, unique ID for the label↔input association,
+  // satisfying WCAG 2.1 SC 1.3.1 (Info and Relationships, Level A).
+  const inputId = useId();
+
   return (
     <div>
-      <label className="text-[11px] text-zinc-400 block mb-1">
+      <label htmlFor={inputId} className="text-[11px] text-zinc-400 block mb-1">
         {label}{" "}
         {required && (
           <>
@@ -382,6 +386,7 @@ function InputField({
         )}
       </label>
       <input
+        id={inputId}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
