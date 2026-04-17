@@ -1,3 +1,5 @@
+"use client";
+
 interface RevealToggleProps {
   revealed: boolean;
   onToggle: () => void;

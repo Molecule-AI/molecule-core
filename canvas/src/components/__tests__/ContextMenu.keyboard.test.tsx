@@ -163,4 +163,50 @@ describe("ContextMenu — keyboard accessibility", () => {
     const { container } = render(<ContextMenu />);
     expect(container.firstChild).toBeNull();
   });
+
+  // ── Zoom to Team (#557) ───────────────────────────────────────────────────
+
+  it("does NOT show 'Zoom to Team' when node has no children", () => {
+    mockStore.nodes = []; // no children
+    render(<ContextMenu />);
+    const items = screen.getAllByRole("menuitem");
+    const labels = items.map((el) => el.textContent ?? "");
+    expect(labels.some((l) => l.includes("Zoom to Team"))).toBe(false);
+  });
+
+  it("shows 'Zoom to Team' when the node has children", () => {
+    mockStore.nodes = [{ id: "child-1", data: { parentId: "ws-1" } }];
+    render(<ContextMenu />);
+    const items = screen.getAllByRole("menuitem");
+    const labels = items.map((el) => el.textContent ?? "");
+    expect(labels.some((l) => l.includes("Zoom to Team"))).toBe(true);
+  });
+
+  it("clicking 'Zoom to Team' dispatches molecule:zoom-to-team event", () => {
+    mockStore.nodes = [{ id: "child-1", data: { parentId: "ws-1" } }];
+    const dispatched: CustomEvent[] = [];
+    window.addEventListener("molecule:zoom-to-team", (e) => {
+      dispatched.push(e as CustomEvent);
+    });
+
+    render(<ContextMenu />);
+    const items = screen.getAllByRole("menuitem");
+    const zoomItem = items.find((el) => el.textContent?.includes("Zoom to Team"))!;
+    expect(zoomItem).toBeTruthy();
+    fireEvent.click(zoomItem);
+
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0].detail.nodeId).toBe("ws-1");
+
+    window.removeEventListener("molecule:zoom-to-team", () => {});
+  });
+
+  it("clicking 'Zoom to Team' closes the context menu", () => {
+    mockStore.nodes = [{ id: "child-1", data: { parentId: "ws-1" } }];
+    render(<ContextMenu />);
+    const items = screen.getAllByRole("menuitem");
+    const zoomItem = items.find((el) => el.textContent?.includes("Zoom to Team"))!;
+    fireEvent.click(zoomItem);
+    expect(closeContextMenu).toHaveBeenCalled();
+  });
 });
