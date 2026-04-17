@@ -126,15 +126,23 @@ export function ScheduleTab({ workspaceId }: Props) {
     if (!pendingDelete) return;
     const { id } = pendingDelete;
     setPendingDelete(null);
-    await api.del(`/workspaces/${workspaceId}/schedules/${id}`);
-    fetchSchedules();
+    try {
+      await api.del(`/workspaces/${workspaceId}/schedules/${id}`);
+      fetchSchedules();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to delete schedule");
+    }
   };
 
   const handleToggle = async (sched: Schedule) => {
-    await api.patch(`/workspaces/${workspaceId}/schedules/${sched.id}`, {
-      enabled: !sched.enabled,
-    });
-    fetchSchedules();
+    try {
+      await api.patch(`/workspaces/${workspaceId}/schedules/${sched.id}`, {
+        enabled: !sched.enabled,
+      });
+      fetchSchedules();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to toggle schedule");
+    }
   };
 
   const handleEdit = (sched: Schedule) => {
