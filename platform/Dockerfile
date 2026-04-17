@@ -5,6 +5,8 @@
 
 FROM golang:1.25-alpine AS builder
 WORKDIR /app
+# Plugin source for replace directive in go.mod
+COPY molecule-ai-plugin-github-app-auth/ /plugin/
 COPY platform/go.mod platform/go.sum ./
 RUN go mod download
 COPY platform/ .
