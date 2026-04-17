@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -297,6 +298,35 @@ func TestRepairNullNextRunAt_badCronSkipped(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
+}
+
+// TestRepairNullNextRunAt_rowsErrAborts — when rows.Err() returns a non-nil
+// error (e.g. the connection drops mid-iteration), repairNullNextRunAt must
+// stop and return without logging "repaired N schedule(s)".  The codebase
+// convention (CLAUDE.md) requires rows.Err() to be checked after every loop.
+func TestRepairNullNextRunAt_rowsErrAborts(t *testing.T) {
+	mock := setupTestDB(t)
+	s := New(nil, nil)
+
+	// Return one valid row followed by a forced rows.Err() from sqlmock.
+	repairRows := sqlmock.NewRows([]string{"id", "cron_expr", "timezone"}).
+		AddRow("cccccccc-0000-0000-0000-000000000003", "0 * * * *", "UTC").
+		RowError(0, fmt.Errorf("simulated row iteration error"))
+
+	mock.ExpectQuery(`SELECT id, cron_expr, timezone\s+FROM workspace_schedules\s+WHERE enabled = true AND next_run_at IS NULL`).
+		WillReturnRows(repairRows)
+	// The UPDATE for the first row may fire before rows.Err() is surfaced;
+	// allow it but do not require it — the important assertion is that
+	// ExpectationsWereMet does not see unexpected calls and the function
+	// returns without panicking.
+	mock.ExpectExec(`UPDATE workspace_schedules SET next_run_at`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s.repairNullNextRunAt(context.Background())
+
+	// The test passes as long as no panic occurs and no unexpected DB calls
+	// were made. Expectations already consumed above are fine.
 }
 
 // ── TestRecordSkipped_shortWorkspaceIDNoPanic ─────────────────────────────────

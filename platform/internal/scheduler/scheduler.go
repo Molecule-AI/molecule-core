@@ -127,6 +127,14 @@ func (s *Scheduler) repairNullNextRunAt(ctx context.Context) {
 		repaired++
 		log.Printf("Scheduler: repairNullNextRunAt: repaired %s → next_run_at=%s", short(id, 12), nextRun.Format(time.RFC3339))
 	}
+	// rows.Err() surfaces any error that cut the iteration short (network blip,
+	// context cancel, etc.). Without this check a partial repair would be
+	// silently treated as complete — some NULL-next_run_at schedules would stay
+	// silenced until the next startup.
+	if err := rows.Err(); err != nil {
+		log.Printf("Scheduler: repairNullNextRunAt: row iteration error: %v", err)
+		return
+	}
 	if repaired > 0 {
 		log.Printf("Scheduler: repairNullNextRunAt: repaired %d schedule(s)", repaired)
 	}
