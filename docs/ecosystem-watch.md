@@ -2780,3 +2780,23 @@ langgraph/crewai adapters.
 **Signals to react to:** Enterprise customers ask for SAFE-MCP compliance attestation → generate self-assessment doc. SAFE-MCP ships an automated scanner → add to MCP server CI. SAFE-MCP v2.0 adds A2A threat model → extend audit to our A2A proxy.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** early-stage (LF/OpenID adopted Apr 2026), MIT, foundation-governed
+
+---
+
+### mcp-agent — `lastmile-ai/mcp-agent`
+
+**Pitch:** "Build effective agents using Model Context Protocol and simple workflow patterns."
+
+**Shape:** Python, Apache-2.0, 7.4k★, last updated Jan 2026. Batteries-included MCP runtime that implements every pattern from Anthropic's *Building Effective Agents* playbook as composable primitives: `Agent`, `Orchestrator`, `Swarm` (OpenAI Swarm multi-agent pattern, model-agnostic), `ParallelAgent`, `RouterAgent`. Handles MCP server lifecycle, LLM connections, human-in-the-loop signals, and durable execution. Companion repo `lastmile-ai/mcp-eval` evaluates MCP server quality. Pure Python, no framework lock-in.
+
+**Overlap with us:** (1) Directly targets the same "agent runtime + MCP tools" layer as our workspace-template. (2) Swarm multi-agent pattern implemented without A2A — an alternative coordination model to our JSON-RPC peer-to-peer approach. (3) HITL workflow support overlaps `molecule-hitl` / `@requires_approval`. (4) `mcp-eval` could complement GH #747 SAFE-MCP audit as an MCP server quality gate.
+
+**Differentiation:** No visual canvas, no org hierarchy, no Docker workspace isolation, no scheduling, no A2A protocol. Single-process Python runtime, not a multi-workspace orchestration platform. Molecule provides the governance + multi-tenant layer mcp-agent lacks.
+
+**Worth borrowing:** Anthropic's "Building Effective Agents" as the pattern library for our org-template design. `mcp-eval` as an automated quality gate for `@molecule-ai/mcp-server` CI.
+
+**Terminology collisions:** "Orchestrator" (mcp-agent) = a meta-agent that routes tasks to sub-agents ≈ our PM/Research Lead org template roles.
+
+**Signals to react to:** mcp-agent ships A2A support → potential `molecule-ai-workspace-template-mcp-agent` adapter. `mcp-eval` adopted broadly → integrate into our MCP server CI (#747). mcp-agent hits 15k★ → assess as competitive threat to workspace-template.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 7,454★, Python, Apache-2.0, Jan 2026
