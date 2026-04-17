@@ -8,8 +8,8 @@
 -- call POST /workspaces/:id/artifacts/token to obtain a fresh git credential.
 
 CREATE TABLE IF NOT EXISTS workspace_artifacts (
-    id           TEXT        NOT NULL DEFAULT gen_random_uuid()::text,
-    workspace_id TEXT        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    id           UUID        NOT NULL DEFAULT gen_random_uuid(),
+    workspace_id UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     cf_repo_name TEXT        NOT NULL,
     cf_namespace TEXT        NOT NULL,
     -- remote_url is the base Git remote (without embedded credentials).
