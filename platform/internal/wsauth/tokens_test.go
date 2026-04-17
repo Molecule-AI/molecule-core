@@ -266,8 +266,9 @@ func TestValidateAnyToken_HappyPath(t *testing.T) {
 		t.Fatalf("IssueToken: %v", err)
 	}
 
-	// ValidateAnyToken: lookup by hash only (no workspace binding).
-	mock.ExpectQuery(`SELECT id FROM workspace_auth_tokens`).
+	// ValidateAnyToken: lookup by hash with JOIN against workspaces to ensure
+	// the workspace is not 'removed' (#682 defense-in-depth).
+	mock.ExpectQuery(`SELECT t\.id\s+FROM workspace_auth_tokens t\s+JOIN workspaces`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-id-global"))
 	// Best-effort last_used_at update.
@@ -285,7 +286,7 @@ func TestValidateAnyToken_HappyPath(t *testing.T) {
 
 func TestValidateAnyToken_UnknownTokenRejected(t *testing.T) {
 	db, mock := setupMock(t)
-	mock.ExpectQuery(`SELECT id FROM workspace_auth_tokens`).
+	mock.ExpectQuery(`SELECT t\.id\s+FROM workspace_auth_tokens t\s+JOIN workspaces`).
 		WillReturnError(sql.ErrNoRows)
 
 	if err := ValidateAnyToken(context.Background(), db, "not-a-real-token"); err != ErrInvalidToken {
@@ -297,5 +298,24 @@ func TestValidateAnyToken_EmptyTokenRejected(t *testing.T) {
 	db, _ := setupMock(t)
 	if err := ValidateAnyToken(context.Background(), db, ""); err != ErrInvalidToken {
 		t.Errorf("got %v, want ErrInvalidToken", err)
+	}
+}
+
+// TestValidateAnyToken_RemovedWorkspaceRejected verifies defense-in-depth (#682):
+// even if revoked_at was not set (e.g. a race between workspace deletion and token
+// revocation), the JOIN against workspaces.status ensures tokens from 'removed'
+// workspaces never authenticate.
+func TestValidateAnyToken_RemovedWorkspaceRejected(t *testing.T) {
+	db, mock := setupMock(t)
+	// The JOIN filters out status='removed', so the query returns no rows.
+	mock.ExpectQuery(`SELECT t\.id\s+FROM workspace_auth_tokens t\s+JOIN workspaces`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnError(sql.ErrNoRows)
+
+	if err := ValidateAnyToken(context.Background(), db, "token-for-deleted-workspace"); err != ErrInvalidToken {
+		t.Errorf("expected ErrInvalidToken for removed workspace, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
 	}
 }
