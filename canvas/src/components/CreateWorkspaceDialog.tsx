@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { api } from "@/lib/api";
 
@@ -49,6 +49,33 @@ export function CreateWorkspaceButton() {
   // Hermes-specific state
   const [hermesProvider, setHermesProvider] = useState("anthropic");
   const [hermesApiKey, setHermesApiKey] = useState("");
+
+  // Refs for roving tabIndex on the tier radio group (WCAG 2.1 arrow-key nav)
+  const radioRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const TIERS = [
+    { value: 1, label: "T1", desc: "Sandboxed" },
+    { value: 2, label: "T2", desc: "Standard" },
+    { value: 3, label: "T3", desc: "Full Access" },
+  ];
+
+  const handleRadioKeyDown = useCallback(
+    (e: React.KeyboardEvent, currentIndex: number) => {
+      if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+        e.preventDefault();
+        const next = (currentIndex + 1) % TIERS.length;
+        setTier(TIERS[next].value);
+        radioRefs.current[next]?.focus();
+      } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+        e.preventDefault();
+        const prev = (currentIndex - 1 + TIERS.length) % TIERS.length;
+        setTier(TIERS[prev].value);
+        radioRefs.current[prev]?.focus();
+      }
+    },
+    // TIERS is stable (module-level constant pattern), setTier is stable from useState
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   const isHermes = template.trim().toLowerCase() === "hermes";
 
@@ -172,16 +199,15 @@ export function CreateWorkspaceButton() {
                 <div className="col-span-3 text-[11px] text-zinc-400 mb-1">
                   Tier
                 </div>
-                {[
-                  { value: 1, label: "T1", desc: "Sandboxed" },
-                  { value: 2, label: "T2", desc: "Standard" },
-                  { value: 3, label: "T3", desc: "Full Access" },
-                ].map((t) => (
+                {TIERS.map((t, idx) => (
                   <button
                     key={t.value}
+                    ref={(el) => { radioRefs.current[idx] = el; }}
                     role="radio"
                     aria-checked={tier === t.value}
+                    tabIndex={tier === t.value ? 0 : -1}
                     onClick={() => setTier(t.value)}
+                    onKeyDown={(e) => handleRadioKeyDown(e, idx)}
                     className={`py-2 rounded-lg text-center transition-colors ${
                       tier === t.value
                         ? "bg-blue-600/20 border border-blue-500/50 text-blue-300"

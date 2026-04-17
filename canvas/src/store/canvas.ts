@@ -73,6 +73,9 @@ interface CanvasState {
   /** WebSocket connection status — drives the live indicator in the Toolbar. */
   wsStatus: "connected" | "connecting" | "disconnected";
   setWsStatus: (status: "connected" | "connecting" | "disconnected") => void;
+  /** Hydration error message — set when initial canvas load fails. Null when no error. */
+  hydrationError: string | null;
+  setHydrationError: (error: string | null) => void;
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -84,6 +87,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   contextMenu: null,
   wsStatus: "connecting",
   setWsStatus: (status) => set({ wsStatus: status }),
+  hydrationError: null,
+  setHydrationError: (error) => set({ hydrationError: error }),
 
   viewport: { x: 0, y: 0, zoom: 1 },
 
