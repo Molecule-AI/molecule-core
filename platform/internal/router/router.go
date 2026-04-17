@@ -372,11 +372,14 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 
 	// Templates
 	tmplh := handlers.NewTemplatesHandler(configsDir, dockerCli)
-	r.GET("/templates", tmplh.List)
+	// #686: GET /templates lists all template names+metadata from configsDir.
+	// Open access lets unauthenticated callers enumerate org configurations and
+	// installed plugins. AdminAuth-gate it alongside POST /templates/import.
 	// #190: POST /templates/import writes arbitrary files into configsDir.
 	// Must be admin-gated — same class as /bundles/import (#164) and /org/import.
 	{
 		tmplAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		tmplAdmin.GET("/templates", tmplh.List)
 		tmplAdmin.POST("/templates/import", tmplh.Import)
 	}
 	wsAuth.GET("/shared-context", tmplh.SharedContext)
@@ -429,7 +432,9 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// Org Templates
 	orgDir := findOrgDir(configsDir)
 	orgh := handlers.NewOrgHandler(wh, broadcaster, prov, channelMgr, configsDir, orgDir)
-	r.GET("/org/templates", orgh.ListTemplates)
+	// #686: GET /org/templates exposes the org template catalogue (names, roles,
+	// configured system prompts). AdminAuth-gate to match /org/import.
+	r.GET("/org/templates", middleware.AdminAuth(db.DB), orgh.ListTemplates)
 	// /org/import can create arbitrary workspaces from an uploaded YAML — it
 	// must be an admin-gated route. The handler also path-sanitizes
 	// `dir`/`template`/`files_dir` via resolveInsideRoot, but defence-in-

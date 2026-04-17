@@ -45,9 +45,9 @@ func TestWorkspaceBudget_Get_NilLimit(t *testing.T) {
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
 
 	mock.ExpectQuery("SELECT w.id, w.name").
-		WithArgs("ws-nobudget").
+		WithArgs("dddddddd-0005-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows(wsColumns).
-			AddRow("ws-nobudget", "Free Agent", "worker", 1, "online",
+			AddRow("dddddddd-0005-0000-0000-000000000000", "Free Agent", "worker", 1, "online",
 				[]byte(`{}`), "http://localhost:9001",
 				nil, 0, 0.0, "", 0, "", "langgraph", "",
 				0.0, 0.0, false,
@@ -56,7 +56,7 @@ func TestWorkspaceBudget_Get_NilLimit(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-nobudget"}}
+	c.Params = gin.Params{{Key: "id", Value: "dddddddd-0005-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("GET", "/workspaces/ws-nobudget", nil)
 	handler.Get(c)
 
@@ -88,9 +88,9 @@ func TestWorkspaceBudget_Get_WithLimit(t *testing.T) {
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
 
 	mock.ExpectQuery("SELECT w.id, w.name").
-		WithArgs("ws-limited").
+		WithArgs("dddddddd-0006-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows(wsColumns).
-			AddRow("ws-limited", "Capped Agent", "worker", 1, "online",
+			AddRow("dddddddd-0006-0000-0000-000000000000", "Capped Agent", "worker", 1, "online",
 				[]byte(`{}`), "http://localhost:9002",
 				nil, 0, 0.0, "", 0, "", "langgraph", "",
 				0.0, 0.0, false,
@@ -99,7 +99,7 @@ func TestWorkspaceBudget_Get_WithLimit(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-limited"}}
+	c.Params = gin.Params{{Key: "id", Value: "dddddddd-0006-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("GET", "/workspaces/ws-limited", nil)
 	handler.Get(c)
 
@@ -186,13 +186,13 @@ func TestWorkspaceBudget_Update_SetLimit(t *testing.T) {
 
 	// Only the existence probe fires; no UPDATE for budget_limit.
 	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
-		WithArgs("ws-upd-budget").
+		WithArgs("dddddddd-0007-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// No ExpectExec for budget_limit — sqlmock will fail if one is issued.
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-upd-budget"}}
+	c.Params = gin.Params{{Key: "id", Value: "dddddddd-0007-0000-0000-000000000000"}}
 	body := `{"budget_limit":500}`
 	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-upd-budget", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -216,13 +216,13 @@ func TestWorkspaceBudget_Update_ClearLimit(t *testing.T) {
 
 	// Only the existence probe fires; no UPDATE for budget_limit.
 	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
-		WithArgs("ws-clear-budget").
+		WithArgs("dddddddd-0008-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// No ExpectExec — a budget_limit write here would re-open the vulnerability.
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-clear-budget"}}
+	c.Params = gin.Params{{Key: "id", Value: "dddddddd-0008-0000-0000-000000000000"}}
 	body := `{"budget_limit":null}`
 	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-clear-budget", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
