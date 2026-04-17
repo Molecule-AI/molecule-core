@@ -13,7 +13,7 @@ vi.mock("../tabs/ChatTab", () => ({ ChatTab: () => null }));
 vi.mock("../tabs/ConfigTab", () => ({ ConfigTab: () => null }));
 vi.mock("../tabs/TerminalTab", () => ({ TerminalTab: () => null }));
 vi.mock("../tabs/FilesTab", () => ({ FilesTab: () => null }));
-vi.mock("../tabs/MemoryTab", () => ({ MemoryTab: () => null }));
+vi.mock("../MemoryInspectorPanel", () => ({ MemoryInspectorPanel: () => null }));
 vi.mock("../tabs/TracesTab", () => ({ TracesTab: () => null }));
 vi.mock("../tabs/EventsTab", () => ({ EventsTab: () => null }));
 vi.mock("../tabs/ActivityTab", () => ({ ActivityTab: () => null }));
