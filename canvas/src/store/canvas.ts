@@ -71,6 +71,13 @@ interface CanvasState {
   viewport: { x: number; y: number; zoom: number };
   setViewport: (v: { x: number; y: number; zoom: number }) => void;
   saveViewport: (x: number, y: number, zoom: number) => void;
+  // ── Batch selection (Phase 20.3) ─────────────────────────────────────────
+  selectedNodeIds: Set<string>;
+  toggleNodeSelection: (id: string) => void;
+  clearSelection: () => void;
+  batchRestart: () => Promise<void>;
+  batchPause: () => Promise<void>;
+  batchDelete: () => Promise<void>;
   /** Agent-pushed messages keyed by workspace ID. ChatTab consumes and clears these. */
   agentMessages: Record<string, Array<{ id: string; content: string; timestamp: string }>>;
   consumeAgentMessages: (workspaceId: string) => Array<{ id: string; content: string; timestamp: string }>;
@@ -96,6 +103,38 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   panelTab: "chat",
   dragOverNodeId: null,
   contextMenu: null,
+  // Batch selection
+  selectedNodeIds: new Set<string>(),
+  toggleNodeSelection: (id) => {
+    const prev = get().selectedNodeIds;
+    const next = new Set(prev);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    set({ selectedNodeIds: next });
+  },
+  clearSelection: () => set({ selectedNodeIds: new Set<string>() }),
+  batchRestart: async () => {
+    const ids = Array.from(get().selectedNodeIds);
+    await Promise.allSettled(ids.map((id) => api.post(`/workspaces/${id}/restart`)));
+    for (const id of ids) {
+      get().updateNodeData(id, { needsRestart: false });
+    }
+  },
+  batchPause: async () => {
+    const ids = Array.from(get().selectedNodeIds);
+    await Promise.allSettled(ids.map((id) => api.post(`/workspaces/${id}/pause`)));
+  },
+  batchDelete: async () => {
+    const ids = Array.from(get().selectedNodeIds);
+    await Promise.allSettled(ids.map((id) => api.del(`/workspaces/${id}`)));
+    for (const id of ids) {
+      get().removeNode(id);
+    }
+    set({ selectedNodeIds: new Set<string>() });
+  },
   wsStatus: "connecting",
   setWsStatus: (status) => set({ wsStatus: status }),
   hydrationError: null,
