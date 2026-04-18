@@ -2882,18 +2882,20 @@ langgraph/crewai adapters.
 
 ### MemPalace — `milla-jovovich/mempalace`
 
-**Pitch:** Local-first AI memory system using the "Method of Loci" — stores full conversation verbatim (not summarized) in a hierarchical palace structure (wings → rooms → drawers) with semantic search.
+> ⛔ **BLOCKED — COORDINATED FRAUD** (Security Audit 2026-04-18). Do not integrate, evaluate, or reference this project.
 
-**Shape:** Python 87.8%, MIT, 47.6k★, v3.3.0 April 14 2026. ChromaDB-backed vector retrieval; 96.6% R@5 on LongMemEval with zero API calls. Exposes **29 MCP tools** covering palace reads/writes, knowledge-graph operations, cross-wing navigation, drawer management, and agent diaries. Native Claude Code integration via `.claude-plugin`. Fully local — no external API required for memory ops.
+**Pitch (original):** Local-first AI memory system using the "Method of Loci" — stores full conversation verbatim in a hierarchical palace structure (wings → rooms → drawers) with semantic search.
 
-**Overlap with us:** (1) Our `agent_memories` table + `/workspaces/:id/memories` API provides platform-managed scoped memory — MemPalace provides richer, hierarchical, locally-searchable memory with knowledge-graph structure. (2) 29 MCP tools makes this trivially wrappable as a `molecule-mempalace` plugin. (3) Claude Code `.claude-plugin` integration targets the same surface as `molecule-ai-workspace-template-claude-code`. (4) 47.6k★ in weeks = high developer mindshare; teams will bring MemPalace into Molecule workspaces before we have a native integration.
+**Fraud findings (SA forensic audit — 2026-04-18):**
 
-**Differentiation:** Local-first, single-agent memory layer — no multi-agent orchestration, no workspace lifecycle, no org hierarchy. Molecule provides governance and multi-agent platform; MemPalace provides the per-agent memory store. These are complementary layers, not competitors.
+- **F1 CRITICAL — Star fraud (89%):** 42,497 of 47,600 stars are bot-farmed. Bot activity ran April 6–13 at metronomic 30-second intervals; confirmed via stargazer timestamp forensics. Authentic star count ≈ 5,000.
+- **F2 CRITICAL — Malware domain:** `mempalace.tech` (cited in the project's own `HISTORY.md`) is a confirmed malware impostor domain. Any traffic to this domain must be treated as hostile.
+- **F3 CRITICAL — Deleted PyPI maintainer:** GitHub account `aya-thekeeper` (sole PyPI maintainer) was deleted after publishing — live supply-chain attack surface. Any version published under that account is unverifiable.
+- **F4 HIGH — Unpatched ChromaDB RCE:** Depends on ChromaDB with an open server-side + client-side RCE via `trust_remote_code` (GitHub issue #6717). Maintainer has not patched.
+- **F5 HIGH — Non-existent PyPI package:** `uvx mempalace-mcp` does not exist on PyPI — squattable typosquat attack surface.
+- **F6 HIGH — Unsafe model loading:** HuggingFace model download with pickle deserialization (no hash pinning).
+- **F7 MEDIUM — Crypto fraud:** Associated with `MEMPALACE` Solana token pump-and-dump scheme.
 
-**Worth borrowing:** Verbatim storage + semantic retrieval as an opt-in mode for our `agent_memories` (currently free-form key-value). Wings/rooms/drawers hierarchy as a model for scoped memory namespacing (we have `scope` but no hierarchy). LongMemEval as a quality benchmark for our own memory retrieval accuracy.
+**GH #912** (molecule-mempalace plugin proposal) closed — BLOCKED by this audit. Do not reopen without a full independent security re-audit.
 
-**Terminology collisions:** "memory" (same concept, different granularity — our memories are scoped key-value entries; MemPalace is a structured knowledge graph). "palace" = their namespace; our analogues are workspace + memory scope.
-
-**Signals to react to:** MemPalace ships cross-agent memory sharing → file BUILD issue for `molecule-mempalace` plugin immediately — directly competitive with our platform-managed memory layer. ADK or LangGraph officially recommend MemPalace → adoption velocity doubles. MemPalace reaches 100k★ → consider deep integration over shallow plugin wrapper.
-
-**Last reviewed:** 2026-04-18 · **Stars / activity:** 47.6k★, Python, MIT, v3.3.0 April 14 2026, viral growth (23k★ in first 2 weeks). **Verdict: WATCH**
+**Last reviewed:** 2026-04-18 · **Stars / activity:** 47.6k★ claimed (89% bot-farmed; ~5k authentic), Python, MIT, v3.3.0 April 14 2026. **Verdict: BLOCKED/FRAUD**
