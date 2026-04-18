@@ -103,12 +103,12 @@ services:
   platform:
     build:
       # Build context MUST be repo root, not ./platform — the Dockerfile
-      # COPYs `platform/migrations`, `platform/go.mod`,
+      # COPYs `workspace-server/migrations`, `workspace-server/go.mod`,
       # `workspace-configs-templates/` etc. via repo-relative paths so it
       # can bake in templates + migrations alongside the platform binary.
       # When context was ./platform earlier, docker silently cached an
-      # earlier image (the COPY platform/migrations resolved to nothing
-      # under ./platform/, so layers stopped invalidating) — manifested
+      # earlier image (the COPY workspace-server/migrations resolved to nothing
+      # under ./workspace-server/, so layers stopped invalidating) — manifested
       # as migration 023 not landing after PR #417 merged. CI workflow
       # already uses context=. , this aligns local with CI.
       context: .
