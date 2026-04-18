@@ -54,6 +54,11 @@ func (h *MemoryHandler) List(c *gin.Context) {
 		entry.Value = json.RawMessage(value)
 		entries = append(entries, entry)
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Memory list iteration error for workspace %s: %v", workspaceID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
+		return
+	}
 
 	c.JSON(http.StatusOK, entries)
 }

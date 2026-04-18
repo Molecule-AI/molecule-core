@@ -49,6 +49,11 @@ func (h *EventsHandler) List(c *gin.Context) {
 			"created_at":   createdAt,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Events list iteration error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
+		return
+	}
 	c.JSON(http.StatusOK, events)
 }
 
@@ -86,6 +91,11 @@ func (h *EventsHandler) ListByWorkspace(c *gin.Context) {
 			"payload":      json.RawMessage(payload),
 			"created_at":   createdAt,
 		})
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Events listByWorkspace iteration error for workspace %s: %v", workspaceID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
+		return
 	}
 	c.JSON(http.StatusOK, events)
 }

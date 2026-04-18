@@ -132,23 +132,33 @@ func loadRestartContextData(ctx context.Context, workspaceID string) restartCont
 	// the platform ever echoing secret material back into the
 	// message bus.
 	keySet := map[string]struct{}{}
-	if rows, err := db.DB.QueryContext(ctx, `SELECT key FROM global_secrets`); err == nil {
+	if rows, err := db.DB.QueryContext(ctx, `SELECT key FROM global_secrets`); err != nil {
+		log.Printf("restart_context: global secrets key query failed for workspace %s: %v (env_keys will be incomplete)", workspaceID, err)
+	} else {
 		for rows.Next() {
 			var k string
 			if rows.Scan(&k) == nil {
 				keySet[k] = struct{}{}
 			}
 		}
+		if iterErr := rows.Err(); iterErr != nil {
+			log.Printf("restart_context: global secrets key iteration error for workspace %s: %v (env_keys may be incomplete)", workspaceID, iterErr)
+		}
 		rows.Close()
 	}
 	if rows, err := db.DB.QueryContext(ctx,
 		`SELECT key FROM workspace_secrets WHERE workspace_id = $1`, workspaceID,
-	); err == nil {
+	); err != nil {
+		log.Printf("restart_context: workspace secrets key query failed for workspace %s: %v (env_keys will be incomplete)", workspaceID, err)
+	} else {
 		for rows.Next() {
 			var k string
 			if rows.Scan(&k) == nil {
 				keySet[k] = struct{}{}
 			}
+		}
+		if iterErr := rows.Err(); iterErr != nil {
+			log.Printf("restart_context: workspace secrets key iteration error for workspace %s: %v (env_keys may be incomplete)", workspaceID, iterErr)
 		}
 		rows.Close()
 	}

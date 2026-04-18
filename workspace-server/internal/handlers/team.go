@@ -198,6 +198,15 @@ func (h *TeamHandler) Collapse(c *gin.Context) {
 
 		removed = append(removed, childName)
 	}
+	// Mid-cursor iteration errors must be checked after the loop. If the
+	// cursor failed partway through, some children were removed and some were
+	// not — the collapse is partial. Return 500 so the caller knows to retry
+	// rather than assuming all children were removed.
+	if err := rows.Err(); err != nil {
+		log.Printf("Team collapse: iteration error for parent %s: %v (partial collapse: %v removed)", parentID, err, removed)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "partial collapse — iteration failed"})
+		return
+	}
 
 	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_COLLAPSED", parentID, map[string]interface{}{
 		"removed_children": removed,

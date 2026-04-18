@@ -477,6 +477,11 @@ func (h *DelegationHandler) ListDelegations(c *gin.Context) {
 		}
 		delegations = append(delegations, entry)
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("List delegations iteration error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
+		return
+	}
 
 	if delegations == nil {
 		delegations = []map[string]interface{}{}

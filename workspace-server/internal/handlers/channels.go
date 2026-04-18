@@ -104,6 +104,11 @@ func (h *ChannelHandler) List(c *gin.Context) {
 		}
 		result = append(result, entry)
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Channels: list iteration error for workspace %s: %v", workspaceID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
+		return
+	}
 
 	c.JSON(http.StatusOK, result)
 }
@@ -502,6 +507,11 @@ func (h *ChannelHandler) Webhook(c *gin.Context) {
 		if matchesChatID(row.Config, msg.ChatID) {
 			candidates = append(candidates, row)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Channels: webhook channel lookup iteration error (type=%s): %v", channelType, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "channel lookup failed"})
+		return
 	}
 
 	if targetSlug != "" {

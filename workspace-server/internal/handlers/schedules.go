@@ -314,6 +314,11 @@ func (h *ScheduleHandler) History(c *gin.Context) {
 		e.Request = json.RawMessage(reqStr)
 		entries = append(entries, e)
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Schedule history iteration error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
+		return
+	}
 
 	c.JSON(http.StatusOK, entries)
 }
@@ -404,7 +409,9 @@ func (h *ScheduleHandler) Health(c *gin.Context) {
 		schedules = append(schedules, s)
 	}
 	if err := rows.Err(); err != nil {
-		log.Printf("ScheduleHealth: rows error: %v", err)
+		log.Printf("ScheduleHealth: iteration error for workspace %s: %v", workspaceID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
+		return
 	}
 
 	c.JSON(http.StatusOK, schedules)

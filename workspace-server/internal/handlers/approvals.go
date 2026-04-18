@@ -116,6 +116,11 @@ func (h *ApprovalsHandler) ListAll(c *gin.Context) {
 			"created_at":     createdAt,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("ListPending approvals iteration error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
+		return
+	}
 
 	c.JSON(http.StatusOK, approvals)
 }
@@ -154,6 +159,11 @@ func (h *ApprovalsHandler) List(c *gin.Context) {
 			"decided_at": decidedAt,
 			"created_at": createdAt,
 		})
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("List approvals iteration error for workspace %s: %v", workspaceID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
+		return
 	}
 
 	c.JSON(http.StatusOK, approvals)

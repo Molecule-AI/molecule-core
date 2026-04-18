@@ -35,51 +35,83 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 	// so plaintext rows written before encryption was enabled (#85)
 	// keep working. A decrypt failure aborts provisioning — silent skip
 	// used to manifest as opaque "missing OAuth token" preflight crashes.
+	//
+	// Query errors also abort provisioning: an agent that starts without its
+	// secrets fails at task time with opaque auth errors. Better to mark the
+	// workspace failed immediately so the operator retries/investigates.
 	globalRows, globalErr := db.DB.QueryContext(ctx,
 		`SELECT key, encrypted_value, encryption_version FROM global_secrets`)
-	if globalErr == nil {
-		defer globalRows.Close()
-		for globalRows.Next() {
-			var k string
-			var v []byte
-			var ver int
-			if globalRows.Scan(&k, &v, &ver) == nil {
-				decrypted, decErr := crypto.DecryptVersioned(v, ver)
-				if decErr != nil {
-					log.Printf("Provisioner: FATAL — failed to decrypt global secret %s (version=%d): %v — aborting provision of workspace %s", k, ver, decErr, workspaceID)
-					h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
-						"error": fmt.Sprintf("cannot decrypt global secret %s: %v", k, decErr),
-					})
-					db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', updated_at = now() WHERE id = $1`, workspaceID)
-					return
-				}
-				envVars[k] = string(decrypted)
+	if globalErr != nil {
+		log.Printf("Provisioner: FATAL — global secrets query failed for workspace %s: %v — aborting provision", workspaceID, globalErr)
+		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+			"error": fmt.Sprintf("global secrets query failed: %v", globalErr),
+		})
+		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', updated_at = now() WHERE id = $1`, workspaceID)
+		return
+	}
+	defer globalRows.Close()
+	for globalRows.Next() {
+		var k string
+		var v []byte
+		var ver int
+		if globalRows.Scan(&k, &v, &ver) == nil {
+			decrypted, decErr := crypto.DecryptVersioned(v, ver)
+			if decErr != nil {
+				log.Printf("Provisioner: FATAL — failed to decrypt global secret %s (version=%d): %v — aborting provision of workspace %s", k, ver, decErr, workspaceID)
+				h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+					"error": fmt.Sprintf("cannot decrypt global secret %s: %v", k, decErr),
+				})
+				db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', updated_at = now() WHERE id = $1`, workspaceID)
+				return
 			}
+			envVars[k] = string(decrypted)
 		}
+	}
+	if iterErr := globalRows.Err(); iterErr != nil {
+		log.Printf("Provisioner: FATAL — global secrets iteration error for workspace %s: %v — aborting provision", workspaceID, iterErr)
+		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+			"error": fmt.Sprintf("global secrets iteration failed: %v", iterErr),
+		})
+		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', updated_at = now() WHERE id = $1`, workspaceID)
+		return
 	}
 
 	// 2. Workspace-specific secrets (override globals with same key)
 	rows, err := db.DB.QueryContext(ctx,
 		`SELECT key, encrypted_value, encryption_version FROM workspace_secrets WHERE workspace_id = $1`, workspaceID)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var k string
-			var v []byte
-			var ver int
-			if rows.Scan(&k, &v, &ver) == nil {
-				decrypted, decErr := crypto.DecryptVersioned(v, ver)
-				if decErr != nil {
-					log.Printf("Provisioner: FATAL — failed to decrypt workspace secret %s (version=%d) for %s: %v — aborting provision", k, ver, workspaceID, decErr)
-					h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
-						"error": fmt.Sprintf("cannot decrypt workspace secret %s: %v", k, decErr),
-					})
-					db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', updated_at = now() WHERE id = $1`, workspaceID)
-					return
-				}
-				envVars[k] = string(decrypted)
+	if err != nil {
+		log.Printf("Provisioner: FATAL — workspace secrets query failed for workspace %s: %v — aborting provision", workspaceID, err)
+		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+			"error": fmt.Sprintf("workspace secrets query failed: %v", err),
+		})
+		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', updated_at = now() WHERE id = $1`, workspaceID)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k string
+		var v []byte
+		var ver int
+		if rows.Scan(&k, &v, &ver) == nil {
+			decrypted, decErr := crypto.DecryptVersioned(v, ver)
+			if decErr != nil {
+				log.Printf("Provisioner: FATAL — failed to decrypt workspace secret %s (version=%d) for %s: %v — aborting provision", k, ver, workspaceID, decErr)
+				h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+					"error": fmt.Sprintf("cannot decrypt workspace secret %s: %v", k, decErr),
+				})
+				db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', updated_at = now() WHERE id = $1`, workspaceID)
+				return
 			}
+			envVars[k] = string(decrypted)
 		}
+	}
+	if iterErr := rows.Err(); iterErr != nil {
+		log.Printf("Provisioner: FATAL — workspace secrets iteration error for workspace %s: %v — aborting provision", workspaceID, iterErr)
+		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+			"error": fmt.Sprintf("workspace secrets iteration failed: %v", iterErr),
+		})
+		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', updated_at = now() WHERE id = $1`, workspaceID)
+		return
 	}
 
 	pluginsPath, _ := filepath.Abs(filepath.Join(h.configsDir, "..", "plugins"))
@@ -458,43 +490,53 @@ func (h *WorkspaceHandler) ensureDefaultConfig(workspaceID string, payload model
 }
 
 // loadWorkspaceSecrets loads global + workspace-specific secrets into a map.
-// Returns nil map + error string on decrypt failure. Shared by both Docker
-// and control plane provisioning paths to avoid duplication.
+// Returns nil map + error string on any query, iteration, or decrypt failure.
+// Shared by both Docker and control plane provisioning paths to avoid
+// duplication. Query errors abort loading — an agent provisioned without its
+// secrets fails at task time with opaque auth errors.
 func loadWorkspaceSecrets(ctx context.Context, workspaceID string) (map[string]string, string) {
 	envVars := map[string]string{}
 	globalRows, globalErr := db.DB.QueryContext(ctx,
 		`SELECT key, encrypted_value, encryption_version FROM global_secrets`)
-	if globalErr == nil {
-		defer globalRows.Close()
-		for globalRows.Next() {
-			var k string
-			var v []byte
-			var ver int
-			if globalRows.Scan(&k, &v, &ver) == nil {
-				decrypted, decErr := crypto.DecryptVersioned(v, ver)
-				if decErr != nil {
-					return nil, fmt.Sprintf("cannot decrypt global secret %s: %v", k, decErr)
-				}
-				envVars[k] = string(decrypted)
+	if globalErr != nil {
+		return nil, fmt.Sprintf("global secrets query failed: %v", globalErr)
+	}
+	defer globalRows.Close()
+	for globalRows.Next() {
+		var k string
+		var v []byte
+		var ver int
+		if globalRows.Scan(&k, &v, &ver) == nil {
+			decrypted, decErr := crypto.DecryptVersioned(v, ver)
+			if decErr != nil {
+				return nil, fmt.Sprintf("cannot decrypt global secret %s: %v", k, decErr)
 			}
+			envVars[k] = string(decrypted)
 		}
+	}
+	if iterErr := globalRows.Err(); iterErr != nil {
+		return nil, fmt.Sprintf("global secrets iteration failed: %v", iterErr)
 	}
 	wsRows, err := db.DB.QueryContext(ctx,
 		`SELECT key, encrypted_value, encryption_version FROM workspace_secrets WHERE workspace_id = $1`, workspaceID)
-	if err == nil {
-		defer wsRows.Close()
-		for wsRows.Next() {
-			var k string
-			var v []byte
-			var ver int
-			if wsRows.Scan(&k, &v, &ver) == nil {
-				decrypted, decErr := crypto.DecryptVersioned(v, ver)
-				if decErr != nil {
-					return nil, fmt.Sprintf("cannot decrypt workspace secret %s: %v", k, decErr)
-				}
-				envVars[k] = string(decrypted)
+	if err != nil {
+		return nil, fmt.Sprintf("workspace secrets query failed: %v", err)
+	}
+	defer wsRows.Close()
+	for wsRows.Next() {
+		var k string
+		var v []byte
+		var ver int
+		if wsRows.Scan(&k, &v, &ver) == nil {
+			decrypted, decErr := crypto.DecryptVersioned(v, ver)
+			if decErr != nil {
+				return nil, fmt.Sprintf("cannot decrypt workspace secret %s: %v", k, decErr)
 			}
+			envVars[k] = string(decrypted)
 		}
+	}
+	if iterErr := wsRows.Err(); iterErr != nil {
+		return nil, fmt.Sprintf("workspace secrets iteration failed: %v", iterErr)
 	}
 	return envVars, ""
 }
