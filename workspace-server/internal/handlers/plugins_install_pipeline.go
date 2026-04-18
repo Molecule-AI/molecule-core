@@ -210,7 +210,18 @@ func (h *PluginsHandler) resolveAndStage(ctx context.Context, req installRequest
 		})
 	}
 
-	// SHA-256 content integrity check (SAFE-T1102).
+	// Manifest-declared SHA-256 content integrity check.
+	// If the staged plugin ships a manifest.json with a "sha256" field, verify
+	// the declared hash matches the actual staged tree contents.
+	if err := plugins.VerifyManifestIntegrity(stagedDir); err != nil {
+		cleanup()
+		return nil, newHTTPErr(http.StatusUnprocessableEntity, gin.H{
+			"error":  err.Error(),
+			"source": source.Raw(),
+		})
+	}
+
+	// Caller-pinned SHA-256 content integrity check (SAFE-T1102).
 	// If the caller pinned a hash, verify it against the staged plugin.yaml.
 	// A mismatch means the fetched content differs from what was audited —
 	// abort rather than silently install an unexpected plugin.
