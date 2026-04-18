@@ -469,7 +469,7 @@ func TestChannelHandler_Send_BudgetExceeded_Returns429(t *testing.T) {
 
 	// Budget = 10, message_count = 10 → at the ceiling → 429.
 	mock.ExpectQuery("SELECT message_count, channel_budget FROM workspace_channels WHERE id").
-		WithArgs("ch-budget-hit").
+		WithArgs("ch-budget-hit", "ws-1").
 		WillReturnRows(sqlmock.NewRows([]string{"message_count", "channel_budget"}).
 			AddRow(10, 10))
 
@@ -503,7 +503,7 @@ func TestChannelHandler_Send_BudgetExceeded_AboveLimit_Returns429(t *testing.T) 
 
 	// Budget = 5, message_count = 99 → well above limit.
 	mock.ExpectQuery("SELECT message_count, channel_budget FROM workspace_channels WHERE id").
-		WithArgs("ch-over").
+		WithArgs("ch-over", "ws-1").
 		WillReturnRows(sqlmock.NewRows([]string{"message_count", "channel_budget"}).
 			AddRow(99, 5))
 
@@ -531,7 +531,7 @@ func TestChannelHandler_Send_NoBudget_PassesThrough(t *testing.T) {
 
 	// NULL budget → no restriction.
 	mock.ExpectQuery("SELECT message_count, channel_budget FROM workspace_channels WHERE id").
-		WithArgs("ch-unlimited").
+		WithArgs("ch-unlimited", "ws-1").
 		WillReturnRows(sqlmock.NewRows([]string{"message_count", "channel_budget"}).
 			AddRow(9999, nil))
 
@@ -562,7 +562,7 @@ func TestChannelHandler_Send_BudgetNotYetReached_PassesThrough(t *testing.T) {
 
 	// Budget = 100, message_count = 9 → still under limit.
 	mock.ExpectQuery("SELECT message_count, channel_budget FROM workspace_channels WHERE id").
-		WithArgs("ch-under").
+		WithArgs("ch-under", "ws-1").
 		WillReturnRows(sqlmock.NewRows([]string{"message_count", "channel_budget"}).
 			AddRow(9, 100))
 
@@ -780,6 +780,109 @@ func TestChannelHandler_Webhook_Discord_InvalidSig_Returns401(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// ==================== IDOR prevention: Send + Test workspace ownership ====================
+
+// TestChannelHandler_Send_CrossWorkspace_Returns404 verifies that Send returns
+// 404 when channelId belongs to a different workspace (IDOR prevention).
+// The budget query includes AND workspace_id = $2; when that yields no row the
+// handler must reject rather than fall through to SendOutbound.
+func TestChannelHandler_Send_CrossWorkspace_Returns404(t *testing.T) {
+	mock := setupTestDB(t)
+	handler := NewChannelHandler(newTestChannelManager())
+
+	// Channel "ch-other-ws" exists but belongs to "ws-other", not "ws-1".
+	// The WHERE id=$1 AND workspace_id=$2 finds nothing → ErrNoRows.
+	mock.ExpectQuery("SELECT message_count, channel_budget FROM workspace_channels WHERE id").
+		WithArgs("ch-other-ws", "ws-1").
+		WillReturnRows(sqlmock.NewRows([]string{"message_count", "channel_budget"})) // zero rows
+
+	body, _ := json.Marshal(map[string]string{"text": "hello"})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/workspaces/ws-1/channels/ch-other-ws/send", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{{Key: "id", Value: "ws-1"}, {Key: "channelId", Value: "ch-other-ws"}}
+
+	handler.Send(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for cross-workspace Send, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "channel not found" {
+		t.Errorf("expected 'channel not found', got %v", resp["error"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations not met: %v", err)
+	}
+}
+
+// TestChannelHandler_Test_CrossWorkspace_Returns404 verifies that Test returns
+// 404 when channelId belongs to a different workspace (IDOR prevention).
+func TestChannelHandler_Test_CrossWorkspace_Returns404(t *testing.T) {
+	mock := setupTestDB(t)
+	handler := NewChannelHandler(newTestChannelManager())
+
+	// Ownership check: channel belongs to "ws-other", not "ws-1" → no rows.
+	mock.ExpectQuery("SELECT true FROM workspace_channels WHERE id").
+		WithArgs("ch-other-ws", "ws-1").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"})) // zero rows → ErrNoRows
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/workspaces/ws-1/channels/ch-other-ws/test", nil)
+	c.Params = gin.Params{{Key: "id", Value: "ws-1"}, {Key: "channelId", Value: "ch-other-ws"}}
+
+	handler.Test(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for cross-workspace Test, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "channel not found" {
+		t.Errorf("expected 'channel not found', got %v", resp["error"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations not met: %v", err)
+	}
+}
+
+// TestChannelHandler_Test_OwnWorkspace_Sends verifies that Test proceeds to
+// SendOutbound when the channel does belong to the requesting workspace.
+func TestChannelHandler_Test_OwnWorkspace_Sends(t *testing.T) {
+	mock := setupTestDB(t)
+	handler := NewChannelHandler(newTestChannelManager())
+
+	// Ownership check passes: row found.
+	mock.ExpectQuery("SELECT true FROM workspace_channels WHERE id").
+		WithArgs("ch-ws-1", "ws-1").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	// SendOutbound → loadChannel SELECT — channel config is not in mock → error,
+	// which is acceptable here since we only care about the ownership gate.
+	mock.ExpectQuery("SELECT id, workspace_id, channel_type, channel_config, enabled, allowed_users").
+		WithArgs("ch-ws-1").
+		WillReturnRows(sqlmock.NewRows([]string{}))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/workspaces/ws-1/channels/ch-ws-1/test", nil)
+	c.Params = gin.Params{{Key: "id", Value: "ws-1"}, {Key: "channelId", Value: "ch-ws-1"}}
+
+	handler.Test(c)
+
+	// Ownership gate passed; handler reached SendOutbound (returned 500 due to
+	// missing channel in mock — but crucially NOT 404, meaning the gate opened).
+	if w.Code == http.StatusNotFound {
+		t.Errorf("ownership check should have passed for own-workspace channel, got 404")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations not met: %v", err)
 	}
 }
 

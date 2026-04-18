@@ -264,6 +264,7 @@ func (h *ChannelHandler) Delete(c *gin.Context) {
 
 // Send sends an outbound message from a workspace to its social channel.
 func (h *ChannelHandler) Send(c *gin.Context) {
+	workspaceID := c.Param("id")
 	channelID := c.Param("channelId")
 	ctx := c.Request.Context()
 
@@ -276,17 +277,23 @@ func (h *ChannelHandler) Send(c *gin.Context) {
 	}
 
 	// Per-channel budget enforcement (#368).
-	// Reads message_count and channel_budget in one query. If channel_budget IS
-	// NOT NULL and message_count has already reached it, reject with 429.
-	// DB errors are logged and treated as fail-open (budget not enforced) so a
-	// transient DB hiccup doesn't silently block outbound messages.
+	// The WHERE clause also enforces workspace ownership — ErrNoRows means the
+	// channel doesn't exist within this workspace (IDOR prevention). DB errors
+	// are logged and treated as fail-open (budget not enforced) so a transient
+	// DB hiccup doesn't silently block outbound messages.
 	var msgCount int
 	var budget sql.NullInt64
-	if err := db.DB.QueryRowContext(ctx,
-		`SELECT message_count, channel_budget FROM workspace_channels WHERE id = $1`,
-		channelID,
-	).Scan(&msgCount, &budget); err != nil && err != sql.ErrNoRows {
+	err := db.DB.QueryRowContext(ctx,
+		`SELECT message_count, channel_budget FROM workspace_channels WHERE id = $1 AND workspace_id = $2`,
+		channelID, workspaceID,
+	).Scan(&msgCount, &budget)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "channel not found"})
+		return
+	}
+	if err != nil {
 		log.Printf("Channels: budget check failed for channel %s: %v", channelID, err)
+		// fail-open: budget not enforced on transient DB error
 	}
 	if budget.Valid && int64(msgCount) >= budget.Int64 {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "channel budget exceeded"})
@@ -303,8 +310,23 @@ func (h *ChannelHandler) Send(c *gin.Context) {
 
 // Test sends a test message to verify the channel is working.
 func (h *ChannelHandler) Test(c *gin.Context) {
+	workspaceID := c.Param("id")
 	channelID := c.Param("channelId")
 	ctx := c.Request.Context()
+
+	// Verify channel belongs to this workspace before sending (IDOR prevention).
+	var exists bool
+	if err := db.DB.QueryRowContext(ctx,
+		`SELECT true FROM workspace_channels WHERE id = $1 AND workspace_id = $2`,
+		channelID, workspaceID,
+	).Scan(&exists); err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "channel not found"})
+		return
+	} else if err != nil {
+		log.Printf("Channels: test ownership check failed for channel %s: %v", channelID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ownership check failed"})
+		return
+	}
 
 	if err := h.manager.SendOutbound(ctx, channelID, "🔔 Molecule AI channel test — connection successful!"); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
