@@ -749,6 +749,21 @@ snapshots:
       schema enrichment. No MCP or A2A integration.
     source_url: https://github.com/entireio/cli
 
+  - name: Colab MCP Server
+    slug: colab-mcp
+    date: "2026-04-17"
+    version: "v1.0.2"
+    stars: "510"
+    threat_level: low
+    notable_changes: >
+      510★, Apache-2.0, Google-maintained; launched Mar 17 2026, v1.0.2 Mar 27.
+      MCP server exposing Google Colab as a programmable cloud compute workspace
+      for any MCP-compatible agent (Claude Code, Gemini CLI). Tools: notebook
+      CRUD, cell creation/execution, pip install, dependency management. Gives
+      any Molecule AI workspace agent free GPU access for ML tasks. Plugin
+      proposal queued (molecule-colab — pending GH_TOKEN rotation).
+    source_url: https://github.com/googlecolab/colab-mcp
+
 ---
 
 ## Entries
@@ -3051,3 +3066,23 @@ langgraph/crewai adapters.
 **Signals to react to:** Entire ships MCP server → evaluate `molecule-audit-trail` upgrade. Entire adds multi-workspace / org-level aggregation → escalate to MEDIUM threat.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 4k★, Go, MIT, GitHub Trending Apr 17 2026
+
+---
+
+### Colab MCP Server — `googlecolab/colab-mcp`
+
+**Pitch:** "Connect any AI agent to Google Colab" — treats Colab notebooks as a programmable cloud compute environment accessible via MCP.
+
+**Shape:** Python, Apache-2.0, 510★, Google-maintained. Launched Mar 17 2026, v1.0.2 Mar 27 2026. Runs via `uvx colab-mcp`. Exposes Colab as a set of MCP tools: notebook creation/management, code and markdown cell CRUD, real-time cell execution, cell rearrangement, and `pip install` dependency management. Compatible with any MCP client — Claude Code, Gemini CLI, or custom agents. Bridges local agent ↔ cloud Colab GPU session via an open browser tab.
+
+**Overlap with us:** Any Molecule AI workspace can use this to offload GPU workloads (ML inference, embeddings, fine-tuning) to free Colab compute. Overlaps our workspace Docker execution model — Colab is an alternative compute substrate for GPU-heavy tasks Docker containers can't handle economically. Official Google backing gives it instant distribution via ADK and Gemini CLI ecosystems.
+
+**Differentiation:** Pure compute bridge, not a platform. No org hierarchy, no A2A, no multi-workspace orchestration, no persistent identity. Molecule provides the governance layer that decides when to delegate to Colab compute.
+
+**Worth borrowing:** Notebook-as-execution-environment for ML tasks; `pip install` over MCP as a pattern for dynamic dependency management inside agent sessions.
+
+**Terminology collisions:** "notebook" — Colab notebook ≠ our workspace CLAUDE.md context files.
+
+**Signals to react to:** Colab MCP gains persistent storage or team-sharing tools → escalate to MEDIUM threat. Google integrates into ADK natively → tighter pipeline with tracked HIGH-threat ADK entry. Stars cross 5k → fast-track plugin proposal.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 510★, Python, Apache-2.0, Google-maintained, v1.0.2 (Mar 27 2026). **Plugin proposal queued** (molecule-colab — pending GH_TOKEN rotation).
