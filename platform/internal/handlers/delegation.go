@@ -486,21 +486,33 @@ func (h *DelegationHandler) ListDelegations(c *gin.Context) {
 
 // --- helpers ---
 
-// isTransientProxyError returns true when the proxy error looks like a
-// restart-race condition worth retrying (connection refused, EOF, stale
-// URL pointing at a dead ephemeral port, container-restart-triggered
-// 503). Static 4xx errors (bad request, access denied, not found) are
-// NOT retried — retrying them wastes the 8-second delay for no benefit.
+// isTransientProxyError returns true when the proxy error is a restart-race
+// condition worth retrying (connection refused, stale ephemeral-port URL after
+// a container restart). Static 4xx and generic 5xx errors are NOT retried.
+//
+// 503 requires careful splitting (#689): the proxy emits two distinct 503 shapes
+// that must be handled differently:
+//   - "restarting: true" — container was dead; restart triggered. The POST body
+//     was never delivered (dead container can't accept TCP). Safe to retry.
+//   - "busy: true" — agent is alive, mid-synthesis on a previous request. The
+//     POST body WAS likely delivered. Retrying double-delivers the message.
+//     Do NOT retry; surface the 503 to the caller instead.
 func isTransientProxyError(err *proxyA2AError) bool {
 	if err == nil {
 		return false
 	}
-	// 503 is the explicit "container unreachable / restart triggered"
-	// response from a2a_proxy.go after its reactive health check.
-	// 502 is "failed to reach workspace agent" — the pre-reactive-check
-	// error for plain connection failures.
-	if err.Status == http.StatusServiceUnavailable || err.Status == http.StatusBadGateway {
+	// 502 = "failed to reach workspace agent" (connection refused / DNS failure).
+	// The message was NOT delivered. Safe to retry after reactive URL refresh (#74).
+	if err.Status == http.StatusBadGateway {
 		return true
+	}
+	// 503 with restarting:true = container died → message not delivered → retry.
+	// 503 with busy:true (or no flag) = agent alive → message may be delivered → no retry.
+	if err.Status == http.StatusServiceUnavailable {
+		if restart, ok := err.Response["restarting"].(bool); ok && restart {
+			return true
+		}
+		return false
 	}
 	return false
 }

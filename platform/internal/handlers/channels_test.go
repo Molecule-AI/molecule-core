@@ -3,12 +3,17 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
-	"github.com/DATA-DOG/go-sqlmock"
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/channels"
 	"github.com/gin-gonic/gin"
 )
@@ -577,5 +582,240 @@ func TestChannelHandler_Send_BudgetNotYetReached_PassesThrough(t *testing.T) {
 
 	if w.Code == http.StatusTooManyRequests {
 		t.Errorf("expected budget check to pass (under limit), but got 429")
+	}
+}
+
+// ==================== Discord Ed25519 signature verification ====================
+//
+// These tests cover verifyDiscordSignature and the Discord signature gate in
+// the Webhook handler. They use real Ed25519 key pairs generated in-process so
+// the cryptographic assertions are load-bearing (not hand-crafted hex strings).
+
+// genDiscordKey generates a fresh Ed25519 key pair for tests.
+// Returns (pubKeyHex, privKey).
+func genDiscordKey(t *testing.T) (string, ed25519.PrivateKey) {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("ed25519.GenerateKey: %v", err)
+	}
+	return hex.EncodeToString(pub), priv
+}
+
+// discordSignedRequest builds an *http.Request with the correct Discord
+// Ed25519 headers signed by privKey.
+func discordSignedRequest(t *testing.T, body string, ts string, privKey ed25519.PrivateKey) *http.Request {
+	t.Helper()
+	msg := append([]byte(ts), []byte(body)...)
+	sig := ed25519.Sign(privKey, msg)
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/discord", strings.NewReader(body))
+	req.Header.Set("X-Signature-Ed25519", hex.EncodeToString(sig))
+	req.Header.Set("X-Signature-Timestamp", ts)
+	return req
+}
+
+// TestVerifyDiscordSignature_Valid asserts that a correctly signed request
+// passes verification.
+func TestVerifyDiscordSignature_Valid(t *testing.T) {
+	pubHex, priv := genDiscordKey(t)
+	body := `{"type":1}`
+	req := discordSignedRequest(t, body, "1700000000", priv)
+
+	if !verifyDiscordSignature(req, pubHex) {
+		t.Error("expected true for valid Discord signature, got false")
+	}
+	// Body must be restored so subsequent reads still work.
+	restored, _ := io.ReadAll(req.Body)
+	if string(restored) != body {
+		t.Errorf("body not restored: got %q, want %q", restored, body)
+	}
+}
+
+// TestVerifyDiscordSignature_WrongKey asserts that a signature verified with
+// a different public key returns false.
+func TestVerifyDiscordSignature_WrongKey(t *testing.T) {
+	_, priv := genDiscordKey(t)
+	wrongPubHex, _ := genDiscordKey(t) // different key pair
+	req := discordSignedRequest(t, `{"type":1}`, "1700000000", priv)
+
+	if verifyDiscordSignature(req, wrongPubHex) {
+		t.Error("expected false for signature verified with wrong public key")
+	}
+}
+
+// TestVerifyDiscordSignature_TamperedBody asserts that modifying the body
+// after signing invalidates the signature.
+func TestVerifyDiscordSignature_TamperedBody(t *testing.T) {
+	pubHex, priv := genDiscordKey(t)
+	req := discordSignedRequest(t, `{"type":1}`, "1700000000", priv)
+	// Replace the body with different content after signing.
+	req.Body = io.NopCloser(strings.NewReader(`{"type":2,"tampered":true}`))
+
+	if verifyDiscordSignature(req, pubHex) {
+		t.Error("expected false for tampered body, got true")
+	}
+}
+
+// TestVerifyDiscordSignature_MissingTimestamp asserts that a missing
+// X-Signature-Timestamp header returns false.
+func TestVerifyDiscordSignature_MissingTimestamp(t *testing.T) {
+	pubHex, priv := genDiscordKey(t)
+	req := discordSignedRequest(t, `{"type":1}`, "1700000000", priv)
+	req.Header.Del("X-Signature-Timestamp")
+
+	if verifyDiscordSignature(req, pubHex) {
+		t.Error("expected false for missing X-Signature-Timestamp")
+	}
+}
+
+// TestVerifyDiscordSignature_MissingSignature asserts that a missing
+// X-Signature-Ed25519 header returns false.
+func TestVerifyDiscordSignature_MissingSignature(t *testing.T) {
+	pubHex, priv := genDiscordKey(t)
+	req := discordSignedRequest(t, `{"type":1}`, "1700000000", priv)
+	req.Header.Del("X-Signature-Ed25519")
+
+	if verifyDiscordSignature(req, pubHex) {
+		t.Error("expected false for missing X-Signature-Ed25519")
+	}
+}
+
+// TestVerifyDiscordSignature_InvalidHexSignature asserts that a non-hex
+// signature returns false.
+func TestVerifyDiscordSignature_InvalidHexSignature(t *testing.T) {
+	pubHex, _ := genDiscordKey(t)
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/discord", strings.NewReader(`{}`))
+	req.Header.Set("X-Signature-Ed25519", "not-valid-hex!!!")
+	req.Header.Set("X-Signature-Timestamp", "1700000000")
+
+	if verifyDiscordSignature(req, pubHex) {
+		t.Error("expected false for invalid hex signature")
+	}
+}
+
+// TestVerifyDiscordSignature_InvalidHexPubKey asserts that a non-hex public
+// key returns false.
+func TestVerifyDiscordSignature_InvalidHexPubKey(t *testing.T) {
+	_, priv := genDiscordKey(t)
+	req := discordSignedRequest(t, `{}`, "1700000000", priv)
+
+	if verifyDiscordSignature(req, "not-hex-at-all!!!") {
+		t.Error("expected false for non-hex public key")
+	}
+}
+
+// TestVerifyDiscordSignature_WrongLengthPubKey asserts that a hex-encoded
+// byte slice that is not 32 bytes returns false.
+func TestVerifyDiscordSignature_WrongLengthPubKey(t *testing.T) {
+	_, priv := genDiscordKey(t)
+	req := discordSignedRequest(t, `{}`, "1700000000", priv)
+	// 16 bytes — too short for Ed25519.
+	shortKey := hex.EncodeToString(make([]byte, 16))
+
+	if verifyDiscordSignature(req, shortKey) {
+		t.Error("expected false for short public key")
+	}
+}
+
+// TestChannelHandler_Webhook_Discord_NoKey_Returns401 verifies that a Discord
+// webhook request is rejected with 401 when no public key is configured in the
+// DB and DISCORD_APP_PUBLIC_KEY env var is not set.
+func TestChannelHandler_Webhook_Discord_NoKey_Returns401(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewChannelHandler(newTestChannelManager())
+
+	// discordPublicKey: DB returns no rows (no Discord channels with app_public_key).
+	mock.ExpectQuery(`SELECT COALESCE\(channel_config->>'app_public_key'`).
+		WillReturnRows(sqlmock.NewRows([]string{"pubkey"}))
+
+	// Ensure env var is not set.
+	t.Setenv("DISCORD_APP_PUBLIC_KEY", "")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/webhooks/discord", strings.NewReader(`{"type":1}`))
+	c.Request.Header.Set("X-Signature-Ed25519", "aabbcc")
+	c.Request.Header.Set("X-Signature-Timestamp", "1700000000")
+	c.Params = gin.Params{{Key: "type", Value: "discord"}}
+
+	handler.Webhook(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 (no public key), got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestChannelHandler_Webhook_Discord_InvalidSig_Returns401 verifies that a
+// Discord webhook with an invalid signature is rejected with 401, even when a
+// valid public key is configured.
+func TestChannelHandler_Webhook_Discord_InvalidSig_Returns401(t *testing.T) {
+	pubHex, _ := genDiscordKey(t) // generate key but sign with a DIFFERENT key
+	_, wrongPriv := genDiscordKey(t)
+
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewChannelHandler(newTestChannelManager())
+
+	// discordPublicKey: DB returns the correct pubHex.
+	mock.ExpectQuery(`SELECT COALESCE\(channel_config->>'app_public_key'`).
+		WillReturnRows(sqlmock.NewRows([]string{"pubkey"}).AddRow(pubHex))
+
+	// Build a request signed with the wrong private key.
+	req := discordSignedRequest(t, `{"type":1}`, "1700000000", wrongPriv)
+	req.URL.Path = "/webhooks/discord"
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+	c.Params = gin.Params{{Key: "type", Value: "discord"}}
+
+	handler.Webhook(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 (invalid sig), got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestChannelHandler_Webhook_Discord_ValidSig_PingAccepted verifies that a
+// correctly signed Discord PING (type=1) passes the signature gate and the
+// handler returns 200 (PING returns nil msg → "ignored" status).
+func TestChannelHandler_Webhook_Discord_ValidSig_PingAccepted(t *testing.T) {
+	pubHex, priv := genDiscordKey(t)
+
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewChannelHandler(newTestChannelManager())
+
+	// discordPublicKey: DB returns pubHex.
+	mock.ExpectQuery(`SELECT COALESCE\(channel_config->>'app_public_key'`).
+		WillReturnRows(sqlmock.NewRows([]string{"pubkey"}).AddRow(pubHex))
+
+	body := `{"type":1}`
+	req := discordSignedRequest(t, body, "1700000000", priv)
+	req.URL.Path = "/webhooks/discord"
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+	c.Params = gin.Params{{Key: "type", Value: "discord"}}
+
+	handler.Webhook(c)
+
+	// Discord PING → ParseWebhook returns nil, nil → handler responds "ignored"
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for valid PING, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "ignored") {
+		t.Errorf("expected body to contain 'ignored', got: %s", w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sqlmock expectations: %v", err)
 	}
 }

@@ -50,6 +50,8 @@ import uuid
 from datetime import timedelta
 from typing import Any, Optional
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -59,6 +61,72 @@ logger = logging.getLogger(__name__)
 _TASK_QUEUE = "molecule-agent-tasks"
 _WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
 _ACTIVITY_START_TO_CLOSE_TIMEOUT = timedelta(minutes=10)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Checkpoint persistence (non-fatal)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _save_checkpoint(
+    workspace_id: str,
+    workflow_id: str,
+    step_name: str,
+    step_index: int,
+    payload: Optional[dict] = None,
+) -> None:
+    """POST a step checkpoint to the platform.
+
+    Non-fatal: any HTTP error, network failure, or timeout is logged as a
+    WARNING and silently swallowed so the calling activity always continues.
+    Checkpoint loss is survivable; aborting a workflow on a transient DB or
+    network blip is not.
+
+    Args:
+        workspace_id:  The workspace whose token is used for auth.
+        workflow_id:   Unique ID for this workflow execution (task_id).
+        step_name:     Temporal activity stage name
+                       (``task_receive`` / ``llm_call`` / ``task_complete``).
+        step_index:    0-based stage index matching the platform schema.
+        payload:       Optional JSON-serialisable dict stored as JSONB.
+
+    Reads:
+        PLATFORM_URL   Platform base URL (default ``http://localhost:8080``).
+    """
+    try:
+        from platform_auth import auth_headers as _auth_headers  # type: ignore[import]
+
+        platform_url = os.environ.get("PLATFORM_URL", "http://localhost:8080")
+        url = f"{platform_url}/workspaces/{workspace_id}/checkpoints"
+        body: dict = {
+            "workflow_id": workflow_id,
+            "step_name": step_name,
+            "step_index": step_index,
+        }
+        if payload is not None:
+            body["payload"] = payload
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(url, json=body, headers=_auth_headers())
+            resp.raise_for_status()
+
+        logger.debug(
+            "Temporal: checkpoint saved workspace=%s wf=%s step=%s idx=%d",
+            workspace_id,
+            workflow_id,
+            step_name,
+            step_index,
+        )
+    except Exception as exc:
+        # Non-fatal: workflow continues regardless of checkpoint outcome.
+        logger.warning(
+            "Temporal: checkpoint failed workspace=%s wf=%s step=%s: %s "
+            "(non-fatal — workflow continues)",
+            workspace_id,
+            workflow_id,
+            step_name,
+            exc,
+        )
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Serialisable data models
@@ -129,6 +197,9 @@ try:
         it validates that the in-process registry entry exists and logs receipt.
         The actual A2A "working" signal (``updater.start_work()``) is emitted
         inside ``_core_execute()`` so that SSE timing is preserved.
+
+        Saves a step checkpoint after completing.  Checkpoint failure is
+        non-fatal — the activity returns normally regardless.
         """
         logger.info(
             "Temporal[task_receive] task_id=%s context_id=%s workspace=%s model=%s",
@@ -143,8 +214,22 @@ try:
                 "(crash recovery path — no SSE client connection available)",
                 inp.task_id,
             )
+            try:
+                await _save_checkpoint(
+                    inp.workspace_id, inp.task_id, "task_receive", 0,
+                    {"task_id": inp.task_id, "status": "registry_miss"},
+                )
+            except Exception as _ckpt_exc:  # pragma: no cover
+                logger.warning("task_receive checkpoint swallowed: %s", _ckpt_exc)
             return {"task_id": inp.task_id, "status": "registry_miss"}
 
+        try:
+            await _save_checkpoint(
+                inp.workspace_id, inp.task_id, "task_receive", 0,
+                {"task_id": inp.task_id, "status": "received"},
+            )
+        except Exception as _ckpt_exc:  # pragma: no cover
+            logger.warning("task_receive checkpoint swallowed: %s", _ckpt_exc)
         return {"task_id": inp.task_id, "status": "received"}
 
     @activity.defn(name="llm_call")
@@ -169,7 +254,15 @@ try:
                 "process likely restarted; original SSE client connection is gone"
             )
             logger.warning("Temporal[llm_call] registry miss: %s", msg)
-            return LLMResult(final_text="", success=False, error=msg)
+            miss_result = LLMResult(final_text="", success=False, error=msg)
+            try:
+                await _save_checkpoint(
+                    inp.workspace_id, inp.task_id, "llm_call", 1,
+                    {"success": False, "error": msg},
+                )
+            except Exception as _ckpt_exc:  # pragma: no cover
+                logger.warning("llm_call checkpoint swallowed: %s", _ckpt_exc)
+            return miss_result
 
         try:
             executor = entry["executor"]
@@ -182,7 +275,7 @@ try:
 
             # Cache for task_complete observability
             entry["final_text"] = final_text or ""
-            return LLMResult(final_text=final_text or "", success=True)
+            result = LLMResult(final_text=final_text or "", success=True)
 
         except Exception as exc:
             logger.error(
@@ -191,7 +284,16 @@ try:
                 exc,
                 exc_info=True,
             )
-            return LLMResult(final_text="", success=False, error=str(exc))
+            result = LLMResult(final_text="", success=False, error=str(exc))
+
+        try:
+            await _save_checkpoint(
+                inp.workspace_id, inp.task_id, "llm_call", 1,
+                {"success": result.success, "error": result.error or None},
+            )
+        except Exception as _ckpt_exc:  # pragma: no cover
+            logger.warning("llm_call checkpoint swallowed: %s", _ckpt_exc)
+        return result
 
     @activity.defn(name="task_complete")
     async def task_complete_activity(result: LLMResult) -> None:
@@ -201,6 +303,11 @@ try:
         This activity records the outcome for Temporal observability.  The actual
         OTEL task_complete span fires inside ``_core_execute()``; this activity
         provides a durable, queryable record in Temporal's workflow history.
+
+        Saves a step checkpoint.  Checkpoint failure is non-fatal.
+        The ``workspace_id`` and ``task_id`` are not available in this activity
+        (only the ``LLMResult`` is passed from ``llm_call``), so the checkpoint
+        is skipped here — ``llm_call`` already captured the final outcome.
         """
         if result.success:
             logger.info(

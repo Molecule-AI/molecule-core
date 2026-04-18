@@ -52,7 +52,7 @@ def test_load_config_defaults(tmp_path):
     assert cfg.description == ""
     assert cfg.version == "1.0.0"
     assert cfg.tier == 1
-    assert cfg.model == "anthropic:claude-sonnet-4-6"
+    assert cfg.model == "anthropic:claude-opus-4-7"
     assert cfg.skills == []
     assert cfg.tools == []
     assert cfg.prompt_files == []

@@ -614,7 +614,7 @@ func TestSecretsValues_WrongToken(t *testing.T) {
 		WithArgs(testWsID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	// ValidateToken lookup returns nothing
-	mock.ExpectQuery(`SELECT id, workspace_id FROM workspace_auth_tokens`).
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id.*FROM workspace_auth_tokens t.*JOIN workspaces`).
 		WillReturnError(sql.ErrNoRows)
 
 	w := httptest.NewRecorder()
@@ -633,7 +633,7 @@ func TestSecretsValues_ValidTokenReturnsDecryptedMerge(t *testing.T) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM workspace_auth_tokens`).
 		WithArgs(testWsID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery(`SELECT id, workspace_id FROM workspace_auth_tokens`).
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id.*FROM workspace_auth_tokens t.*JOIN workspaces`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("tok-1", testWsID))
 	mock.ExpectExec(`UPDATE workspace_auth_tokens SET last_used_at`).

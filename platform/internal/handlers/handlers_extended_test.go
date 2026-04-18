@@ -15,6 +15,7 @@ import (
 // ---------- TestWorkspaceDelete (Extended) ----------
 
 func TestExtended_WorkspaceDelete(t *testing.T) {
+	const wsDelID = "aaaaaaaa-0000-0000-0000-000000000001"
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
@@ -22,7 +23,7 @@ func TestExtended_WorkspaceDelete(t *testing.T) {
 
 	// Expect children query — no children
 	mock.ExpectQuery("SELECT id, name FROM workspaces WHERE parent_id").
-		WithArgs("ws-del").
+		WithArgs(wsDelID).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}))
 
 	// #73: batch UPDATE happens BEFORE any container teardown.
@@ -40,8 +41,8 @@ func TestExtended_WorkspaceDelete(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-del"}}
-	c.Request = httptest.NewRequest("DELETE", "/workspaces/ws-del?confirm=true", nil)
+	c.Params = gin.Params{{Key: "id", Value: wsDelID}}
+	c.Request = httptest.NewRequest("DELETE", "/workspaces/"+wsDelID+"?confirm=true", nil)
 
 	handler.Delete(c)
 
@@ -68,6 +69,7 @@ func TestExtended_WorkspaceDelete(t *testing.T) {
 // ---------- TestWorkspaceUpdate (Extended) ----------
 
 func TestExtended_WorkspaceUpdate(t *testing.T) {
+	const wsUpdID = "aaaaaaaa-0000-0000-0000-000000000002"
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
@@ -75,25 +77,25 @@ func TestExtended_WorkspaceUpdate(t *testing.T) {
 
 	// #120 fix: existence check runs first — workspace must be found before updates proceed.
 	mock.ExpectQuery("SELECT EXISTS").
-		WithArgs("ws-upd").
+		WithArgs(wsUpdID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	// Expect name update
 	mock.ExpectExec("UPDATE workspaces SET name").
-		WithArgs("ws-upd", "New Name").
+		WithArgs(wsUpdID, "New Name").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// Expect canvas position upsert (x and y both provided)
 	mock.ExpectExec("INSERT INTO canvas_layouts").
-		WithArgs("ws-upd", float64(150), float64(250)).
+		WithArgs(wsUpdID, float64(150), float64(250)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Params = gin.Params{{Key: "id", Value: "ws-upd"}}
+	c.Params = gin.Params{{Key: "id", Value: wsUpdID}}
 
 	body := `{"name":"New Name","x":150,"y":250}`
-	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-upd", bytes.NewBufferString(body))
+	c.Request = httptest.NewRequest("PATCH", "/workspaces/"+wsUpdID, bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	handler.Update(c)
@@ -636,5 +638,149 @@ func TestExtended_ConfigPatch(t *testing.T) {
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// ─── #687 UUID validation ──────────────────────────────────────────────────
+
+func TestGet_InvalidUUID_Returns400(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", "/tmp/configs")
+
+	for _, badID := range []string{"not-a-uuid", "ws-123", "../etc/passwd", "123"} {
+		t.Run(badID, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Params = gin.Params{{Key: "id", Value: badID}}
+			c.Request = httptest.NewRequest("GET", "/workspaces/"+badID, nil)
+			handler.Get(c)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("Get(%q): want 400, got %d", badID, w.Code)
+			}
+		})
+	}
+}
+
+func TestUpdate_InvalidUUID_Returns400(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", "/tmp/configs")
+
+	for _, badID := range []string{"not-a-uuid", "ws-upd", "../../secret"} {
+		t.Run(badID, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Params = gin.Params{{Key: "id", Value: badID}}
+			body := `{"name":"x"}`
+			c.Request = httptest.NewRequest("PATCH", "/workspaces/"+badID, bytes.NewBufferString(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			handler.Update(c)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("Update(%q): want 400, got %d", badID, w.Code)
+			}
+		})
+	}
+}
+
+func TestDelete_InvalidUUID_Returns400(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", "/tmp/configs")
+
+	for _, badID := range []string{"not-a-uuid", "ws-del", "foobar"} {
+		t.Run(badID, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Params = gin.Params{{Key: "id", Value: badID}}
+			c.Request = httptest.NewRequest("DELETE", "/workspaces/"+badID+"?confirm=true", nil)
+			handler.Delete(c)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("Delete(%q): want 400, got %d", badID, w.Code)
+			}
+		})
+	}
+}
+
+// ─── #685/#688 field validation ───────────────────────────────────────────
+
+func TestValidateWorkspaceFields_Lengths(t *testing.T) {
+	long256 := string(make([]byte, 256))
+	long1001 := string(make([]byte, 1001))
+	long101 := string(make([]byte, 101))
+
+	cases := []struct {
+		label                      string
+		name, role, model, runtime string
+		wantErr                    bool
+	}{
+		{"ok", "ok", "ok role", "gpt-4", "langgraph", false},
+		{"name_too_long", long256, "", "", "", true},
+		{"role_too_long", "", long1001, "", "", true},
+		{"model_too_long", "", "", long101, "", true},
+		{"runtime_too_long", "", "", "", long101, true},
+		{"name_newline", "bad\nname", "", "", "", true},
+		{"role_cr", "", "bad\rrole", "", "", true},
+		{"model_newline", "", "", "bad\nmodel", "", true},
+		{"runtime_newline", "", "", "", "bad\nruntime", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.label, func(t *testing.T) {
+			err := validateWorkspaceFields(tc.name, tc.role, tc.model, tc.runtime)
+			if tc.wantErr && err == nil {
+				t.Errorf("want error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("want nil, got %v", err)
+			}
+		})
+	}
+}
+
+func TestCreate_FieldValidation_Returns400(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", "/tmp/configs")
+
+	cases := []struct{ label, body string }{
+		{"name_newline", `{"name":"bad\nname"}`},
+		{"role_cr", `{"name":"ok","role":"bad\rrole"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.label, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest("POST", "/workspaces", bytes.NewBufferString(tc.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			handler.Create(c)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("Create(%s): want 400, got %d: %s", tc.label, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestUpdate_FieldValidation_Returns400(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", "/tmp/configs")
+
+	validID := "bbbbbbbb-0000-0000-0000-000000000001"
+	cases := []struct{ label, body string }{
+		{"name_newline", `{"name":"bad\nname"}`},
+		{"role_cr", `{"name":"ok","role":"bad\rrole"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.label, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Params = gin.Params{{Key: "id", Value: validID}}
+			c.Request = httptest.NewRequest("PATCH", "/workspaces/"+validID, bytes.NewBufferString(tc.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			handler.Update(c)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("Update(%s): want 400, got %d: %s", tc.label, w.Code, w.Body.String())
+			}
+		})
 	}
 }

@@ -14,6 +14,8 @@ export function Toolbar() {
   const wsStatus = useCanvasStore((s) => s.wsStatus);
   const showA2AEdges = useCanvasStore((s) => s.showA2AEdges);
   const setShowA2AEdges = useCanvasStore((s) => s.setShowA2AEdges);
+  const selectedNodeId = useCanvasStore((s) => s.selectedNodeId);
+  const setPanelTab = useCanvasStore((s) => s.setPanelTab);
 
   const [stopping, setStopping] = useState(false);
   const [restartingAll, setRestartingAll] = useState(false);
@@ -155,6 +157,7 @@ export function Toolbar() {
           disabled={stopping}
           className="flex items-center gap-1.5 px-2.5 py-1 bg-red-950/50 hover:bg-red-900/60 border border-red-800/40 rounded-lg transition-colors disabled:opacity-50"
           title={`Stop all running tasks (${counts.activeTasks} active)`}
+          aria-label={stopping ? "Stopping all running tasks" : `Stop all running tasks (${counts.activeTasks} active)`}
         >
           <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="text-red-400">
             <rect x="2" y="2" width="12" height="12" rx="2" />
@@ -172,6 +175,7 @@ export function Toolbar() {
           disabled={restartingAll}
           className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-950/40 hover:bg-amber-900/50 border border-amber-800/40 rounded-lg transition-colors disabled:opacity-50"
           title={`Restart ${needsRestartNodes.length} workspace${needsRestartNodes.length === 1 ? "" : "s"} that need to pick up config or secret changes`}
+          aria-label={restartingAll ? "Restarting workspaces" : `Restart ${needsRestartNodes.length} workspace${needsRestartNodes.length === 1 ? "" : "s"} pending config or secret changes`}
         >
           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="text-amber-400">
             <path d="M2 8a6 6 0 1 1 1.76 4.24M2 13v-3h3" strokeLinecap="round" strokeLinejoin="round" />
@@ -214,6 +218,34 @@ export function Toolbar() {
           />
         </svg>
         <span className="text-[10px] font-medium">A2A</span>
+      </button>
+
+      {/* Audit trail shortcut — switches selected workspace's panel to the Audit tab */}
+      <button
+        onClick={() => {
+          if (selectedNodeId) {
+            setPanelTab("audit");
+          } else {
+            showToast("Select a workspace to view its audit trail", "info");
+          }
+        }}
+        aria-label="Open audit trail for selected workspace"
+        title="View audit ledger for the selected workspace"
+        className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-700/40 rounded-lg transition-colors text-zinc-500 hover:text-zinc-300"
+      >
+        {/* Scroll / ledger icon */}
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 16 16"
+          fill="none"
+          className="shrink-0"
+          aria-hidden="true"
+        >
+          <rect x="3" y="2" width="10" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+          <path d="M6 5.5h4M6 8h4M6 10.5h2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+        </svg>
+        <span className="text-[10px] font-medium">Audit</span>
       </button>
 
       {/* Search shortcut */}
@@ -285,9 +317,9 @@ export function Toolbar() {
 
 function StatusPill({ color, count, label }: { color: string; count: number; label: string }) {
   return (
-    <div className="flex items-center gap-1.5" title={`${count} ${label}`}>
-      <div className={`w-1.5 h-1.5 rounded-full ${color}`} />
-      <span className="text-[10px] text-zinc-400 tabular-nums">{count}</span>
+    <div className="flex items-center gap-1.5" title={`${count} ${label}`} aria-label={`${count} ${label}`}>
+      <div className={`w-1.5 h-1.5 rounded-full ${color}`} aria-hidden="true" />
+      <span className="text-[10px] text-zinc-400 tabular-nums" aria-hidden="true">{count}</span>
     </div>
   );
 }
@@ -295,24 +327,24 @@ function StatusPill({ color, count, label }: { color: string; count: number; lab
 function WsStatusPill({ status }: { status: "connected" | "connecting" | "disconnected" }) {
   if (status === "connected") {
     return (
-      <div className="flex items-center gap-1.5" title="Real-time updates: connected">
-        <div className={`w-1.5 h-1.5 rounded-full ${statusDotClass("online")}`} />
-        <span className="text-[10px] text-zinc-500">Live</span>
+      <div className="flex items-center gap-1.5" title="Real-time updates: connected" aria-label="Real-time updates: connected">
+        <div className={`w-1.5 h-1.5 rounded-full ${statusDotClass("online")}`} aria-hidden="true" />
+        <span className="text-[10px] text-zinc-500" aria-hidden="true">Live</span>
       </div>
     );
   }
   if (status === "connecting") {
     return (
-      <div className="flex items-center gap-1.5" title="Real-time updates: reconnecting…">
-        <div className="w-1.5 h-1.5 rounded-full bg-amber-400 motion-safe:animate-pulse" />
-        <span className="text-[10px] text-zinc-500">Reconnecting</span>
+      <div className="flex items-center gap-1.5" title="Real-time updates: reconnecting…" aria-label="Real-time updates: reconnecting">
+        <div className="w-1.5 h-1.5 rounded-full bg-amber-400 motion-safe:animate-pulse" aria-hidden="true" />
+        <span className="text-[10px] text-zinc-500" aria-hidden="true">Reconnecting</span>
       </div>
     );
   }
   return (
-    <div className="flex items-center gap-1.5" title="Real-time updates: disconnected">
-      <div className={`w-1.5 h-1.5 rounded-full ${statusDotClass("failed")}`} />
-      <span className="text-[10px] text-zinc-500">Offline</span>
+    <div className="flex items-center gap-1.5" title="Real-time updates: disconnected" aria-label="Real-time updates: disconnected">
+      <div className={`w-1.5 h-1.5 rounded-full ${statusDotClass("failed")}`} aria-hidden="true" />
+      <span className="text-[10px] text-zinc-500" aria-hidden="true">Offline</span>
     </div>
   );
 }

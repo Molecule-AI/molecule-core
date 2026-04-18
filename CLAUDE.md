@@ -28,6 +28,12 @@ secrets` on `molecule-cp`), the correct rotation order, and danger cases —
 notably `SECRETS_ENCRYPTION_KEY`, which cannot be rotated without a data
 migration until Phase H lands KMS envelope encryption.
 
+For tenant subdomain routing architecture (why `*.moleculesai.app` uses a
+Cloudflare Worker instead of per-tenant DNS records), read
+**`docs/architecture/wildcard-dns-proxy.md`**. This eliminates DNS
+propagation delays and NXDOMAIN caching that previously caused "site can't
+be reached" errors for new orgs.
+
 When handling a GDPR erasure request (user asks "delete my org and all
 my data"), read **`docs/runbooks/gdpr-erasure.md`** first. It explains the
 4-step cascade in `molecule-controlplane` (Stripe → Redis → Infra → DB
@@ -143,7 +149,7 @@ go run ./cmd/server          # Run server (requires Postgres + Redis running)
 go build -o molecli ./cmd/cli  # Build TUI dashboard
 ./molecli                    # Run TUI dashboard (requires platform running)
 ```
-Must run from `platform/` directory (not repo root). Env vars: `DATABASE_URL`, `REDIS_URL`, `PORT`, `PLATFORM_URL` (default `http://host.docker.internal:PORT` — passed to agent containers so they can reach the platform), `SECRETS_ENCRYPTION_KEY` (optional AES-256, 32 bytes), `CONFIGS_DIR` (auto-discovered), `PLUGINS_DIR` (deprecated — plugins are now installed per-workspace via API; the `plugins/` registry at repo root is auto-discovered), `ACTIVITY_RETENTION_DAYS` (default `7`), `ACTIVITY_CLEANUP_INTERVAL_HOURS` (default `6`), `CORS_ORIGINS` (comma-separated, default `http://localhost:3000,http://localhost:3001`), `RATE_LIMIT` (requests/min, default `600`), `WORKSPACE_DIR` (optional — global fallback host path for `/workspace` bind-mount; overridden by per-workspace `workspace_dir` column in DB; if neither is set, each workspace gets an isolated Docker named volume), `AWARENESS_URL` (optional — if set, injected into workspace containers along with a deterministic `AWARENESS_NAMESPACE` derived from workspace ID), `MOLECULE_IN_DOCKER` (optional — set to `1` when the platform itself runs inside Docker so the A2A proxy rewrites `127.0.0.1:<port>` URLs to container hostnames; auto-detected via `/.dockerenv`), `MOLECULE_ENV` (optional — set to `production` to hide the `/admin/workspaces/:id/test-token` E2E helper endpoint; unset or any other value leaves it enabled), `MOLECULE_ENABLE_TEST_TOKENS` (optional — set to `1` to force-enable the test-token endpoint even when `MOLECULE_ENV=production`; intended for staging runs only), `MOLECULE_ORG_ID` (optional — the public repo's only SaaS hook. When set to a UUID, every non-allowlisted request must carry a matching `X-Molecule-Org-Id` header or gets a 404; when unset, the guard is a passthrough so self-hosted / dev / CI are unaffected. Set only by the private `molecule-controlplane` provisioner on Fly Machines tenant instances — never by self-hosters).
+Must run from `platform/` directory (not repo root). Env vars: `DATABASE_URL`, `REDIS_URL`, `PORT`, `ADMIN_TOKEN` (**required to close issue #684** — when set, only this exact value is accepted on all `/admin/*` and `/approvals/*` routes; without it, any valid workspace bearer token passes AdminAuth, which is the #684 vulnerability. Generate: `openssl rand -base64 32`. Never commit the actual value — inject via `fly secrets set` or deployment env. PR #729), `PLATFORM_URL` (default `http://host.docker.internal:PORT` — passed to agent containers so they can reach the platform), `SECRETS_ENCRYPTION_KEY` (optional AES-256, 32 bytes), `CONFIGS_DIR` (auto-discovered), `PLUGINS_DIR` (deprecated — plugins are now installed per-workspace via API; the `plugins/` registry at repo root is auto-discovered), `ACTIVITY_RETENTION_DAYS` (default `7`), `ACTIVITY_CLEANUP_INTERVAL_HOURS` (default `6`), `CORS_ORIGINS` (comma-separated, default `http://localhost:3000,http://localhost:3001`), `RATE_LIMIT` (requests/min, default `600`), `WORKSPACE_DIR` (optional — global fallback host path for `/workspace` bind-mount; overridden by per-workspace `workspace_dir` column in DB; if neither is set, each workspace gets an isolated Docker named volume), `AWARENESS_URL` (optional — if set, injected into workspace containers along with a deterministic `AWARENESS_NAMESPACE` derived from workspace ID), `MOLECULE_IN_DOCKER` (optional — set to `1` when the platform itself runs inside Docker so the A2A proxy rewrites `127.0.0.1:<port>` URLs to container hostnames; auto-detected via `/.dockerenv`), `MOLECULE_ENV` (optional — set to `production` to hide the `/admin/workspaces/:id/test-token` E2E helper endpoint; unset or any other value leaves it enabled), `MOLECULE_ENABLE_TEST_TOKENS` (optional — set to `1` to force-enable the test-token endpoint even when `MOLECULE_ENV=production`; intended for staging runs only), `MOLECULE_ORG_ID` (optional — the public repo's only SaaS hook. When set to a UUID, every non-allowlisted request must carry a matching `X-Molecule-Org-Id` header or gets a 404; when unset, the guard is a passthrough so self-hosted / dev / CI are unaffected. Set only by the private `molecule-controlplane` provisioner on Fly Machines tenant instances — never by self-hosters).
 
 **Workspace tier resource limits** (issue #14 — override the per-tier memory/CPU caps in `provisioner.ApplyTierConfig`; CPU_SHARES follows Docker's 1024 = 1 CPU convention, translated to NanoCPUs for a hard cap):
 - `TIER2_MEMORY_MB` / `TIER2_CPU_SHARES` — Standard tier (defaults `512` / `1024`)
@@ -266,12 +272,27 @@ All five E2E scripts share `tests/e2e/_lib.sh` + `tests/e2e/_extract_token.py` h
 The MCP server now lives at **github.com/Molecule-AI/molecule-mcp-server** and is published as `@molecule-ai/mcp-server` on npm. Install: `npx @molecule-ai/mcp-server`. 87 tools for managing Molecule AI from any MCP client. Configured in `.mcp.json`. Env: `MOLECULE_URL` (default http://localhost:8080).
 
 ### CI Pipeline
-GitHub Actions (`.github/workflows/ci.yml`) runs on push to main and PRs:
+GitHub Actions (`.github/workflows/ci.yml`) runs on push to main and PRs.
+**Path-filtered:** each job only runs when its relevant files change (via
+`dorny/paths-filter`). Docs-only PRs (`docs/**`, `*.md`) skip all jobs,
+saving ~15 min of runner time. The path filters are:
+
+| Job | Triggers on |
+|-----|-------------|
+| **platform-build** | `platform/**` |
+| **canvas-build** | `canvas/**` |
+| **python-lint** | `workspace-template/**` |
+| **shellcheck** | `tests/e2e/**`, `scripts/**` |
+| **e2e-api** | `platform/**`, `tests/e2e/**` |
+
+All jobs also trigger on `.github/workflows/ci.yml` changes (self-test).
+
+Job details:
 - **platform-build**: Go build, vet, `go test -race` with coverage profiling (25% baseline threshold; `setup-go` uses module cache)
 - **canvas-build**: npm build, `vitest run` (no `--passWithNoTests` -- tests must exist and pass)
 - **python-lint**: `pytest --cov=. --cov-report=term-missing` (workspace-template tests; SDK + MCP now in standalone repos)
-- **e2e-api** (added 2026-04-13): spins up Postgres + Redis service containers, runs platform migrations via `docker exec`, then executes `tests/e2e/test_api.sh` against a locally-built binary (62/62 must pass)
-- **shellcheck** (added 2026-04-13): lints every `tests/e2e/*.sh` via the shellcheck marketplace action
+- **e2e-api** (`.github/workflows/e2e-api.yml`): spins up Postgres + Redis service containers, runs platform migrations via `docker exec`, then executes `tests/e2e/test_api.sh` against a locally-built binary (62/62 must pass)
+- **shellcheck**: lints every `tests/e2e/*.sh` via shellcheck on the self-hosted runner
 - **publish-platform-image** (`.github/workflows/publish-platform-image.yml`): on push to main touching `platform/**`, builds `platform/Dockerfile` (clones templates + plugins from GitHub via `manifest.json` at build time) and pushes to `ghcr.io/molecule-ai/platform:latest` + `:sha-<short>`. Tenant image uses `platform/Dockerfile.tenant` (combined Go + Canvas). Manual re-trigger via `workflow_dispatch`.
 
 **Standalone repo CI** — all 33 plugin + template repos call reusable workflows from `Molecule-AI/molecule-ci`:

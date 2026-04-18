@@ -338,7 +338,7 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 		if runtime == "claude-code" {
 			model = "sonnet"
 		} else {
-			model = "anthropic:claude-sonnet-4-6"
+			model = "anthropic:claude-opus-4-7"
 		}
 	}
 	tier := ws.Tier
@@ -643,7 +643,14 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 			log.Printf("Org import: schedule '%s' on %s has empty prompt (neither prompt nor prompt_file set) — skipping insert", sched.Name, ws.Name)
 			continue
 		}
-		nextRun, _ := scheduler.ComputeNextRun(sched.CronExpr, tz, time.Now())
+		// #722: surface the error rather than silently using time.Time{} (zero)
+		// which lib/pq stores as 0001-01-01 and may confuse the fire query.
+		nextRun, nextRunErr := scheduler.ComputeNextRun(sched.CronExpr, tz, time.Now())
+		if nextRunErr != nil {
+			log.Printf("Org import: invalid cron expression for schedule '%s' on %s: %v — skipping insert",
+				sched.Name, ws.Name, nextRunErr)
+			continue
+		}
 		if _, err := db.DB.ExecContext(context.Background(), orgImportScheduleSQL,
 			id, sched.Name, sched.CronExpr, tz, prompt, enabled, nextRun); err != nil {
 			log.Printf("Org import: failed to upsert schedule '%s' for %s: %v", sched.Name, ws.Name, err)

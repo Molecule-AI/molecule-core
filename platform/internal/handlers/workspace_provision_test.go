@@ -215,7 +215,7 @@ func TestEnsureDefaultConfig_LangGraph(t *testing.T) {
 	if !contains(content, "tier: 1") {
 		t.Errorf("config.yaml missing tier, got:\n%s", content)
 	}
-	if !contains(content, `model: "anthropic:claude-sonnet-4-6"`) {
+	if !contains(content, `model: "anthropic:claude-opus-4-7"`) {
 		t.Errorf("config.yaml should use default langgraph model, got:\n%s", content)
 	}
 }
@@ -354,7 +354,7 @@ func TestEnsureDefaultConfig_EmptyRuntimeDefaultsToLangGraph(t *testing.T) {
 	if !contains(configYAML, "runtime: langgraph") {
 		t.Errorf("empty runtime should default to langgraph, got:\n%s", configYAML)
 	}
-	if !contains(configYAML, `model: "anthropic:claude-sonnet-4-6"`) {
+	if !contains(configYAML, `model: "anthropic:claude-opus-4-7"`) {
 		t.Errorf("langgraph default model should be anthropic (quoted), got:\n%s", configYAML)
 	}
 }

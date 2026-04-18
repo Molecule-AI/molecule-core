@@ -639,3 +639,242 @@ async def test_molecule_workflow_run_method(real_temporal_with_temporalio):
 
     assert result is mock_llm_result
     assert call_count["n"] == 3  # three stages called
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Issue #790 — Case 6: Non-fatal checkpoint failure
+#
+# _save_checkpoint() is called from task_receive_activity and llm_call_activity
+# after their main work completes. If the HTTP POST to the platform returns an
+# error status (e.g. 500 Internal Server Error) or raises a network exception,
+# the activity must NOT propagate the error — the workflow continues normally.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_save_checkpoint_failure_is_nonfatal_on_http_error(
+    real_temporal_with_temporalio, monkeypatch
+):
+    """_save_checkpoint raises httpx.HTTPStatusError (500) → activity succeeds.
+
+    Injects a checkpoint endpoint failure into task_receive_activity by patching
+    _save_checkpoint to raise an HTTPStatusError.  The activity must return
+    normally with status='received' regardless.
+    """
+    mod, _mocks, _mock_shared = real_temporal_with_temporalio
+
+    # Track whether the mock was called.
+    save_calls: list[dict] = []
+
+    async def _fail_checkpoint(workspace_id, workflow_id, step_name, step_index, payload=None):
+        save_calls.append({
+            "workspace_id": workspace_id,
+            "workflow_id": workflow_id,
+            "step_name": step_name,
+            "step_index": step_index,
+            "payload": payload,
+        })
+        # Simulate HTTP 500 from the platform checkpoint endpoint.
+        import httpx as _httpx
+        request = _httpx.Request("POST", "http://localhost:8080/workspaces/ws-1/checkpoints")
+        response = _httpx.Response(500, request=request, text="Internal Server Error")
+        raise _httpx.HTTPStatusError("500", request=request, response=response)
+
+    monkeypatch.setattr(mod, "_save_checkpoint", _fail_checkpoint)
+
+    # Register a minimal task entry so the activity doesn't take the registry-miss path.
+    task_id = "t-nonfatal-ckpt"
+    mod._task_registry[task_id] = {
+        "executor": None,
+        "context": None,
+        "event_queue": None,
+        "final_text": "",
+    }
+
+    inp = mod.AgentTaskInput(
+        task_id=task_id,
+        context_id="ctx-1",
+        user_input="hello",
+        model="test-model",
+        workspace_id="ws-1",
+        history=[],
+    )
+
+    # Act: call task_receive_activity directly.  It should succeed despite
+    # _save_checkpoint raising HTTPStatusError.
+    result = await mod.task_receive_activity(inp)
+
+    # Assert: activity returned successfully — checkpoint failure was swallowed.
+    assert result == {"task_id": task_id, "status": "received"}, (
+        f"task_receive_activity must succeed even when checkpoint POST fails; "
+        f"got {result!r}"
+    )
+    # The checkpoint attempt was made (once, for task_receive).
+    assert len(save_calls) == 1
+    assert save_calls[0]["step_name"] == "task_receive"
+    assert save_calls[0]["step_index"] == 0
+
+    # Cleanup registry.
+    mod._task_registry.pop(task_id, None)
+
+
+@pytest.mark.asyncio
+async def test_save_checkpoint_failure_is_nonfatal_on_network_error(
+    real_temporal_with_temporalio, monkeypatch
+):
+    """_save_checkpoint raises a generic network error → llm_call_activity succeeds.
+
+    Tests the llm_call_activity path: even if _save_checkpoint raises a
+    ConnectError (network unreachable), the activity returns its LLMResult.
+    """
+    mod, _mocks, _mock_shared = real_temporal_with_temporalio
+
+    save_calls: list[str] = []
+
+    async def _network_fail_checkpoint(
+        workspace_id, workflow_id, step_name, step_index, payload=None
+    ):
+        save_calls.append(step_name)
+        import httpx as _httpx
+        raise _httpx.ConnectError("Connection refused")
+
+    monkeypatch.setattr(mod, "_save_checkpoint", _network_fail_checkpoint)
+
+    # Build a mock executor whose _core_execute returns a known string.
+    mock_executor = MagicMock()
+    mock_executor._core_execute = AsyncMock(return_value="workflow output")
+    mock_context = MagicMock()
+    mock_event_queue = MagicMock()
+
+    task_id = "t-network-fail"
+    mod._task_registry[task_id] = {
+        "executor": mock_executor,
+        "context": mock_context,
+        "event_queue": mock_event_queue,
+        "final_text": "",
+    }
+
+    inp = mod.AgentTaskInput(
+        task_id=task_id,
+        context_id="ctx-2",
+        user_input="test",
+        model="test-model",
+        workspace_id="ws-2",
+        history=[],
+    )
+
+    # Act: llm_call_activity must complete successfully.
+    result = await mod.llm_call_activity(inp)
+
+    # Assert: successful LLMResult returned despite checkpoint ConnectError.
+    assert isinstance(result, mod.LLMResult), f"Expected LLMResult, got {type(result)}"
+    assert result.success is True, f"llm_call must succeed when checkpoint fails; got {result!r}"
+    assert result.final_text == "workflow output"
+    # _core_execute was called (actual work happened).
+    mock_executor._core_execute.assert_awaited_once_with(mock_context, mock_event_queue)
+    # Checkpoint was attempted (once, for llm_call at step_index=1).
+    assert "llm_call" in save_calls
+
+    mod._task_registry.pop(task_id, None)
+
+
+@pytest.mark.asyncio
+async def test_save_checkpoint_success_path(
+    real_temporal_with_temporalio, monkeypatch
+):
+    """When _save_checkpoint succeeds, activity returns correctly and checkpoint is recorded.
+
+    Verifies the happy path: checkpoint is called with the right arguments and
+    the activity return value is unaffected by a successful checkpoint save.
+    """
+    mod, _mocks, _mock_shared = real_temporal_with_temporalio
+
+    save_calls: list[dict] = []
+
+    async def _noop_checkpoint(workspace_id, workflow_id, step_name, step_index, payload=None):
+        save_calls.append({
+            "workspace_id": workspace_id,
+            "workflow_id": workflow_id,
+            "step_name": step_name,
+            "step_index": step_index,
+            "payload": payload,
+        })
+
+    monkeypatch.setattr(mod, "_save_checkpoint", _noop_checkpoint)
+
+    task_id = "t-success-ckpt"
+    mod._task_registry[task_id] = {
+        "executor": None,
+        "context": None,
+        "event_queue": None,
+        "final_text": "",
+    }
+
+    inp = mod.AgentTaskInput(
+        task_id=task_id,
+        context_id="ctx-3",
+        user_input="hi",
+        model="test-model",
+        workspace_id="ws-3",
+        history=[],
+    )
+
+    result = await mod.task_receive_activity(inp)
+
+    assert result == {"task_id": task_id, "status": "received"}
+    assert len(save_calls) == 1
+    assert save_calls[0]["workspace_id"] == "ws-3"
+    assert save_calls[0]["workflow_id"] == task_id
+    assert save_calls[0]["step_name"] == "task_receive"
+    assert save_calls[0]["step_index"] == 0
+
+    mod._task_registry.pop(task_id, None)
+
+
+@pytest.mark.asyncio
+async def test_save_checkpoint_standalone_http_error_is_swallowed(
+    real_temporal_with_temporalio, monkeypatch
+):
+    """_save_checkpoint() itself swallows HTTP errors — direct call test.
+
+    Calls the real _save_checkpoint function (patching httpx.AsyncClient)
+    and asserts it returns None without raising even when the platform
+    returns a 500 status.
+    """
+    import httpx as _httpx
+
+    mod, _mocks, _mock_shared = real_temporal_with_temporalio
+
+    # Patch platform_auth to avoid disk reads in the test environment.
+    mock_platform_auth = MagicMock()
+    mock_platform_auth.auth_headers = MagicMock(return_value={"Authorization": "Bearer test-tok"})
+    monkeypatch.setitem(
+        __import__("sys").modules, "platform_auth", mock_platform_auth
+    )
+
+    # Simulate the AsyncClient.post returning a 500.
+    mock_response = MagicMock()
+    mock_response.raise_for_status.side_effect = _httpx.HTTPStatusError(
+        "500",
+        request=_httpx.Request("POST", "http://localhost:8080/workspaces/ws-x/checkpoints"),
+        response=_httpx.Response(500),
+    )
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.post = AsyncMock(return_value=mock_response)
+
+    with monkeypatch.context() as m:
+        m.setattr(_httpx, "AsyncClient", MagicMock(return_value=mock_client))
+
+        # Must NOT raise — non-fatal contract.
+        result = await mod._save_checkpoint(
+            workspace_id="ws-x",
+            workflow_id="wf-x",
+            step_name="task_receive",
+            step_index=0,
+            payload={"task_id": "t-x"},
+        )
+
+    assert result is None, "_save_checkpoint must return None (no exception) on HTTP 500"
