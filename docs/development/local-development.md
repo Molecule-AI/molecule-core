@@ -92,9 +92,9 @@ Docker Compose  2.x
 ### Unit Tests
 
 ```bash
-cd platform && go test -race ./...               # Go tests with race detection (695 tests)
+cd workspace-server && go test -race ./...               # Go tests with race detection (695 tests)
 cd canvas && npm test                            # Vitest tests (357 tests)
-cd workspace-template && python -m pytest -v     # Workspace runtime tests (1140 tests)
+cd workspace && python -m pytest -v     # Workspace runtime tests (1140 tests)
 cd sdk/python && python -m pytest -v             # SDK tests (121 tests)
 cd mcp-server && npm test                        # MCP server tests (97 Jest tests)
 ```
