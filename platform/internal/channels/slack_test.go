@@ -137,8 +137,8 @@ func TestMarkdownToMrkdwn_Link(t *testing.T) {
 
 func TestMarkdownToMrkdwn_HorizontalRule(t *testing.T) {
 	got := markdownToMrkdwn("above\n---\nbelow")
-	if got != "above\n———\nbelow" {
-		t.Errorf("expected ———, got %q", got)
+	if got != "above\n----------\nbelow" {
+		t.Errorf("expected dashes, got %q", got)
 	}
 }
 
@@ -162,7 +162,7 @@ func TestMarkdownToMrkdwn_Mixed(t *testing.T) {
 	if !strings.Contains(got, "<https://example.com|details>") {
 		t.Error("link not converted")
 	}
-	if !strings.Contains(got, "———") {
+	if !strings.Contains(got, "----------") {
 		t.Error("hr not converted")
 	}
 }

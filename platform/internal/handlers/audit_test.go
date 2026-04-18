@@ -62,8 +62,7 @@ func strPtr(s string) *string { return &s }
 
 // resetAuditKeyCache clears the cached HMAC key so tests can control it via env.
 func resetAuditKeyCache() {
-	var once sync.Once
-	auditKeyOnce = once
+	auditKeyOnce = *new(sync.Once)
 	auditHMACKey = nil
 }
 
