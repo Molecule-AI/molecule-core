@@ -235,7 +235,7 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
           {data.status !== "online" ? (
             <div className={`text-[10px] uppercase tracking-widest font-medium ${
               data.status === "failed" ? "text-red-400" :
-              data.status === "degraded" ? "text-amber-400" :
+              data.status === "degraded" ? "text-amber-300" :
               data.status === "provisioning" ? "text-sky-400" :
               "text-zinc-500"
             }`}>
@@ -431,7 +431,7 @@ function TeamMemberChip({
           {data.status !== "online" ? (
             <span className={`text-[9px] uppercase tracking-widest font-medium ${
               data.status === "failed" ? "text-red-400" :
-              data.status === "degraded" ? "text-amber-400" :
+              data.status === "degraded" ? "text-amber-300" :
               data.status === "provisioning" ? "text-sky-400" :
               "text-zinc-500"
             }`}>
