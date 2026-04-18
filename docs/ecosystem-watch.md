@@ -719,6 +719,21 @@ snapshots:
       worth borrowing for workspace tool-access tier UX.
     source_url: https://github.com/lukilabs/craft-agents-oss
 
+  - name: Midscene
+    slug: midscene
+    date: "2026-04-17"
+    version: "active"
+    stars: "12.7k"
+    threat_level: low
+    notable_changes: >
+      12.7k★, TypeScript, MIT; GitHub Trending Apr 17 2026. AI-powered vision-
+      driven UI automation: web (Puppeteer/Playwright/Bridge), Android (adb),
+      iOS (WebDriverAgent). Ships built-in MCP server exposing atomic UI actions
+      as MCP tools (aiAssert, aiLocate, aiWaitFor) — natural language, no DOM
+      selectors. Direct upgrade path for our browser-automation plugin beyond
+      CDP. Plugin proposal queued (molecule-midscene — pending GH_TOKEN).
+    source_url: https://github.com/web-infra-dev/midscene
+
 ---
 
 ## Entries
@@ -2981,3 +2996,23 @@ langgraph/crewai adapters.
 **Signals to react to:** Adds A2A support → evaluate `molecule-ai-workspace-template-craft`. Headless server gains multi-user/team support → upgrade to MEDIUM threat. Crosses 20k★ → re-evaluate competitive posture.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 4.3k★, TypeScript, Apache-2.0, GitHub Trending Apr 17 2026
+
+---
+
+### Midscene — `web-infra-dev/midscene`
+
+**Pitch:** "AI-powered, vision-driven UI automation for every platform."
+
+**Shape:** TypeScript, MIT, 12.7k★, GitHub Trending Apr 17 2026. Pure-vision UI automation via VLMs (screenshots → NL actions). Web via Puppeteer/Playwright/Bridge Mode; Android via adb; iOS via WebDriverAgent. Core API: `aiAssert()`, `aiLocate()`, `aiWaitFor()` — natural language, no DOM selectors. Ships a built-in MCP server exposing atomic UI actions as MCP tools. OpenClaw integration for platform control.
+
+**Overlap with us:** Direct overlap with `molecule-ai-plugin-browser-automation`. Midscene's MCP server drops in as a workspace plugin with richer NL automation than our current CDP `fetch_page`/`click` approach. Cross-platform (web + mobile) expands what a Research Lead or Marketing workspace can automate beyond desktop browsers.
+
+**Differentiation:** UI automation library, not an orchestration platform. No A2A protocol, no workspace lifecycle, no org hierarchy. Molecule is the orchestration layer above it.
+
+**Worth borrowing:** Vision-based element localization as an upgrade path for our browser-automation plugin. Mobile automation surface (Android + iOS) is net-new capability we have no current answer to.
+
+**Terminology collisions:** "Agent" (Midscene Agent = automation session) ≠ our workspace agent.
+
+**Signals to react to:** MCP server API stabilizes → file `molecule-midscene` plugin proposal. Midscene hits 30k★ → evaluate replacing CDP plugin as default. Midscene ships A2A → tighter integration path.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 12.7k★, TypeScript, MIT, GitHub Trending Apr 17 2026. **Plugin proposal queued** (molecule-midscene — pending GH_TOKEN rotation).
