@@ -1,454 +1,120 @@
 # API Reference
 
-Platform API server runs on `:8080` by default. All endpoints return JSON.
+This document describes the REST API exposed by the Molecule AI workspace server (Go/Gin, default port `:8080`). Clients include the Canvas frontend, workspace agents communicating over A2A, and external tooling such as the MCP server and CLI.
 
-**Rate limit:** 600 req/min (configurable via `RATE_LIMIT` env var).
-**CORS:** `http://localhost:3000`, `http://localhost:3001` by default (configurable via `CORS_ORIGINS`).
-
----
-
-## REST Endpoints
-
-### Workspaces
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/workspaces` | Create workspace and provision container |
-| `GET` | `/workspaces` | List all workspaces |
-| `GET` | `/workspaces/:id` | Get single workspace |
-| `PATCH` | `/workspaces/:id` | Update workspace fields |
-| `DELETE` | `/workspaces/:id` | Delete workspace and remove container |
-| `POST` | `/workspaces/:id/restart` | Restart workspace container |
-| `POST` | `/workspaces/:id/pause` | Pause workspace (cascades to children) |
-| `POST` | `/workspaces/:id/resume` | Resume paused workspace |
-
-#### POST /workspaces
-
-Create a new workspace. Provisions a Docker container automatically.
-
-```json
-{
-  "name": "Marketing Lead",
-  "role": "Manages marketing campaigns",
-  "template": "general-assistant",
-  "tier": 2,
-  "model": "anthropic:claude-sonnet-4-6",
-  "runtime": "langgraph",
-  "parent_id": "uuid-of-parent",
-  "canvas": { "x": 100, "y": 200 }
-}
-```
-
-Response: workspace object with `id`, `status: "provisioning"`.
+**Base URL:** `http://localhost:8080` (development default)
+**Rate limit:** 600 req/min (configurable via `RATE_LIMIT`)
+**CORS origins:** `http://localhost:3000,http://localhost:3001` by default (configurable via `CORS_ORIGINS`)
 
 ---
 
-### A2A Proxy
+## Authentication
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/workspaces/:id/a2a` | Proxy A2A JSON-RPC to workspace agent |
+Three middleware classes gate server-side routes:
 
-Forwards JSON-RPC 2.0 requests to the workspace's agent container. Automatically wraps in JSON-RPC envelope if missing.
+- **`AdminAuth`** — strict bearer-only. Required for any route that can leak prompts/memory, create/mutate workspaces, or expose ops intel. Lazy-bootstrap fail-open when no live tokens exist globally.
+- **`WorkspaceAuth`** — binds a bearer token to a specific workspace `:id`. A token for workspace A cannot be used against workspace B's sub-routes.
+- **`CanvasOrBearer`** — accepts a bearer token OR a request Origin matching `CORS_ORIGINS`. Used only for cosmetic routes with zero data/security impact (currently `PUT /canvas/viewport` only). Do not extend to routes that leak data or create resources.
 
-**Headers:**
-- `X-Workspace-ID` -- set to caller workspace ID for agent-to-agent calls; empty for canvas-initiated
-
-**Timeouts:**
-- Canvas-initiated (no X-Workspace-ID): 5 minutes
-- Agent-to-agent (X-Workspace-ID set): 30 minutes
-
-**Example -- send message:**
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "uuid",
-  "method": "message/send",
-  "params": {
-    "message": {
-      "role": "user",
-      "parts": [{ "kind": "text", "text": "Hello agent" }]
-    }
-  }
-}
-```
-
-On success for canvas-initiated requests, also broadcasts an `A2A_RESPONSE` WebSocket event.
+Full contract: `docs/runbooks/admin-auth.md`.
 
 ---
 
-### Secrets
+## Routes
 
-Secrets are encrypted with AES-256-GCM at rest. Values are never returned to the client.
-
-#### Global Secrets
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/settings/secrets` | List global secrets (keys only) |
-| `PUT` | `/settings/secrets` | Set a global secret |
-| `POST` | `/settings/secrets` | Set a global secret (alias) |
-| `DELETE` | `/settings/secrets/:key` | Delete a global secret |
-
-Legacy aliases: `GET/POST/DELETE /admin/secrets` (backward compatible).
-
-**PUT /settings/secrets:**
-```json
-{ "key": "ANTHROPIC_API_KEY", "value": "sk-ant-..." }
-```
-Response: `{ "status": "saved", "key": "ANTHROPIC_API_KEY", "scope": "global" }`
-
-#### Workspace Secrets
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/workspaces/:id/secrets` | List merged secrets (workspace + inherited global) |
-| `PUT` | `/workspaces/:id/secrets` | Set workspace-level secret override |
-| `POST` | `/workspaces/:id/secrets` | Set workspace-level secret override (alias) |
-| `DELETE` | `/workspaces/:id/secrets/:key` | Delete workspace-level secret |
-
-**GET /workspaces/:id/secrets** returns a merged view:
-```json
-[
-  { "key": "ANTHROPIC_API_KEY", "has_value": true, "scope": "workspace", "created_at": "...", "updated_at": "..." },
-  { "key": "OPENAI_API_KEY", "has_value": true, "scope": "global", "created_at": "...", "updated_at": "..." }
-]
-```
-
-- `scope: "workspace"` -- set directly on this workspace (overrides global)
-- `scope: "global"` -- inherited from global secrets (not overridden)
-
-Setting or deleting a workspace secret triggers an automatic container restart.
-
-#### Precedence
-
-When provisioning a container, secrets are loaded: global first, then workspace-specific. Workspace secrets with the same key override globals. The merged set is injected as environment variables.
-
-#### Model Config
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/workspaces/:id/model` | Get current MODEL_PROVIDER config |
-
----
-
-### Activity Logs
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/workspaces/:id/activity` | List activity logs (`?type=&limit=`) |
-| `GET` | `/workspaces/:id/session-search` | Full-text search across activity + memories (`?q=&limit=`) |
-| `POST` | `/workspaces/:id/activity` | Agent self-reports activity |
-| `POST` | `/workspaces/:id/notify` | Agent pushes a chat message to canvas |
-
-**POST /workspaces/:id/notify:**
-```json
-{ "message": "I've completed the analysis." }
-```
-Broadcasts an `AGENT_MESSAGE` WebSocket event. Does not persist to activity_logs.
-
-**POST /workspaces/:id/activity:**
-```json
-{
-  "activity_type": "a2a_send",
-  "method": "message/send",
-  "summary": "Delegated task to Dev Lead",
-  "target_id": "uuid-of-target",
-  "status": "ok",
-  "duration_ms": 1500,
-  "request_body": {},
-  "response_body": {}
-}
-```
-Valid activity types: `a2a_send`, `a2a_receive`, `task_update`, `agent_log`, `skill_promotion`, `error`.
+| Method | Path | Handler |
+|--------|------|---------|
+| GET | /health | inline |
+| GET | /metrics | metrics.Handler() — Prometheus text format; no auth, scrape-safe |
+| POST/GET/PATCH/DELETE | /workspaces[/:id] | workspace.go — `GET /workspaces`, `POST /workspaces`, and `DELETE /workspaces/:id` require `AdminAuth`. `PATCH /workspaces/:id` enforces field-level authz: cosmetic fields (name, role, x, y, canvas) pass through; sensitive fields (tier, parent_id, runtime, workspace_dir) require a valid bearer token when any live token exists. |
+| GET/PATCH | /workspaces/:id/config | workspace.go |
+| GET/POST | /workspaces/:id/memory | workspace.go |
+| DELETE | /workspaces/:id/memory/:key | workspace.go |
+| POST/PATCH/DELETE | /workspaces/:id/agent | agent.go |
+| POST | /workspaces/:id/agent/move | agent.go |
+| GET/POST/PUT | /workspaces/:id/secrets | secrets.go (POST/PUT auto-restarts workspace) |
+| DELETE | /workspaces/:id/secrets/:key | secrets.go (DELETE auto-restarts workspace) |
+| GET | /workspaces/:id/model | secrets.go |
+| GET | /settings/secrets | secrets.go — list global secrets (keys only, values masked) |
+| PUT/POST | /settings/secrets | secrets.go — set a global secret `{key, value}`; auto-restarts every non-paused/non-removed/non-external workspace that does not shadow the key with a workspace-level override |
+| DELETE | /settings/secrets/:key | secrets.go — delete a global secret; same auto-restart fan-out as PUT/POST |
+| GET | /admin/workspaces/:id/test-token | admin_test_token.go — mint a fresh bearer token for E2E scripts; returns 404 unless `MOLECULE_ENV != production` or `MOLECULE_ENABLE_TEST_TOKENS=1` |
+| GET/POST/DELETE | /admin/secrets[/:key] | secrets.go — legacy aliases for /settings/secrets |
+| WS | /workspaces/:id/terminal | terminal.go |
+| POST | /workspaces/:id/expand | team.go |
+| POST | /workspaces/:id/collapse | team.go |
+| POST/GET | /workspaces/:id/approvals | approvals.go |
+| POST | /workspaces/:id/approvals/:id/decide | approvals.go |
+| GET | /approvals/pending | approvals.go |
+| POST/GET | /workspaces/:id/memories | memories.go |
+| DELETE | /workspaces/:id/memories/:id | memories.go |
+| GET | /workspaces/:id/traces | traces.go |
+| GET/POST | /workspaces/:id/activity | activity.go |
+| POST | /workspaces/:id/notify | activity.go (agent→user push message via WebSocket) |
+| POST | /workspaces/:id/restart | workspace.go |
+| POST | /workspaces/:id/pause | workspace.go (stops container, status→paused) |
+| POST | /workspaces/:id/resume | workspace.go (re-provisions paused workspace) |
+| POST | /workspaces/:id/a2a | workspace.go |
+| POST | /workspaces/:id/delegate | delegation.go (async fire-and-forget) |
+| GET | /workspaces/:id/delegations | delegation.go (list delegation status) |
+| GET/POST | /workspaces/:id/schedules | schedules.go (cron CRUD) |
+| PATCH/DELETE | /workspaces/:id/schedules/:scheduleId | schedules.go |
+| POST | /workspaces/:id/schedules/:scheduleId/run | schedules.go (manual trigger) |
+| GET | /workspaces/:id/schedules/:scheduleId/history | schedules.go (past runs) |
+| GET/POST | /workspaces/:id/channels | channels.go (social channel CRUD) |
+| PATCH/DELETE | /workspaces/:id/channels/:channelId | channels.go |
+| POST | /workspaces/:id/channels/:channelId/send | channels.go (outbound message) |
+| POST | /workspaces/:id/channels/:channelId/test | channels.go (test connection) |
+| GET | /channels/adapters | channels.go (list available platforms) |
+| POST | /channels/discover | channels.go (auto-detect chats for a bot token) |
+| POST | /webhooks/:type | channels.go (incoming social webhook) |
+| GET | /workspaces/:id/shared-context | templates.go |
+| GET/PUT/DELETE | /workspaces/:id/files[/*path] | templates.go |
+| GET | /canvas/viewport | viewport.go — open, no auth required (cosmetic, bootstrap-friendly) |
+| PUT | /canvas/viewport | viewport.go — `CanvasOrBearer` middleware; accepts bearer OR Origin matching `CORS_ORIGINS`. Cosmetic-only route — worst case viewport corruption, recovered by page refresh. |
+| GET | /templates | templates.go |
+| POST | /templates/import | templates.go — `AdminAuth` required |
+| POST | /registry/register | registry.go |
+| POST | /registry/heartbeat | registry.go — requires `Authorization: Bearer <token>` once a workspace has any live token on file (legacy workspaces grandfathered) |
+| POST | /registry/update-card | registry.go — requires `Authorization: Bearer <token>` once a workspace has any live token on file |
+| GET | /registry/discover/:id | discovery.go — requires `X-Workspace-ID` + bearer token on the caller side |
+| GET | /registry/:id/peers | discovery.go — requires `X-Workspace-ID` + bearer token on the caller side |
+| POST | /registry/check-access | discovery.go |
+| GET | /plugins | plugins.go (list registry; supports `?runtime=` filter) |
+| GET | /plugins/sources | plugins.go (list registered install-source schemes) |
+| GET/POST/DELETE | /workspaces/:id/plugins[/:name] | plugins.go — list, install (`{"source":"scheme://spec"}`), uninstall per-workspace |
+| GET | /workspaces/:id/plugins/available | plugins.go (filtered by workspace runtime) |
+| GET | /workspaces/:id/plugins/compatibility?runtime=X | plugins.go (preflight runtime-change check) |
+| GET/POST | /workspaces/:id/tokens | tokens.go — list active tokens (prefix + metadata), create new token (plaintext returned once). Max 50 per workspace. |
+| DELETE | /workspaces/:id/tokens/:tokenId | tokens.go — revoke specific token by ID |
+| GET | /bundles/export/:id | bundle.go — `AdminAuth` required |
+| POST | /bundles/import | bundle.go — `AdminAuth` required |
+| GET | /org/templates | org.go (list available org templates) |
+| POST | /org/import | org.go — `AdminAuth` required; applies `resolveInsideRoot` path sanitiser on template paths |
+| GET | /events | events.go — `AdminAuth` required |
+| GET | /events/:workspaceId | events.go — `AdminAuth` required |
+| GET | /admin/liveness | inline — `AdminAuth` required. Returns per-subsystem `supervised.Snapshot()` ages; use to check health of scheduler/heartbeat goroutines |
+| GET | /ws | socket.go |
 
 ---
 
-### Registry (agent-facing)
-
-Used by workspace agents to self-register and maintain liveness.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/registry/register` | Agent registers on startup |
-| `POST` | `/registry/heartbeat` | Agent heartbeat (includes task state) |
-| `POST` | `/registry/update-card` | Agent updates its AgentCard |
-
-**POST /registry/register:**
-```json
-{
-  "id": "workspace-uuid",
-  "url": "http://hostname:9000",
-  "agent_card": { "name": "...", "skills": [...], "capabilities": {...} }
-}
-```
-Transitions workspace status to `online`, broadcasts `WORKSPACE_ONLINE`.
-
-**POST /registry/heartbeat:**
-```json
-{
-  "workspace_id": "uuid",
-  "current_task": "Analyzing report...",
-  "active_tasks": 2,
-  "error_rate": 0.0,
-  "uptime_seconds": 3600
-}
-```
-If error_rate > 0.5, broadcasts `WORKSPACE_DEGRADED`. Recovery broadcasts `WORKSPACE_ONLINE`.
-
----
-
-### Discovery
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/registry/discover/:id` | Discover workspace by ID |
-| `GET` | `/registry/:id/peers` | List accessible peer workspaces |
-| `POST` | `/registry/check-access` | Check if two workspaces can communicate |
-
----
-
-### Team Expansion
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/workspaces/:id/expand` | Expand workspace into a sub-team |
-| `POST` | `/workspaces/:id/collapse` | Remove all children, collapse back to single workspace |
-
----
-
-### Agents
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/workspaces/:id/agent` | Assign agent to workspace |
-| `PATCH` | `/workspaces/:id/agent` | Replace agent |
-| `DELETE` | `/workspaces/:id/agent` | Remove agent |
-| `POST` | `/workspaces/:id/agent/move` | Move agent between workspaces |
-
----
-
-### Config & Memory
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/workspaces/:id/config` | Get workspace config (JSONB) |
-| `PATCH` | `/workspaces/:id/config` | Merge-patch config |
-| `GET` | `/workspaces/:id/memory` | List KV memory entries |
-| `GET` | `/workspaces/:id/memory/:key` | Get single KV entry |
-| `POST` | `/workspaces/:id/memory` | Set KV entry (with optional TTL) |
-| `DELETE` | `/workspaces/:id/memory/:key` | Delete KV entry |
-
----
-
-### Agent Memories (HMA)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/workspaces/:id/memories` | Commit a memory (LOCAL, TEAM, or GLOBAL scope) |
-| `GET` | `/workspaces/:id/memories` | Search memories |
-| `DELETE` | `/workspaces/:id/memories/:memoryId` | Delete a memory |
-
----
-
-### Approvals
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/approvals/pending` | List all pending approvals (cross-workspace) |
-| `POST` | `/workspaces/:id/approvals` | Create approval request |
-| `GET` | `/workspaces/:id/approvals` | List workspace approvals |
-| `POST` | `/workspaces/:id/approvals/:approvalId/decide` | Approve or reject |
-
----
-
-### Async Delegation
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/workspaces/:id/delegate` | Fire-and-forget delegation (`{target_id, task}`) |
-| `GET` | `/workspaces/:id/delegations` | List delegations with status and results |
-
----
-
-### Templates & Files
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/templates` | List available workspace templates |
-| `POST` | `/templates/import` | Import template from URL |
-| `GET` | `/workspaces/:id/shared-context` | Get shared context files |
-| `PUT` | `/workspaces/:id/files` | Replace all config files |
-| `GET` | `/workspaces/:id/files` | List files (lazy: `?depth=1&path=subdir`) |
-| `GET` | `/workspaces/:id/files/*path` | Read a config file |
-| `PUT` | `/workspaces/:id/files/*path` | Write a config file |
-| `DELETE` | `/workspaces/:id/files/*path` | Delete a config file |
-
----
-
-### Plugins
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/plugins` | List available plugins (`?runtime=<name>` filters to compatible) |
-| `GET` | `/plugins/sources` | List registered install-source schemes (e.g. `github`, `local`) |
-| `GET` | `/workspaces/:id/plugins` | List plugins installed in workspace |
-| `GET` | `/workspaces/:id/plugins/available` | Plugins filtered to the workspace's runtime |
-| `GET` | `/workspaces/:id/plugins/compatibility?runtime=X` | Preflight runtime change |
-| `POST` | `/workspaces/:id/plugins` | Install plugin (`{"source":"<scheme>://<spec>"}`, e.g. `local://ecc`, `github://owner/repo#v1.0`) — auto-restarts |
-| `DELETE` | `/workspaces/:id/plugins/:name` | Uninstall plugin — auto-restarts |
-
----
-
-### Bundles
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/bundles/export/:id` | Export workspace as portable bundle |
-| `POST` | `/bundles/import` | Import workspace from bundle |
-
----
-
-### Other
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Health check (`{"status": "ok"}`) |
-| `GET` | `/metrics` | Prometheus metrics |
-| `GET` | `/events` | List structure events |
-| `GET` | `/events/:workspaceId` | List events for a workspace |
-| `GET` | `/workspaces/:id/traces` | Proxy to Langfuse traces |
-| `GET` | `/workspaces/:id/terminal` | WebSocket terminal into container |
-| `GET` | `/canvas/viewport` | Get saved canvas viewport |
-| `PUT` | `/canvas/viewport` | Save canvas viewport |
-| `POST` | `/webhooks/github` | GitHub webhook receiver |
-
----
-
-## WebSocket Events
-
-Connect to `ws://localhost:8080/ws`. All messages use this envelope:
-
-```json
-{
-  "event": "EVENT_TYPE",
-  "workspace_id": "uuid",
-  "timestamp": "2024-01-01T00:00:00Z",
-  "payload": { ... }
-}
-```
-
-**Routing:** Canvas clients (no workspace ID) receive all events. Workspace clients receive only events for workspaces they can communicate with (per hierarchy rules).
-
-### Workspace Lifecycle Events
-
-These are persisted to the `structure_events` table.
-
-| Event | Payload | Trigger |
-|-------|---------|---------|
-| `WORKSPACE_PROVISIONING` | `{name, tier, parent_id?}` | Container creation or restart begins |
-| `WORKSPACE_ONLINE` | `{url, agent_card}` | Agent self-registers or recovers from degraded |
-| `WORKSPACE_OFFLINE` | `{}` | A2A proxy detects dead container |
-| `WORKSPACE_PAUSED` | `{}` | Pause operation completes |
-| `WORKSPACE_DEGRADED` | `{error_rate, sample_error}` | Heartbeat reports error_rate > 0.5 |
-| `WORKSPACE_REMOVED` | `{name?}` | Workspace deleted |
-| `WORKSPACE_PROVISION_FAILED` | `{error}` | Container start failed |
-| `WORKSPACE_EXPANDED` | `{children: [ids]}` | Team expansion complete |
-| `WORKSPACE_COLLAPSED` | `{children: [ids]}` | Team collapse complete |
-
-### Agent Events
-
-Persisted to `structure_events`.
-
-| Event | Payload | Trigger |
-|-------|---------|---------|
-| `AGENT_CARD_UPDATED` | `{agent_card}` | Agent updates its discovery card |
-| `AGENT_ASSIGNED` | `{agent_id, name}` | Agent assigned to workspace |
-| `AGENT_REPLACED` | `{agent_id, name}` | Agent replaced in workspace |
-| `AGENT_REMOVED` | `{agent_id}` | Agent removed from workspace |
-| `AGENT_MOVED` | `{from, to, agent_id}` | Agent moved (fired on both source and target) |
-
-### Approval Events
-
-Persisted to `structure_events`.
-
-| Event | Payload | Trigger |
-|-------|---------|---------|
-| `APPROVAL_REQUESTED` | `{approval_id, workspace_id, ...}` | Agent requests human approval |
-| `APPROVAL_ESCALATED` | `{approval_id, child_id, ...}` | Approval escalated to parent workspace |
-
-### High-Frequency Events (broadcast only, not persisted)
-
-| Event | Payload | Trigger |
-|-------|---------|---------|
-| `TASK_UPDATED` | `{current_task, active_tasks}` | Heartbeat includes task state changes |
-| `AGENT_MESSAGE` | `{message, workspace_id, name}` | Agent pushes chat message via `POST /notify` |
-| `ACTIVITY_LOGGED` | `{activity_type, method, summary, status, source_id, target_id, duration_ms}` | Any activity log insert |
-| `A2A_RESPONSE` | `{response_body, method, duration_ms}` | Canvas-initiated A2A proxy returns success |
-
-### Frontend Handling
-
-The canvas (`canvas-events.ts`) handles these events in its Zustand store:
-
-| Event | Frontend Action |
-|-------|----------------|
-| `WORKSPACE_ONLINE` | Set node status to `"online"` |
-| `WORKSPACE_OFFLINE` | Set node status to `"offline"` |
-| `WORKSPACE_PAUSED` | Set node status to `"paused"`, clear currentTask |
-| `WORKSPACE_DEGRADED` | Set node status to `"degraded"`, store error rate |
-| `WORKSPACE_PROVISIONING` | Update existing node or create new node |
-| `WORKSPACE_REMOVED` | Remove node, reparent children, clean edges |
-| `AGENT_CARD_UPDATED` | Update node's agentCard |
-| `TASK_UPDATED` | Update node's currentTask and activeTasks |
-| `AGENT_MESSAGE` | Append to chat messages for the workspace |
-| `A2A_RESPONSE` | Extract response text, append to chat messages |
-
----
-
-## A2A JSON-RPC Methods
-
-Workspace agents implement the A2A protocol via the `a2a-sdk`. The Platform A2A proxy forwards these methods transparently.
-
-### message/send
-
-Synchronous message exchange. Blocks until the agent completes processing.
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "unique-id",
-  "method": "message/send",
-  "params": {
-    "message": {
-      "messageId": "unique-msg-id",
-      "role": "user",
-      "parts": [
-        { "kind": "text", "text": "Analyze the Q4 report" }
-      ]
-    }
-  }
-}
-```
-
-Response contains the agent's reply message with `parts` (text, data, etc.).
-
-### message/stream
-
-SSE streaming variant of `message/send`. Returns token-level Server-Sent Events as the agent generates its response.
-
-### tasks/get
-
-Poll the status of a previously submitted async task.
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "unique-id",
-  "method": "tasks/get",
-  "params": {
-    "id": "task-uuid"
-  }
-}
-```
-
-Returns task state: `submitted`, `working`, `input-required`, `completed`, `failed`, `canceled`.
+## Database
+
+Migration files live in `platform/migrations/` (latest: `022_workspace_schedules_source`). Each migration ships as a `.up.sql`/`.down.sql` pair. The migration runner globs `*.sql`, filters out `.down.sql` files, sorts alphabetically, and executes each file on boot. All `.up.sql` files must be idempotent (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... IF NOT EXISTS`) because the runner re-applies every migration on every boot.
+
+### Key Tables
+
+| Table | Description |
+|-------|-------------|
+| `workspaces` | Core entity — status, runtime, `agent_card` JSONB, heartbeat columns, `current_task`, `awareness_namespace`, `workspace_dir` |
+| `canvas_layouts` | Per-workspace x/y canvas position |
+| `structure_events` | Append-only event log (workspace lifecycle, agent, approval events) |
+| `activity_logs` | A2A communications, task updates, agent logs, errors. `error_detail` is populated by the scheduler so cron run history can surface failure reasons. |
+| `workspace_schedules` | Cron tasks — expression, timezone, prompt, run history, `source` (`'template'` for org/import-seeded, `'runtime'` for Canvas/API-created), `last_status` (includes `'skipped'` when the scheduler concurrency-skips a busy workspace) |
+| `workspace_channels` | Social channel integrations (Telegram, Slack, etc.) with JSONB config and allowlist |
+| `agents` | Agent records |
+| `workspace_secrets` | Per-workspace encrypted secrets |
+| `global_secrets` | Platform-wide encrypted secrets |
+| `workspace_auth_tokens` | Bearer tokens; auto-revoked on workspace delete |
+| `agent_memories` | HMA scoped memory (LOCAL / TEAM / GLOBAL) |
+| `approvals` | Human-in-the-loop approval requests |
