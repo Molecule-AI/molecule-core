@@ -88,10 +88,10 @@ jobs:
           echo "::error::Redis did not become ready in 15s"
           exit 1
       - name: Build platform
-        working-directory: platform
+        working-directory: workspace-server
         run: go build -o platform-server ./cmd/server
       - name: Start platform (background)
-        working-directory: platform
+        working-directory: workspace-server
         run: |
           ./platform-server > platform.log 2>&1 &
           echo $! > platform.pid
