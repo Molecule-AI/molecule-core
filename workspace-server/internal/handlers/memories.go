@@ -179,6 +179,14 @@ func (h *MemoriesHandler) Commit(c *gin.Context) {
 	content := body.Content
 	content, _ = redactSecrets(workspaceID, content)
 
+	// SAFE-T1201: prevent delimiter spoofing in GLOBAL memories (#807).
+	// If content contains the delimiter prefix "[MEMORY ", an attacker could
+	// craft a fake nested delimiter to inject instructions when the memory
+	// is read back. Escape the bracket so it renders as text, not structure.
+	if body.Scope == "GLOBAL" {
+		content = strings.ReplaceAll(content, "[MEMORY ", "[_MEMORY ")
+	}
+
 	var memoryID string
 	err := db.DB.QueryRowContext(ctx, `
 		INSERT INTO agent_memories (workspace_id, content, scope, namespace)
