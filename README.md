@@ -258,7 +258,7 @@ cd molecule-monorepo
 # `molecule-monorepo-net` Docker network. Temporal runs with
 # no auth on localhost — dev-only; production must gate it.
 
-cd platform
+cd workspace-server
 go run ./cmd/server
 
 cd ../canvas
