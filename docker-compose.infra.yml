@@ -56,7 +56,7 @@ services:
     environment:
       CLICKHOUSE_DB: langfuse
       CLICKHOUSE_USER: langfuse
-      CLICKHOUSE_PASSWORD: langfuse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-langfuse-dev}
     volumes:
       - clickhousedata:/var/lib/clickhouse
     healthcheck:
@@ -106,13 +106,13 @@ services:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-dev}:${POSTGRES_PASSWORD:-dev}@postgres:5432/langfuse
-      CLICKHOUSE_URL: clickhouse://langfuse:langfuse@clickhouse:9000/langfuse
+      CLICKHOUSE_URL: clickhouse://langfuse:${CLICKHOUSE_PASSWORD:-langfuse-dev}@clickhouse:9000/langfuse
       CLICKHOUSE_USER: langfuse
-      CLICKHOUSE_PASSWORD: langfuse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-langfuse-dev}
       LANGFUSE_AUTO_CLICKHOUSE_MIGRATION_DISABLED: "true"
-      NEXTAUTH_SECRET: langfuse-dev-secret
+      NEXTAUTH_SECRET: ${LANGFUSE_SECRET:-changeme-langfuse-secret}
       NEXTAUTH_URL: http://localhost:3001
-      SALT: langfuse-dev-salt
+      SALT: ${LANGFUSE_SALT:-changeme-langfuse-salt}
     ports:
       - "3001:3000"
 

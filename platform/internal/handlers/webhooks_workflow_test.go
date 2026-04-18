@@ -13,7 +13,7 @@ func TestBuildGitHubA2APayload_WorkflowRunFailure(t *testing.T) {
 		"workspace_id": "ws-devops",
 		"action": "completed",
 		"repository": {"full_name": "Molecule-AI/molecule-monorepo"},
-		"sender": {"login": "hongming"},
+		"sender": {"login": "test-user"},
 		"workflow_run": {
 			"id": 123456,
 			"name": "CI",

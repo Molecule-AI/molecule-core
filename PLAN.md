@@ -270,10 +270,10 @@ point for "what else is out there."
 - `#236` log-injection in the #209 security-event log line — attacker-controlled source_id echoed via `%s` allowed fake log entries; switched to `%q`.
 
 **CI / infra.**
-- `#186` + controlplane `#28` — every CI job migrated from `ubuntu-latest` to `[self-hosted, macos, arm64]` (Mac mini `hongming-m1-mini`). Non-trivial: `services:` replaced with inline `docker run` containers (ports 15432/16379), `actions/setup-python` bypassed via Homebrew python3.11 on `$GITHUB_PATH`, `docker/setup-qemu-action` added for cross-arch builds. Workaround for GH Actions billing cap on private repos.
+- `#186` + controlplane `#28` — every CI job migrated from `ubuntu-latest` to `[self-hosted, macos, arm64]` (Mac mini `self-hosted-runner`). Non-trivial: `services:` replaced with inline `docker run` containers (ports 15432/16379), `actions/setup-python` bypassed via Homebrew python3.11 on `$GITHUB_PATH`, `docker/setup-qemu-action` added for cross-arch builds. Workaround for GH Actions billing cap on private repos.
 - `#149` independent heartbeat pulse goroutine so long cron fires don't look stale on `/admin/liveness` (#140)
 - `#211` migration runner regression (see #212 above — PR #212 is the fix)
-- **Fly registry `FLY_API_TOKEN`** rotated to a deploy token scoped to `molecule-tenant` (previously personal token, invalidated by `flyctl auth login` during the malware cleanup)
+- **Fly registry `FLY_API_TOKEN`** rotated to a deploy token scoped to `molecule-tenant` (previously personal token, was rotated during the security incident remediation)
 
 **Platform / Scheduler reliability.**
 - `#95` panic-recover in scheduler `tick()` + per-fire goroutines (closes #85)
@@ -308,10 +308,10 @@ point for "what else is out there."
 **Outstanding (user action):** `#126` Slack adapter (Phase-H product decision), `#160` Claude Max OAuth quota (wait for 2026-04-17 23:00Z reset OR upgrade OR switch to ANTHROPIC_API_KEY), `#191` runner persistent-state docs (P3), `#199` Fly registry token (**resolved** this session but publish-platform-image re-run pending runner), Stripe Atlas application (launch blocker, 2-week lead).
 
 ### Recently launched (2026-04-15 tick-9)
-- **Phase 32 Phase B.2 (image pipeline)** — PR #80 (merged `c3cc8e87`) adds `.github/workflows/publish-platform-image.yml`: on every main-merge touching `platform/**`, builds `platform/Dockerfile` and pushes `ghcr.io/molecule-ai/platform:latest` + `:sha-<commit>` to GHCR. Paired with the private `molecule-controlplane` Fly + Neon provisioner (PR #3 there, merged `2e85d5ad`) that reads `TENANT_IMAGE` env and boots tenant Fly Machines from this image. Tick-8 docs-sync PR #79 (merged `d53a1287`) also landed.
+- **Phase 32 Phase B.2 (image pipeline)** — PR #80 adds `.github/workflows/publish-platform-image.yml`: on every main-merge touching `platform/**`, builds `platform/Dockerfile` and pushes `ghcr.io/molecule-ai/platform:latest` + `:sha-<commit>` to GHCR. Paired with the private `molecule-controlplane` Fly + Neon provisioner (PR #3 there) that reads `TENANT_IMAGE` env and boots tenant Fly Machines from this image. Tick-8 docs-sync PR #79 also landed.
 
 ### Recently launched (2026-04-14 tick-8)
-- **Phase 32 PR #1** — `TenantGuard` middleware (PR #78, merged `57a05686`). Public repo's only SaaS hook: when `MOLECULE_ORG_ID` env is set, non-allowlisted requests require matching `X-Molecule-Org-Id` header or 404. Unset → passthrough (self-hosted unchanged). Allowlist is exact-match: `/health` + `/metrics`. Paired with the private `Molecule-AI/molecule-controlplane` repo scaffolded this tick (Fly Machines provisioner stub, `/cp/orgs` CRUD, subdomain→fly-replay router, migrations 001-003 for `organizations`/`org_instances`/`org_members`). +6 `TestTenantGuard_*` tests. Phase 32 plan: follow-up PRs wire real Fly provisioner, WorkOS AuthKit, Stripe, Cloudflare, signup UX — all in the private repo except the single public middleware.
+- **Phase 32 PR #1** — `TenantGuard` middleware (PR #78). Public repo's only SaaS hook: when `MOLECULE_ORG_ID` env is set, non-allowlisted requests require matching `X-Molecule-Org-Id` header or 404. Unset → passthrough (self-hosted unchanged). Allowlist is exact-match: `/health` + `/metrics`. Paired with the private `Molecule-AI/molecule-controlplane` repo scaffolded this tick (Fly Machines provisioner stub, `/cp/orgs` CRUD, subdomain→fly-replay router, migrations 001-003 for `organizations`/`org_instances`/`org_members`). +6 `TestTenantGuard_*` tests. Phase 32 plan: follow-up PRs wire real Fly provisioner, WorkOS AuthKit, Stripe, Cloudflare, signup UX — all in the private repo except the single public middleware.
 
 ### Recently launched (2026-04-14 tick-7)
 - **GitHub issue #24** — Runtime-added workspace_schedules drift on org re-import → **DONE** via PR #76 (new `source` column on `workspace_schedules` via migration `022`; org/import now upserts with `ON CONFLICT (workspace_id, name) DO UPDATE ... WHERE source='template'`, so runtime-added rows survive re-imports; legacy rows backfilled to `'template'`; +3 tests).
@@ -443,7 +443,7 @@ self-hosted per-customer). Ordered by dependency + ROI.
 - Migration runner safety fix landed (#212) — `*.down.sql` filter; was wiping `workspace_auth_tokens` on every restart
 - Workspace auth tokens now revoked on workspace delete (#110)
 - All known unauth admin routes gated; #138 canvas regression resolved via field-level authz + `CanvasOrBearer` middleware
-- Self-hosted Mac mini CI runner replaced GH-hosted Linux to bypass private-repo Actions billing cap; `FLY_API_TOKEN` rotated to a deploy token scoped to `molecule-tenant` after the personal token was invalidated by `flyctl auth login` during the 2025-12-06 cryptominer cleanup
+- Self-hosted Mac mini CI runner replaced GH-hosted Linux to bypass private-repo Actions billing cap; `FLY_API_TOKEN` rotated to a deploy token scoped to `molecule-tenant` after the token was rotated during the security incident remediation
 - `/legal/{terms,privacy,dpa,acceptable}` live at `https://app.moleculesai.app/legal/*`
 
 **Known open issues on the live system:**

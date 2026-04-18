@@ -122,6 +122,9 @@ org-templates/**/.auth-token
 .secrets/
 *.pem
 
+# Cloudflare Worker config with real account/zone/KV IDs — use wrangler.toml.example instead
+infra/cloudflare-worker/wrangler.toml
+
 # Cloned-via-manifest dirs — populated locally by scripts/clone-manifest.sh,
 # tracked in their own standalone repos. Never commit to core.
 # Ignore all cloned org-template content except the molecule-dev reference

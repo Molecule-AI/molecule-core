@@ -33,7 +33,7 @@ Add to your project's `.mcp.json`:
 
 For production/SaaS deployments, set `MOLECULE_URL` to your tenant URL:
 ```json
-"MOLECULE_URL": "https://hongming-wang.moleculesai.app"
+"MOLECULE_URL": "https://your-org.moleculesai.app"
 ```
 
 ### 3. Verify
