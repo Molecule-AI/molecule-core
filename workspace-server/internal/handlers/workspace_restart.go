@@ -369,22 +369,33 @@ func (h *WorkspaceHandler) Pause(c *gin.Context) {
 		return
 	}
 
-	// Collect this workspace + all descendants to pause
+	// Collect this workspace + all descendants to pause.
+	// Fail hard if the descendants query errors — silently pausing only the root
+	// while children keep running would violate the operator's intent and leave
+	// the subtree in an inconsistent state (root paused, children still online).
 	toPause := []struct{ id, name string }{{id, wsName}}
-	rows, _ := db.DB.QueryContext(ctx,
+	descRows, err := db.DB.QueryContext(ctx,
 		`WITH RECURSIVE descendants AS (
 			SELECT id, name FROM workspaces WHERE parent_id = $1 AND status NOT IN ('removed', 'paused')
 			UNION ALL
 			SELECT w.id, w.name FROM workspaces w JOIN descendants d ON w.parent_id = d.id WHERE w.status NOT IN ('removed', 'paused')
 		) SELECT id, name FROM descendants`, id)
-	if rows != nil {
-		defer rows.Close()
-		for rows.Next() {
-			var cid, cname string
-			if rows.Scan(&cid, &cname) == nil {
-				toPause = append(toPause, struct{ id, name string }{cid, cname})
-			}
+	if err != nil {
+		log.Printf("Pause: descendants query failed for %s: %v", id, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list workspaces to pause"})
+		return
+	}
+	defer descRows.Close()
+	for descRows.Next() {
+		var cid, cname string
+		if descRows.Scan(&cid, &cname) == nil {
+			toPause = append(toPause, struct{ id, name string }{cid, cname})
 		}
+	}
+	if err := descRows.Err(); err != nil {
+		log.Printf("Pause: descendants iteration error for %s: %v", id, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to iterate workspaces to pause"})
+		return
 	}
 
 	// Stop containers and mark all as paused
@@ -435,26 +446,36 @@ func (h *WorkspaceHandler) Resume(c *gin.Context) {
 		return
 	}
 
-	// Collect this workspace + all paused descendants to resume
+	// Collect this workspace + all paused descendants to resume.
+	// Fail hard if the descendants query errors — silently resuming only the root
+	// would leave children permanently stuck in 'paused' with no automatic recovery.
 	type wsInfo struct {
 		id, name, runtime string
 		tier              int
 	}
 	toResume := []wsInfo{{id, wsName, dbRuntime, tier}}
-	rows, _ := db.DB.QueryContext(ctx,
+	descRows, err := db.DB.QueryContext(ctx,
 		`WITH RECURSIVE descendants AS (
 			SELECT id, name, tier, COALESCE(runtime, 'langgraph') AS runtime FROM workspaces WHERE parent_id = $1 AND status = 'paused'
 			UNION ALL
 			SELECT w.id, w.name, w.tier, COALESCE(w.runtime, 'langgraph') FROM workspaces w JOIN descendants d ON w.parent_id = d.id WHERE w.status = 'paused'
 		) SELECT id, name, tier, runtime FROM descendants`, id)
-	if rows != nil {
-		defer rows.Close()
-		for rows.Next() {
-			var ws wsInfo
-			if rows.Scan(&ws.id, &ws.name, &ws.tier, &ws.runtime) == nil {
-				toResume = append(toResume, ws)
-			}
+	if err != nil {
+		log.Printf("Resume: descendants query failed for %s: %v", id, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list workspaces to resume"})
+		return
+	}
+	defer descRows.Close()
+	for descRows.Next() {
+		var ws wsInfo
+		if descRows.Scan(&ws.id, &ws.name, &ws.tier, &ws.runtime) == nil {
+			toResume = append(toResume, ws)
 		}
+	}
+	if err := descRows.Err(); err != nil {
+		log.Printf("Resume: descendants iteration error for %s: %v", id, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to iterate workspaces to resume"})
+		return
 	}
 
 	// Re-provision all

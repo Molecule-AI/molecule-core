@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
 	"github.com/gin-gonic/gin"
 )
 
@@ -1045,6 +1046,101 @@ func TestPause_WithDescendants(t *testing.T) {
 	if count, ok := resp["paused_count"].(float64); !ok || count != 3 {
 		t.Errorf("expected paused_count 3 (parent + 2 children), got %v", resp["paused_count"])
 	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// ---------- Pause: descendants query failure → 500, root NOT paused ----------
+
+// TestPause_DescendantsQueryFails verifies that when the recursive CTE query
+// for descendant workspaces fails, Pause returns 500 and does NOT pause even
+// the root workspace. Silently pausing only the root while children keep
+// running would leave the subtree in an inconsistent state.
+func TestPause_DescendantsQueryFails(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	// Root workspace found.
+	mock.ExpectQuery("SELECT status, name FROM workspaces WHERE id").
+		WithArgs("ws-team").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "name"}).AddRow("online", "Team Lead"))
+
+	// Descendants CTE fails (e.g. DB connection dropped mid-request).
+	// Note: Pause does NOT call isParentPaused — it only fetches descendants.
+	mock.ExpectQuery("WITH RECURSIVE descendants").
+		WithArgs("ws-team").
+		WillReturnError(fmt.Errorf("connection reset by peer"))
+
+	// No UPDATE or structure_events INSERT should fire — handler aborts.
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-team"}}
+	c.Request = httptest.NewRequest("POST", "/workspaces/ws-team/pause", nil)
+
+	handler.Pause(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 when descendants query fails, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "failed to list workspaces to pause" {
+		t.Errorf("unexpected error body: %v", resp["error"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations (UPDATE must not have fired): %v", err)
+	}
+}
+
+// ---------- Resume: descendants query failure → 500, root NOT resumed ----------
+
+// TestResume_DescendantsQueryFails verifies that when the recursive CTE query
+// for paused descendant workspaces fails, Resume returns 500 and does NOT
+// re-provision even the root workspace. Silently resuming only the root would
+// leave children permanently stuck in 'paused' with no automatic recovery path.
+func TestResume_DescendantsQueryFails(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	// Zero-value *provisioner.Provisioner is non-nil (passes the nil guard in Resume),
+	// and safe here because the handler returns before any provisioner methods are called.
+	handler := NewWorkspaceHandler(newTestBroadcaster(), &provisioner.Provisioner{}, "http://localhost:8080", t.TempDir())
+
+	// Root workspace found (status = 'paused').
+	mock.ExpectQuery("SELECT name, tier").
+		WithArgs("ws-team").
+		WillReturnRows(sqlmock.NewRows([]string{"name", "tier", "runtime"}).AddRow("Team Lead", 1, "langgraph"))
+
+	// isParentPaused → root has no parent.
+	mock.ExpectQuery("SELECT parent_id FROM workspaces WHERE id").
+		WithArgs("ws-team").
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(nil))
+
+	// Descendants CTE fails.
+	mock.ExpectQuery("WITH RECURSIVE descendants").
+		WithArgs("ws-team").
+		WillReturnError(fmt.Errorf("pq: connection error"))
+
+	// No UPDATE or provisioning should occur — handler aborts before re-provisioning.
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-team"}}
+	c.Request = httptest.NewRequest("POST", "/workspaces/ws-team/resume", nil)
+
+	handler.Resume(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 when descendants query fails, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "failed to list workspaces to resume" {
+		t.Errorf("unexpected error body: %v", resp["error"])
+	}
+	// mock.ExpectationsWereMet() confirms no UPDATE or provisioning queries fired.
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
 	}
