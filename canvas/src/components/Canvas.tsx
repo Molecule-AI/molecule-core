@@ -32,7 +32,7 @@ import { Toolbar } from "./Toolbar";
 import { ConfirmDialog } from "./ConfirmDialog";
 // Phase 20 components
 import { SettingsPanel, DeleteConfirmDialog } from "./settings";
-// import { ProvisioningTimeout } from "./ProvisioningTimeout";
+import { ProvisioningTimeout } from "./ProvisioningTimeout";
 
 const nodeTypes = {
   workspaceNode: WorkspaceNode,
@@ -334,7 +334,7 @@ function CanvasInner() {
       <ContextMenu />
       <SearchDialog />
       <Toaster />
-      {/* <ProvisioningTimeout /> */}
+      <ProvisioningTimeout />
       {!selectedNodeId && <CreateWorkspaceButton />}
 
       {/* Confirmation dialog for structure changes */}
