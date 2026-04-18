@@ -575,6 +575,49 @@ self-hosted per-customer). Ordered by dependency + ROI.
 
 ---
 
+## Phase 34: Partner API Keys — Programmatic Org Management
+
+> **Goal:** Enable partner platforms, CI/CD pipelines, and automation tools to
+> create and manage orgs via API without a browser session. Critical for
+> partner integrations, marketplace resellers, and internal testing.
+>
+> **Docs:** `docs/architecture/partner-api-keys.md`
+
+### Phase 34.1 — Core infrastructure
+
+- [ ] Migration: `partner_api_keys` table (key_hash, scopes, org_id, rate_limit)
+- [ ] `internal/auth/partner_keys.go` — key validation, SHA-256 hashing, scope check
+- [ ] Update `auth.Middleware` — check `Bearer mol_pk_*` before WorkOS session
+- [ ] Scope enforcement helpers — `RequireScope("orgs:create")` per handler
+
+### Phase 34.2 — Admin endpoints
+
+- [ ] `POST /cp/admin/partner-keys` — create key (returns plaintext once)
+- [ ] `GET /cp/admin/partner-keys` — list keys (prefix + metadata only)
+- [ ] `DELETE /cp/admin/partner-keys/:id` — revoke key
+
+### Phase 34.3 — Rate limiting + audit
+
+- [ ] Per-key rate limiter (separate from session rate limit)
+- [ ] `last_used_at` tracking on each request
+- [ ] Add `mol_pk_` to pre-commit secret scanner
+
+### Phase 34.4 — Partner onboarding
+
+- [ ] Partner onboarding guide (docs)
+- [ ] Example: create org → poll status → redirect user to tenant
+- [ ] Example: CI/CD test org lifecycle (create → test → delete)
+
+### Success criteria for Phase 34
+
+- Partner can `POST /cp/orgs` with an API key and get a provisioned org
+- Org-scoped keys cannot access other orgs
+- Revoked keys immediately return 401
+- Rate limiting prevents abuse
+- Full audit trail: who created which key, when last used
+
+---
+
 ## Phase 36: Full Staging Environment — GATES ALL INFRA CHANGES
 
 > **Goal:** Stop merging untested infra changes to production. Every change
