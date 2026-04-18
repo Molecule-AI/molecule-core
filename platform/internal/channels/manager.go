@@ -437,6 +437,93 @@ func (m *Manager) SendOutbound(ctx context.Context, channelID string, text strin
 	return nil
 }
 
+// BroadcastToWorkspaceChannels sends a message to ALL enabled channels
+// configured for a workspace. Used by the scheduler to auto-post cron
+// output summaries and by delegation handlers to post completion notices.
+//
+// Unlike SendOutbound (which targets a specific channel row by ID), this
+// fans out to every enabled channel for the workspace — so a single cron
+// completion posts to both #mol-engineering AND #mol-firehose if the
+// workspace has both configured via chat_id comma-separation.
+func (m *Manager) BroadcastToWorkspaceChannels(ctx context.Context, workspaceID, text string) {
+	if text == "" || db.DB == nil {
+		return
+	}
+	// Truncate to keep Slack messages digestible (rune-safe for CJK/emoji)
+	runes := []rune(text)
+	if len(runes) > 500 {
+		text = string(runes[:497]) + "..."
+	}
+	rows, err := db.DB.QueryContext(ctx, `
+		SELECT id FROM workspace_channels
+		WHERE workspace_id = $1 AND enabled = true
+	`, workspaceID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var channelID string
+		if rows.Scan(&channelID) == nil {
+			if sendErr := m.SendOutbound(ctx, channelID, text); sendErr != nil {
+				log.Printf("Channels: broadcast to %s failed: %v", channelID[:12], sendErr)
+			}
+		}
+	}
+}
+
+// FetchWorkspaceChannelContext returns recent Slack channel messages formatted
+// as ambient context for cron prompts (Level 3).
+func (m *Manager) FetchWorkspaceChannelContext(ctx context.Context, workspaceID string) string {
+	if db.DB == nil {
+		return ""
+	}
+	rows, err := db.DB.QueryContext(ctx, `
+		SELECT channel_config FROM workspace_channels
+		WHERE workspace_id = $1 AND channel_type = 'slack' AND enabled = true
+		LIMIT 1
+	`, workspaceID)
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return ""
+	}
+	var configJSON []byte
+	if rows.Scan(&configJSON) != nil {
+		return ""
+	}
+	var config map[string]interface{}
+	json.Unmarshal(configJSON, &config)
+	if err := DecryptSensitiveFields(config); err != nil {
+		return ""
+	}
+	botToken, _ := config["bot_token"].(string)
+	channelID, _ := config["channel_id"].(string)
+	if botToken == "" || channelID == "" {
+		return ""
+	}
+	messages, err := FetchChannelHistory(ctx, botToken, channelID, 10)
+	if err != nil || len(messages) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("[Slack channel context — recent team messages]\n")
+	for _, msg := range messages {
+		name := msg.Username
+		if name == "" {
+			name = msg.User
+		}
+		text := msg.Text
+		if len(text) > 200 {
+			text = text[:197] + "..."
+		}
+		sb.WriteString(fmt.Sprintf("- %s: %s\n", name, text))
+	}
+	return sb.String()
+}
+
 func splitChatIDs(raw string) []string {
 	var ids []string
 	for _, s := range strings.Split(raw, ",") {

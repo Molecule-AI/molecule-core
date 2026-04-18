@@ -185,9 +185,19 @@ func main() {
 	cronSched := scheduler.New(wh, broadcaster)
 	go supervised.RunWithRecover(ctx, "scheduler", cronSched.Start)
 
+	// Hibernation Monitor — auto-pauses idle workspaces that have
+	// hibernation_idle_minutes configured (#711). Wakeup is triggered
+	// automatically on the next incoming A2A message.
+	go supervised.RunWithRecover(ctx, "hibernation-monitor", func(c context.Context) {
+		registry.StartHibernationMonitor(c, wh.HibernateWorkspace)
+	})
+
 	// Channel Manager — social channel integrations (Telegram, Slack, etc.)
 	channelMgr := channels.NewManager(wh, broadcaster)
 	go supervised.RunWithRecover(ctx, "channel-manager", channelMgr.Start)
+
+	// Wire channel manager into scheduler for auto-posting cron output to Slack
+	cronSched.SetChannels(channelMgr)
 
 	// Router
 	r := router.Setup(hub, broadcaster, prov, platformURL, configsDir, wh, channelMgr)

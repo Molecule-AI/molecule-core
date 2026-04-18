@@ -406,20 +406,15 @@ func TestProxyA2A_AllowedSelf_SkipsAccessCheck(t *testing.T) {
 	}
 }
 
-func TestProxyA2A_SystemCaller_BypassesAccessCheck(t *testing.T) {
-	mock := setupTestDB(t)
-	mr := setupTestRedis(t)
+// TestProxyA2A_SystemCaller_HTTPHeaderRejected verifies the #761 fix:
+// system-caller prefixes in X-Workspace-ID MUST be rejected on the HTTP path.
+// Legitimate system callers (webhooks, scheduler, restart_context) call
+// proxyA2ARequest directly and never send HTTP headers with these prefixes.
+func TestProxyA2A_SystemCaller_HTTPHeaderRejected(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
-
-	agentServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"jsonrpc":"2.0","id":"1","result":{}}`)
-	}))
-	defer agentServer.Close()
-	mr.Set(fmt.Sprintf("ws:%s:url", "ws-target"), agentServer.URL)
-
-	mock.ExpectExec("INSERT INTO activity_logs").WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -428,13 +423,63 @@ func TestProxyA2A_SystemCaller_BypassesAccessCheck(t *testing.T) {
 	body := `{"method":"message/send","params":{"message":{"role":"user","parts":[{"text":"hi"}]}}}`
 	c.Request = httptest.NewRequest("POST", "/workspaces/ws-target/a2a", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
+	// Supply a real system-caller prefix — must be blocked at the HTTP layer.
 	c.Request.Header.Set("X-Workspace-ID", "webhook:github")
 
 	handler.ProxyA2A(c)
-	time.Sleep(50 * time.Millisecond)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 for system caller, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for system-caller prefix in HTTP header, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	if resp["error"] != "invalid caller ID" {
+		t.Errorf("expected error 'invalid caller ID', got %v", resp["error"])
+	}
+}
+
+// TestA2AProxy_SystemCallerForge_IsRejected verifies that an attacker who
+// sets X-Workspace-ID to a system-caller prefix (to bypass token validation
+// and CanCommunicate) receives 403 Forbidden — not 200 OK.
+// This is the core fix for issue #761.
+func TestA2AProxy_SystemCallerForge_IsRejected(t *testing.T) {
+	forgePrefixes := []string{
+		"system:forge",
+		"system:admin",
+		"webhook:evil",
+		"test:attacker",
+		"channel:hijack",
+	}
+	for _, forgedID := range forgePrefixes {
+		t.Run(forgedID, func(t *testing.T) {
+			setupTestDB(t)
+			setupTestRedis(t)
+			handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Params = gin.Params{{Key: "id", Value: "ws-victim"}}
+
+			body := `{"method":"message/send","params":{"message":{"role":"user","parts":[{"text":"exploit"}]}}}`
+			c.Request = httptest.NewRequest("POST", "/workspaces/ws-victim/a2a", bytes.NewBufferString(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			c.Request.Header.Set("X-Workspace-ID", forgedID)
+
+			handler.ProxyA2A(c)
+
+			if w.Code != http.StatusForbidden {
+				t.Errorf("forged caller %q: expected 403, got %d: %s", forgedID, w.Code, w.Body.String())
+			}
+			var resp map[string]interface{}
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("body not JSON: %v", err)
+			}
+			if resp["error"] != "invalid caller ID" {
+				t.Errorf("forged caller %q: expected error 'invalid caller ID', got %v", forgedID, resp["error"])
+			}
+		})
 	}
 }
 
@@ -603,6 +648,83 @@ func TestProxyA2AError_BusyShape(t *testing.T) {
 	}
 }
 
+// ==================== ProxyA2A — body-read failure (delivery_confirmed) #689 ====================
+//
+// When Do() succeeds (target sent 2xx headers — delivery confirmed) but reading
+// the response body fails (connection drop, mid-stream timeout), the proxy must:
+//   1. Return 502 (caller can't get the response content)
+//   2. Include "delivery_confirmed": true in the error body so callers can
+//      distinguish "not delivered" from "delivered, response body lost".
+
+func TestProxyA2A_BodyReadFailure_DeliveryConfirmed(t *testing.T) {
+	mock := setupTestDB(t)
+	mr := setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	// Agent server: sends 200 OK headers + partial body, then closes the
+	// connection abruptly to simulate a mid-stream read failure.
+	agentServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Flush 200 headers immediately so Do() returns (resp, nil).
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// Write partial JSON — just enough to prove the body was started,
+		// then hijack and close the connection so ReadAll fails.
+		if flusher, ok := w.(http.Flusher); ok {
+			io.WriteString(w, `{"result": "partial`) //nolint:errcheck
+			flusher.Flush()
+		}
+		// Hijack the underlying TCP connection and close it to simulate
+		// a mid-stream drop that causes io.ReadAll to return an error.
+		if hj, ok := w.(http.Hijacker); ok {
+			conn, _, _ := hj.Hijack()
+			if conn != nil {
+				conn.Close()
+			}
+		}
+	}))
+	defer agentServer.Close()
+
+	wsID := "ws-bodyreadfail"
+	mr.Set(fmt.Sprintf("ws:%s:url", wsID), agentServer.URL)
+
+	// Expect async activity log INSERT (logA2ASuccess is called because
+	// delivery_confirmed is true and the handler detected a 2xx status).
+	mock.ExpectExec("INSERT INTO activity_logs").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: wsID}}
+	body := `{"method":"message/send","params":{"message":{"role":"user","parts":[{"text":"ping"}]}}}`
+	c.Request = httptest.NewRequest("POST", "/workspaces/"+wsID+"/a2a", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.ProxyA2A(c)
+	time.Sleep(50 * time.Millisecond)
+
+	// Expect 502 (couldn't deliver the response content to the caller)
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	// delivery_confirmed must be true — Do() returned 2xx headers.
+	if v, _ := resp["delivery_confirmed"].(bool); !v {
+		t.Errorf(`expected "delivery_confirmed": true in response, got: %v`, resp)
+	}
+	if _, hasErr := resp["error"]; !hasErr {
+		t.Errorf(`expected "error" field in response body`)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 // ==================== validateCallerToken — Phase 30.5 ====================
 
 // The A2A proxy validates the *caller's* token (not the target's) when the
@@ -665,7 +787,7 @@ func TestValidateCallerToken_InvalidToken(t *testing.T) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM workspace_auth_tokens`).
 		WithArgs("ws-authed").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery(`SELECT id, workspace_id FROM workspace_auth_tokens`).
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id.*FROM workspace_auth_tokens t.*JOIN workspaces`).
 		WillReturnError(sql.ErrNoRows)
 
 	w := httptest.NewRecorder()
@@ -689,7 +811,7 @@ func TestValidateCallerToken_ValidToken(t *testing.T) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM workspace_auth_tokens`).
 		WithArgs("ws-authed").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery(`SELECT id, workspace_id FROM workspace_auth_tokens`).
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id.*FROM workspace_auth_tokens t.*JOIN workspaces`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("t1", "ws-authed"))
 	mock.ExpectExec(`UPDATE workspace_auth_tokens SET last_used_at`).
@@ -717,7 +839,7 @@ func TestValidateCallerToken_WrongWorkspaceBindingRejected(t *testing.T) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM workspace_auth_tokens`).
 		WithArgs("ws-b-attacker").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery(`SELECT id, workspace_id FROM workspace_auth_tokens`).
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id.*FROM workspace_auth_tokens t.*JOIN workspaces`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("t-a", "ws-a-owner"))
 
 	w := httptest.NewRecorder()
@@ -1159,4 +1281,82 @@ func TestLogA2ASuccess_ErrorStatus(t *testing.T) {
 	// callerID != "" also means no A2A_RESPONSE broadcast.
 	handler.logA2ASuccess(context.Background(), "ws-err", "ws-caller", []byte(`{}`), []byte(`{}`), "message/send", 500, 10)
 	time.Sleep(80 * time.Millisecond)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// A2A auto-wake: hibernated workspace (#711)
+// ──────────────────────────────────────────────────────────────────────────────
+
+// TestResolveAgentURL_HibernatedWorkspace_Returns503WithWaking verifies the
+// auto-wake path added in PR #724: when resolveAgentURL finds a workspace with
+// status='hibernated' and no URL, it must:
+//   - Return a proxyA2AError with Status 503
+//   - Set Retry-After: 15 in Headers
+//   - Include waking:true and retry_after:15 in the response body
+//
+// RestartByID fires asynchronously via `go h.RestartByID(workspaceID)`. Because
+// provisioner is nil in tests, RestartByID returns immediately without any DB
+// calls, so no additional mocks are needed.
+func TestResolveAgentURL_HibernatedWorkspace_Returns503WithWaking(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t) // empty Redis → GetCachedURL returns error → DB fallback
+
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	// DB fallback: workspace exists but has no URL and is hibernated.
+	mock.ExpectQuery(`SELECT url, status FROM workspaces WHERE id =`).
+		WithArgs("ws-hibernated").
+		WillReturnRows(sqlmock.NewRows([]string{"url", "status"}).AddRow("", "hibernated"))
+
+	_, perr := handler.resolveAgentURL(context.Background(), "ws-hibernated")
+
+	if perr == nil {
+		t.Fatal("expected proxyA2AError, got nil")
+	}
+	if perr.Status != http.StatusServiceUnavailable {
+		t.Errorf("expected status 503, got %d", perr.Status)
+	}
+	if perr.Headers["Retry-After"] != "15" {
+		t.Errorf("expected Retry-After: 15, got %q", perr.Headers["Retry-After"])
+	}
+
+	if perr.Response["waking"] != true {
+		t.Errorf("expected waking:true in body, got %v", perr.Response["waking"])
+	}
+	if perr.Response["retry_after"] != 15 {
+		t.Errorf("expected retry_after:15 in body, got %v", perr.Response["retry_after"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet DB expectations: %v", err)
+	}
+}
+
+// TestResolveAgentURL_HibernatedWorkspace_NullURLVariant verifies the same
+// auto-wake behaviour when the DB returns a SQL NULL for the url column
+// (rather than an empty string). Both forms represent "no URL assigned".
+func TestResolveAgentURL_HibernatedWorkspace_NullURLVariant(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	mock.ExpectQuery(`SELECT url, status FROM workspaces WHERE id =`).
+		WithArgs("ws-hibernated-null").
+		WillReturnRows(sqlmock.NewRows([]string{"url", "status"}).AddRow(nil, "hibernated"))
+
+	_, perr := handler.resolveAgentURL(context.Background(), "ws-hibernated-null")
+
+	if perr == nil {
+		t.Fatal("expected proxyA2AError, got nil")
+	}
+	if perr.Status != http.StatusServiceUnavailable {
+		t.Errorf("expected status 503, got %d", perr.Status)
+	}
+	if perr.Headers["Retry-After"] != "15" {
+		t.Errorf("expected Retry-After: 15, got %q", perr.Headers["Retry-After"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet DB expectations: %v", err)
+	}
 }

@@ -110,16 +110,6 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// without a token (used by WorkspaceNode polling and health checks).
 	r.GET("/workspaces/:id", wh.Get)
 
-	// PATCH /workspaces/:id — back on the open router per #138. Canvas
-	// drag-reposition uses session cookies not bearer tokens; gating the
-	// whole route behind AdminAuth broke drag-to-reposition and inline
-	// rename. Field-level authz lives inside WorkspaceHandler.Update:
-	//   - {x, y, canvas} only → passthrough (canvas position persist)
-	//   - name / role       → passthrough (inline rename)
-	//   - tier / parent_id / runtime / workspace_dir → require bearer token
-	// The #120 escalation vectors stay locked; only cosmetic fields are open.
-	r.PATCH("/workspaces/:id", wh.Update)
-
 	// C1 + C20: workspace list and life-cycle mutations gated behind AdminAuth.
 	// Fail-open when no tokens exist anywhere (fresh install / pre-Phase-30).
 	// Blocks:
@@ -142,11 +132,21 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// Legacy workspaces (no token) are grandfathered to allow rolling upgrades.
 	wsAuth := r.Group("/workspaces/:id", middleware.WorkspaceAuth(db.DB))
 	{
+		// #680: PATCH /workspaces/:id moved under WorkspaceAuth (#680 IDOR fix).
+		// WorkspaceAuth enforces that the caller holds a valid bearer token for
+		// this specific workspace — both auth AND ownership in one check. Cosmetic
+		// updates (x/y drag-reposition, inline rename) from the combined tenant
+		// image canvas still pass via the isSameOriginCanvas bypass in WorkspaceAuth.
+		wsAuth.PATCH("", wh.Update)
+
 		// Lifecycle
 		wsAuth.GET("/state", wh.State)
 		wsAuth.POST("/restart", wh.Restart)
 		wsAuth.POST("/pause", wh.Pause)
 		wsAuth.POST("/resume", wh.Resume)
+		// Manual hibernate (opt-in, #711) — stops the container and sets status
+		// to 'hibernated'. The workspace auto-wakes on the next A2A message.
+		wsAuth.POST("/hibernate", wh.Hibernate)
 
 		// Async Delegation
 		delh := handlers.NewDelegationHandler(wh, broadcaster)
@@ -303,6 +303,29 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		wsAuth.GET("/artifacts", arth.Get)
 		wsAuth.POST("/artifacts/fork", arth.Fork)
 		wsAuth.POST("/artifacts/token", arth.Token)
+
+		// Temporal workflow checkpoints — step-level persistence for resumable
+		// workflows (#788, parent #583). WorkspaceAuth on wsAuth ensures each
+		// workspace can only read/write its own checkpoints.
+		cpth := handlers.NewCheckpointsHandler(db.DB)
+		wsAuth.POST("/checkpoints", cpth.Upsert)
+		wsAuth.GET("/checkpoints/:wfid", cpth.List)
+		wsAuth.DELETE("/checkpoints/:wfid", cpth.Delete)
+
+		// MCP bridge — opencode / Claude Code integration (#800).
+		// Exposes A2A delegation, peer discovery, and workspace operations as a
+		// remote MCP server over HTTP (Streamable HTTP + SSE transports).
+		//
+		// Security:
+		//   C1: WorkspaceAuth on wsAuth validates bearer token before any MCP logic.
+		//   C2: MCPRateLimiter caps tool calls at 120/min/token so a long-lived
+		//       opencode session cannot saturate the platform.
+		//   C3: commit_memory/recall_memory with scope=GLOBAL → permission error;
+		//       send_message_to_user excluded unless MOLECULE_MCP_ALLOW_SEND_MESSAGE=true.
+		mcpH := handlers.NewMCPHandler(db.DB, broadcaster)
+		mcpRl := middleware.NewMCPRateLimiter(120, time.Minute, context.Background())
+		wsAuth.GET("/mcp/stream", mcpRl.Middleware(), mcpH.Stream)
+		wsAuth.POST("/mcp", mcpRl.Middleware(), mcpH.Call)
 	}
 
 	// Global secrets — /settings/secrets is the canonical path; /admin/secrets kept for backward compat.
@@ -320,14 +343,26 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		adminAuth.DELETE("/admin/secrets/:key", sechGlobal.DeleteGlobal)
 	}
 
+	// Admin — cross-workspace schedule health monitoring (issue #618).
+	// Lets cron-audit agents and operators detect silent schedule failures
+	// across all workspaces without holding individual workspace bearer tokens.
+	// AdminAuth mirrors the /admin/liveness gate — fail-open on fresh install,
+	// strict bearer-only once any token exists.
+	{
+		asHealth := handlers.NewAdminSchedulesHealthHandler()
+		r.GET("/admin/schedules/health", middleware.AdminAuth(db.DB), asHealth.Health)
+	}
+
 	// Admin — test token minting (issue #6). Hidden in production via TestTokensEnabled().
-	// AdminAuth is a second defence-in-depth layer: on a fresh install with no tokens yet,
-	// AdminAuth is fail-open (HasAnyLiveTokenGlobal == 0), so the bootstrap still works.
-	// Once any token exists, callers must present a valid bearer — unauthenticated workspace-
-	// UUID enumeration is blocked even on non-production instances.
+	// NOT behind AdminAuth — this is the bootstrap endpoint E2E tests and
+	// fresh installs use to obtain their first admin bearer. Adding AdminAuth
+	// (#612) broke the chicken-and-egg: after first workspace provision creates
+	// a live token in the DB, AdminAuth requires auth for ALL requests, but the
+	// client has no token yet because it needs this endpoint to get one.
+	// The handler itself rejects calls when MOLECULE_ENV=prod (TestTokensEnabled).
 	{
 		tokh := handlers.NewAdminTestTokenHandler()
-		r.GET("/admin/workspaces/:id/test-token", middleware.AdminAuth(db.DB), tokh.GetTestToken)
+		r.GET("/admin/workspaces/:id/test-token", tokh.GetTestToken)
 	}
 
 	// Admin — GitHub App installation token refresh (issue #547).
@@ -363,11 +398,14 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 
 	// Templates
 	tmplh := handlers.NewTemplatesHandler(configsDir, dockerCli)
-	r.GET("/templates", tmplh.List)
+	// #686: GET /templates lists all template names+metadata from configsDir.
+	// Open access lets unauthenticated callers enumerate org configurations and
+	// installed plugins. AdminAuth-gate it alongside POST /templates/import.
 	// #190: POST /templates/import writes arbitrary files into configsDir.
 	// Must be admin-gated — same class as /bundles/import (#164) and /org/import.
 	{
 		tmplAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		tmplAdmin.GET("/templates", tmplh.List)
 		tmplAdmin.POST("/templates/import", tmplh.Import)
 	}
 	wsAuth.GET("/shared-context", tmplh.SharedContext)
@@ -420,7 +458,9 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// Org Templates
 	orgDir := findOrgDir(configsDir)
 	orgh := handlers.NewOrgHandler(wh, broadcaster, prov, channelMgr, configsDir, orgDir)
-	r.GET("/org/templates", orgh.ListTemplates)
+	// #686: GET /org/templates exposes the org template catalogue (names, roles,
+	// configured system prompts). AdminAuth-gate to match /org/import.
+	r.GET("/org/templates", middleware.AdminAuth(db.DB), orgh.ListTemplates)
 	// /org/import can create arbitrary workspaces from an uploaded YAML — it
 	// must be an admin-gated route. The handler also path-sanitizes
 	// `dir`/`template`/`files_dir` via resolveInsideRoot, but defence-in-
@@ -454,6 +494,12 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// platform-operator helper, not a per-workspace route.
 	r.POST("/channels/discover", middleware.AdminAuth(db.DB), chh.Discover)
 	r.POST("/webhooks/:type", chh.Webhook)
+
+	// Audit — EU AI Act Annex III compliance endpoint (#594).
+	// Returns append-only HMAC-chained agent event log with optional inline
+	// chain verification when AUDIT_LEDGER_SALT is configured.
+	audh := handlers.NewAuditHandler()
+	wsAuth.GET("/audit", audh.Query)
 
 	// SSE — AG-UI compatible event stream per workspace (#590).
 	// WorkspaceAuth middleware (on wsAuth) binds the bearer token to :id.

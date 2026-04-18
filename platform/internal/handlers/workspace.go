@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -13,7 +14,6 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/crypto"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
-	"github.com/Molecule-AI/molecule-monorepo/platform/internal/middleware"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/models"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
@@ -34,6 +34,10 @@ type WorkspaceHandler struct {
 	// registered; Registry.Run handles a nil receiver as a no-op so the
 	// hot path stays a single nil-pointer compare.
 	envMutators *provisionhook.Registry
+	// stopFnOverride is set exclusively in tests to intercept provisioner.Stop
+	// calls made by HibernateWorkspace without requiring a running Docker daemon.
+	// Always nil in production; the real provisioner path is used when nil.
+	stopFnOverride func(ctx context.Context, workspaceID string)
 }
 
 func NewWorkspaceHandler(b *events.Broadcaster, p *provisioner.Provisioner, platformURL, configsDir string) *WorkspaceHandler {
@@ -72,6 +76,13 @@ func (h *WorkspaceHandler) TokenRegistry() *provisionhook.Registry {
 func (h *WorkspaceHandler) Create(c *gin.Context) {
 	var payload models.CreateWorkspacePayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// #685/#688: validate field lengths and reject injection characters before
+	// any DB or provisioner interaction.
+	if err := validateWorkspaceFields(payload.Name, payload.Role, payload.Model, payload.Runtime); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -394,6 +405,12 @@ func (h *WorkspaceHandler) List(c *gin.Context) {
 func (h *WorkspaceHandler) Get(c *gin.Context) {
 	id := c.Param("id")
 
+	// #687: reject non-UUID IDs before hitting the DB.
+	if err := validateWorkspaceID(id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	row := db.DB.QueryRowContext(c.Request.Context(), `
 		SELECT w.id, w.name, COALESCE(w.role, ''), w.tier, w.status,
 			   COALESCE(w.agent_card, 'null'::jsonb), COALESCE(w.url, ''),
@@ -513,27 +530,30 @@ func (h *WorkspaceHandler) State(c *gin.Context) {
 	})
 }
 
-// sensitiveUpdateFields gates the #120/#138 field-level auth check inside
-// Update. Any key in this set requires a valid bearer token even when the
-// rest of the route is open — tier is a resource-escalation vector,
-// parent_id rewrites the A2A hierarchy, runtime swaps the container image
-// on next restart, workspace_dir redirects host bind-mounts. Cosmetic
-// fields (name, role, x, y, canvas) do not appear here and pass through
-// unauthenticated so canvas drag-reposition and inline rename keep working.
+// sensitiveUpdateFields documents fields that carry elevated risk — kept as
+// an explicit list for code readability and future audits. Auth is now fully
+// enforced at the router layer (WorkspaceAuth middleware, #680 IDOR fix);
+// this map is no longer used for in-handler gate logic but is preserved to
+// surface the risk classification clearly.
+//
+// budget_limit is intentionally NOT here — the dedicated PATCH
+// /workspaces/:id/budget (AdminAuth) is the only write path (#611).
 var sensitiveUpdateFields = map[string]struct{}{
 	"tier":          {},
 	"parent_id":     {},
 	"runtime":       {},
 	"workspace_dir": {},
-	// budget_limit is intentionally NOT here. The dedicated
-	// PATCH /workspaces/:id/budget (AdminAuth) is the only write path.
-	// Accepting it here — even behind ValidateAnyToken — lets workspace agents
-	// self-clear their own spending ceiling. (#611 Security Auditor finding)
 }
 
 // Update handles PATCH /workspaces/:id
 func (h *WorkspaceHandler) Update(c *gin.Context) {
 	id := c.Param("id")
+
+	// #687: reject non-UUID IDs before hitting the DB.
+	if err := validateWorkspaceID(id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	var body map[string]interface{}
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -541,39 +561,29 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 		return
 	}
 
+	// #685/#688: validate string fields for length and injection safety.
+	strField := func(key string) string {
+		if v, ok := body[key]; ok {
+			if s, ok := v.(string); ok {
+				return s
+			}
+		}
+		return ""
+	}
+	if err := validateWorkspaceFields(
+		strField("name"), strField("role"), "" /*model not patchable*/, strField("runtime"),
+	); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	ctx := c.Request.Context()
 
-	// #138 field-level authz: PATCH /workspaces/:id is on the open router so
-	// canvas drag-reposition (cookie-based, no bearer token) keeps working,
-	// BUT the sensitive fields below require a valid bearer via the usual
-	// admin-token check. Lazy-bootstrap: if no live admin tokens exist at all
-	// (fresh install) the check is a no-op and everyone passes through.
-	for field := range body {
-		if _, sensitive := sensitiveUpdateFields[field]; !sensitive {
-			continue
-		}
-		hasLive, hlErr := wsauth.HasAnyLiveTokenGlobal(ctx, db.DB)
-		if hlErr != nil {
-			log.Printf("wsauth: Update HasAnyLiveTokenGlobal failed: %v — allowing request", hlErr)
-			break
-		}
-		if !hasLive {
-			break // fresh install — fail-open
-		}
-		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
-		if tok == "" {
-			if middleware.IsSameOriginCanvas(c) {
-				break // tenant canvas — trusted same-origin
-			}
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "admin auth required for field: " + field})
-			return
-		}
-		if err := wsauth.ValidateAnyToken(ctx, db.DB, tok); err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
-			return
-		}
-		break // one successful validation covers the whole body
-	}
+	// Auth is fully enforced at the router layer (WorkspaceAuth middleware, #680).
+	// WorkspaceAuth validates that the caller holds a valid bearer token for this
+	// specific workspace — no additional auth gate is needed here. The
+	// sensitiveUpdateFields map above documents the risk classification for
+	// auditors but is no longer used as a runtime gate.
 
 	// #120: guard — return 404 for nonexistent workspace IDs instead of
 	// silently applying zero-row UPDATEs and returning 200.
@@ -676,6 +686,12 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
 	ctx := c.Request.Context()
 	confirm := c.Query("confirm") == "true"
+
+	// #687: reject non-UUID IDs before hitting the DB.
+	if err := validateWorkspaceID(id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	// Check for children
 	rows, err := db.DB.QueryContext(ctx,
@@ -802,4 +818,61 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 	})
 
 	c.JSON(http.StatusOK, gin.H{"status": "removed", "cascade_deleted": len(descendantIDs)})
+}
+
+// validateWorkspaceID returns an error when id is not a valid UUID.
+// #687: prevents 500s from Postgres when a garbage string (e.g. ../../etc/passwd)
+// is passed as the :id path parameter.
+func validateWorkspaceID(id string) error {
+	if _, err := uuid.Parse(id); err != nil {
+		return fmt.Errorf("invalid workspace id")
+	}
+	return nil
+}
+
+// yamlSpecialChars is the set of YAML-special characters banned from workspace
+// name and role. Newlines are handled separately below (same error message for
+// all four fields); these additional characters target YAML block indicators,
+// flow-sequence/mapping delimiters, and shell-expansion metacharacters that
+// yamlQuote does NOT escape inside a double-quoted scalar (#685).
+const yamlSpecialChars = "{}[]|>*&!"
+
+// validateWorkspaceFields enforces maximum field lengths and rejects characters
+// that could enable YAML-injection in downstream provisioning paths.
+// #685 (defence-in-depth over yamlQuote — newline + YAML-special chars in name/role),
+// #688 (max field lengths).
+func validateWorkspaceFields(name, role, model, runtime string) error {
+	// All four fields: reject newline / carriage-return.
+	for _, f := range []struct{ label, val string }{
+		{"name", name},
+		{"role", role},
+		{"model", model},
+		{"runtime", runtime},
+	} {
+		if strings.ContainsAny(f.val, "\n\r") {
+			return fmt.Errorf("%s must not contain newline characters", f.label)
+		}
+	}
+	// name and role only: reject YAML-special characters (#685).
+	for _, f := range []struct{ label, val string }{
+		{"name", name},
+		{"role", role},
+	} {
+		if strings.ContainsAny(f.val, yamlSpecialChars) {
+			return fmt.Errorf("%s contains invalid characters", f.label)
+		}
+	}
+	if len(name) > 255 {
+		return fmt.Errorf("name must be at most 255 characters")
+	}
+	if len(role) > 1000 {
+		return fmt.Errorf("role must be at most 1000 characters")
+	}
+	if len(model) > 100 {
+		return fmt.Errorf("model must be at most 100 characters")
+	}
+	if len(runtime) > 100 {
+		return fmt.Errorf("runtime must be at most 100 characters")
+	}
+	return nil
 }

@@ -438,6 +438,8 @@ func (t *TelegramAdapter) StartPolling(ctx context.Context, config map[string]in
 	u.Timeout = 30
 	u.AllowedUpdates = []string{"message", "channel_post", "my_chat_member"}
 
+	u.AllowedUpdates = append(u.AllowedUpdates, "callback_query")
+
 	log.Printf("Channels: Telegram polling started for chats %v (bot: @%s)", chatIDs, bot.Self.UserName)
 
 	for {
@@ -479,6 +481,45 @@ func (t *TelegramAdapter) StartPolling(ctx context.Context, config map[string]in
 
 		for _, update := range updates {
 			u.Offset = update.UpdateID + 1
+
+			// Handle callback_query (inline keyboard button clicks)
+			if update.CallbackQuery != nil {
+				cb := update.CallbackQuery
+				chatID := strconv.FormatInt(cb.Message.Chat.ID, 10)
+
+				// Acknowledge the button press (removes loading spinner)
+				ackCfg := tgbotapi.NewCallback(cb.ID, "Received")
+				bot.Send(ackCfg)
+
+				// Update the message to show what was clicked
+				decision := "approved"
+				if strings.HasPrefix(cb.Data, "reject") {
+					decision = "rejected"
+				}
+				editMsg := tgbotapi.NewEditMessageText(
+					cb.Message.Chat.ID,
+					cb.Message.MessageID,
+					cb.Message.Text+"\n\n✅ CEO "+decision,
+				)
+				bot.Send(editMsg)
+
+				// Route the decision as an inbound message to the agent
+				inbound := &InboundMessage{
+					ChatID:    chatID,
+					UserID:    strconv.FormatInt(cb.From.ID, 10),
+					Username:  cb.From.UserName,
+					Text:      "CEO_DECISION: " + cb.Data,
+					MessageID: strconv.Itoa(cb.Message.MessageID),
+					Metadata: map[string]string{
+						"callback_data": cb.Data,
+						"decision":      decision,
+					},
+				}
+				if err := onMessage(ctx, channelID, inbound); err != nil {
+					log.Printf("Channels: Telegram callback handler error: %v", err)
+				}
+				continue
+			}
 
 			// Handle my_chat_member: auto-greet when bot is added to a new chat
 			if update.MyChatMember != nil {

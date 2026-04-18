@@ -181,6 +181,109 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "provisioning", "config_dir": configLabel, "reset_session": resetClaudeSession})
 }
 
+// Hibernate handles POST /workspaces/:id/hibernate
+// Manually puts a running workspace into hibernation — useful for immediate
+// cost savings without waiting for the idle timer. The workspace auto-wakes
+// on the next incoming A2A message/send.
+func (h *WorkspaceHandler) Hibernate(c *gin.Context) {
+	id := c.Param("id")
+	ctx := c.Request.Context()
+
+	var wsName string
+	var tier int
+	err := db.DB.QueryRowContext(ctx,
+		`SELECT name, tier FROM workspaces WHERE id = $1 AND status IN ('online', 'degraded')`, id,
+	).Scan(&wsName, &tier)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found or not in a hibernatable state (must be online or degraded)"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "lookup failed"})
+		return
+	}
+
+	h.HibernateWorkspace(ctx, id)
+	c.JSON(http.StatusOK, gin.H{"status": "hibernated"})
+}
+
+// HibernateWorkspace stops the container and sets the workspace status to
+// 'hibernated'. Called by the hibernation monitor when a workspace has had
+// active_tasks == 0 for longer than its configured hibernation_idle_minutes.
+// Hibernated workspaces auto-wake on the next incoming A2A message.
+//
+// TOCTOU safety (#819): the three-step pattern below is atomic at the DB level.
+//
+//  1. Atomic claim: a single UPDATE WHERE locks the row by transitioning
+//     status → 'hibernating', gated on status IN ('online','degraded') AND
+//     active_tasks = 0.  If any concurrent caller (another goroutine, the
+//     idle-timer, or a manual API call) already claimed the row, or if tasks
+//     arrived since the caller decided to hibernate, rowsAffected == 0 and
+//     this function returns immediately without stopping anything.
+//
+//  2. provisioner.Stop: safe to call now because status == 'hibernating';
+//     the routing layer rejects new tasks for non-online/degraded workspaces,
+//     so no new task can be dispatched between step 1 and step 2.
+//
+//  3. Final UPDATE to 'hibernated': records the completed hibernation.
+func (h *WorkspaceHandler) HibernateWorkspace(ctx context.Context, workspaceID string) {
+	// ── Step 1: Atomic claim ──────────────────────────────────────────────────
+	// The UPDATE acts as a DB-level advisory lock: only one concurrent caller
+	// can transition the row from online/degraded → hibernating.  The
+	// active_tasks = 0 predicate ensures we never interrupt a running task.
+	result, err := db.DB.ExecContext(ctx, `
+		UPDATE workspaces
+		SET    status = 'hibernating', updated_at = now()
+		WHERE  id = $1
+		  AND  status IN ('online', 'degraded')
+		  AND  active_tasks = 0`, workspaceID)
+	if err != nil {
+		log.Printf("Hibernate: atomic claim failed for %s: %v", workspaceID, err)
+		return
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		// Either already hibernating/hibernated/paused/removed, or active_tasks > 0 —
+		// safe to abort without side-effects.
+		return
+	}
+
+	// Fetch name/tier for logging and event broadcast (after the claim, so we
+	// can use a simple SELECT without a status guard).
+	var wsName string
+	var tier int
+	if scanErr := db.DB.QueryRowContext(ctx,
+		`SELECT name, tier FROM workspaces WHERE id = $1`, workspaceID,
+	).Scan(&wsName, &tier); scanErr != nil {
+		wsName = workspaceID // fallback for log messages
+	}
+
+	// ── Step 2: Stop the container ────────────────────────────────────────────
+	// Status is now 'hibernating'; the router rejects new task routing here, so
+	// there is no race window between claiming the row and stopping the container.
+	log.Printf("Hibernate: stopping container for %s (%s)", wsName, workspaceID)
+	if h.stopFnOverride != nil {
+		h.stopFnOverride(ctx, workspaceID)
+	} else if h.provisioner != nil {
+		h.provisioner.Stop(ctx, workspaceID)
+	}
+
+	// ── Step 3: Mark fully hibernated ─────────────────────────────────────────
+	if _, err = db.DB.ExecContext(ctx,
+		`UPDATE workspaces SET status = 'hibernated', url = '', updated_at = now() WHERE id = $1`,
+		workspaceID); err != nil {
+		log.Printf("Hibernate: failed to mark hibernated for %s: %v", workspaceID, err)
+		return
+	}
+
+	db.ClearWorkspaceKeys(ctx, workspaceID)
+	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_HIBERNATED", workspaceID, map[string]interface{}{
+		"name": wsName,
+		"tier": tier,
+	})
+	log.Printf("Hibernate: workspace %s (%s) is now hibernated", wsName, workspaceID)
+}
+
 // RestartByID restarts a workspace by ID — for programmatic use (e.g., auto-restart after secret change).
 func (h *WorkspaceHandler) RestartByID(workspaceID string) {
 	if h.provisioner == nil {
@@ -201,10 +304,10 @@ func (h *WorkspaceHandler) RestartByID(workspaceID string) {
 	var wsName, status, dbRuntime string
 	var tier int
 	err := db.DB.QueryRowContext(ctx,
-		`SELECT name, status, tier, COALESCE(runtime, 'langgraph') FROM workspaces WHERE id = $1 AND status NOT IN ('removed', 'paused')`, workspaceID,
+		`SELECT name, status, tier, COALESCE(runtime, 'langgraph') FROM workspaces WHERE id = $1 AND status NOT IN ('removed', 'paused', 'hibernated')`, workspaceID,
 	).Scan(&wsName, &status, &tier, &dbRuntime)
 	if err != nil {
-		return // includes paused — don't auto-restart paused workspaces
+		return // includes paused/hibernated — don't auto-restart those
 	}
 
 	// Don't auto-restart external workspaces (no Docker container)

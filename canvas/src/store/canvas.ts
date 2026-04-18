@@ -35,7 +35,7 @@ export interface WorkspaceNodeData extends Record<string, unknown> {
   budgetUsed?: number | null;
 }
 
-export type PanelTab = "details" | "skills" | "chat" | "terminal" | "config" | "schedule" | "channels" | "files" | "memory" | "traces" | "events" | "activity";
+export type PanelTab = "details" | "skills" | "chat" | "terminal" | "config" | "schedule" | "channels" | "files" | "memory" | "traces" | "events" | "activity" | "audit";
 
 export interface ContextMenuState {
   x: number;

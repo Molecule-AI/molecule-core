@@ -20,6 +20,36 @@ Workspace-scoped calls use the `X-Workspace-ID` header when the caller is anothe
 
 The platform uses the caller identity to enforce hierarchy-based access rules.
 
+
+## Breaking Changes
+
+### PR #701 — Input validation, route auth, UUID safety (2026-04-17)
+
+**Affects:** `PATCH /workspaces/:id`, `GET /workspaces/:id`, `DELETE /workspaces/:id`, `GET /templates`, `GET /org/templates`
+
+| Change | Before | After |
+|---|---|---|
+| `PATCH /workspaces/:id` auth | Open router — no token required for cosmetic fields | `wsAuth` group — workspace bearer token required unconditionally |
+| `GET /templates` auth | No auth | AdminAuth |
+| `GET /org/templates` auth | No auth | AdminAuth |
+| `:id` path parameter validation | DB query with raw string; Postgres error on non-UUID | `uuid.Parse` check before DB access — 400 `"invalid workspace id"` on non-UUID |
+
+**Field validation added to `POST /workspaces` and `PATCH /workspaces/:id`:**
+
+| Field | Max length | Additional constraints |
+|---|---|---|
+| `name` | 255 chars | No `\n`, `\r`, or YAML-special chars (`{}[]|>*&!`) |
+| `role` | 1,000 chars | No `\n`, `\r`, or YAML-special chars |
+| `model` | 100 chars | No `\n`, `\r` |
+| `runtime` | 100 chars | No `\n`, `\r` |
+
+Violations return `400 Bad Request` with `{ "error": "<field> must be at most N characters" }` or `{ "error": "<field> must not contain newline characters" }`.
+
+**Migration steps for callers:**
+1. Add `Authorization: Bearer <workspace-token>` to all `PATCH /workspaces/:id` requests.
+2. Add an admin bearer token to `GET /templates` and `GET /org/templates` requests.
+3. Ensure `:id` values in E2E scripts and automation are valid UUIDs. Update any test fixtures that use non-UUID IDs (see `platform/internal/handlers/*_test.go` for updated examples).
+
 ## Core Endpoints
 
 ### Health and metrics
@@ -36,7 +66,7 @@ The platform uses the caller identity to enforce hierarchy-based access rules.
 | `POST` | `/workspaces` | Create and provision a workspace |
 | `GET` | `/workspaces` | List workspaces with inline canvas layout data |
 | `GET` | `/workspaces/:id` | Get one workspace |
-| `PATCH` | `/workspaces/:id` | Update name, role, tier, runtime, workspace_dir, parent, etc. |
+| `PATCH` | `/workspaces/:id` | Update workspace fields. **Requires workspace bearer token (WorkspaceAuth).** Validates `name` (≤255), `role` (≤1000), `model`/`runtime` (≤100 chars); `name` and `role` reject newlines and YAML-special chars (`{}[]|>*&!`). `:id` must be a valid UUID. See [Breaking Changes](#breaking-changes). |
 | `DELETE` | `/workspaces/:id` | Remove workspace |
 | `POST` | `/workspaces/:id/restart` | Restart workspace (reads runtime from container config.yaml before stop — detects runtime changes) |
 | `POST` | `/workspaces/:id/pause` | Pause workspace |
@@ -166,7 +196,8 @@ Install safeguards bound the cost of a single install (env-tunable via `PLUGIN_I
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/templates` | List available templates |
+| `GET` | `/templates` | List available templates. **Requires AdminAuth** (PR #701). |
+| `GET` | `/org/templates` | List available org templates. **Requires AdminAuth** (PR #701). |
 | `POST` | `/templates/import` | Import an agent folder as a new template |
 | `GET` | `/workspaces/:id/shared-context` | Read parent shared-context files |
 | `GET` | `/workspaces/:id/files` | List files under an allowed root |

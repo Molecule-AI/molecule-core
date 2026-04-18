@@ -1,12 +1,18 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/subtle"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
+	"os"
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -410,6 +416,22 @@ func (h *ChannelHandler) Webhook(c *gin.Context) {
 		return
 	}
 
+	// Discord: verify Ed25519 signature BEFORE the body is consumed by ParseWebhook.
+	// The app_public_key is the Discord application's public key (not a secret —
+	// it's a PUBLIC key and therefore stored in plaintext in channel_config).
+	// We look it up from the DB (first enabled Discord channel with the field set)
+	// and fall back to the DISCORD_APP_PUBLIC_KEY env var for self-hosted setups
+	// that prefer global configuration. Fail closed: no key configured → 401.
+	// verifyDiscordSignature restores r.Body after reading so ParseWebhook below
+	// can still read the payload.
+	if channelType == "discord" {
+		pubKey := discordPublicKey(ctx)
+		if pubKey == "" || !verifyDiscordSignature(c.Request, pubKey) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid signature"})
+			return
+		}
+	}
+
 	// For webhooks, we need to find the channel by type and match by chat_id in the message
 	// Parse the webhook first to get the chat_id
 	msg, err := adapter.ParseWebhook(c, nil)
@@ -422,9 +444,27 @@ func (h *ChannelHandler) Webhook(c *gin.Context) {
 		return
 	}
 
+	// [slug] routing: if the message starts with [word], extract it as
+	// a target agent slug and match against the channel config's username
+	// field (lowercased). This lets humans type "[backend] what's #800?"
+	// in a shared channel and route to a specific agent.
+	targetSlug := ""
+	routedText := msg.Text
+	validSlugRe := regexp.MustCompile(`^[a-zA-Z0-9 _-]+$`)
+	if len(msg.Text) > 2 && msg.Text[0] == '[' {
+		if idx := strings.Index(msg.Text, "]"); idx > 1 && idx < 40 {
+			candidate := strings.ToLower(strings.TrimSpace(msg.Text[1:idx]))
+			if validSlugRe.MatchString(candidate) {
+				targetSlug = candidate
+				routedText = strings.TrimSpace(msg.Text[idx+1:])
+				if routedText == "" {
+					routedText = msg.Text
+				}
+			}
+		}
+	}
+
 	// Look up channels by type and find one whose chat_id list contains msg.ChatID.
-	// We can't use SQL LIKE — that matches substrings (chat_id "123" would match "1234").
-	// Fetch all enabled channels of this type, then exact-match in code.
 	rows, err := db.DB.QueryContext(ctx, `
 		SELECT id, workspace_id, channel_type, channel_config, enabled, allowed_users
 		FROM workspace_channels
@@ -437,6 +477,7 @@ func (h *ChannelHandler) Webhook(c *gin.Context) {
 	defer rows.Close()
 
 	var ch channels.ChannelRow
+	var candidates []channels.ChannelRow
 	found := false
 	for rows.Next() {
 		var row channels.ChannelRow
@@ -446,36 +487,59 @@ func (h *ChannelHandler) Webhook(c *gin.Context) {
 		}
 		json.Unmarshal(configJSON, &row.Config)
 		json.Unmarshal(allowedJSON, &row.AllowedUsers)
-		// #319: decrypt sensitive fields before comparing webhook_secret /
-		// using bot_token downstream. Skip rows whose decrypt fails so a
-		// single corrupt channel cannot block webhooks for all others.
 		if err := channels.DecryptSensitiveFields(row.Config); err != nil {
 			log.Printf("Channels: decrypt webhook row %s: %v", row.ID, err)
 			continue
 		}
 
-		// Verify webhook secret_token if the channel has one configured.
-		// #337: use constant-time comparison. Go's `!=` short-circuits on
-		// the first mismatched byte and leaks timing information; an
-		// attacker on the Docker network could enumerate the secret
-		// byte-by-byte. subtle.ConstantTimeCompare runs in time
-		// proportional to the length of the shorter input and returns
-		// 1 on match / 0 otherwise (never -1). Same posture as the
-		// cdp-proxy token compare in host-bridge.
 		if expectedSecret, _ := row.Config["webhook_secret"].(string); expectedSecret != "" {
 			receivedSecret := c.GetHeader("X-Telegram-Bot-Api-Secret-Token")
 			if subtle.ConstantTimeCompare([]byte(receivedSecret), []byte(expectedSecret)) != 1 {
-				continue // Wrong secret — try other channels (could be different bot)
+				continue
 			}
 		}
 
-		// Exact match against the comma-separated chat_id list
 		if matchesChatID(row.Config, msg.ChatID) {
-			ch = row
-			found = true
-			break
+			candidates = append(candidates, row)
 		}
 	}
+
+	if targetSlug != "" {
+		// [slug] routing — match against config username (lowercased)
+		for _, row := range candidates {
+			username, _ := row.Config["username"].(string)
+			usernameLC := strings.ToLower(username)
+			// Match: [backend] → "Backend Engineer", [pm] → "PM", [dev lead] → "Dev Lead"
+			if usernameLC == targetSlug ||
+				strings.HasPrefix(strings.ReplaceAll(usernameLC, " ", "-"), targetSlug) ||
+				strings.HasPrefix(strings.ReplaceAll(usernameLC, " ", ""), targetSlug) {
+				ch = row
+				found = true
+				msg.Text = routedText // Strip the [slug] prefix before routing
+				break
+			}
+		}
+		if !found {
+			// No match for slug — respond with available agents
+			var names []string
+			for _, row := range candidates {
+				if u, _ := row.Config["username"].(string); u != "" {
+					names = append(names, "["+strings.ToLower(strings.ReplaceAll(u, " ", "-"))+"]")
+				}
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"status":          "unknown_agent",
+				"requested_slug":  targetSlug,
+				"available_slugs": names,
+			})
+			return
+		}
+	} else if len(candidates) > 0 {
+		// No [slug] prefix — route to first matching channel (backward compat)
+		ch = candidates[0]
+		found = true
+	}
+
 	if !found {
 		c.JSON(http.StatusOK, gin.H{"status": "no_channel"})
 		return
@@ -484,8 +548,76 @@ func (h *ChannelHandler) Webhook(c *gin.Context) {
 	// Process asynchronously — don't block the webhook response
 	go func() {
 		bgCtx := context.Background()
-		_ = h.manager.HandleInbound(bgCtx, ch, msg)
+		if err := h.manager.HandleInbound(bgCtx, ch, msg); err != nil {
+			log.Printf("Channels: async HandleInbound error for workspace %s: %v", ch.WorkspaceID[:12], err)
+		}
 	}()
 
 	c.JSON(http.StatusOK, gin.H{"status": "accepted"})
+}
+
+// discordPublicKey returns the Ed25519 public key to use for Discord request
+// signature verification. It queries the DB for the first enabled Discord
+// channel whose config contains a non-empty app_public_key (stored in
+// plaintext — it is a PUBLIC key and is not in the sensitiveFields list),
+// then falls back to the DISCORD_APP_PUBLIC_KEY environment variable.
+//
+// Returns "" when no key is configured, which causes the caller to reject
+// the incoming request with 401 (fail-closed behaviour).
+func discordPublicKey(ctx context.Context) string {
+	var pubKey string
+	row := db.DB.QueryRowContext(ctx, `
+		SELECT COALESCE(channel_config->>'app_public_key', '')
+		FROM workspace_channels
+		WHERE channel_type = 'discord' AND enabled = true
+		  AND channel_config->>'app_public_key' IS NOT NULL
+		  AND channel_config->>'app_public_key' != ''
+		LIMIT 1
+	`)
+	_ = row.Scan(&pubKey)
+	if pubKey != "" {
+		return pubKey
+	}
+	return os.Getenv("DISCORD_APP_PUBLIC_KEY")
+}
+
+// verifyDiscordSignature verifies a Discord Interactions request using the
+// Ed25519 signature scheme described in Discord's Interactions documentation.
+// Discord signs the concatenation of the X-Signature-Timestamp header and the
+// raw request body with the application's private key; we verify with the
+// public key stored in channel_config or DISCORD_APP_PUBLIC_KEY.
+//
+// The function reads r.Body in full and then replaces it with a bytes.Reader
+// over the same bytes so that subsequent callers (adapter.ParseWebhook) can
+// still read the body.
+//
+// Returns false when any required header is missing, when pubKeyHex cannot
+// be hex-decoded to a 32-byte Ed25519 public key, when the signature header
+// cannot be decoded, or when the Ed25519 verification itself fails.
+func verifyDiscordSignature(r *http.Request, pubKeyHex string) bool {
+	sig := r.Header.Get("X-Signature-Ed25519")
+	ts := r.Header.Get("X-Signature-Timestamp")
+	if sig == "" || ts == "" || pubKeyHex == "" {
+		return false
+	}
+
+	pubKeyBytes, err := hex.DecodeString(pubKeyHex)
+	if err != nil || len(pubKeyBytes) != ed25519.PublicKeySize {
+		return false
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return false
+	}
+	// Restore body so adapter.ParseWebhook can read it.
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
+	sigBytes, err := hex.DecodeString(sig)
+	if err != nil {
+		return false
+	}
+
+	msg := append([]byte(ts), body...)
+	return ed25519.Verify(pubKeyBytes, msg, sigBytes)
 }

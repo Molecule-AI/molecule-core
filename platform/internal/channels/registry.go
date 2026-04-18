@@ -6,6 +6,7 @@ var adapters = map[string]ChannelAdapter{
 	"telegram": &TelegramAdapter{},
 	"slack":    &SlackAdapter{},
 	"lark":     &LarkAdapter{},
+	"discord":  &DiscordAdapter{},
 }
 
 // GetAdapter returns the adapter for a channel type.

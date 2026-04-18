@@ -1271,16 +1271,16 @@ func TestPluginDownload_GithubSchemeStreamsTarball(t *testing.T) {
 		{Key: "name", Value: "remote-plugin"},
 	}
 	req := httptest.NewRequest("GET",
-		"/workspaces/X/plugins/remote-plugin/download?source=github://acme/remote-plugin", nil)
-	req.URL.RawQuery = "source=github%3A%2F%2Facme%2Fremote-plugin"
+		"/workspaces/X/plugins/remote-plugin/download?source=github%3A%2F%2Facme%2Fremote-plugin%23v1.0.0", nil)
+	req.URL.RawQuery = "source=github%3A%2F%2Facme%2Fremote-plugin%23v1.0.0"
 	c.Request = req
 	h.Download(c)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if got := w.Header().Get("X-Plugin-Source"); got != "github://acme/remote-plugin" {
-		t.Errorf("X-Plugin-Source: got %q, want github://acme/remote-plugin", got)
+	if got := w.Header().Get("X-Plugin-Source"); got != "github://acme/remote-plugin#v1.0.0" {
+		t.Errorf("X-Plugin-Source: got %q, want github://acme/remote-plugin#v1.0.0", got)
 	}
 
 	// Decode + verify the tarball contains the resolver's files

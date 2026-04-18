@@ -175,17 +175,31 @@ func (h *WorkspaceHandler) ProxyA2A(c *gin.Context) {
 
 	callerID := c.GetHeader("X-Workspace-ID")
 
+	// #761 SECURITY: reject requests where the client-supplied X-Workspace-ID
+	// contains a system-caller prefix. isSystemCaller() bypasses both token
+	// validation and CanCommunicate. On the public /a2a endpoint, system-caller
+	// semantics only apply to callerIDs set by trusted server-side code
+	// (ProxyA2ARequest), never to HTTP header values. Legitimate system callers
+	// (webhooks, scheduler, restart_context) call proxyA2ARequest directly and
+	// never go through this HTTP handler.
+	if isSystemCaller(callerID) {
+		log.Printf("security: system-caller prefix forge attempt — remote=%q header=%q",
+			c.ClientIP(), callerID)
+		c.JSON(http.StatusForbidden, gin.H{"error": "invalid caller ID"})
+		return
+	}
+
 	// Phase 30.5 — validate the caller's auth token when the caller IS
 	// a workspace (not canvas or a system caller). Canvas requests have
 	// no X-Workspace-ID so they bypass this check (the existing
 	// access-control layer already trusts them). System callers
-	// (webhook:* / system:* / test:*) also bypass — they never hold a
-	// workspace token.
+	// (webhook:* / system:* / test:*) only reach proxyA2ARequest via
+	// the server-side ProxyA2ARequest wrapper, never via this HTTP path.
 	//
 	// The bind is strict: the token must match `callerID`, not
 	// `workspaceID` (the target). A compromised token from workspace A
 	// must never authenticate calls from A pretending to be B.
-	if callerID != "" && !isSystemCaller(callerID) && callerID != workspaceID {
+	if callerID != "" && callerID != workspaceID {
 		if err := validateCallerToken(ctx, c, callerID); err != nil {
 			return // response already written with 401
 		}
@@ -274,12 +288,28 @@ func (h *WorkspaceHandler) proxyA2ARequest(ctx context.Context, workspaceID stri
 	}
 	defer resp.Body.Close()
 
-	// Read agent response (capped at 10MB)
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxProxyResponseBody))
-	if err != nil {
+	// Read agent response (capped at 10MB).
+	// #689: Do() succeeded, which means the target received the request and sent
+	// back response headers — delivery is confirmed. The body couldn't be
+	// fully read (connection drop, timeout mid-stream). Surface
+	// delivery_confirmed so callers can distinguish "not delivered" from
+	// "delivered, but response body lost". When delivery is confirmed,
+	// log the activity as successful (delivery happened) rather than leaving
+	// a false "failed" entry in the audit trail.
+	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxProxyResponseBody))
+	if readErr != nil {
+		deliveryConfirmed := resp.StatusCode >= 200 && resp.StatusCode < 400
+		log.Printf("ProxyA2A: body read failed for %s (status=%d delivery_confirmed=%v bytes_read=%d): %v",
+			workspaceID, resp.StatusCode, deliveryConfirmed, len(respBody), readErr)
+		if logActivity && deliveryConfirmed {
+			h.logA2ASuccess(ctx, workspaceID, callerID, body, respBody, a2aMethod, resp.StatusCode, durationMs)
+		}
 		return 0, nil, &proxyA2AError{
-			Status:   http.StatusBadGateway,
-			Response: gin.H{"error": "failed to read agent response"},
+			Status: http.StatusBadGateway,
+			Response: gin.H{
+				"error":              "failed to read agent response",
+				"delivery_confirmed": deliveryConfirmed,
+			},
 		}
 	}
 
@@ -322,6 +352,22 @@ func (h *WorkspaceHandler) resolveAgentURL(ctx context.Context, workspaceID stri
 			}
 		}
 		if !urlNullable.Valid || urlNullable.String == "" {
+			// Auto-wake hibernated workspace on incoming A2A message (#711).
+			// Re-provision asynchronously and return 503 with a retry hint so
+			// the caller can retry once the workspace is back online (~10s).
+			if status == "hibernated" {
+				log.Printf("ProxyA2A: waking hibernated workspace %s", workspaceID)
+				go h.RestartByID(workspaceID)
+				return "", &proxyA2AError{
+					Status:  http.StatusServiceUnavailable,
+					Headers: map[string]string{"Retry-After": "15"},
+					Response: gin.H{
+						"error":       "workspace is waking from hibernation — retry in ~15 seconds",
+						"waking":      true,
+						"retry_after": 15,
+					},
+				}
+			}
 			return "", &proxyA2AError{
 				Status:   http.StatusServiceUnavailable,
 				Response: gin.H{"error": "workspace has no URL", "status": status},

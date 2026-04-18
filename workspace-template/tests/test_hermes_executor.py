@@ -4,15 +4,23 @@ Coverage targets
 ----------------
 - _reasoning_supported()        — model name pattern detection
 - ProviderConfig                — capability flags derived from model name
-- HermesA2AExecutor.__init__   — field assignment, client injection, tools (#497)
-- HermesA2AExecutor._build_messages — system prompt + user turn assembly
+- _validate_response_format()  — valid types, invalid type, missing fields (#498)
+- HermesA2AExecutor.__init__   — field assignment + client injection,
+                                  response_format stored (#498), tools (#497),
+                                  system_blocks stored as independent copy (#499)
+- HermesA2AExecutor._build_messages — system prompt + user turn assembly,
+                                       stacked system blocks in order (#499),
+                                       empty/None blocks skipped (#499),
+                                       system_blocks overrides system_prompt (#499)
 - HermesA2AExecutor._log_reasoning  — OTEL span emission + swallowed errors
 - HermesA2AExecutor.execute    — happy path, empty input, API error,
                                   Hermes 4 extra_body, Hermes 3 no extra_body,
                                   reasoning not in reply, reasoning_details,
+                                  response_format forwarded / omitted / invalid (#498),
                                   tools serialized in request body (#497),
                                   empty tools → no tools field (#497),
-                                  tool_call response → JSON text (#497)
+                                  tool_call response → JSON text (#497),
+                                  stacked blocks in API call (#499)
 - HermesA2AExecutor.cancel     — TaskStatusUpdateEvent emitted
 
 The ``openai`` module is stubbed in sys.modules so no real API call is made.
@@ -73,6 +81,7 @@ from hermes_executor import (  # noqa: E402
     ProviderConfig,
     _HERMES4_PATTERNS,
     _reasoning_supported,
+    _validate_response_format,
 )
 
 
@@ -705,6 +714,150 @@ async def test_no_system_prompt_only_user_message():
 
 
 # ---------------------------------------------------------------------------
+# _validate_response_format — issue #498
+# ---------------------------------------------------------------------------
+
+
+def test_validate_response_format_json_schema_valid():
+    """Valid json_schema dict (with name and schema) returns None."""
+    rf = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "my_schema",
+            "schema": {"type": "object", "properties": {}},
+        },
+    }
+    assert _validate_response_format(rf) is None
+
+
+def test_validate_response_format_json_object_valid():
+    """{"type": "json_object"} returns None (no sub-fields required)."""
+    assert _validate_response_format({"type": "json_object"}) is None
+
+
+def test_validate_response_format_text_valid():
+    """{"type": "text"} returns None."""
+    assert _validate_response_format({"type": "text"}) is None
+
+
+def test_validate_response_format_invalid_type():
+    """An unknown type value returns a non-None error string."""
+    result = _validate_response_format({"type": "yaml_schema"})
+    assert result is not None
+    assert isinstance(result, str)
+    assert "yaml_schema" in result
+
+
+def test_validate_response_format_missing_json_schema_key():
+    """type='json_schema' but no 'json_schema' key → error string."""
+    result = _validate_response_format({"type": "json_schema"})
+    assert result is not None
+    assert "json_schema" in result
+
+
+def test_validate_response_format_json_schema_schema_not_dict():
+    """json_schema.schema present but not a dict → error string."""
+    rf = {
+        "type": "json_schema",
+        "json_schema": {"name": "s", "schema": "not-a-dict"},
+    }
+    result = _validate_response_format(rf)
+    assert result is not None
+    assert "schema" in result
+
+
+def test_validate_response_format_json_schema_missing_name():
+    """json_schema present but missing 'name' key → error string."""
+    rf = {
+        "type": "json_schema",
+        "json_schema": {"schema": {"type": "object"}},
+    }
+    result = _validate_response_format(rf)
+    assert result is not None
+    assert "name" in result
+
+
+def test_constructor_response_format_stored():
+    """response_format kwarg is stored as _response_format attribute."""
+    rf = {"type": "json_object"}
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        response_format=rf,
+        _client=MagicMock(),
+    )
+    assert executor._response_format is rf
+
+
+def test_constructor_no_response_format_is_none():
+    """Omitting response_format → _response_format is None."""
+    executor = HermesA2AExecutor(model="hermes-4", _client=MagicMock())
+    assert executor._response_format is None
+
+
+@pytest.mark.asyncio
+async def test_execute_response_format_in_request():
+    """Valid response_format is forwarded as a kwarg to the API call."""
+    rf = {"type": "json_object"}
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_api_response('{"answer": 42}')
+    )
+    executor = HermesA2AExecutor(
+        model="nousresearch/hermes-3-llama-3.1-70b",
+        response_format=rf,
+        _client=mock_client,
+    )
+
+    await executor.execute(_make_context("hello"), AsyncMock())
+
+    call_kwargs = mock_client.chat.completions.create.call_args[1]
+    assert call_kwargs.get("response_format") == rf
+
+
+@pytest.mark.asyncio
+async def test_execute_response_format_omitted_when_none():
+    """When response_format is None, it is NOT present in the API call kwargs."""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_api_response("ok")
+    )
+    executor = HermesA2AExecutor(
+        model="nousresearch/hermes-3-llama-3.1-70b",
+        response_format=None,
+        _client=mock_client,
+    )
+
+    await executor.execute(_make_context("hello"), AsyncMock())
+
+    call_kwargs = mock_client.chat.completions.create.call_args[1]
+    assert "response_format" not in call_kwargs
+
+
+@pytest.mark.asyncio
+async def test_execute_invalid_response_format_returns_error_no_api_call():
+    """Invalid response_format → error enqueued, API create() NOT called."""
+    rf = {"type": "unsupported_format"}
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock()
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        response_format=rf,
+        _client=mock_client,
+    )
+
+    eq = AsyncMock()
+    await executor.execute(_make_context("hello"), eq)
+
+    # Should have enqueued an error message
+    eq.enqueue_event.assert_called_once()
+    enqueued = eq.enqueue_event.call_args[0][0]
+    assert "Error: invalid response_format" in enqueued
+
+    # API must NOT have been called
+    mock_client.chat.completions.create.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Native tools parameter — issue #497
 # ---------------------------------------------------------------------------
 
@@ -962,3 +1115,193 @@ async def test_execute_text_content_wins_over_tool_calls():
 
     reply = eq.enqueue_event.call_args[0][0]
     assert reply == "The weather is fine."
+
+
+# ---------------------------------------------------------------------------
+# Stacked system messages — issue #499
+# ---------------------------------------------------------------------------
+
+
+def test_system_blocks_stored_correctly():
+    """system_blocks are stored as _system_blocks on the executor."""
+    blocks = ["persona", "tools", "reasoning"]
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        system_blocks=blocks,
+        _client=MagicMock(),
+    )
+    assert executor._system_blocks == ["persona", "tools", "reasoning"]
+
+
+def test_system_blocks_none_stored_as_none():
+    """Passing system_blocks=None → _system_blocks is None."""
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        system_blocks=None,
+        _client=MagicMock(),
+    )
+    assert executor._system_blocks is None
+
+
+def test_system_blocks_is_independent_copy():
+    """Mutating the original list after construction does not affect _system_blocks."""
+    blocks = ["persona", "tools"]
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        system_blocks=blocks,
+        _client=MagicMock(),
+    )
+    blocks.append("mutated")
+    assert executor._system_blocks == ["persona", "tools"]
+
+
+def test_build_messages_stacked_three_blocks():
+    """[persona, tools, reasoning] → three separate system messages before user, in order."""
+    persona = "You are Hermes, a helpful assistant."
+    tools = "Available tools: search, calculator."
+    reasoning = "Think step by step before answering."
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        system_blocks=[persona, tools, reasoning],
+        _client=MagicMock(),
+    )
+    msgs = executor._build_messages("Hello!")
+    assert len(msgs) == 4
+    assert msgs[0] == {"role": "system", "content": persona}
+    assert msgs[1] == {"role": "system", "content": tools}
+    assert msgs[2] == {"role": "system", "content": reasoning}
+    assert msgs[3] == {"role": "user", "content": "Hello!"}
+
+
+def test_build_messages_stacked_empty_block_skipped():
+    """An empty string block in system_blocks is NOT added as a system message."""
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        system_blocks=["persona", "", "reasoning"],
+        _client=MagicMock(),
+    )
+    msgs = executor._build_messages("Hi")
+    system_msgs = [m for m in msgs if m["role"] == "system"]
+    assert len(system_msgs) == 2
+    contents = [m["content"] for m in system_msgs]
+    assert "persona" in contents
+    assert "reasoning" in contents
+    assert "" not in contents
+
+
+def test_build_messages_stacked_none_block_skipped():
+    """A None block in system_blocks is silently skipped."""
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        system_blocks=["persona", None, "reasoning"],
+        _client=MagicMock(),
+    )
+    msgs = executor._build_messages("Hi")
+    system_msgs = [m for m in msgs if m["role"] == "system"]
+    assert len(system_msgs) == 2
+    contents = [m["content"] for m in system_msgs]
+    assert "persona" in contents
+    assert "reasoning" in contents
+
+
+def test_build_messages_stacked_all_empty_no_system_messages():
+    """All blocks empty or None → zero system messages in the output."""
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        system_blocks=["", None, ""],
+        _client=MagicMock(),
+    )
+    msgs = executor._build_messages("Hi")
+    system_msgs = [m for m in msgs if m["role"] == "system"]
+    assert system_msgs == []
+    assert len(msgs) == 1
+    assert msgs[0]["role"] == "user"
+
+
+def test_build_messages_stacked_single_block():
+    """[persona_only] → exactly one system message before the user turn."""
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        system_blocks=["You are Hermes."],
+        _client=MagicMock(),
+    )
+    msgs = executor._build_messages("Hello!")
+    assert len(msgs) == 2
+    assert msgs[0] == {"role": "system", "content": "You are Hermes."}
+    assert msgs[1] == {"role": "user", "content": "Hello!"}
+
+
+def test_build_messages_stacked_overrides_system_prompt():
+    """When both system_blocks and system_prompt are set, system_blocks wins."""
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        system_prompt="This should be ignored.",
+        system_blocks=["Persona block.", "Tools block."],
+        _client=MagicMock(),
+    )
+    msgs = executor._build_messages("Hi")
+    system_msgs = [m for m in msgs if m["role"] == "system"]
+    assert len(system_msgs) == 2
+    contents = [m["content"] for m in system_msgs]
+    assert "Persona block." in contents
+    assert "Tools block." in contents
+    assert "This should be ignored." not in contents
+
+
+def test_build_messages_legacy_single_string_unchanged():
+    """system_prompt alone (no system_blocks) → single system message (backward compat)."""
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        system_prompt="Be helpful.",
+        _client=MagicMock(),
+    )
+    msgs = executor._build_messages("Hello!")
+    assert len(msgs) == 2
+    assert msgs[0] == {"role": "system", "content": "Be helpful."}
+    assert msgs[1] == {"role": "user", "content": "Hello!"}
+
+
+def test_build_messages_no_system_no_blocks_no_system_msg():
+    """Neither system_prompt nor system_blocks → no system message at all."""
+    executor = HermesA2AExecutor(
+        model="hermes-4",
+        system_prompt=None,
+        system_blocks=None,
+        _client=MagicMock(),
+    )
+    msgs = executor._build_messages("Hello!")
+    assert len(msgs) == 1
+    assert msgs[0] == {"role": "user", "content": "Hello!"}
+
+
+@pytest.mark.asyncio
+async def test_execute_stacked_blocks_in_api_call():
+    """Stacked system_blocks appear correctly as separate system messages in the API call."""
+    persona = "You are Hermes."
+    tools = "Tool: search."
+    reasoning = "Think before answering."
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_api_response("done")
+    )
+    executor = HermesA2AExecutor(
+        model="nousresearch/hermes-4-0",
+        system_blocks=[persona, tools, reasoning],
+        _client=mock_client,
+    )
+
+    await executor.execute(_make_context("test query"), AsyncMock())
+
+    call_kwargs = mock_client.chat.completions.create.call_args[1]
+    msgs = call_kwargs["messages"]
+
+    system_msgs = [m for m in msgs if m["role"] == "system"]
+    assert len(system_msgs) == 3
+    assert system_msgs[0]["content"] == persona
+    assert system_msgs[1]["content"] == tools
+    assert system_msgs[2]["content"] == reasoning
+
+    user_msgs = [m for m in msgs if m["role"] == "user"]
+    assert len(user_msgs) == 1
+    assert "test query" in user_msgs[0]["content"]

@@ -117,7 +117,7 @@ func TestAdminTestToken_HappyPath_TokenValidates(t *testing.T) {
 	// doesn't capture live args; the important invariant is that the issued
 	// token passes ValidateToken given a matching hash row exists.)
 	_ = capturedHash
-	mock.ExpectQuery("SELECT id, workspace_id\\s+FROM workspace_auth_tokens").
+	mock.ExpectQuery("SELECT t\\.id, t\\.workspace_id.*FROM workspace_auth_tokens t.*JOIN workspaces").
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("tok-1", "ws-1"))
 	mock.ExpectExec("UPDATE workspace_auth_tokens SET last_used_at").

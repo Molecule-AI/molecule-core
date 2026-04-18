@@ -68,6 +68,7 @@ const mockStoreState = {
   setA2AEdges: vi.fn(),
   showA2AEdges: false,
   setShowA2AEdges: vi.fn(),
+  setPanelTab: vi.fn(),
 };
 
 vi.mock("@/store/canvas", () => ({
@@ -103,6 +104,11 @@ vi.mock("../settings", () => ({
 }));
 vi.mock("../Toaster", () => ({ Toaster: () => null }));
 vi.mock("../WorkspaceNode", () => ({ WorkspaceNode: () => null }));
+vi.mock("../ProvisioningTimeout", () => ({
+  ProvisioningTimeout: () => (
+    <div data-testid="provisioning-timeout-sentinel" />
+  ),
+}));
 
 // ── Import the component under test AFTER mocks ───────────────────────────────
 import { Canvas } from "../Canvas";
@@ -140,5 +146,17 @@ describe("Canvas — accessibility landmarks", () => {
     // skip link must come before main in the DOM order
     const position = skipLink!.compareDocumentPosition(main!);
     expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+// ── Fix #833: ProvisioningTimeout is mounted in the Canvas tree ───────────────
+describe("Canvas — ProvisioningTimeout integration (issue #833)", () => {
+  it("renders ProvisioningTimeout in the component tree", () => {
+    render(<Canvas />);
+    expect(
+      document.querySelector(
+        '[data-testid="provisioning-timeout-sentinel"]'
+      )
+    ).toBeTruthy();
   });
 });

@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -108,6 +110,10 @@ func dirSize(dir string, limit int64) (int64, error) {
 // gin.Context; the handler just decodes into this shape.
 type installRequest struct {
 	Source string `json:"source"`
+	// SHA256 is an optional hex-encoded SHA-256 of the plugin's plugin.yaml.
+	// When present, resolveAndStage verifies the fetched content matches
+	// before allowing the install to proceed (SAFE-T1102 supply-chain hardening).
+	SHA256 string `json:"sha256,omitempty"`
 }
 
 // stageResult bundles the outputs of resolveAndStage for the caller.
@@ -151,6 +157,20 @@ func (h *PluginsHandler) resolveAndStage(ctx context.Context, req installRequest
 		}
 	}
 
+	// Pinned-ref enforcement for github:// sources (SAFE-T1102).
+	// An unpinned spec (no #<tag/sha> suffix) installs from a mutable
+	// default-branch tip whose content can change silently between an
+	// audit and the actual install. Require explicit pinning unless the
+	// operator opts in via PLUGIN_ALLOW_UNPINNED=true.
+	if source.Scheme == "github" && !strings.Contains(source.Spec, "#") {
+		if os.Getenv("PLUGIN_ALLOW_UNPINNED") != "true" {
+			return nil, newHTTPErr(http.StatusUnprocessableEntity, gin.H{
+				"error":  `unpinned github source: append a tag or commit SHA (e.g. "github://owner/repo#v1.2.0"). Set PLUGIN_ALLOW_UNPINNED=true to override`,
+				"source": source.Raw(),
+			})
+		}
+	}
+
 	stagedDir, err := os.MkdirTemp("", "molecule-plugin-fetch-*")
 	if err != nil {
 		return nil, newHTTPErr(http.StatusInternalServerError, gin.H{"error": "failed to create staging dir"})
@@ -189,6 +209,32 @@ func (h *PluginsHandler) resolveAndStage(ctx context.Context, req installRequest
 			"source": source.Raw(),
 		})
 	}
+
+	// SHA-256 content integrity check (SAFE-T1102).
+	// If the caller pinned a hash, verify it against the staged plugin.yaml.
+	// A mismatch means the fetched content differs from what was audited —
+	// abort rather than silently install an unexpected plugin.
+	if req.SHA256 != "" {
+		manifestPath := filepath.Join(stagedDir, "plugin.yaml")
+		manifestData, readErr := os.ReadFile(manifestPath)
+		if readErr != nil {
+			cleanup()
+			return nil, newHTTPErr(http.StatusUnprocessableEntity, gin.H{
+				"error":  "sha256 check failed: plugin.yaml not found in staged plugin",
+				"source": source.Raw(),
+			})
+		}
+		sum := sha256.Sum256(manifestData)
+		got := hex.EncodeToString(sum[:])
+		if !strings.EqualFold(got, req.SHA256) {
+			cleanup()
+			return nil, newHTTPErr(http.StatusUnprocessableEntity, gin.H{
+				"error":  fmt.Sprintf("sha256 mismatch: expected %s, got %s", req.SHA256, got),
+				"source": source.Raw(),
+			})
+		}
+	}
+
 	return &stageResult{StagedDir: stagedDir, PluginName: pluginName, Source: source}, nil
 }
 

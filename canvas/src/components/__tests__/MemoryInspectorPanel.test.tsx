@@ -7,7 +7,7 @@
  * and Refresh.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 
 // ── Mocks (must be hoisted before any imports) ────────────────────────────────
 
@@ -398,5 +398,195 @@ describe("MemoryInspectorPanel — Refresh button", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh memory entries" }));
     await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(2));
+  });
+});
+
+// ── role=alert a11y (issue #830) ─────────────────────────────────────────────
+
+describe("MemoryInspectorPanel — error elements have role=alert (issue #830)", () => {
+  it("fetch error banner has role='alert'", async () => {
+    mockGet.mockRejectedValue(new Error("Network error"));
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await waitFor(() => screen.getByText("Network error"));
+    const alert = screen.getByRole("alert");
+    expect(alert).toBeTruthy();
+    expect(alert.textContent).toContain("Network error");
+  });
+
+  it("editError paragraph has role='alert' on invalid JSON submission", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue(TWO_ENTRIES as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await waitFor(() => screen.getByText("task-queue"));
+
+    // Expand and open edit mode
+    fireEvent.click(screen.getByText("task-queue").closest("button")!);
+    await waitFor(() =>
+      screen.getByRole("button", { name: "Edit task-queue" })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit task-queue" }));
+
+    // Submit invalid JSON to trigger editError
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Edit memory value" }),
+      { target: { value: "{{bad json" } }
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => screen.getByText(/invalid json/i));
+    const alert = screen.getByRole("alert");
+    expect(alert).toBeTruthy();
+    expect(alert.textContent).toMatch(/invalid json/i);
+  });
+});
+
+// ── Semantic search (issue #783) ──────────────────────────────────────────────
+
+describe("MemoryInspectorPanel — semantic search", () => {
+  // Ensure fake timers never leak into the next test even if a test throws
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("does not call API before 300ms debounce elapses after typing", async () => {
+    vi.useFakeTimers();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue([] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+
+    // Flush initial load — api.get returns an already-resolved Promise
+    // (microtask), so act() drains it without advancing fake timers
+    await act(async () => {});
+
+    mockGet.mockClear();
+
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Search memory entries"), {
+        target: { value: "task queue" },
+      });
+    });
+
+    // 200ms elapsed — debounce has NOT fired yet
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(mockGet).not.toHaveBeenCalled();
+
+    // Another 150ms (total 350ms > 300ms threshold) — debounce fires
+    await act(async () => {
+      vi.advanceTimersByTime(150);
+    });
+    // Flush the async loadEntries that was triggered
+    await act(async () => {});
+
+    expect(mockGet).toHaveBeenCalledWith(
+      "/workspaces/ws-1/memory?q=task%20queue"
+    );
+
+    vi.useRealTimers();
+  });
+
+  it("renders similarity-badge with rounded percentage when entry has similarity_score", async () => {
+    mockGet.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { ...ENTRY_A, similarity_score: 0.87 },
+    ] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+
+    // Wait for the entry key to appear in the header
+    await waitFor(() => screen.getByText("task-queue"));
+
+    const badge = document.querySelector('[data-testid="similarity-badge"]');
+    expect(badge).toBeTruthy();
+    expect(badge?.textContent).toBe("87%");
+  });
+
+  it("does not render similarity-badge when entry has no similarity_score", async () => {
+    // ENTRY_A has no similarity_score field
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue([ENTRY_A] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+
+    await waitFor(() => screen.getByText("task-queue"));
+
+    expect(
+      document.querySelector('[data-testid="similarity-badge"]')
+    ).toBeNull();
+  });
+
+  it("colors similarity-badge blue-500 when score >= 0.8", async () => {
+    mockGet.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { ...ENTRY_A, similarity_score: 0.92 },
+    ] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await waitFor(() => screen.getByText("task-queue"));
+    const badge = document.querySelector('[data-testid="similarity-badge"]');
+    expect(badge?.className).toContain("text-blue-500");
+    expect(badge?.className).not.toContain("text-zinc-400");
+    expect(badge?.className).not.toContain("text-zinc-600");
+  });
+
+  it("colors similarity-badge zinc-400 when score is between 0.5 and 0.8", async () => {
+    mockGet.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { ...ENTRY_A, similarity_score: 0.65 },
+    ] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await waitFor(() => screen.getByText("task-queue"));
+    const badge = document.querySelector('[data-testid="similarity-badge"]');
+    expect(badge?.className).toContain("text-zinc-400");
+    expect(badge?.className).not.toContain("text-blue-500");
+    expect(badge?.className).not.toContain("text-zinc-600");
+  });
+
+  it("colors similarity-badge zinc-400 italic with tilde prefix when score is below 0.5", async () => {
+    mockGet.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { ...ENTRY_A, similarity_score: 0.31 },
+    ] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await waitFor(() => screen.getByText("task-queue"));
+    const badge = document.querySelector('[data-testid="similarity-badge"]');
+    expect(badge?.className).toContain("text-zinc-400");
+    expect(badge?.className).toContain("italic");
+    expect(badge?.className).not.toContain("text-blue-500");
+    expect(badge?.className).not.toContain("text-zinc-600");
+    expect(badge?.textContent).toBe("~31%");
+  });
+
+  it("clear button resets debouncedQuery immediately and re-fetches without ?q=", async () => {
+    vi.useFakeTimers();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue([] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+
+    // Flush initial load
+    await act(async () => {});
+
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Search memory entries"), {
+        target: { value: "sessions" },
+      });
+    });
+
+    // Advance past debounce — debouncedQuery becomes "sessions"
+    await act(async () => {
+      vi.advanceTimersByTime(350);
+    });
+    await act(async () => {}); // flush async loadEntries
+    expect(mockGet).toHaveBeenCalledWith("/workspaces/ws-1/memory?q=sessions");
+    mockGet.mockClear();
+
+    // Click × clear button — skips debounce, resets debouncedQuery immediately
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    });
+    await act(async () => {}); // flush state update → loadEntries → api.get
+
+    // Should re-fetch the unfiltered list (no q= parameter)
+    expect(mockGet).toHaveBeenCalledWith("/workspaces/ws-1/memory");
+
+    vi.useRealTimers();
   });
 });

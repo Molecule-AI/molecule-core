@@ -195,9 +195,13 @@ class ComplianceConfig:
 class WorkspaceConfig:
     name: str = "Workspace"
     description: str = ""
+    role: str = ""
+    """Human-readable role label for this agent (e.g. 'Senior Code Reviewer').
+    Surfaced in AGENTS.md so peer agents can understand this workspace's purpose
+    without reading the full system prompt. Falls back to description when empty."""
     version: str = "1.0.0"
     tier: int = 1
-    model: str = "anthropic:claude-sonnet-4-6"
+    model: str = "anthropic:claude-opus-4-7"
     runtime: str = "langgraph"  # langgraph | claude-code | codex | ollama | custom
     runtime_config: RuntimeConfig = field(default_factory=RuntimeConfig)
     initial_prompt: str = ""
@@ -228,6 +232,14 @@ class WorkspaceConfig:
     security_scan: SecurityScanConfig = field(default_factory=SecurityScanConfig)
     compliance: ComplianceConfig = field(default_factory=ComplianceConfig)
     sub_workspaces: list[dict] = field(default_factory=list)
+    effort: str = ""
+    """Claude output effort level for the agentic loop: low | medium | high | xhigh | max.
+    Empty string = not set (model default applies).  xhigh is the Opus 4.7 recommended
+    default for long agentic tasks.  Passed as ``output_config.effort`` by ClaudeSDKExecutor."""
+    task_budget: int = 0
+    """Advisory total-token budget across the full agentic loop.  0 = not set.
+    Must be >= 20000 when non-zero (API minimum).  When set, ClaudeSDKExecutor
+    automatically adds the ``task-budgets-2026-03-13`` beta header."""
 
 
 def load_config(config_path: Optional[str] = None) -> WorkspaceConfig:
@@ -243,7 +255,7 @@ def load_config(config_path: Optional[str] = None) -> WorkspaceConfig:
         raw = yaml.safe_load(f) or {}
 
     # Override model from env if provided
-    model = os.environ.get("MODEL_PROVIDER", raw.get("model", "anthropic:claude-sonnet-4-6"))
+    model = os.environ.get("MODEL_PROVIDER", raw.get("model", "anthropic:claude-opus-4-7"))
 
     runtime = raw.get("runtime", "langgraph")
     runtime_raw = raw.get("runtime_config", {})
@@ -279,6 +291,7 @@ def load_config(config_path: Optional[str] = None) -> WorkspaceConfig:
     return WorkspaceConfig(
         name=raw.get("name", "Workspace"),
         description=raw.get("description", ""),
+        role=raw.get("role", ""),
         version=raw.get("version", "1.0.0"),
         tier=int(raw.get("tier", 1)) if str(raw.get("tier", 1)).isdigit() else 1,
         model=model,
@@ -346,4 +359,6 @@ def load_config(config_path: Optional[str] = None) -> WorkspaceConfig:
             max_task_duration_seconds=int(compliance_raw.get("max_task_duration_seconds", 300)),
         ),
         sub_workspaces=raw.get("sub_workspaces", []),
+        effort=str(raw.get("effort", "")),
+        task_budget=int(raw.get("task_budget", 0)),
     )

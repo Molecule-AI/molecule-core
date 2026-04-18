@@ -124,6 +124,14 @@ org-templates/**/.auth-token
 
 # Cloned-via-manifest dirs — populated locally by scripts/clone-manifest.sh,
 # tracked in their own standalone repos. Never commit to core.
-/org-templates/
+# Ignore all cloned org-template content except the molecule-dev reference
+# system-prompt template (tracked in core as the canonical shared-context
+# source; role-specific prompts live in molecule-ai-org-template-molecule-dev).
+# Pattern uses content-glob (/org-templates/*) rather than directory-ignore
+# (/org-templates/) so git can re-include specific files via ! negation.
+/org-templates/*
+!/org-templates/molecule-dev
+/org-templates/molecule-dev/*
+!/org-templates/molecule-dev/system-prompt.md
 /plugins/
 /workspace-configs-templates/

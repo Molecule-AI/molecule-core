@@ -15,8 +15,16 @@ name: E2E API Smoke Test
 on:
   push:
     branches: [main]
+    paths:
+      - 'platform/**'
+      - 'tests/e2e/**'
+      - '.github/workflows/e2e-api.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'platform/**'
+      - 'tests/e2e/**'
+      - '.github/workflows/e2e-api.yml'
 
 # Workflow-level concurrency: new runs queue rather than cancel.
 # `cancel-in-progress: false` is load-bearing — without it GitHub would still
