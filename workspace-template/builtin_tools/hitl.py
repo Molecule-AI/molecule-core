@@ -385,6 +385,21 @@ def requires_approval(
                 }
 
             if not approval_result.get("approved"):
+                # Art. 14 audit: log the denial outcome so the activity log
+                # contains evidence that the human oversight gate was exercised.
+                try:
+                    from builtin_tools.audit import log_event
+                    log_event(
+                        event_type="hitl",
+                        action="approve",
+                        resource=action,
+                        outcome="denied",
+                        actor=approval_result.get("decided_by"),
+                        approval_id=approval_result.get("approval_id"),
+                        reason=reason,
+                    )
+                except Exception:
+                    pass
                 return {
                     "success": False,
                     "error": (
@@ -393,6 +408,21 @@ def requires_approval(
                     ),
                     "approval_id": approval_result.get("approval_id"),
                 }
+
+            # Art. 14 audit: log the approval grant before running the function.
+            try:
+                from builtin_tools.audit import log_event
+                log_event(
+                    event_type="hitl",
+                    action="approve",
+                    resource=action,
+                    outcome="granted",
+                    actor=approval_result.get("decided_by"),
+                    approval_id=approval_result.get("approval_id"),
+                    reason=reason,
+                )
+            except Exception:
+                pass
 
             # --- Approved — run the original function ------------------------
             return await fn(*args, **kwargs)

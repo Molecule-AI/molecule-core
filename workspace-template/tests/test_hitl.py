@@ -352,6 +352,89 @@ class TestRequiresApproval:
         assert result["success"] is False
         assert "error" in result
 
+    @pytest.mark.asyncio
+    async def test_logs_hitl_denied_event(self, monkeypatch):
+        """Art. 14 audit: denial outcome must be logged to activity_logs (#893)."""
+        mod = _load_hitl(monkeypatch)
+
+        audit_mock = MagicMock()
+        audit_mock.log_event = MagicMock(return_value="trace-id")
+        monkeypatch.setitem(sys.modules, "builtin_tools.audit", audit_mock)
+
+        approval_mock = MagicMock()
+        approval_mock.ainvoke = AsyncMock(return_value={
+            "approved": False,
+            "approval_id": "appr-deny-123",
+            "decided_by": "human-reviewer",
+            "message": "Denied by human",
+        })
+        monkeypatch.setitem(sys.modules, "builtin_tools.approval",
+                            MagicMock(request_approval=approval_mock))
+
+        @mod.requires_approval("Delete production DB")
+        async def delete_db():
+            return {"done": True}
+
+        result = await delete_db()
+        assert result["success"] is False
+
+        # log_event must have been called with the denial outcome.
+        log_calls = audit_mock.log_event.call_args_list
+        denial_calls = [
+            c for c in log_calls
+            if c.kwargs.get("outcome") == "denied"
+            or (c.args and len(c.args) >= 3 and c.args[2] == "denied")
+        ]
+        assert denial_calls, (
+            "log_event(outcome='denied') was not called — Art. 14 audit gap (issue #893)"
+        )
+        # Verify the call carries the expected resource / actor.
+        dc = denial_calls[0]
+        assert dc.kwargs.get("event_type") == "hitl" or "hitl" in str(dc)
+        assert dc.kwargs.get("outcome") == "denied"
+
+    @pytest.mark.asyncio
+    async def test_logs_hitl_approved_event(self, monkeypatch):
+        """Art. 14 audit: approval grant outcome must be logged to activity_logs (#893)."""
+        mod = _load_hitl(monkeypatch)
+
+        audit_mock = MagicMock()
+        audit_mock.log_event = MagicMock(return_value="trace-id")
+        monkeypatch.setitem(sys.modules, "builtin_tools.audit", audit_mock)
+
+        approval_mock = MagicMock()
+        approval_mock.ainvoke = AsyncMock(return_value={
+            "approved": True,
+            "approval_id": "appr-ok-456",
+            "decided_by": "human-reviewer",
+        })
+        monkeypatch.setitem(sys.modules, "builtin_tools.approval",
+                            MagicMock(request_approval=approval_mock))
+
+        executed = []
+
+        @mod.requires_approval("Run migration")
+        async def run_migration(table: str):
+            executed.append(table)
+            return {"done": True}
+
+        result = await run_migration(table="users")
+        assert result == {"done": True}
+        assert executed == ["users"]
+
+        # log_event must have been called with the granted outcome.
+        log_calls = audit_mock.log_event.call_args_list
+        granted_calls = [
+            c for c in log_calls
+            if c.kwargs.get("outcome") == "granted"
+        ]
+        assert granted_calls, (
+            "log_event(outcome='granted') was not called — Art. 14 audit gap (issue #893)"
+        )
+        gc = granted_calls[0]
+        assert gc.kwargs.get("event_type") == "hitl"
+        assert gc.kwargs.get("outcome") == "granted"
+
 
 # ============================================================================
 # HITLConfig loading
