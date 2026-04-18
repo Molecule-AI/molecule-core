@@ -21,6 +21,8 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,6 +34,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/channels"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
@@ -48,6 +51,14 @@ const (
 	slackBotScopes = "chat:write,chat:write.customize,channels:read,groups:read,im:read,mpim:read"
 
 	slackOAuthHTTPTimeout = 10 * time.Second
+
+	// slackOAuthNonceTTL is how long a state nonce is valid after Install
+	// redirects the browser to Slack.  10 minutes is generous for a human
+	// OAuth flow but tight enough to limit the CSRF attack window.
+	slackOAuthNonceTTL = 10 * time.Minute
+
+	// slackOAuthNoncePrefix is the Redis key prefix for OAuth state nonces.
+	slackOAuthNoncePrefix = "slack:oauth:nonce:"
 )
 
 var slackOAuthHTTPClient = &http.Client{Timeout: slackOAuthHTTPTimeout}
@@ -110,10 +121,11 @@ func (h *SlackOAuthHandler) isConfigured() bool {
 //
 //	GET /integrations/slack/install?workspace_id=<uuid>
 //
-// workspace_id is passed as the OAuth state so the callback can associate
-// the issued token with the correct workspace without storing session state
-// server-side.  This is acceptable for our trusted-canvas flow where the
-// install link is only accessible to logged-in canvas users.
+// A cryptographically-random 256-bit nonce is generated, stored in Redis
+// (keyed by the nonce, valued by workspace_id, TTL 10 min), and sent as the
+// OAuth state parameter.  The Callback handler looks the nonce up and deletes
+// it atomically — so the workspace_id never appears as a predictable state
+// value and replayed callbacks are rejected.
 func (h *SlackOAuthHandler) Install(c *gin.Context) {
 	if !h.isConfigured() {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
@@ -128,10 +140,27 @@ func (h *SlackOAuthHandler) Install(c *gin.Context) {
 		return
 	}
 
+	// Generate a cryptographically-random nonce (256 bits) to use as the
+	// OAuth state parameter.  Binding the nonce → workspace_id in Redis
+	// provides CSRF protection without exposing the (predictable) workspace_id.
+	nonce, err := generateSlackOAuthNonce()
+	if err != nil {
+		log.Printf("SlackOAuth: failed to generate nonce for workspace %s: %v", workspaceID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate OAuth state token"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	if err := db.RDB.Set(ctx, slackOAuthNoncePrefix+nonce, workspaceID, slackOAuthNonceTTL).Err(); err != nil {
+		log.Printf("SlackOAuth: failed to store nonce for workspace %s: %v", workspaceID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initialize OAuth state"})
+		return
+	}
+
 	params := url.Values{}
 	params.Set("client_id", h.clientID)
 	params.Set("scope", slackBotScopes)
-	params.Set("state", workspaceID)
+	params.Set("state", nonce)
 	params.Set("redirect_uri", h.callbackURL)
 
 	authorizeURL := slackOAuthAuthorizeURL + "?" + params.Encode()
@@ -140,8 +169,11 @@ func (h *SlackOAuthHandler) Install(c *gin.Context) {
 
 // Callback handles Slack's redirect after user authorization.
 //
-//	GET /integrations/slack/callback?code=<oauth_code>&state=<workspace_id>
+//	GET /integrations/slack/callback?code=<oauth_code>&state=<nonce>
 //
+// state is a cryptographically-random nonce issued by Install and stored in
+// Redis.  Callback validates and atomically deletes the nonce, extracting the
+// workspace_id from its Redis value.  Unknown or expired nonces are rejected.
 // On success it upserts a workspace_channels row (type="slack") with the bot
 // token encrypted via channels.EncryptSensitiveFields, then redirects the
 // browser to the canvas.  On error it redirects with an error query param so
@@ -157,9 +189,25 @@ func (h *SlackOAuthHandler) Callback(c *gin.Context) {
 	}
 
 	code := c.Query("code")
-	workspaceID := c.Query("state")
-	if code == "" || workspaceID == "" {
-		h.redirectToCanvas(c, workspaceID, "missing_code_or_state")
+	nonce := c.Query("state")
+	if code == "" || nonce == "" {
+		h.redirectToCanvas(c, "", "missing_code_or_state")
+		return
+	}
+
+	// Validate and consume the nonce atomically (GETDEL).  This rejects:
+	//   • replayed callbacks (nonce already consumed)
+	//   • expired nonces (TTL elapsed)
+	//   • crafted callbacks with a known workspace_id as state (unknown key)
+	workspaceID, err := db.RDB.GetDel(ctx, slackOAuthNoncePrefix+nonce).Result()
+	if err == redis.Nil {
+		log.Printf("SlackOAuth: unknown or expired state nonce")
+		h.redirectToCanvas(c, "", "invalid_state")
+		return
+	}
+	if err != nil {
+		log.Printf("SlackOAuth: redis error validating state nonce: %v", err)
+		h.redirectToCanvas(c, "", "state_lookup_failed")
 		return
 	}
 
@@ -263,6 +311,16 @@ func (h *SlackOAuthHandler) ListConversations(c *gin.Context) {
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
+
+// generateSlackOAuthNonce returns a cryptographically-random hex string with
+// 256 bits of entropy, suitable for use as an OAuth CSRF state parameter.
+func generateSlackOAuthNonce() (string, error) {
+	b := make([]byte, 32) // 32 bytes = 256 bits
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate nonce: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
 
 // slackOAuthTokenResponse is the payload returned by oauth.v2.access.
 type slackOAuthTokenResponse struct {
