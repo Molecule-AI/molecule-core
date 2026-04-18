@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useId, cloneElement, type ReactElement } from "react";
 import { api } from "@/lib/api";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { StatusDot } from "../StatusDot";
@@ -300,10 +300,11 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  const fieldId = useId();
   return (
     <div>
-      <label className="text-[10px] text-zinc-500 block mb-0.5">{label}</label>
-      {children}
+      <label htmlFor={fieldId} className="text-[10px] text-zinc-500 block mb-0.5">{label}</label>
+      {cloneElement(children as ReactElement<{ id?: string }>, { id: fieldId })}
     </div>
   );
 }
