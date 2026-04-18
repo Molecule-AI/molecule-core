@@ -1512,6 +1512,22 @@ builders; Molecule AI users are developers building agent companies.
 
 ---
 
+### Anthropic Managed Agents — `api.anthropic.com` *(commercial, public beta)*
+
+**Pitch:** "Run managed agent sessions with built-in sandboxing, checkpointing, credential management, and end-to-end tracing — without managing infrastructure."
+
+**Shape:** Anthropic-hosted API, public beta since April 8, 2026 (`managed-agents-2026-04-01` beta header required). Bundles: agent loop + tool execution, sandboxed container per session, state persistence (conversation-history checkpointing per session), credential management + scoped permissions, end-to-end tracing. Pricing: standard API token cost + **$0.08/session-hour** active runtime (idle = zero cost). SSE stream endpoint (`GET /v1/sessions/{id}/stream`) for real-time event delivery. `user.tool_confirmation` SSE event supports async tool approval/denial from the application layer.
+
+**Overlap with us:** Idle-zero billing addresses the same problem as GH #711 (workspace hibernation). Per-session sandboxing overlaps E2B (#574). Session-level conversation checkpointing partially overlaps Temporal durable execution (#583).
+
+**Differentiation:** Session checkpointing ≠ Temporal — Managed Agents checkpoints conversation history; Temporal handles cross-workspace workflow orchestration, retry sagas, and distributed state. Our Docker workspace model is richer: persistent identity, multi-agent A2A, org hierarchy, RBAC, visual canvas, model-agnosticism. RBAC passthrough requires an async out-of-band sidecar (our `check_permission` gates run inside the workspace process; Managed Agents loop runs server-side). Cost neutral at ~2 active hrs/day (~$0.16/day vs ~$0.10–0.17/day Fly.io shared-1x); more expensive for high-throughput workspaces (8+ active hrs/day). API surface explicitly unstable ("behaviors may be refined between releases" — Anthropic docs).
+
+**Signals to react to:** GA announcement → re-evaluate `ClaudeManagedAgentsExecutor` adapter spike (GH #742 closed: WATCH-FOR-GA). Multiagent coordination + memory research-preview features exit waitlist → evaluate whether built-in multi-agent replaces our A2A layer or complements it. `tool_confirmation` API stabilizes → simplifies our RBAC passthrough sidecar design. Price drop below $0.05/session-hour → re-run cost model for high-traffic workspaces.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** Anthropic cloud API, public beta (Apr 8 2026). **Verdict: WATCH-FOR-GA** (GH #742 closed). Adapter estimated ~150–200 LOC, non-trivial async session model, RBAC interception requires architectural work.
+
+---
+
 ### Microsoft Agent Framework — `microsoft/agent-framework`
 
 **Pitch:** "A framework for building, orchestrating and deploying AI agents and multi-agent workflows with support for Python and .NET."
@@ -2855,6 +2871,28 @@ langgraph/crewai adapters.
 **Signals to react to:** ACP adopted by a major enterprise vendor (SAP, Salesforce, IBM Watson) → Molecule needs ACP bridge. ACP merges with A2A under AAIF → de-duplication milestone. GitHub Copilot CLI ships ACP support (already in preview Jan 2026) → ACP is a GitHub-distribution channel.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** ⚠️ ARCHIVED Aug 27, 2025 — IBM contributed to AAIF/A2A working group; no active development. A2A won the protocol consolidation. No action needed.
+
+---
+
+### smolagents — `huggingface/smolagents`
+
+**Pitch:** "The simplest library to build powerful agents" — Hugging Face's barebones, code-first agent framework.
+
+**Shape:** Python, Apache-2.0, 26.5k★, ~1,000 lines of core library code. Primary primitive is `CodeAgent`: instead of emitting tool calls as JSON, the agent writes executable Python that calls tools directly — "thinking in code." Model-agnostic via LiteLLM (OpenAI, Anthropic, Mistral, Ollama, etc.). Sandboxed code execution via E2B, Modal, Docker, or Pyodide (WASM). Hugging Face Hub integration for sharing reusable tools and agents. Multimodal support (text, vision). CLI utilities (`smolagent`, `webagent`). Companion: `huggingface/agents-course` for onboarding.
+
+**Overlap with us:** (1) Code-first agent execution sits at the same runtime layer as `molecule-ai-workspace-template`. (2) Tool sharing via Hub = a public registry alternative to our internal tool registry. (3) Sandboxed execution (E2B/Docker) mirrors our Docker workspace isolation model. (4) Multimodal + model-agnostic design aligns with our workspace-template flexibility goals. (5) 26.5k★ + Hugging Face distribution = strong community pull for developers who land here before Molecule.
+
+**Differentiation:** Single-agent, no multi-agent orchestration, no A2A protocol, no org hierarchy, no canvas, no scheduling, no workspace lifecycle management. "Barebones by design" — Molecule is the governance + multi-tenant + orchestration layer smolagents explicitly omits. smolagents' code execution sandbox is local-process; Molecule provides a full Docker workspace per agent.
+
+**Worth borrowing:** CodeAgent pattern (agent writes Python to call tools) as an optional execution mode for workspace-template. Hub-based tool registry concept — could inform a public Molecule tool/template marketplace. E2B integration pattern for lightweight sandboxing of short-lived tasks.
+
+**Terminology collisions:** "agents" (identical), "tools" (identical), "CodeAgent" ≈ our workspace-template code execution runner.
+
+**Signals to react to:** Monitor HF Hub publish progress (template in active development). If SmolAgents ships native A2A → shim becomes zero-LOC, elevate template priority. If HuggingFace officially designates smolagents as the default agent runtime for HF Spaces → distribution advantage increases, fast-track release. Docker-in-Docker gotcha: default must be `executor_type="local"` (AST-sandboxed); `DockerExecutor` requires `--privileged` and must never be the default.
+
+**Threshold override note:** BUILD authorized at 26,688★ (below 30k criterion). Rationale: HuggingFace corporate backing, zero-cost `Tool.from_langchain` integration path (~145 LOC A2A shim — `fastapi-agents` SmolagentsAgent validates pattern), and ~60-day trajectory to 30k. Waiting risked a community fork defining the integration pattern before us.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 26,688★, Python, Apache-2.0, active Hugging Face development. **Verdict: BUILD** (threshold override — GH #792 closed, Dev Lead issue filed). Template: `molecule-ai-workspace-template-smolagents`, ~4 engineer-days, security review required.
 
 ---
 

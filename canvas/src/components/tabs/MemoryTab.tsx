@@ -120,7 +120,7 @@ export function MemoryTab({ workspaceId }: Props) {
   return (
     <div className="p-4 space-y-4">
       {error && !showAdd && (
-        <div className="px-3 py-1.5 bg-red-900/30 border border-red-800 rounded text-xs text-red-400">
+        <div role="alert" className="px-3 py-1.5 bg-red-900/30 border border-red-800 rounded text-xs text-red-400">
           {error}
         </div>
       )}
@@ -233,6 +233,7 @@ export function MemoryTab({ workspaceId }: Props) {
               value={newKey}
               onChange={(e) => setNewKey(e.target.value)}
               placeholder="Key"
+              aria-label="Memory key"
               className="w-full bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-xs text-zinc-100 focus:outline-none focus:border-blue-500"
             />
             <textarea
@@ -240,15 +241,17 @@ export function MemoryTab({ workspaceId }: Props) {
               onChange={(e) => setNewValue(e.target.value)}
               placeholder='Value (JSON or plain text)'
               rows={3}
+              aria-label="Memory value (JSON or plain text)"
               className="w-full bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-xs font-mono text-zinc-100 focus:outline-none focus:border-blue-500 resize-none"
             />
             <input
               value={newTTL}
               onChange={(e) => setNewTTL(e.target.value)}
               placeholder="TTL in seconds (optional)"
+              aria-label="TTL in seconds (optional)"
               className="w-full bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-xs text-zinc-100 focus:outline-none focus:border-blue-500"
             />
-            {error && <div className="text-xs text-red-400">{error}</div>}
+            {error && <div role="alert" className="text-xs text-red-400">{error}</div>}
             <div className="flex gap-2">
               <button
                 onClick={handleAdd}
@@ -279,6 +282,7 @@ export function MemoryTab({ workspaceId }: Props) {
                   <button
                     onClick={() => setExpanded(expanded === entry.key ? null : entry.key)}
                     className="w-full flex items-center justify-between px-3 py-2 text-left"
+                    aria-expanded={expanded === entry.key}
                   >
                     <span className="text-xs font-mono text-blue-400">{entry.key}</span>
                     <div className="flex items-center gap-2">

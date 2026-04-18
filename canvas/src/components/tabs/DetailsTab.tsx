@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, useId, cloneElement, type ReactElement } from "react";
 import { api } from "@/lib/api";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { StatusDot } from "../StatusDot";
@@ -36,6 +36,8 @@ export function DetailsTab({ workspaceId, data }: Props) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const selectNode = useCanvasStore((s) => s.selectNode);
+  // Ref for the "Delete Workspace" trigger — Cancel returns focus here
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setName(data.name);
@@ -255,22 +257,38 @@ export function DetailsTab({ workspaceId, data }: Props) {
           </div>
         )}
         {confirmDelete ? (
-          <div className="flex gap-2">
-            <button
-              onClick={handleDelete}
-              className="px-3 py-1 bg-red-600 hover:bg-red-500 text-xs rounded text-white"
-            >
-              Confirm Delete
-            </button>
-            <button
-              onClick={() => { setConfirmDelete(false); setDeleteError(null); }}
-              className="px-3 py-1 bg-zinc-700 hover:bg-zinc-600 text-xs rounded text-zinc-300"
-            >
-              Cancel
-            </button>
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-confirm-title"
+            className="space-y-2"
+          >
+            <h3 id="delete-confirm-title" className="text-xs font-medium text-red-400">
+              Confirm deletion
+            </h3>
+            <div className="flex gap-2">
+              <button
+                onClick={handleDelete}
+                className="px-3 py-1 bg-red-600 hover:bg-red-500 text-xs rounded text-white"
+              >
+                Confirm Delete
+              </button>
+              <button
+                onClick={() => {
+                  setConfirmDelete(false);
+                  setDeleteError(null);
+                  // Return focus to the trigger so keyboard users aren't stranded
+                  deleteButtonRef.current?.focus();
+                }}
+                className="px-3 py-1 bg-zinc-700 hover:bg-zinc-600 text-xs rounded text-zinc-300"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         ) : (
           <button
+            ref={deleteButtonRef}
             onClick={() => setConfirmDelete(true)}
             className="px-3 py-1 bg-zinc-800 hover:bg-red-900 border border-zinc-700 hover:border-red-700 text-xs rounded text-zinc-400 hover:text-red-400 transition-colors"
           >
@@ -292,10 +310,11 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  const fieldId = useId();
   return (
     <div>
-      <label className="text-[10px] text-zinc-500 block mb-0.5">{label}</label>
-      {children}
+      <label htmlFor={fieldId} className="text-[10px] text-zinc-500 block mb-0.5">{label}</label>
+      {cloneElement(children as ReactElement<{ id?: string }>, { id: fieldId })}
     </div>
   );
 }

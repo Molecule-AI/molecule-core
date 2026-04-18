@@ -33,6 +33,19 @@ interface Props {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Sanitise a memory key for use in an HTML id attribute.
+ * HTML IDs must not contain whitespace; many non-alphanumeric characters also
+ * cause selector or ARIA failures. Replace every non-alphanumeric character
+ * with a hyphen, collapse consecutive hyphens, then strip leading/trailing ones.
+ */
+function sanitizeId(key: string): string {
+  return key
+    .replace(/[^a-zA-Z0-9]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 function formatRelativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   if (diff < 60_000) return `${Math.floor(diff / 1000)}s`;
@@ -291,7 +304,11 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
 
       {/* Error banner */}
       {error && (
-        <div className="mx-4 mt-3 px-3 py-2 bg-red-950/30 border border-red-800/40 rounded text-xs text-red-400 shrink-0">
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="mx-4 mt-3 px-3 py-2 bg-red-950/30 border border-red-800/40 rounded text-xs text-red-400 shrink-0"
+        >
           {error}
         </div>
       )}
@@ -410,6 +427,7 @@ function MemoryEntryRow({
   onCancelEdit,
   onDelete,
 }: MemoryEntryRowProps) {
+  const bodyId = `mem-body-${sanitizeId(entry.key)}`;
   return (
     <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/50 overflow-hidden">
       {/* Header row — click to expand/collapse */}
@@ -417,6 +435,7 @@ function MemoryEntryRow({
         className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-zinc-800/30 transition-colors"
         onClick={onToggle}
         aria-expanded={isExpanded}
+        aria-controls={bodyId}
       >
         <span className="text-[10px] font-mono text-blue-400 truncate flex-1 min-w-0">
           {entry.key}
@@ -427,11 +446,18 @@ function MemoryEntryRow({
         {/* Similarity score badge — only rendered when backend provides a score */}
         {entry.similarity_score != null && (
           <span
-            className="text-[9px] text-zinc-500 shrink-0 font-mono tabular-nums"
+            className={[
+              "text-[9px] shrink-0 font-mono tabular-nums",
+              entry.similarity_score >= 0.8
+                ? "text-blue-500"
+                : entry.similarity_score >= 0.5
+                ? "text-zinc-400"
+                : "text-zinc-400 italic",
+            ].join(" ")}
             title={`Similarity: ${(entry.similarity_score * 100).toFixed(1)}%`}
             data-testid="similarity-badge"
           >
-            {Math.round(entry.similarity_score * 100)}%
+            {entry.similarity_score < 0.5 ? "~" : ""}{Math.round(entry.similarity_score * 100)}%
           </span>
         )}
         <span className="text-[9px] text-zinc-600 shrink-0">
@@ -444,7 +470,12 @@ function MemoryEntryRow({
 
       {/* Expanded body */}
       {isExpanded && (
-        <div className="border-t border-zinc-800/50 px-3 pb-3 pt-2 space-y-2">
+        <div
+          id={bodyId}
+          role="region"
+          aria-label={`Details for ${entry.key}`}
+          className="border-t border-zinc-800/50 px-3 pb-3 pt-2 space-y-2"
+        >
           {entry.expires_at && (
             <p className="text-[9px] text-zinc-500">
               Expires: {new Date(entry.expires_at).toLocaleString()}
@@ -462,7 +493,9 @@ function MemoryEntryRow({
                 className="w-full bg-zinc-950 border border-zinc-700 focus:border-blue-500 rounded px-2 py-1.5 text-[11px] font-mono text-zinc-100 focus:outline-none resize-none transition-colors"
               />
               {editError && (
-                <p className="text-[10px] text-red-400">{editError}</p>
+                <p role="alert" aria-live="assertive" className="text-[10px] text-red-400">
+                  {editError}
+                </p>
               )}
               <div className="flex items-center gap-2">
                 <button

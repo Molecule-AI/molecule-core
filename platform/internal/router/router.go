@@ -311,6 +311,21 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		wsAuth.POST("/checkpoints", cpth.Upsert)
 		wsAuth.GET("/checkpoints/:wfid", cpth.List)
 		wsAuth.DELETE("/checkpoints/:wfid", cpth.Delete)
+
+		// MCP bridge — opencode / Claude Code integration (#800).
+		// Exposes A2A delegation, peer discovery, and workspace operations as a
+		// remote MCP server over HTTP (Streamable HTTP + SSE transports).
+		//
+		// Security:
+		//   C1: WorkspaceAuth on wsAuth validates bearer token before any MCP logic.
+		//   C2: MCPRateLimiter caps tool calls at 120/min/token so a long-lived
+		//       opencode session cannot saturate the platform.
+		//   C3: commit_memory/recall_memory with scope=GLOBAL → permission error;
+		//       send_message_to_user excluded unless MOLECULE_MCP_ALLOW_SEND_MESSAGE=true.
+		mcpH := handlers.NewMCPHandler(db.DB, broadcaster)
+		mcpRl := middleware.NewMCPRateLimiter(120, time.Minute, context.Background())
+		wsAuth.GET("/mcp/stream", mcpRl.Middleware(), mcpH.Stream)
+		wsAuth.POST("/mcp", mcpRl.Middleware(), mcpH.Call)
 	}
 
 	// Global secrets — /settings/secrets is the canonical path; /admin/secrets kept for backward compat.

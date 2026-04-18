@@ -196,6 +196,9 @@ func main() {
 	channelMgr := channels.NewManager(wh, broadcaster)
 	go supervised.RunWithRecover(ctx, "channel-manager", channelMgr.Start)
 
+	// Wire channel manager into scheduler for auto-posting cron output to Slack
+	cronSched.SetChannels(channelMgr)
+
 	// Router
 	r := router.Setup(hub, broadcaster, prov, platformURL, configsDir, wh, channelMgr)
 
