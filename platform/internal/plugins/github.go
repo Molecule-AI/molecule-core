@@ -65,6 +65,14 @@ func (r *GithubResolver) Fetch(ctx context.Context, spec string, dst string) (st
 	}
 	owner, repo, ref := m[1], m[2], m[3]
 
+	// Pinned-ref enforcement (#768 Control 2): reject bare "org/repo" specs
+	// without a "#ref" fragment. Only pinned refs are accepted in production.
+	// PLUGIN_ALLOW_UNPINNED=true bypasses this for local development.
+	if ref == "" && os.Getenv("PLUGIN_ALLOW_UNPINNED") != "true" {
+		return "", fmt.Errorf("github resolver: spec %q requires a pinned ref (e.g. %s/%s#v1.0.0); "+
+			"set PLUGIN_ALLOW_UNPINNED=true for local dev", spec, owner, repo)
+	}
+
 	runner := r.GitRunner
 	if runner == nil {
 		runner = defaultGitRunner

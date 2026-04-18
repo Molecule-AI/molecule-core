@@ -649,20 +649,7 @@ func TestDisableChannelByChatID_WiredSetsEnabledFalse(t *testing.T) {
 }
 
 // ==================== SlackAdapter Tests (#384) ====================
-
-func TestSlackAdapter_Type(t *testing.T) {
-	a := &SlackAdapter{}
-	if a.Type() != "slack" {
-		t.Errorf("expected 'slack', got %q", a.Type())
-	}
-}
-
-func TestSlackAdapter_DisplayName(t *testing.T) {
-	a := &SlackAdapter{}
-	if a.DisplayName() != "Slack" {
-		t.Errorf("expected 'Slack', got %q", a.DisplayName())
-	}
-}
+// Note: TestSlackAdapter_Type and TestSlackAdapter_DisplayName moved to slack_test.go
 
 func TestSlackAdapter_ValidateConfig_Valid(t *testing.T) {
 	a := &SlackAdapter{}
