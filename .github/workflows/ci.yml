@@ -8,35 +8,27 @@ on:
 
 jobs:
   # Detect which paths changed so downstream jobs can skip when only
-  # docs/markdown files were modified. Saves ~15 min of runner time per
-  # docs-only PR.
+  # docs/markdown files were modified. Uses git diff (no Docker — works
+  # on macOS self-hosted runners unlike dorny/paths-filter).
   changes:
     name: Detect changes
     runs-on: [self-hosted, macos, arm64]
     outputs:
-      platform: ${{ steps.filter.outputs.platform }}
-      canvas: ${{ steps.filter.outputs.canvas }}
-      python: ${{ steps.filter.outputs.python }}
-      scripts: ${{ steps.filter.outputs.scripts }}
+      platform: ${{ steps.check.outputs.platform }}
+      canvas: ${{ steps.check.outputs.canvas }}
+      python: ${{ steps.check.outputs.python }}
+      scripts: ${{ steps.check.outputs.scripts }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
         with:
-          filters: |
-            platform:
-              - 'platform/**'
-              - '.github/workflows/ci.yml'
-            canvas:
-              - 'canvas/**'
-              - '.github/workflows/ci.yml'
-            python:
-              - 'workspace-template/**'
-              - '.github/workflows/ci.yml'
-            scripts:
-              - 'tests/e2e/**'
-              - 'scripts/**'
-              - '.github/workflows/ci.yml'
+          fetch-depth: 2
+      - id: check
+        run: |
+          DIFF=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo ".github/workflows/ci.yml")
+          echo "platform=$(echo "$DIFF" | grep -qE '^platform/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "canvas=$(echo "$DIFF" | grep -qE '^canvas/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "python=$(echo "$DIFF" | grep -qE '^workspace-template/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "scripts=$(echo "$DIFF" | grep -qE '^tests/e2e/|^scripts/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
   platform-build:
     name: Platform (Go)
