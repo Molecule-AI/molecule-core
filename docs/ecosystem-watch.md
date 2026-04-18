@@ -175,6 +175,20 @@ snapshots:
       LangGraph Cloud hosted execution competes with our scheduler.
     source_url: https://github.com/langchain-ai/langgraph/releases
 
+  - name: DeepAgents
+    slug: deepagents
+    date: "2026-04-17"
+    version: "v0.5.3"
+    stars: "21.1k"
+    threat_level: medium
+    notable_changes: >
+      v0.5.3 released Apr 15 2026. Official LangChain-org batteries-included
+      agent harness on LangGraph: planning (write_todos), filesystem ops,
+      shell sandbox, subagent spawning with isolated contexts. 21.1k★, 2.9k
+      forks, MIT. Molecule already ships molecule-ai-workspace-template-deepagents.
+      Upgrade trigger → HIGH if DeepAgents ships A2A or a multi-agent canvas.
+    source_url: https://github.com/langchain-ai/deepagents/releases
+
   - name: VoltAgent
     slug: voltagent
     date: "2026-04-17"
@@ -3086,3 +3100,23 @@ langgraph/crewai adapters.
 **Signals to react to:** Colab MCP gains persistent storage or team-sharing tools → escalate to MEDIUM threat. Google integrates into ADK natively → tighter pipeline with tracked HIGH-threat ADK entry. Stars cross 5k → fast-track plugin proposal.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 510★, Python, Apache-2.0, Google-maintained, v1.0.2 (Mar 27 2026). **Plugin proposal queued** (molecule-colab — pending GH_TOKEN rotation).
+
+---
+
+### DeepAgents — `langchain-ai/deepagents`
+
+**Pitch:** "An opinionated, ready-to-run agent out of the box" — LangChain's batteries-included agent harness built on LangGraph, handling planning, filesystem operations, shell execution, and subagent spawning without low-level framework assembly.
+
+**Shape:** Python, MIT, 21.1k★, v0.5.3 (Apr 15 2026), official LangChain org, 2.9k forks, 95 releases. Core primitives: `write_todos` planning tool, filesystem read/write/search, sandboxed shell commands, and isolated subagent spawning with dedicated contexts. Integrates with LangSmith for trace observability. Molecule AI ships `molecule-ai-workspace-template-deepagents` — direct runtime adapter in production.
+
+**Overlap with us:** Planning + subagent spawning + filesystem + shell = the same primitive surface as a Molecule AI workspace container. DeepAgents abstracts the same perceive → plan → execute → spawn loop our workspace runtime handles, but at the single-machine level rather than across a networked org hierarchy.
+
+**Differentiation:** No Docker isolation per subagent, no A2A network protocol, no Canvas visualization, no org hierarchy, no scheduling, no workspace registry. DeepAgents is a single-node harness; Molecule AI is the org-level orchestration layer above it. Molecule wraps DeepAgents as a runtime — complementary, not competing.
+
+**Worth borrowing:** `write_todos` pattern (LLM-visible task decomposition as a formal planning primitive before execution); subagent context-isolation model for scoped subtask delegation.
+
+**Terminology collisions:** "subagent" — DeepAgents: in-process spawned agent with isolated context. Ours: independently deployable child workspace with its own container, identity, and secrets.
+
+**Signals to react to:** DeepAgents ships an A2A protocol → re-evaluate threat; they could become a peer orchestration layer. DeepAgents ships a canvas or monitoring UI for multi-subagent visualization → escalate to HIGH (direct Canvas overlap). Stars cross 50k → publish positioning blog: Molecule as the org layer above DeepAgents.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 21.1k★, Python, MIT, v0.5.3 (Apr 15 2026). **Verdict: WATCH** — Molecule already integrates as runtime adapter; no action until A2A or canvas ships.
