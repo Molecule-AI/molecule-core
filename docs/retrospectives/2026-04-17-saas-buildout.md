@@ -78,11 +78,11 @@
 ### 1. Wildcard DNS record changed 4 times in one session
 
 The wildcard A record for `*.moleculesai.app` was pointed at:
-1. `18.220.182.88` (real EC2 IP) — initial
+1. `<EC2_IP>` (real EC2 IP) — initial
 2. `198.51.100.1` (RFC 5737 TEST-NET) — Cloudflare blocked it (1003)
-3. `3.16.109.132` (terminated EC2) — caused 1003 for all subdomains
-4. `3.143.250.95` (another terminated EC2) — same issue
-5. `3.131.96.216` (final live EC2) — current
+3. `<EC2_IP>` (terminated EC2) — caused 1003 for all subdomains
+4. `<EC2_IP>` (another terminated EC2) — same issue
+5. `<EC2_IP>` (final live EC2) — current
 
 **Impact:** Every subdomain queried during configs 2-4 got permanently
 cached as 1003 at Cloudflare's edge. Cache purge didn't help (different

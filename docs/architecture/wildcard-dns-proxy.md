@@ -125,7 +125,7 @@ New public endpoint (no auth — needed by the Worker which has no session):
 {
   "slug": "acme",
   "status": "running",
-  "ip": "18.220.182.88",
+  "ip": "<EC2_IP>",
   "region": "us-east-2"
 }
 

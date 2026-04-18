@@ -109,7 +109,7 @@ Upgrade flow:
   6. Next upgrade: blue becomes the new slot
 
 Worker routing:
-  KV key: "hongming2" → {"ip": "3.144.193.40", "port": 8081}
+  KV key: "example-org" → {"ip": "<EC2_IP>", "port": 8081}
   (port defaults to 8080 when not in KV)
 ```
 
