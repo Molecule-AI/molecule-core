@@ -15,17 +15,6 @@ package plugins
 //     pinned refs ("org/repo#v1.2.3", "org/repo#abc1234") are accepted.
 //     PLUGIN_ALLOW_UNPINNED=true skips this check for local dev.
 //
-// All tests in this file are intentionally RED:
-//   - TestPluginInstall_SHA256*   → compile error: VerifyManifestIntegrity
-//                                   is not yet defined in this package.
-//   - TestPluginInstall_Unpinned* → runtime assertion failure: GithubResolver
-//                                   currently accepts bare refs without error.
-//   - TestPluginInstall_Pinned*   → runtime pass (already green before impl).
-//
-// Backend Engineer: implement VerifyManifestIntegrity in a new
-// supply_chain.go (package plugins) and add the pinned-ref gate to
-// GithubResolver.Fetch in github.go. All 7 tests must be GREEN before merge.
-
 import (
 	"context"
 	"crypto/sha256"
@@ -135,12 +124,6 @@ func stubGitSuccess() func(ctx context.Context, dir string, args ...string) erro
 // ──────────────────────────────────────────────────────────────────────────────
 // SHA256 content-integrity tests (#768 Control 1)
 //
-// These tests call VerifyManifestIntegrity, which does not yet exist in this
-// package. They will cause a COMPILE ERROR (build failure) until the Backend
-// Engineer adds supply_chain.go with the following exported signature:
-//
-//   func VerifyManifestIntegrity(stagedDir string) error
-//
 // Behaviour contract:
 //   - manifest.json absent          → nil (backward compat)
 //   - manifest.json present, no sha256 field → nil (backward compat)
@@ -160,8 +143,6 @@ func TestPluginInstall_SHA256Match_Succeeds(t *testing.T) {
 	digest := stagedDirDigest(t, dir)
 	writeManifestJSON(t, dir, digest)
 
-	// VerifyManifestIntegrity is defined in the not-yet-written supply_chain.go.
-	// This line causes a compile error until the implementation exists.
 	if err := VerifyManifestIntegrity(dir); err != nil {
 		t.Errorf("expected nil error when SHA256 matches: got %v", err)
 	}
@@ -178,7 +159,7 @@ func TestPluginInstall_SHA256Mismatch_AbortsInstall(t *testing.T) {
 	// Write a manifest.json with a deliberately wrong digest.
 	writeManifestJSON(t, dir, "0000000000000000000000000000000000000000000000000000000000000000")
 
-	err := VerifyManifestIntegrity(dir) // compile error until supply_chain.go exists
+	err := VerifyManifestIntegrity(dir)
 	if err == nil {
 		t.Error("expected non-nil error when SHA256 mismatches, got nil — " +
 			"a tampered/corrupted plugin must not be staged")
@@ -198,7 +179,7 @@ func TestPluginInstall_SHA256Missing_Skips_Check(t *testing.T) {
 		dir := t.TempDir()
 		writeStagedPlugin(t, dir)
 		// No manifest.json at all — check must be skipped.
-		if err := VerifyManifestIntegrity(dir); err != nil { // compile error until impl
+		if err := VerifyManifestIntegrity(dir); err != nil {
 			t.Errorf("no manifest.json → expected nil error, got %v", err)
 		}
 	})
@@ -214,7 +195,7 @@ func TestPluginInstall_SHA256Missing_Skips_Check(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := VerifyManifestIntegrity(dir); err != nil { // compile error until impl
+		if err := VerifyManifestIntegrity(dir); err != nil {
 			t.Errorf("manifest.json without sha256 → expected nil error, got %v", err)
 		}
 	})
@@ -362,7 +343,7 @@ func TestPluginInstall_PinnedRef_And_ValidSHA256_Succeeds(t *testing.T) {
 	digest := stagedDirDigest(t, dir)
 	writeManifestJSON(t, dir, digest)
 
-	if err := VerifyManifestIntegrity(dir); err != nil { // compile error until impl
+	if err := VerifyManifestIntegrity(dir); err != nil {
 		t.Errorf("expected nil for matching SHA256 on pinned-ref fetch: %v", err)
 	}
 }
