@@ -357,3 +357,130 @@ func TestCheckpointsDelete_CallerMismatch_Returns403(t *testing.T) {
 		t.Errorf("unexpected DB calls after caller mismatch: %v", err)
 	}
 }
+
+// ---------- Latest ----------
+
+// TestCheckpointsLatest_ReturnsNewest verifies that Latest returns the most
+// recently completed checkpoint (highest completed_at) for the workspace.
+func TestCheckpointsLatest_ReturnsNewest(t *testing.T) {
+	mock := setupTestDB(t)
+	h := newCheckpointsHandler(t, mock)
+
+	mock.ExpectQuery("SELECT id, workspace_id, workflow_id, step_name, step_index, completed_at, payload").
+		WithArgs("ws-latest").
+		WillReturnRows(
+			sqlmock.NewRows([]string{
+				"id", "workspace_id", "workflow_id",
+				"step_name", "step_index", "completed_at", "payload",
+			}).AddRow(
+				"ckpt-abc", "ws-latest", "wf-123",
+				"llm_call", 1, "2026-04-18T02:00:00Z", []byte(`{"success":true}`),
+			),
+		)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-latest"}}
+	c.Request = httptest.NewRequest("GET", "/", nil)
+
+	h.Latest(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON response: %v", err)
+	}
+	if resp["id"] != "ckpt-abc" {
+		t.Errorf("expected id=ckpt-abc, got %v", resp["id"])
+	}
+	if resp["step_name"] != "llm_call" {
+		t.Errorf("expected step_name=llm_call, got %v", resp["step_name"])
+	}
+	if resp["workflow_id"] != "wf-123" {
+		t.Errorf("expected workflow_id=wf-123, got %v", resp["workflow_id"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestCheckpointsLatest_DBError_Returns500 verifies that Latest returns 500
+// when the DB query itself fails (e.g., connection error, not a missing row).
+func TestCheckpointsLatest_DBError_Returns500(t *testing.T) {
+	mock := setupTestDB(t)
+	h := newCheckpointsHandler(t, mock)
+
+	mock.ExpectQuery("SELECT id, workspace_id, workflow_id, step_name, step_index, completed_at, payload").
+		WithArgs("ws-err").
+		WillReturnError(errors.New("db: connection refused"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-err"}}
+	c.Request = httptest.NewRequest("GET", "/", nil)
+
+	h.Latest(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 on DB error, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestCheckpointsLatest_ErrNoRows_Returns404 uses sql.ErrNoRows directly to
+// verify the 404 branch is exercised.
+func TestCheckpointsLatest_ErrNoRows_Returns404(t *testing.T) {
+	mock := setupTestDB(t)
+	h := newCheckpointsHandler(t, mock)
+
+	mock.ExpectQuery("SELECT id, workspace_id, workflow_id, step_name, step_index, completed_at, payload").
+		WithArgs("ws-none").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "workspace_id", "workflow_id",
+			"step_name", "step_index", "completed_at", "payload",
+		})) // empty result set → sql.ErrNoRows on Scan
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-none"}}
+	c.Request = httptest.NewRequest("GET", "/", nil)
+
+	h.Latest(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for empty result, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestCheckpointsLatest_CallerMismatch_Returns403 mirrors the Upsert test
+// for the Latest endpoint.
+func TestCheckpointsLatest_CallerMismatch_Returns403(t *testing.T) {
+	mock := setupTestDB(t)
+	h := newCheckpointsHandler(t, mock)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-target"}}
+	c.Set("caller_workspace_id", "ws-attacker")
+	c.Request = httptest.NewRequest("GET", "/", nil)
+
+	h.Latest(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 on workspace mismatch, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unexpected DB calls after caller mismatch: %v", err)
+	}
+}
