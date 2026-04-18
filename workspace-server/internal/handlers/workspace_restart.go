@@ -190,10 +190,10 @@ func (h *WorkspaceHandler) Hibernate(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	var wsName string
-	var tier int
+	var tier, activeTasks int
 	err := db.DB.QueryRowContext(ctx,
-		`SELECT name, tier FROM workspaces WHERE id = $1 AND status IN ('online', 'degraded')`, id,
-	).Scan(&wsName, &tier)
+		`SELECT name, tier, active_tasks FROM workspaces WHERE id = $1 AND status IN ('online', 'degraded')`, id,
+	).Scan(&wsName, &tier, &activeTasks)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found or not in a hibernatable state (must be online or degraded)"})
 		return
@@ -201,6 +201,20 @@ func (h *WorkspaceHandler) Hibernate(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "lookup failed"})
 		return
+	}
+
+	// #822: reject hibernation when active tasks are in flight unless caller
+	// passes ?force=true. Prevents operator from accidentally killing a
+	// mid-task agent.
+	if activeTasks > 0 && c.Query("force") != "true" {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":        "workspace has active tasks; use ?force=true to terminate them",
+			"active_tasks": activeTasks,
+		})
+		return
+	}
+	if activeTasks > 0 {
+		log.Printf("[WARN] force-hibernating workspace %s (%s) with %d active tasks", id, wsName, activeTasks)
 	}
 
 	h.HibernateWorkspace(ctx, id)
