@@ -33,7 +33,7 @@ interface A2AResponse {
 }
 
 // extractReplyText pulls the agent's text reply out of an A2A response.
-// Mirrors the Go-side extractReplyText in platform/internal/channels/manager.go.
+// Mirrors the Go-side extractReplyText in workspace-server/internal/channels/manager.go.
 function extractReplyText(resp: A2AResponse): string {
   const result = resp?.result;
   if (result?.parts) {
