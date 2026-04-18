@@ -344,10 +344,20 @@ function TeamMemberChip({
 
   return (
     <div
-      className="group/child relative rounded-lg bg-zinc-800/60 hover:bg-zinc-700/70 border border-zinc-700/30 hover:border-zinc-600/40 overflow-hidden transition-colors cursor-pointer"
+      role="button"
+      tabIndex={0}
+      aria-label={`Select ${data.name}`}
+      className="group/child relative rounded-lg bg-zinc-800/60 hover:bg-zinc-700/70 border border-zinc-700/30 hover:border-zinc-600/40 overflow-hidden transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
       onClick={(e) => {
         e.stopPropagation();
         onSelect(node.id);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          onSelect(node.id);
+        }
       }}
       onContextMenu={(e) => {
         e.preventDefault();
