@@ -1,6 +1,0 @@
-name: molecule-medo
-version: 0.1.0
-description: Baidu MeDo no-code AI platform integration (hackathon / China-region)
-author: Molecule AI
-tags: [hackathon, baidu, medo, china]
-runtimes: [claude_code, deepagents, langgraph]

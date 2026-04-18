@@ -618,13 +618,61 @@ self-hosted per-customer). Ordered by dependency + ROI.
 
 ---
 
-## Phase 33: Wildcard DNS + Cloudflare Worker Proxy
+## Phase 36: Full Staging Environment — GATES ALL INFRA CHANGES
 
-> **Goal:** Eliminate DNS propagation delays and NXDOMAIN caching for tenant
-> subdomains. Every SaaS (Vercel, Railway, Fly.io) uses this pattern —
-> wildcard DNS + edge proxy routing by hostname.
+> **Goal:** Stop merging untested infra changes to production. Every change
+> ships to staging first, gets verified, then promotes to production.
 >
-> **Docs:** `docs/architecture/wildcard-dns-proxy.md`
+> **Why now:** The 2026-04-17 session broke CI twice and caused hours of
+> edge cache issues because there was no staging to catch regressions.
+> This gates Phase 33 (Tunnel migration) and Phase 35 (security hardening).
+>
+> **Docs:** `docs/architecture/staging-environment.md`
+
+### Phase 36.1 — Railway + Neon staging
+
+- [ ] Create Railway `staging` environment with staging-specific vars
+- [ ] Create Neon staging branch from main
+- [ ] Add `staging.api.moleculesai.app` CNAME to Railway staging
+- [ ] Verify CP deploys and boots on staging
+
+### Phase 36.2 — Image + deploy pipeline
+
+- [ ] Publish workflow pushes `:staging` tag (not `:latest`) on main merge
+- [ ] Add `promote-to-production.yml` workflow (manual trigger)
+- [ ] Promotion: retag `:staging` → `:latest`, deploy CP to production
+- [ ] Production tenants auto-update via Option B cron
+
+### Phase 36.3 — Staging DNS + Vercel
+
+- [ ] `*.staging.moleculesai.app` for staging tenant subdomains
+- [ ] `staging.app.moleculesai.app` for Vercel staging preview
+- [ ] Staging Cloudflare Tunnel (or Worker) for tenant routing
+
+### Phase 36.4 — Automated verification
+
+- [ ] Post-deploy staging smoke test (run `test_saas_tenant.sh`)
+- [ ] Block promotion if smoke test fails
+- [ ] Slack/GitHub notification on staging deploy + promotion
+
+### Success criteria for Phase 36
+
+- No infra change reaches production without passing staging first
+- Staging mirrors production (same services, same auth, separate data)
+- Promotion is a single manual action (button click or CLI command)
+- Staging cleanup is automated (terminate test EC2s after verification)
+
+---
+
+## Phase 33: Tenant Subdomain Routing — MIGRATING TO CLOUDFLARE TUNNEL
+
+> **Original:** Wildcard DNS + Cloudflare Worker (implemented 2026-04-17).
+> **Replacing with:** Cloudflare Tunnel per tenant (issue #933).
+> Worker approach caused edge cache poisoning + security gaps (ADMIN_TOKEN
+> in plaintext, unencrypted HTTP). Tunnel eliminates all of these.
+> **Docs:** `docs/architecture/wildcard-dns-proxy.md` (original),
+> issue #933 (tunnel migration plan).
+> **Prerequisite:** Phase 36 (staging) — test tunnel on staging first.
 
 ### Phase 33.1 — Worker + wildcard DNS (no tenant changes)
 
@@ -662,6 +710,56 @@ self-hosted per-customer). Ordered by dependency + ROI.
 - Provisioning splash page shown while EC2 boots (auto-refreshes)
 - Cold start ~30s faster (no Caddy/Let's Encrypt)
 - Cost: Cloudflare Worker free tier or $5/mo
+
+---
+
+## Phase 35: SaaS Production Hardening (post-2026-04-17 retrospective)
+
+> **Goal:** Address security gaps, remove debug code, fix workspace
+> registration, and reduce boot time identified during the SaaS buildout
+> session. See `docs/retrospectives/2026-04-17-saas-buildout.md` for full
+> context.
+
+### Phase 35.1 — Security (CRITICAL, before any public launch)
+
+- [ ] Fix #756 — X-Workspace-ID header forge bypasses CanCommunicate
+  (derive callerID from authenticated token, not raw header)
+- [ ] Fix #757 — GLOBAL memory poisoning mitigations (content delimiters
+  + audit log at minimum)
+- [ ] Remove ADMIN_TOKEN from public `/cp/orgs/:slug/instance` endpoint —
+  store in Worker KV at provision time instead
+- [ ] Encrypt ADMIN_TOKEN in `org_instances` table (use envelope key)
+- [ ] Remove debug HTTP server (:9999) from workspace boot script
+- [ ] Remove `set -ex` from boot scripts (leaks env vars to EC2 console)
+- [ ] Restrict workspace EC2 security group (Cloudflare IPs + tenant IP only)
+- [ ] Add HTTPS between Worker and EC2 (or Cloudflare Tunnel)
+
+### Phase 35.2 — Workspace registration fix
+
+- [ ] Pass workspace auth token in EC2 boot script env so runtime can
+  register with `POST /registry/register`
+- [ ] Or: have runtime request a token at startup via
+  `GET /admin/workspaces/:id/test-token`
+- [ ] Verify workspace status flips to "online" on Canvas after boot
+- [ ] Test full Canvas flow: deploy → STARTING → online → chat works
+
+### Phase 35.3 — Boot time optimization
+
+- [ ] Pre-baked AMI per runtime (Packer or EC2 Image Builder):
+  - `ami-hermes`: Python + openai + anthropic + molecule-runtime + hermes adapter
+  - `ami-claude-code`: Node + claude-code SDK + molecule-runtime
+  - `ami-langgraph`: Python + langchain + langgraph + molecule-runtime
+- [ ] Runtime switch = launch from different AMI. Boot ~30s vs current ~9 min
+- [ ] Remove apt-get + pip install from boot script (only config + secrets + start)
+
+### Phase 35.4 — Stability + CI
+
+- [ ] Fix go.mod replace directive (PR #900) — unblocks all CI
+- [ ] Use stable origin IP for wildcard DNS (dedicated proxy or Tunnel)
+- [ ] Add workspace boot integration test to CI
+- [ ] Add SaaS tenant smoke test (`tests/e2e/test_saas_tenant.sh`) to CI
+- [ ] Clean up Cloudflare edge cache poisoning from session
+  (or wait ~24h for natural expiry)
 
 ---
 

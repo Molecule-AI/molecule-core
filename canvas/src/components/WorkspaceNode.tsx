@@ -29,9 +29,9 @@ function useHierarchyInfo(parentId: string) {
 }
 
 /** Eject/extract arrow icon — visually distinct from delete ✕ */
-function EjectIcon() {
+function EjectIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
       <path d="M3 7L7 3" />
       <path d="M4 3H7V6" />
     </svg>
@@ -377,14 +377,15 @@ function TeamMemberChip({
               {tierCfg.label}
             </span>
             <button
+              aria-label={`Extract ${data.name} from team`}
+              title={`Extract ${data.name} from team`}
               onClick={(e) => {
                 e.stopPropagation();
                 onExtract(node.id);
               }}
-              title="Extract from team"
               className="opacity-0 group-hover/child:opacity-100 text-zinc-500 hover:text-sky-400 transition-all"
             >
-              <EjectIcon />
+              <EjectIcon aria-hidden="true" />
             </button>
           </div>
         </div>
