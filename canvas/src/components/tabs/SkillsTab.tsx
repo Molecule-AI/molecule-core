@@ -140,14 +140,14 @@ export function SkillsTab({ data }: Props) {
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-[10px] uppercase tracking-[0.22em] text-zinc-500">Plugins</div>
+            <div className="text-[10px] uppercase tracking-[0.22em] text-zinc-400">Plugins</div>
             <h3 className="mt-1 text-sm font-semibold text-zinc-100">
               {installed.length} installed
             </h3>
           </div>
           <button
             onClick={() => setShowRegistry(!showRegistry)}
-            className="rounded-full border border-violet-700/50 bg-violet-950/30 px-3 py-1 text-[10px] text-violet-200 hover:bg-violet-900/40 transition-colors"
+            className="rounded-full border border-violet-700/50 bg-violet-950/30 px-3 py-1 text-[10px] text-violet-200 hover:bg-violet-900/40 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none"
           >
             {showRegistry ? "Hide Registry" : "+ Install Plugin"}
           </button>
@@ -175,21 +175,21 @@ export function SkillsTab({ data }: Props) {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-[11px] font-medium text-zinc-200">{p.name}</span>
-                      {p.version && <span className="text-[10px] text-zinc-600">v{p.version}</span>}
+                      {p.version && <span className="text-[10px] text-zinc-400">v{p.version}</span>}
                       {inert && (
                         <span className="rounded-full border border-amber-700/50 bg-amber-950/30 px-1.5 py-0.5 text-[10px] text-amber-300">
                           inert on this runtime
                         </span>
                       )}
                     </div>
-                    {p.description && <div className="text-[10px] text-zinc-500 truncate">{p.description}</div>}
+                    {p.description && <div className="text-[10px] text-zinc-400 truncate">{p.description}</div>}
                     {p.skills && p.skills.length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {p.skills.slice(0, 4).map((s) => (
                           <span key={s} className="rounded-full bg-zinc-800/60 px-1.5 py-0.5 text-[10px] text-zinc-400">{s}</span>
                         ))}
                         {p.skills.length > 4 && (
-                          <span className="text-[10px] text-zinc-600">+{p.skills.length - 4}</span>
+                          <span className="text-[10px] text-zinc-400">+{p.skills.length - 4}</span>
                         )}
                       </div>
                     )}
@@ -197,7 +197,7 @@ export function SkillsTab({ data }: Props) {
                   <button
                     onClick={() => handleUninstall(p.name)}
                     disabled={uninstalling === p.name}
-                    className="shrink-0 rounded-full border border-red-800/40 bg-red-950/20 px-2 py-0.5 text-[11px] text-red-400 hover:bg-red-900/30 disabled:opacity-30"
+                    className="shrink-0 rounded-full border border-red-800/40 bg-red-950/20 px-2 py-0.5 text-[11px] text-red-400 hover:bg-red-900/30 disabled:opacity-30 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none"
                   >
                     {uninstalling === p.name ? "..." : "Remove"}
                   </button>
@@ -213,7 +213,7 @@ export function SkillsTab({ data }: Props) {
             {/* Install from any source (github://, clawhub://, …) */}
             <div className="mb-3 rounded-lg border border-zinc-800/60 bg-zinc-950/40 p-2.5">
               <div className="flex items-center justify-between gap-2 mb-1.5">
-                <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-400">
                   Install from source
                 </div>
                 {sourceSchemes.length > 0 && (
@@ -221,7 +221,7 @@ export function SkillsTab({ data }: Props) {
                     {sourceSchemes.map((s) => (
                       <span
                         key={s}
-                        className="rounded-full border border-zinc-700/50 bg-zinc-900/50 px-1.5 py-0.5 text-[10px] text-zinc-500"
+                        className="rounded-full border border-zinc-700/50 bg-zinc-900/50 px-1.5 py-0.5 text-[10px] text-zinc-400"
                       >
                         {s}://
                       </span>
@@ -240,23 +240,23 @@ export function SkillsTab({ data }: Props) {
                   }}
                   placeholder="e.g. github://owner/repo#v1.0"
                   spellCheck={false}
-                  className="flex-1 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-[10px] text-zinc-200 placeholder:text-zinc-600 focus:border-violet-600 focus:outline-none"
+                  className="flex-1 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-[10px] text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none"
                 />
                 <button
                   onClick={handleInstallCustom}
                   disabled={!customSource.trim() || installing !== null}
-                  className="shrink-0 rounded-full border border-violet-700/50 bg-violet-950/30 px-2.5 py-1 text-[11px] text-violet-300 hover:bg-violet-900/40 disabled:opacity-30"
+                  className="shrink-0 rounded-full border border-violet-700/50 bg-violet-950/30 px-2.5 py-1 text-[11px] text-violet-300 hover:bg-violet-900/40 disabled:opacity-30 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none"
                 >
                   {installing === customSource.trim() ? "Installing..." : "Install"}
                 </button>
               </div>
-              <div className="mt-1 text-[10px] text-zinc-600">
+              <div className="mt-1 text-[10px] text-zinc-400">
                 Local registry plugins below; paste any scheme URL above for GitHub or other sources.
               </div>
             </div>
-            <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-2">Available plugins</div>
+            <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-400 mb-2">Available plugins</div>
             {registry.length === 0 ? (
-              <div className="text-[10px] text-zinc-600">No plugins in registry</div>
+              <div className="text-[10px] text-zinc-400">No plugins in registry</div>
             ) : (
               <div className="space-y-1.5">
                 {registry.map((p) => {
@@ -266,13 +266,13 @@ export function SkillsTab({ data }: Props) {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-[11px] text-zinc-300">{p.name}</span>
-                          {p.version && <span className="text-[10px] text-zinc-600">v{p.version}</span>}
+                          {p.version && <span className="text-[10px] text-zinc-400">v{p.version}</span>}
                         </div>
-                        {p.description && <div className="text-[10px] text-zinc-500 truncate">{p.description}</div>}
+                        {p.description && <div className="text-[10px] text-zinc-400 truncate">{p.description}</div>}
                         {p.tags && p.tags.length > 0 && (
                           <div className="mt-1 flex flex-wrap gap-1">
                             {p.tags.map((t) => (
-                              <span key={t} className="rounded-full border border-zinc-700/40 px-1.5 py-0.5 text-[10px] text-zinc-500">{t}</span>
+                              <span key={t} className="rounded-full border border-zinc-700/40 px-1.5 py-0.5 text-[10px] text-zinc-400">{t}</span>
                             ))}
                           </div>
                         )}
@@ -290,7 +290,7 @@ export function SkillsTab({ data }: Props) {
                         <button
                           onClick={() => handleInstall(p.name)}
                           disabled={installing === p.name}
-                          className="shrink-0 rounded-full border border-violet-700/50 bg-violet-950/30 px-2.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-900/40 disabled:opacity-30"
+                          className="shrink-0 rounded-full border border-violet-700/50 bg-violet-950/30 px-2.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-900/40 disabled:opacity-30 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none"
                         >
                           {installing === p.name ? "Installing..." : "Install"}
                         </button>
@@ -308,7 +308,7 @@ export function SkillsTab({ data }: Props) {
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-[10px] uppercase tracking-[0.22em] text-zinc-500">Workspace skills</div>
+            <div className="text-[10px] uppercase tracking-[0.22em] text-zinc-400">Workspace skills</div>
             <h3 className="mt-1 text-sm font-semibold text-zinc-100">Installed skills</h3>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -316,19 +316,19 @@ export function SkillsTab({ data }: Props) {
             <MetaPill label="Runtime" value={capability.runtime || "unknown"} />
           </div>
         </div>
-        <p className="mt-2 text-[11px] leading-5 text-zinc-500">
+        <p className="mt-2 text-[11px] leading-5 text-zinc-400">
           Live skill directory from the Agent Card — updates when the workspace hot-reloads skills.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             onClick={() => setPanelTab("config")}
-            className="rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1 text-[10px] text-zinc-300 hover:bg-zinc-900"
+            className="rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1 text-[10px] text-zinc-300 hover:bg-zinc-900 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none"
           >
             Open Config
           </button>
           <button
             onClick={() => setPanelTab("files")}
-            className="rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1 text-[10px] text-zinc-300 hover:bg-zinc-900"
+            className="rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1 text-[10px] text-zinc-300 hover:bg-zinc-900 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none"
           >
             Open Files
           </button>
@@ -345,7 +345,7 @@ export function SkillsTab({ data }: Props) {
       {skills.length === 0 ? (
         <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-900/40 p-6 text-center">
           <div className="text-sm text-zinc-100">No skills loaded</div>
-          <p className="mt-2 text-[11px] leading-5 text-zinc-500">
+          <p className="mt-2 text-[11px] leading-5 text-zinc-400">
             Add skills from the Config tab, install a plugin above, or let the runtime hot-load them.
           </p>
         </div>
@@ -356,14 +356,14 @@ export function SkillsTab({ data }: Props) {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-xs font-semibold text-zinc-100">{skill.name}</div>
-                  <div className="mt-0.5 text-[10px] font-mono text-zinc-500">{skill.id}</div>
+                  <div className="mt-0.5 text-[10px] font-mono text-zinc-400">{skill.id}</div>
                 </div>
                 {skill.tags.length > 0 && (
                   <div className="flex flex-wrap justify-end gap-1.5">
                     {skill.tags.slice(0, 4).map((tag) => (
                       <span
                         key={tag}
-                        className="rounded-full border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-[9px] text-zinc-400"
+                        className="rounded-full border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-[10px] text-zinc-400"
                       >
                         {tag}
                       </span>
@@ -378,7 +378,7 @@ export function SkillsTab({ data }: Props) {
 
               {skill.examples.length > 0 && (
                 <div className="mt-2">
-                  <div className="text-[9px] uppercase tracking-[0.2em] text-zinc-500">Examples</div>
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-400">Examples</div>
                   <div className="mt-1 space-y-1">
                     {skill.examples.slice(0, 2).map((example, index) => (
                       <div
@@ -417,8 +417,8 @@ function extractSkills(agentCard: Record<string, unknown> | null): SkillEntry[] 
 
 function MetaPill({ label, value }: { label: string; value: string }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-zinc-700/60 bg-zinc-950/60 px-2 py-1 text-[9px] text-zinc-300">
-      <span className="uppercase tracking-[0.18em] text-[8px] text-zinc-500">{label}</span>
+    <span className="inline-flex items-center gap-1 rounded-full border border-zinc-700/60 bg-zinc-950/60 px-2 py-1 text-[10px] text-zinc-300">
+      <span className="uppercase tracking-[0.18em] text-[10px] text-zinc-400">{label}</span>
       <span className="font-medium">{value}</span>
     </span>
   );
