@@ -313,7 +313,7 @@ export function ChannelsTab({ workspaceId }: Props) {
           )}
           <button
             onClick={handleCreate}
-            className="w-full text-xs py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white transition"
+            className="w-full text-xs py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-zinc-100 transition"
           >
             Connect Channel
           </button>

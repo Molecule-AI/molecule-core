@@ -218,7 +218,7 @@ export function ProvisioningTimeout({
                   <button
                     onClick={() => handleRetry(entry.workspaceId)}
                     disabled={isRetrying || isCancelling || retryCooldown.has(entry.workspaceId)}
-                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-[11px] font-medium rounded-lg text-white disabled:opacity-40 transition-colors"
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-[11px] font-medium rounded-lg text-zinc-100 disabled:opacity-40 transition-colors"
                   >
                     {isRetrying ? "Retrying..." : retryCooldown.has(entry.workspaceId) ? "Wait..." : "Retry"}
                   </button>
@@ -262,7 +262,7 @@ export function ProvisioningTimeout({
               </button>
               <button
                 onClick={handleCancelConfirm}
-                className="px-3.5 py-1.5 text-[12px] bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+                className="px-3.5 py-1.5 text-[12px] bg-red-600 hover:bg-red-500 text-zinc-100 rounded-lg transition-colors"
               >
                 Remove Workspace
               </button>

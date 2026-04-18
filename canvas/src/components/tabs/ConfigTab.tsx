@@ -58,7 +58,7 @@ function AgentCardSection({ workspaceId }: { workspaceId: string }) {
           {error && <div className="px-2 py-1 bg-red-900/30 border border-red-800 rounded text-[10px] text-red-400">{error}</div>}
           <div className="flex gap-2">
             <button onClick={handleSave} disabled={saving}
-              className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-white disabled:opacity-50">
+              className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-zinc-100 disabled:opacity-50">
               {saving ? "Saving..." : "Save"}
             </button>
             <button onClick={() => setEditing(false)}
@@ -382,7 +382,7 @@ export function ConfigTab({ workspaceId }: Props) {
         <button
           onClick={() => handleSave(true)}
           disabled={!isDirty || saving}
-          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs rounded text-white disabled:opacity-30 transition-colors"
+          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs rounded text-zinc-100 disabled:opacity-30 transition-colors"
         >
           {saving ? "Restarting..." : "Save & Restart"}
         </button>

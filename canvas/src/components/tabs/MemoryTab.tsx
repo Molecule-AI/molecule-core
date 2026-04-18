@@ -174,7 +174,7 @@ export function MemoryTab({ workspaceId }: Props) {
             </div>
             <button
               onClick={() => setShowAwareness(true)}
-              className="shrink-0 px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-white"
+              className="shrink-0 px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-zinc-100"
             >
               Expand
             </button>
@@ -220,7 +220,7 @@ export function MemoryTab({ workspaceId }: Props) {
             </button>
             <button
               onClick={() => { setShowAdd(!showAdd); if (!showAdd) setShowAdvanced(true); }}
-              className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-white"
+              className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-zinc-100"
             >
               + Add
             </button>
@@ -255,7 +255,7 @@ export function MemoryTab({ workspaceId }: Props) {
             <div className="flex gap-2">
               <button
                 onClick={handleAdd}
-                className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-xs rounded text-white"
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-xs rounded text-zinc-100"
               >
                 Save
               </button>
@@ -329,7 +329,7 @@ export function MemoryTab({ workspaceId }: Props) {
             </div>
             <button
               onClick={() => setShowAdvanced(true)}
-              className="shrink-0 px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-white"
+              className="shrink-0 px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-zinc-100"
             >
               Show
             </button>

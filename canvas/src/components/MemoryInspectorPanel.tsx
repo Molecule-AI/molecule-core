@@ -501,7 +501,7 @@ function MemoryEntryRow({
                 <button
                   onClick={onSave}
                   disabled={saving}
-                  className="px-3 py-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-xs rounded text-white transition-colors"
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-xs rounded text-zinc-100 transition-colors"
                 >
                   {saving ? "Saving…" : "Save"}
                 </button>

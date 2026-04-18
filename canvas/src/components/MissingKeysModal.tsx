@@ -204,7 +204,7 @@ export function MissingKeysModal({
                   <button
                     onClick={() => handleSaveKey(index)}
                     disabled={!entry.value.trim() || entry.saving}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-[11px] rounded text-white disabled:opacity-30 transition-colors shrink-0"
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-[11px] rounded text-zinc-100 disabled:opacity-30 transition-colors shrink-0"
                   >
                     {entry.saving ? "..." : "Save"}
                   </button>
@@ -246,7 +246,7 @@ export function MissingKeysModal({
             <button
               onClick={handleAddKeysAndDeploy}
               disabled={!allSaved || anySaving}
-              className="px-3.5 py-1.5 text-[12px] bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-40"
+              className="px-3.5 py-1.5 text-[12px] bg-blue-600 hover:bg-blue-500 text-zinc-100 rounded-lg transition-colors disabled:opacity-40"
             >
               {anySaving ? "Saving..." : allSaved ? "Deploy" : "Add Keys"}
             </button>

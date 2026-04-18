@@ -313,7 +313,7 @@ export function TemplatePalette() {
         onClick={() => setOpen(!open)}
         className={`fixed top-4 left-4 z-40 w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${
           open
-            ? "bg-blue-600 text-white"
+            ? "bg-blue-600 text-zinc-100"
             : "bg-zinc-900/90 border border-zinc-700/50 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600"
         }`}
         title="Template Palette"

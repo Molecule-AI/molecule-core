@@ -179,7 +179,7 @@ export function OnboardingWizard() {
         <div className="flex gap-2">
           <button
             onClick={handleAction}
-            className="flex-1 px-3 py-1.5 bg-blue-600/90 hover:bg-blue-500 rounded-lg text-[11px] font-medium text-white transition-colors"
+            className="flex-1 px-3 py-1.5 bg-blue-600/90 hover:bg-blue-500 rounded-lg text-[11px] font-medium text-zinc-100 transition-colors"
           >
             {step === "welcome"
               ? "Create Workspace"
