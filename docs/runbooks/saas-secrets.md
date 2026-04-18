@@ -17,6 +17,7 @@ update doesn't silently break production.
 | `STRIPE_API_KEY` | `fly secrets` on `molecule-cp` | `sk_live_…` secret key used by `internal/billing.StripeProvider` for customer/subscription/checkout mutations + GDPR Art. 17 cascade |
 | `STRIPE_WEBHOOK_SECRET` | `fly secrets` on `molecule-cp` | `whsec_…` used by `internal/billing.verifySignature` to reject forged webhook calls. Rotated independently from the API key — Stripe treats them as separate secrets |
 | `GITHUB_TOKEN` | Built-in GitHub Actions token | GHCR push; rotated automatically |
+| `ANTHROPIC_API_KEY` | **Global secret** via `PUT /settings/secrets` on each tenant platform instance | Default LLM provider (`MODEL_PROVIDER=anthropic`). Must be set as a **global** secret so it propagates to all workspace containers — workspace-level-only is not sufficient for SDK-direct workspaces (e.g. molecule-hitl). See [rotation procedure below](#anthropic_api_key). |
 
 ## Coupled secrets — MUST rotate together
 
@@ -174,6 +175,47 @@ For `STRIPE_WEBHOOK_SECRET`:
    signature` in Fly logs), the new secret is live.
 5. Wait for the overlap window to expire or click "Delete old secret"
    in Stripe dashboard.
+
+## Rotation procedure — ANTHROPIC_API_KEY
+
+This key is set as a **platform global secret** (not a Fly secret). It propagates
+automatically to every non-paused workspace container via the Phase 15 global-secrets
+fan-out (`PUT /settings/secrets` triggers auto-restart of all affected workspaces).
+
+Per-workspace overrides (e.g. a workspace with its own `ANTHROPIC_API_KEY` secret)
+shadow the global value — the per-workspace value takes precedence.
+
+1. Generate a new key at [console.anthropic.com](https://console.anthropic.com) →
+   API Keys → Create key. Name it `molecule-<env>-rotation-$(date +%Y%m%d)`.
+
+2. Set the new key as a global secret on each platform instance:
+   ```bash
+   # Self-hosted (local/staging)
+   curl -X PUT http://localhost:8080/settings/secrets \
+     -H "Authorization: Bearer $ADMIN_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"key":"ANTHROPIC_API_KEY","value":"sk-ant-api03-..."}'
+
+   # SaaS control plane — set on the tenant platform via control-plane API
+   # (details TBD when molecule-cp exposes a /cp/orgs/:id/secrets endpoint)
+   ```
+   The platform auto-restarts every non-paused workspace on set.
+
+3. Verify: restart one workspace and confirm it starts up without 401 errors:
+   ```bash
+   curl -X POST http://localhost:8080/workspaces/$WORKSPACE_ID/restart \
+     -H "Authorization: Bearer $ADMIN_TOKEN"
+   # Watch logs — no "401 unauthorized" from Anthropic SDK should appear
+   ```
+
+4. Revoke the old key in the Anthropic console once all workspaces have restarted.
+
+### Blast-radius note
+
+Rotating `ANTHROPIC_API_KEY` restarts **every non-paused workspace** on the
+instance. Schedule rotation during low-traffic windows. Paused workspaces pick
+up the new key when they are next resumed (secrets are injected at container
+start, not from the running container env).
 
 ## Emergency contacts
 
