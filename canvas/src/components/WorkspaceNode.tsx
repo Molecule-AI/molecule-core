@@ -223,7 +223,7 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
               e.stopPropagation();
               useCanvasStore.getState().restartWorkspace(id).catch(() => showToast("Restart failed", "error"));
             }}
-            className="flex items-center gap-1.5 mt-1 w-full bg-sky-950/30 px-2 py-1 rounded-md border border-sky-800/30 hover:bg-sky-900/40 transition-colors text-left"
+            className="flex items-center gap-1.5 mt-1 w-full bg-sky-950/30 px-2 py-1 rounded-md border border-sky-800/30 hover:bg-sky-900/40 transition-colors text-left focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none"
           >
             <span className="text-[10px]">↻</span>
             <span className="text-[10px] text-sky-300/80">Restart to apply changes</span>
@@ -393,7 +393,7 @@ function TeamMemberChip({
                 e.stopPropagation();
                 onExtract(node.id);
               }}
-              className="opacity-0 group-hover/child:opacity-100 text-zinc-500 hover:text-sky-400 transition-all"
+              className="opacity-0 group-hover/child:opacity-100 text-zinc-500 hover:text-sky-400 transition-all focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none rounded"
             >
               <EjectIcon aria-hidden="true" />
             </button>
@@ -411,7 +411,7 @@ function TeamMemberChip({
             {skills.slice(0, 3).map((skill) => (
               <span
                 key={skill}
-                className={`text-[7px] px-1 py-0.5 rounded border ${
+                className={`text-[10px] px-1 py-0.5 rounded border ${
                   isOnline
                     ? "text-emerald-300/70 bg-emerald-950/20 border-emerald-800/20"
                     : "text-zinc-500 bg-zinc-800/40 border-zinc-700/30"
@@ -421,7 +421,7 @@ function TeamMemberChip({
               </span>
             ))}
             {skills.length > 3 && (
-              <span className="text-[7px] text-zinc-500 self-center">+{skills.length - 3}</span>
+              <span className="text-[10px] text-zinc-400 self-center">+{skills.length - 3}</span>
             )}
           </div>
         )}
@@ -429,7 +429,7 @@ function TeamMemberChip({
         {/* Status + active tasks row */}
         <div className="flex items-center justify-between">
           {data.status !== "online" ? (
-            <span className={`text-[9px] uppercase tracking-widest font-medium ${
+            <span className={`text-[10px] uppercase tracking-widest font-medium ${
               data.status === "failed" ? "text-red-400" :
               data.status === "degraded" ? "text-amber-300" :
               data.status === "provisioning" ? "text-sky-400" :
@@ -441,7 +441,7 @@ function TeamMemberChip({
           {data.activeTasks > 0 && (
             <div className="flex items-center gap-0.5">
               <div className="w-1 h-1 rounded-full bg-amber-400 motion-safe:animate-pulse" />
-              <span className="text-[9px] text-amber-300/80 tabular-nums">
+              <span className="text-[10px] text-amber-300 tabular-nums">
                 {data.activeTasks}
               </span>
             </div>
@@ -453,7 +453,7 @@ function TeamMemberChip({
           <Tooltip text={String(data.currentTask)}>
             <div className="flex items-center gap-1 mt-0.5 px-1.5 py-0.5 bg-amber-950/20 rounded border border-amber-800/20 cursor-default">
               <div className="w-1 h-1 rounded-full bg-amber-400 motion-safe:animate-pulse shrink-0" />
-              <span className="text-[9px] text-amber-300/70 truncate">{data.currentTask}</span>
+              <span className="text-[10px] text-amber-300 truncate">{data.currentTask}</span>
             </div>
           </Tooltip>
         )}
@@ -461,7 +461,7 @@ function TeamMemberChip({
         {/* Recursive sub-children rendered inside this card */}
         {hasSubChildren && depth < MAX_NESTING_DEPTH && (
           <div className="mt-1.5 pt-1.5 border-t border-zinc-700/20">
-            <div className="text-[7px] text-zinc-600 uppercase tracking-widest mb-1">Team</div>
+            <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-1">Team</div>
             <div className={subChildren.length >= 2 ? "grid grid-cols-2 gap-1" : "space-y-1"}>
               {subChildren.map((sub) => (
                 <TeamMemberChip key={sub.id} node={sub} allNodes={allNodes} depth={depth + 1} onSelect={onSelect} onExtract={onExtract} />
