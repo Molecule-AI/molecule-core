@@ -189,7 +189,7 @@ function ActivityRow({
       <button onClick={onToggle} className="w-full text-left px-3 py-2">
         {/* Top row: type badge + method + time */}
         <div className="flex items-center gap-2">
-          <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded ${typeStyle.text} ${typeStyle.bg} border ${typeStyle.border}`}>
+          <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${typeStyle.text} ${typeStyle.bg} border ${typeStyle.border}`}>
             {formatType(entry.activity_type)}
           </span>
 
@@ -204,16 +204,16 @@ function ActivityRow({
           </span>
 
           {entry.duration_ms != null && (
-            <span className="text-[8px] text-zinc-500 font-mono tabular-nums shrink-0">
+            <span className="text-[10px] text-zinc-400 font-mono tabular-nums shrink-0">
               {entry.duration_ms}ms
             </span>
           )}
 
-          <span className="text-[8px] text-zinc-500 shrink-0">
+          <span className="text-[10px] text-zinc-400 shrink-0">
             {formatTime(entry.created_at)}
           </span>
 
-          <span className="text-[9px] text-zinc-500">
+          <span className="text-[10px] text-zinc-400">
             {expanded ? "▼" : "▶"}
           </span>
         </div>
@@ -277,7 +277,7 @@ function ActivityRow({
           {entry.response_body && (
             <JsonBlock label="Response" data={entry.response_body} />
           )}
-          <div className="text-[8px] text-zinc-500 font-mono select-all">
+          <div className="text-[10px] text-zinc-400 font-mono select-all">
             ID: {entry.id}
           </div>
         </div>
