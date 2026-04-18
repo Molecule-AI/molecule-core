@@ -58,8 +58,9 @@ func TestWorkspaceGet_Success(t *testing.T) {
 	if resp["runtime"] != "langgraph" {
 		t.Errorf("expected runtime 'langgraph', got %v", resp["runtime"])
 	}
-	if resp["current_task"] != "working" {
-		t.Errorf("expected current_task 'working', got %v", resp["current_task"])
+	// current_task is stripped from public GET response (#955)
+	if _, exists := resp["current_task"]; exists {
+		t.Errorf("current_task should be stripped from public GET response")
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
