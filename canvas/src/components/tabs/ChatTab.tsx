@@ -55,7 +55,7 @@ function extractReplyText(resp: A2AResponse): string {
  * Load chat history from the activity_logs database via the platform API.
  * Uses source=canvas to only get user-initiated messages (not agent-to-agent).
  */
-async function loadMessagesFromDB(workspaceId: string): Promise<ChatMessage[]> {
+async function loadMessagesFromDB(workspaceId: string): Promise<{ messages: ChatMessage[]; error: string | null }> {
   try {
     const activities = await api.get<Array<{
       activity_type: string;
@@ -83,9 +83,12 @@ async function loadMessagesFromDB(workspaceId: string): Promise<ChatMessage[]> {
         }
       }
     }
-    return messages;
-  } catch {
-    return [];
+    return { messages, error: null };
+  } catch (err) {
+    return {
+      messages: [],
+      error: err instanceof Error ? err.message : "Failed to load chat history",
+    };
   }
 }
 
@@ -162,6 +165,7 @@ function MyChatPanel({ workspaceId, data }: Props) {
   const [thinkingElapsed, setThinkingElapsed] = useState(0);
   const [activityLog, setActivityLog] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const currentTaskRef = useRef(data.currentTask);
   const sendingFromAPIRef = useRef(false);
   const [agentReachable, setAgentReachable] = useState(false);
@@ -172,8 +176,10 @@ function MyChatPanel({ workspaceId, data }: Props) {
   // Load chat history from database on mount
   useEffect(() => {
     setLoading(true);
-    loadMessagesFromDB(workspaceId).then((msgs) => {
+    setLoadError(null);
+    loadMessagesFromDB(workspaceId).then(({ messages: msgs, error: fetchErr }) => {
       setMessages(msgs);
+      setLoadError(fetchErr);
       setLoading(false);
     });
   }, [workspaceId]);
@@ -355,7 +361,31 @@ function MyChatPanel({ workspaceId, data }: Props) {
         {loading && (
           <div className="text-xs text-zinc-500 text-center py-4">Loading chat history...</div>
         )}
-        {!loading && messages.length === 0 && (
+        {!loading && loadError !== null && messages.length === 0 && (
+          <div
+            role="alert"
+            className="mx-2 mt-2 rounded-lg border border-red-800/50 bg-red-950/30 px-3 py-2.5"
+          >
+            <p className="text-[11px] text-red-400 mb-1.5">
+              Failed to load chat history: {loadError}
+            </p>
+            <button
+              onClick={() => {
+                setLoading(true);
+                setLoadError(null);
+                loadMessagesFromDB(workspaceId).then(({ messages: msgs, error: fetchErr }) => {
+                  setMessages(msgs);
+                  setLoadError(fetchErr);
+                  setLoading(false);
+                });
+              }}
+              className="text-[10px] px-2 py-0.5 rounded bg-red-800/40 text-red-300 hover:bg-red-700/50 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {!loading && loadError === null && messages.length === 0 && (
           <div className="text-xs text-zinc-500 text-center py-8">
             No messages yet. Send a message to start chatting with this agent.
           </div>
