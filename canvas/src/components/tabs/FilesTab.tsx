@@ -192,6 +192,7 @@ export function FilesTab({ workspaceId }: Props) {
           {showNewFile && (
             <div className="px-2 py-1 border-b border-zinc-800/40">
               <input
+                aria-label="New file path"
                 value={newFileName}
                 onChange={(e) => setNewFileName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && createFile()}
