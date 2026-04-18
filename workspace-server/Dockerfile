@@ -7,7 +7,7 @@ FROM golang:1.25-alpine AS builder
 WORKDIR /app
 # Plugin source for replace directive in go.mod
 COPY molecule-ai-plugin-github-app-auth/ /plugin/
-COPY workspace-server/go.mod platform/go.sum ./
+COPY workspace-server/go.mod workspace-server/go.sum ./
 # Add replace directive for Docker builds (plugin is COPYed to /plugin above)
 RUN echo 'replace github.com/Molecule-AI/molecule-ai-plugin-github-app-auth => /plugin' >> go.mod
 RUN go mod download
