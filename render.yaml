@@ -15,7 +15,7 @@ services:
   - type: web
     name: molecule-platform
     runtime: docker
-    dockerfilePath: ./platform/Dockerfile
+    dockerfilePath: ./workspace-server/Dockerfile
     dockerContext: ./platform
     plan: starter
     healthCheckPath: /health

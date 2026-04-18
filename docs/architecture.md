@@ -46,7 +46,7 @@ Key responsibilities:
 - **Secrets management** -- global (`/settings/secrets`) + workspace-level encrypted secrets (AES-256-GCM) with inheritance (workspace overrides global)
 - **Liveness monitoring** -- 3-layer health detection: passive (Redis TTL), proactive (Docker health sweep), reactive (A2A proxy check)
 
-Source: `platform/`
+Source: `workspace-server/`
 
 ### Workspace Runtime (Python)
 
@@ -59,7 +59,7 @@ The execution engine for individual agents. Each workspace runs in its own Docke
 - Sends periodic heartbeats (`POST /registry/heartbeat`)
 - Communicates with other workspaces via A2A JSON-RPC 2.0
 
-Source: `workspace-template/`
+Source: `workspace/`
 
 ## Message Flow
 
@@ -172,7 +172,7 @@ Key tables:
 | `workspace_memory` | Key-value store with optional TTL per workspace |
 | `canvas_layouts` | Node x/y positions on the canvas |
 
-Migrations: `platform/migrations/` (12 files, auto-applied on startup).
+Migrations: `workspace-server/migrations/` (12 files, auto-applied on startup).
 
 ## Directory Structure
 
@@ -185,7 +185,7 @@ molecule/
 │       ├── store/                 # Zustand stores (canvas, socket, events)
 │       ├── hooks/                 # Custom React hooks
 │       └── lib/                   # Utilities
-├── platform/                      # Backend (Go / Gin)
+├── workspace-server/                      # Backend (Go / Gin)
 │   ├── cmd/server/main.go        # Entry point
 │   ├── cmd/cli/                   # molecli TUI dashboard
 │   ├── internal/
@@ -198,7 +198,7 @@ molecule/
 │   │   ├── crypto/                # AES-256-GCM encryption
 │   │   └── models/                # Data types
 │   └── migrations/                # 12 SQL migration files
-├── workspace-template/            # Agent Runtime (Python)
+├── workspace/            # Agent Runtime (Python)
 │   ├── main.py                    # Entry point
 │   ├── a2a_executor.py            # A2A request handler
 │   ├── config.py                  # YAML config loader

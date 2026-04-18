@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-Eight leading open-source AI agent frameworks were evaluated across four dimensions: documentation platform/tooling, onboarding patterns, GitHub star growth and community tactics, and standout DX features or notable gaps. The field divides cleanly into two camps: **code-first frameworks** (AutoGen, CrewAI, LangGraph, Open Interpreter, SWE-agent) and **low-code/visual platforms** (n8n, Flowise, Langflow). Documentation quality and DX maturity vary significantly — CrewAI and LangGraph lead on onboarding polish, while SWE-agent and Open Interpreter lag on structured learning paths.
+Eight leading open-source AI agent frameworks were evaluated across four dimensions: documentation workspace-server/tooling, onboarding patterns, GitHub star growth and community tactics, and standout DX features or notable gaps. The field divides cleanly into two camps: **code-first frameworks** (AutoGen, CrewAI, LangGraph, Open Interpreter, SWE-agent) and **low-code/visual platforms** (n8n, Flowise, Langflow). Documentation quality and DX maturity vary significantly — CrewAI and LangGraph lead on onboarding polish, while SWE-agent and Open Interpreter lag on structured learning paths.
 
 **Key findings for Molecule AI:**
 - Mintlify is the emerging winner for code-first agent docs (CrewAI, Langflow, Open Interpreter all use it)

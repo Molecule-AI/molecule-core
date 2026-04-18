@@ -17,19 +17,19 @@ bounded additions plus per-workspace authentication.
 Each bullet names the function and why remote would break it. Line numbers
 drift — grep for the function name.
 
-- **A2A proxy URL rewrite** — `platform/internal/handlers/a2a_proxy.go::detectPlatformInDocker()`
+- **A2A proxy URL rewrite** — `workspace-server/internal/handlers/a2a_proxy.go::detectPlatformInDocker()`
   and URL rewrite at request time. Rewrites `http://127.0.0.1:<port>` to
   `http://ws-<id>:8000` (Docker DNS) when platform runs inside Docker. Remote
   agent URL is `http://203.0.113.x:8080` or similar — no Docker DNS, no
   rewrite should happen. Already guarded by the ephemeral-localhost check,
   but untested for WAN URLs.
 
-- **Health sweep** — `platform/internal/registry.StartHealthSweep`. Polls
+- **Health sweep** — `workspace-server/internal/registry.StartHealthSweep`. Polls
   Docker daemon every 15s via `ContainerChecker.IsRunning(id)`. Already
   filters `WHERE runtime != 'external'`, so remote agents are skipped.
   Good — liveness for remote has to come from heartbeat TTL instead.
 
-- **Auto-restart** — `platform/internal/handlers/workspace_restart.go::RestartByID`.
+- **Auto-restart** — `workspace-server/internal/handlers/workspace_restart.go::RestartByID`.
   Early-returns if `runtime == 'external'`. Good — no Docker restart for
   remote. Means remote agents must run their own supervisor.
 
@@ -61,7 +61,7 @@ drift — grep for the function name.
 
 ## 2. Existing seams we can build on
 
-- **`runtime='external'` escape hatch** — `platform/internal/models/workspace.go`
+- **`runtime='external'` escape hatch** — `workspace-server/internal/models/workspace.go`
   + migration 011 + every Docker-touching handler already gates on this.
   Reuse. Do not add a parallel "remote" flag.
 
@@ -77,10 +77,10 @@ drift — grep for the function name.
 
 - **`PLATFORM_URL` env-var pattern** — provisioner injects
   `PLATFORM_URL` + `MOLECULE_URL` into every container.
-  `workspace-template/main.py` reads it. Remote agent just reads the
+  `workspace/main.py` reads it. Remote agent just reads the
   same env var — no new plumbing.
 
-- **Bundle export/import** — `platform/internal/bundle/`. The lingua
+- **Bundle export/import** — `workspace-server/internal/bundle/`. The lingua
   franca for "move a workspace's config + prompts + skills." Can mark
   `external=true` on import. Useful for "I have a template I want to
   run on my own machine."

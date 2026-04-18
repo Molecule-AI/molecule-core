@@ -112,7 +112,7 @@ services:
       # as migration 023 not landing after PR #417 merged. CI workflow
       # already uses context=. , this aligns local with CI.
       context: .
-      dockerfile: platform/Dockerfile
+      dockerfile: workspace-server/Dockerfile
     depends_on:
       postgres:
         condition: service_healthy

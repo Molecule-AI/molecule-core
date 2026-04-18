@@ -58,7 +58,7 @@ After 3+ rapid A2A calls (install → build → status check), the Gemini AI Stu
 
 The executor must retrieve the agent's text response from session history **after** the main session yields. The `sessions_history` CLI command (exposed as `session_history` tool) retrieves past messages.
 
-**Proposed change** to `workspace-template/adapters/openclaw/adapter.py` (`execute()` method):
+**Proposed change** to `workspace/adapters/openclaw/adapter.py` (`execute()` method):
 
 ```python
 # After proc.communicate() returns with payloads=[]:
@@ -109,5 +109,5 @@ if not reply or reply.startswith("{'payloads': []"):
 
 - [ ] **Dev Lead:** Implement §4 session-history fallback in `OpenClawA2AExecutor.execute()`
 - [ ] **Dev Lead (optional):** Trim `cron` tool schema to reduce Gemini schema-size rejection risk
-- [ ] **Operator:** Rebuild image: `bash workspace-template/build-all.sh openclaw`
+- [ ] **Operator:** Rebuild image: `bash workspace/build-all.sh openclaw`
 - [ ] **PM (Run 5):** Re-run smoke test — expected to finally reach skill install confirmation
