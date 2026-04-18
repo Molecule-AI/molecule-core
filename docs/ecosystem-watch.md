@@ -1805,7 +1805,9 @@ complementary: a Molecule AI workspace running ADK agents is a natural pairing.
 - ADK is the official successor for teams currently using LangGraph with Gemini → our
   langgraph adapter should note ADK as an alternative path.
 
-**Last reviewed:** 2026-04-16 · **Stars / activity:** ~19k ⭐, v1.29.0 April 9, 2026, Google-maintained
+**Last reviewed:** 2026-04-18 · **Stars / activity:** ~22k ⭐, v1.31.0 April 17 2026, Google-maintained
+
+**v1.31.0 update (2026-04-18):** Multi-language parity landed — Python, TypeScript, Java, Go all at 1.0. Native A2A added: full protocol (agent cards, message/send, task lifecycle, streaming, gRPC v0.3). A2A is Linux Foundation-governed, not Google-only — interops with any framework. **Platform gaps confirmed open**: no scheduling, no cron, no org-level workspace management, no cross-agent HITL (ADK `require_confirmation` explicitly broken across agent boundaries, maintainer-confirmed GitHub Discussion #3276). **Verdict: WATCH** (not elevated). Protocol layer compressed; Molecule platform layer intact. Escalation triggers: Vertex ships org-level workspace mgmt OR ADK fixes cross-agent HITL.
 
 ---
 
@@ -2875,3 +2877,23 @@ langgraph/crewai adapters.
 **Signals to react to:** Claw Code ships A2A support → evaluate `molecule-ai-workspace-template-claw-code`. Anthropic legal action → monitor for project discontinuation risk. Claw Code's Python SDK becomes pip-installable → simplifies potential workspace template adapter.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 100k+★, Rust+Python, 72.6k forks, fastest-growing repo in GitHub history
+
+---
+
+### MemPalace — `milla-jovovich/mempalace`
+
+**Pitch:** Local-first AI memory system using the "Method of Loci" — stores full conversation verbatim (not summarized) in a hierarchical palace structure (wings → rooms → drawers) with semantic search.
+
+**Shape:** Python 87.8%, MIT, 47.6k★, v3.3.0 April 14 2026. ChromaDB-backed vector retrieval; 96.6% R@5 on LongMemEval with zero API calls. Exposes **29 MCP tools** covering palace reads/writes, knowledge-graph operations, cross-wing navigation, drawer management, and agent diaries. Native Claude Code integration via `.claude-plugin`. Fully local — no external API required for memory ops.
+
+**Overlap with us:** (1) Our `agent_memories` table + `/workspaces/:id/memories` API provides platform-managed scoped memory — MemPalace provides richer, hierarchical, locally-searchable memory with knowledge-graph structure. (2) 29 MCP tools makes this trivially wrappable as a `molecule-mempalace` plugin. (3) Claude Code `.claude-plugin` integration targets the same surface as `molecule-ai-workspace-template-claude-code`. (4) 47.6k★ in weeks = high developer mindshare; teams will bring MemPalace into Molecule workspaces before we have a native integration.
+
+**Differentiation:** Local-first, single-agent memory layer — no multi-agent orchestration, no workspace lifecycle, no org hierarchy. Molecule provides governance and multi-agent platform; MemPalace provides the per-agent memory store. These are complementary layers, not competitors.
+
+**Worth borrowing:** Verbatim storage + semantic retrieval as an opt-in mode for our `agent_memories` (currently free-form key-value). Wings/rooms/drawers hierarchy as a model for scoped memory namespacing (we have `scope` but no hierarchy). LongMemEval as a quality benchmark for our own memory retrieval accuracy.
+
+**Terminology collisions:** "memory" (same concept, different granularity — our memories are scoped key-value entries; MemPalace is a structured knowledge graph). "palace" = their namespace; our analogues are workspace + memory scope.
+
+**Signals to react to:** MemPalace ships cross-agent memory sharing → file BUILD issue for `molecule-mempalace` plugin immediately — directly competitive with our platform-managed memory layer. ADK or LangGraph officially recommend MemPalace → adoption velocity doubles. MemPalace reaches 100k★ → consider deep integration over shallow plugin wrapper.
+
+**Last reviewed:** 2026-04-18 · **Stars / activity:** 47.6k★, Python, MIT, v3.3.0 April 14 2026, viral growth (23k★ in first 2 weeks). **Verdict: WATCH**
