@@ -69,6 +69,9 @@ const mockStoreState = {
   showA2AEdges: false,
   setShowA2AEdges: vi.fn(),
   setPanelTab: vi.fn(),
+  selectedNodeIds: new Set<string>(),
+  clearSelection: vi.fn(),
+  toggleNodeSelection: vi.fn(),
 };
 
 vi.mock("@/store/canvas", () => ({
@@ -109,6 +112,7 @@ vi.mock("../ProvisioningTimeout", () => ({
     <div data-testid="provisioning-timeout-sentinel" />
   ),
 }));
+vi.mock("../BatchActionBar", () => ({ BatchActionBar: () => null }));
 
 // ── Import the component under test AFTER mocks ───────────────────────────────
 import { Canvas } from "../Canvas";
