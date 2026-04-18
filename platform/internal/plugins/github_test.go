@@ -51,6 +51,7 @@ func stubGit(repoContents map[string]string) func(ctx context.Context, dir strin
 }
 
 func TestGithubResolver_ClonesAndStripsGitDir(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true")
 	r := &GithubResolver{
 		GitRunner: stubGit(map[string]string{
 			"plugin.yaml":             "name: demo\n",
@@ -98,6 +99,7 @@ func TestGithubResolver_PassesRefAsBranch(t *testing.T) {
 }
 
 func TestGithubResolver_OmitsBranchFlagWhenNoRef(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true")
 	var seenArgs []string
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
@@ -136,6 +138,7 @@ func TestGithubResolver_RejectsInvalidSpec(t *testing.T) {
 }
 
 func TestGithubResolver_BubblesUpGitError(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true")
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
 			return errors.New("simulated auth failure")
@@ -151,6 +154,7 @@ func TestGithubResolver_BubblesUpGitError(t *testing.T) {
 }
 
 func TestGithubResolver_UsesDefaultsWhenNilFields(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true")
 	// A zero-value GithubResolver should still have defaults filled in
 	// at Fetch time. Verified indirectly: we pass a stub that records
 	// the URL passed to `git clone`.
@@ -236,6 +240,7 @@ func TestGithubResolver_CopyToDstFailure(t *testing.T) {
 }
 
 func TestGithubResolver_AlwaysPassesDepth1(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true")
 	var seenArgs []string
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
@@ -280,6 +285,7 @@ func TestGithubResolver_RejectsRefStartingWithHyphen(t *testing.T) {
 }
 
 func TestGithubResolver_MapsRepositoryNotFoundToSentinel(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true")
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
 			return errors.New("remote: Repository not found.\nfatal: repository 'https://github.com/x/y.git' not found")
