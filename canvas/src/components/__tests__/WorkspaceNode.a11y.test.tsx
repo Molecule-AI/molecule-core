@@ -125,6 +125,8 @@ const mockStoreState = {
   nestNode: mockNestNode,
   restartWorkspace: vi.fn(() => Promise.resolve()),
   setPanelTab: vi.fn(),
+  selectedNodeIds: new Set<string>(),
+  toggleNodeSelection: vi.fn(),
 };
 
 vi.mock("@/store/canvas", () => ({
