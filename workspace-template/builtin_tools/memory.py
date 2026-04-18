@@ -34,6 +34,7 @@ from typing import Any
 from langchain_core.tools import tool
 from builtin_tools.awareness_client import build_awareness_client
 from builtin_tools.audit import check_permission, get_workspace_roles, log_event
+from builtin_tools.security import _redact_secrets
 from builtin_tools.telemetry import MEMORY_QUERY, MEMORY_SCOPE, WORKSPACE_ID_ATTR, get_tracer
 
 try:  # pragma: no cover - optional runtime dependency in lightweight test envs
@@ -53,6 +54,7 @@ async def commit_memory(content: str, scope: str = "LOCAL") -> dict:
         content: The fact or knowledge to remember.
         scope: Memory scope — LOCAL (private), TEAM (shared with team), or GLOBAL (company-wide, root only).
     """
+    content = _redact_secrets(content)
     trace_id = str(uuid.uuid4())
     scope = scope.upper()
     if scope not in ("LOCAL", "TEAM", "GLOBAL"):

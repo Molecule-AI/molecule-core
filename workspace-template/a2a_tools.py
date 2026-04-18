@@ -18,6 +18,7 @@ from a2a_client import (
     get_workspace_info,
     send_a2a_message,
 )
+from builtin_tools.security import _redact_secrets
 
 
 def _auth_headers_for_heartbeat() -> dict[str, str]:
@@ -224,6 +225,7 @@ async def tool_commit_memory(content: str, scope: str = "LOCAL") -> str:
     """Save important information to persistent memory."""
     if not content:
         return "Error: content is required"
+    content = _redact_secrets(content)
     scope = scope.upper()
     if scope not in ("LOCAL", "TEAM", "GLOBAL"):
         scope = "LOCAL"
