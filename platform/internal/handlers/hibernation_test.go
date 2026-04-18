@@ -1,9 +1,10 @@
 package handlers
 
 // Integration tests for the workspace hibernation feature (issue #711 / PR #724).
+// Updated for the atomic TOCTOU fix (issue #819).
 //
 // Coverage:
-//   - HibernateWorkspace(): container stop, DB status update, Redis key clear, event broadcast
+//   - HibernateWorkspace(): atomic claim, container stop, DB status update, Redis key clear, event broadcast
 //   - POST /workspaces/:id/hibernate HTTP handler: online→200, not-eligible→404, DB error→500
 //   - resolveAgentURL(): hibernated workspace → 503 + Retry-After: 15 + waking: true
 //
@@ -28,10 +29,11 @@ import (
 // HibernateWorkspace unit tests
 // ──────────────────────────────────────────────────────────────────────────────
 
-// TestHibernateWorkspace_OnlineWorkspace_Success verifies the happy-path:
-//   - DB returns the workspace (online/degraded)
-//   - provisioner is nil — no Stop() call needed (test-safe guard in production code)
-//   - UPDATE sets status='hibernated', url=''
+// TestHibernateWorkspace_OnlineWorkspace_Success verifies the happy-path with
+// the 3-step atomic pattern (#819):
+//   - Atomic claim UPDATE returns rowsAffected=1 (workspace was online/degraded + active_tasks=0)
+//   - Name/tier SELECT runs after the claim
+//   - Final UPDATE sets status='hibernated', url=''
 //   - Redis keys ws:{id}, ws:{id}:url, ws:{id}:internal_url are deleted
 //   - WORKSPACE_HIBERNATED event is broadcast (INSERT INTO structure_events)
 func TestHibernateWorkspace_OnlineWorkspace_Success(t *testing.T) {
@@ -47,12 +49,17 @@ func TestHibernateWorkspace_OnlineWorkspace_Success(t *testing.T) {
 	mr.Set(fmt.Sprintf("ws:%s:url", wsID), "http://agent.internal:8000")
 	mr.Set(fmt.Sprintf("ws:%s:internal_url", wsID), "http://172.17.0.5:8000")
 
-	// HibernateWorkspace does a SELECT first.
-	mock.ExpectQuery(`SELECT name, tier FROM workspaces WHERE id = .* AND status IN`).
+	// Step 1: atomic claim UPDATE succeeds.
+	mock.ExpectExec(`UPDATE workspaces`).
+		WithArgs(wsID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Post-claim SELECT for name/tier.
+	mock.ExpectQuery(`SELECT name, tier FROM workspaces WHERE id`).
 		WithArgs(wsID).
 		WillReturnRows(sqlmock.NewRows([]string{"name", "tier"}).AddRow("Idle Agent", 1))
 
-	// Then UPDATE status.
+	// Step 3: final UPDATE to 'hibernated'.
 	mock.ExpectExec(`UPDATE workspaces SET status = 'hibernated'`).
 		WithArgs(wsID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -77,9 +84,10 @@ func TestHibernateWorkspace_OnlineWorkspace_Success(t *testing.T) {
 	}
 }
 
-// TestHibernateWorkspace_NotEligible_NoOp verifies that when the workspace is
-// NOT in online/degraded state (SELECT returns ErrNoRows), HibernateWorkspace
-// returns immediately — no UPDATE, no Redis clear, no broadcast.
+// TestHibernateWorkspace_NotEligible_NoOp verifies that when the atomic claim
+// UPDATE returns rowsAffected=0 (workspace not in online/degraded state, or
+// active_tasks > 0), HibernateWorkspace returns immediately — no Stop, no
+// final UPDATE, no Redis clear, no broadcast.
 func TestHibernateWorkspace_NotEligible_NoOp(t *testing.T) {
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
@@ -88,17 +96,17 @@ func TestHibernateWorkspace_NotEligible_NoOp(t *testing.T) {
 
 	wsID := "ws-already-offline"
 
-	// Simulate workspace not in eligible state (offline, paused, removed …)
-	mock.ExpectQuery(`SELECT name, tier FROM workspaces WHERE id = .* AND status IN`).
+	// Atomic claim finds nothing matching WHERE (workspace offline, paused, etc.).
+	mock.ExpectExec(`UPDATE workspaces`).
 		WithArgs(wsID).
-		WillReturnError(sql.ErrNoRows)
+		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	// Set a Redis key to confirm it is NOT cleared by early return.
 	mr.Set(fmt.Sprintf("ws:%s:url", wsID), "http://still-here:8000")
 
 	handler.HibernateWorkspace(context.Background(), wsID)
 
-	// No further DB operations should have happened.
+	// Only the one ExecContext expectation; no further DB operations.
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet DB expectations: %v", err)
 	}
@@ -110,7 +118,7 @@ func TestHibernateWorkspace_NotEligible_NoOp(t *testing.T) {
 }
 
 // TestHibernateWorkspace_DBUpdateFails_NoCrash verifies that a DB error on the
-// UPDATE does not panic — the function logs and returns silently.
+// final status UPDATE does not panic — the function logs and returns silently.
 func TestHibernateWorkspace_DBUpdateFails_NoCrash(t *testing.T) {
 	mock := setupTestDB(t)
 	setupTestRedis(t)
@@ -119,10 +127,17 @@ func TestHibernateWorkspace_DBUpdateFails_NoCrash(t *testing.T) {
 
 	wsID := "ws-update-fail"
 
-	mock.ExpectQuery(`SELECT name, tier FROM workspaces WHERE id = .* AND status IN`).
+	// Step 1: atomic claim succeeds.
+	mock.ExpectExec(`UPDATE workspaces`).
+		WithArgs(wsID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Post-claim SELECT.
+	mock.ExpectQuery(`SELECT name, tier FROM workspaces WHERE id`).
 		WithArgs(wsID).
 		WillReturnRows(sqlmock.NewRows([]string{"name", "tier"}).AddRow("Flaky Agent", 2))
 
+	// Step 3: final UPDATE fails.
 	mock.ExpectExec(`UPDATE workspaces SET status = 'hibernated'`).
 		WithArgs(wsID).
 		WillReturnError(fmt.Errorf("db: connection refused"))
@@ -136,7 +151,7 @@ func TestHibernateWorkspace_DBUpdateFails_NoCrash(t *testing.T) {
 
 	handler.HibernateWorkspace(context.Background(), wsID)
 
-	// SELECT + UPDATE expectations met; no INSERT INTO structure_events expected.
+	// Claim + SELECT + failing UPDATE; no INSERT INTO structure_events expected.
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet DB expectations: %v", err)
 	}
@@ -160,6 +175,8 @@ func hibernateRequest(t *testing.T, handler *WorkspaceHandler, wsID string) *htt
 
 // TestHibernateHandler_Online_Returns200 verifies that an online workspace
 // that is eligible for hibernation returns 200 {"status":"hibernated"}.
+// With the 3-step fix: handler SELECT → atomic claim UPDATE → name/tier SELECT
+// → final UPDATE → broadcaster INSERT.
 func TestHibernateHandler_Online_Returns200(t *testing.T) {
 	mock := setupTestDB(t)
 	setupTestRedis(t)
@@ -168,17 +185,22 @@ func TestHibernateHandler_Online_Returns200(t *testing.T) {
 
 	wsID := "ws-handler-online"
 
-	// Hibernate() handler SELECT — verifies workspace is online/degraded.
+	// Hibernate() handler eligibility SELECT — checks status IN ('online','degraded').
 	mock.ExpectQuery(`SELECT name, tier FROM workspaces WHERE id = .* AND status IN`).
 		WithArgs(wsID).
 		WillReturnRows(sqlmock.NewRows([]string{"name", "tier"}).AddRow("Online Bot", 1))
 
-	// HibernateWorkspace() SELECT — same query, checks state again before acting.
-	mock.ExpectQuery(`SELECT name, tier FROM workspaces WHERE id = .* AND status IN`).
+	// HibernateWorkspace() step 1: atomic claim.
+	mock.ExpectExec(`UPDATE workspaces`).
+		WithArgs(wsID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Post-claim SELECT for name/tier.
+	mock.ExpectQuery(`SELECT name, tier FROM workspaces WHERE id`).
 		WithArgs(wsID).
 		WillReturnRows(sqlmock.NewRows([]string{"name", "tier"}).AddRow("Online Bot", 1))
 
-	// HibernateWorkspace() UPDATE.
+	// Step 3: final UPDATE.
 	mock.ExpectExec(`UPDATE workspaces SET status = 'hibernated'`).
 		WithArgs(wsID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
