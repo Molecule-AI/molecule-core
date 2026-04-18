@@ -100,11 +100,14 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		c.JSON(200, gin.H{"subsystems": out})
 	})
 
-	// Prometheus metrics — exempt from rate limiter via separate registration
-	// (registered before Use(limiter) takes effect on this specific route — the
-	// middleware.Middleware() still records it for observability).
-	// Scrape with: curl http://localhost:8080/metrics
-	r.GET("/metrics", metrics.Handler())
+	// Prometheus metrics — gated behind AdminAuth (MEDIUM security finding: request
+	// telemetry exposes paths, status codes, and error rates useful for recon).
+	// Still registered outside the rate-limiter group so scrape traffic doesn't
+	// consume workspace rate-limit quota. AdminAuth uses the same lazy-bootstrap
+	// logic as all other admin routes: fresh installs with no tokens in DB pass
+	// through (Tier 1), so this never blocks a first-run setup.
+	// Scrape with: curl -H "Authorization: Bearer <admin-token>" http://localhost:8080/metrics
+	r.GET("/metrics", middleware.AdminAuth(db.DB), metrics.Handler())
 
 	// Single-workspace read — open so canvas nodes can fetch their own state
 	// without a token (used by WorkspaceNode polling and health checks).

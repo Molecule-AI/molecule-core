@@ -94,22 +94,22 @@ func TestHeartbeatHandler_OfflineToOnline(t *testing.T) {
 
 	// Expect prevTask SELECT
 	mock.ExpectQuery("SELECT COALESCE\\(current_task").
-		WithArgs("ws-offline").
+		WithArgs("00000000-0000-0000-0000-000000000001").
 		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
 
 	// Expect heartbeat UPDATE
 	mock.ExpectExec("UPDATE workspaces SET").
-		WithArgs("ws-offline", 0.0, "", 1, 5000, "").
+		WithArgs("00000000-0000-0000-0000-000000000001", 0.0, "", 1, 5000, "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// Expect evaluateStatus SELECT — currently offline
 	mock.ExpectQuery("SELECT status FROM workspaces WHERE id =").
-		WithArgs("ws-offline").
+		WithArgs("00000000-0000-0000-0000-000000000001").
 		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("offline"))
 
 	// Expect status transition back to online
 	mock.ExpectExec("UPDATE workspaces SET status = 'online'").
-		WithArgs("ws-offline").
+		WithArgs("00000000-0000-0000-0000-000000000001").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// Expect RecordAndBroadcast INSERT for WORKSPACE_ONLINE
@@ -119,7 +119,7 @@ func TestHeartbeatHandler_OfflineToOnline(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	body := `{"workspace_id":"ws-offline","error_rate":0.0,"sample_error":"","active_tasks":1,"uptime_seconds":5000}`
+	body := `{"workspace_id":"00000000-0000-0000-0000-000000000001","error_rate":0.0,"sample_error":"","active_tasks":1,"uptime_seconds":5000}`
 	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -181,18 +181,18 @@ func TestHeartbeatHandler_DBUpdateError(t *testing.T) {
 
 	// Expect prevTask SELECT
 	mock.ExpectQuery("SELECT COALESCE\\(current_task").
-		WithArgs("ws-dberr").
+		WithArgs("00000000-0000-0000-0000-000000000002").
 		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
 
 	// Heartbeat UPDATE fails
 	mock.ExpectExec("UPDATE workspaces SET").
-		WithArgs("ws-dberr", 0.1, "", 0, 100, "").
+		WithArgs("00000000-0000-0000-0000-000000000002", 0.1, "", 0, 100, "").
 		WillReturnError(sql.ErrConnDone)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	body := `{"workspace_id":"ws-dberr","error_rate":0.1,"sample_error":"","active_tasks":0,"uptime_seconds":100}`
+	body := `{"workspace_id":"00000000-0000-0000-0000-000000000002","error_rate":0.1,"sample_error":"","active_tasks":0,"uptime_seconds":100}`
 	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -217,23 +217,23 @@ func TestHeartbeatHandler_OnlineStaysOnline(t *testing.T) {
 
 	// Expect prevTask SELECT
 	mock.ExpectQuery("SELECT COALESCE\\(current_task").
-		WithArgs("ws-stable").
+		WithArgs("00000000-0000-0000-0000-000000000003").
 		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
 
 	// Expect heartbeat UPDATE
 	mock.ExpectExec("UPDATE workspaces SET").
-		WithArgs("ws-stable", 0.2, "", 3, 4000, "").
+		WithArgs("00000000-0000-0000-0000-000000000003", 0.2, "", 3, 4000, "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// evaluateStatus: online with error_rate 0.2 — below 0.5 threshold, stays online
 	mock.ExpectQuery("SELECT status FROM workspaces WHERE id =").
-		WithArgs("ws-stable").
+		WithArgs("00000000-0000-0000-0000-000000000003").
 		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("online"))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	body := `{"workspace_id":"ws-stable","error_rate":0.2,"sample_error":"","active_tasks":3,"uptime_seconds":4000}`
+	body := `{"workspace_id":"00000000-0000-0000-0000-000000000003","error_rate":0.2,"sample_error":"","active_tasks":3,"uptime_seconds":4000}`
 	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -405,24 +405,24 @@ func TestHeartbeat_SkipsRemovedRows(t *testing.T) {
 
 	// prevTask lookup
 	mock.ExpectQuery("SELECT COALESCE\\(current_task").
-		WithArgs("ws-zombie").
+		WithArgs("00000000-0000-0000-0000-000000000004").
 		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
 
 	// UPDATE must include `AND status != 'removed'`. 0 rows affected is fine —
 	// this is the tombstoned case the fix protects against.
 	mock.ExpectExec("UPDATE workspaces SET.*WHERE id = .* AND status != 'removed'").
-		WithArgs("ws-zombie", 0.0, "", 0, int64(0), "").
+		WithArgs("00000000-0000-0000-0000-000000000004", 0.0, "", 0, int64(0), "").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	// evaluateStatus SELECT
 	mock.ExpectQuery("SELECT status FROM workspaces WHERE id").
-		WithArgs("ws-zombie").
+		WithArgs("00000000-0000-0000-0000-000000000004").
 		WillReturnError(sql.ErrNoRows) // row effectively removed from view
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/registry/heartbeat",
-		bytes.NewBufferString(`{"workspace_id":"ws-zombie","error_rate":0,"sample_error":"","active_tasks":0,"uptime_seconds":0,"current_task":""}`))
+		bytes.NewBufferString(`{"workspace_id":"00000000-0000-0000-0000-000000000004","error_rate":0,"sample_error":"","active_tasks":0,"uptime_seconds":0,"current_task":""}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	handler.Heartbeat(c)
@@ -665,21 +665,21 @@ func TestHeartbeat_MonthlySpend_WithinBounds(t *testing.T) {
 	handler := NewRegistryHandler(newTestBroadcaster())
 
 	mock.ExpectQuery("SELECT COALESCE\\(current_task").
-		WithArgs("ws-spend-ok").
+		WithArgs("00000000-0000-0000-0000-000000000005").
 		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
 
 	// Expect the 7-argument UPDATE (with monthly_spend = $7).
 	mock.ExpectExec("UPDATE workspaces SET").
-		WithArgs("ws-spend-ok", 0.0, "", 0, 0, "", int64(15000)). // $150.00
+		WithArgs("00000000-0000-0000-0000-000000000005", 0.0, "", 0, 0, "", int64(15000)). // $150.00
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	mock.ExpectQuery("SELECT status FROM workspaces WHERE id").
-		WithArgs("ws-spend-ok").
+		WithArgs("00000000-0000-0000-0000-000000000005").
 		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("online"))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	body := `{"workspace_id":"ws-spend-ok","monthly_spend":15000}`
+	body := `{"workspace_id":"00000000-0000-0000-0000-000000000005","monthly_spend":15000}`
 	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 	handler.Heartbeat(c)
@@ -701,21 +701,21 @@ func TestHeartbeat_MonthlySpend_NegativeClamped(t *testing.T) {
 	handler := NewRegistryHandler(newTestBroadcaster())
 
 	mock.ExpectQuery("SELECT COALESCE\\(current_task").
-		WithArgs("ws-spend-neg").
+		WithArgs("00000000-0000-0000-0000-000000000006").
 		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
 
 	// Clamped to 0 → no monthly_spend field → 6-argument UPDATE.
 	mock.ExpectExec("UPDATE workspaces SET").
-		WithArgs("ws-spend-neg", 0.0, "", 0, 0, "").
+		WithArgs("00000000-0000-0000-0000-000000000006", 0.0, "", 0, 0, "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	mock.ExpectQuery("SELECT status FROM workspaces WHERE id").
-		WithArgs("ws-spend-neg").
+		WithArgs("00000000-0000-0000-0000-000000000006").
 		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("online"))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	body := `{"workspace_id":"ws-spend-neg","monthly_spend":-9999}`
+	body := `{"workspace_id":"00000000-0000-0000-0000-000000000006","monthly_spend":-9999}`
 	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 	handler.Heartbeat(c)
@@ -737,22 +737,22 @@ func TestHeartbeat_MonthlySpend_OverflowClamped(t *testing.T) {
 	handler := NewRegistryHandler(newTestBroadcaster())
 
 	mock.ExpectQuery("SELECT COALESCE\\(current_task").
-		WithArgs("ws-spend-overflow").
+		WithArgs("00000000-0000-0000-0000-000000000007").
 		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
 
 	// Expect the 7-argument UPDATE with monthly_spend clamped to 1_000_000_000_000.
 	mock.ExpectExec("UPDATE workspaces SET").
-		WithArgs("ws-spend-overflow", 0.0, "", 0, 0, "", int64(1_000_000_000_000)).
+		WithArgs("00000000-0000-0000-0000-000000000007", 0.0, "", 0, 0, "", int64(1_000_000_000_000)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	mock.ExpectQuery("SELECT status FROM workspaces WHERE id").
-		WithArgs("ws-spend-overflow").
+		WithArgs("00000000-0000-0000-0000-000000000007").
 		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("online"))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	// Simulate a misbehaving agent reporting math.MaxInt64.
-	body := `{"workspace_id":"ws-spend-overflow","monthly_spend":9223372036854775807}`
+	body := `{"workspace_id":"00000000-0000-0000-0000-000000000007","monthly_spend":9223372036854775807}`
 	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 	handler.Heartbeat(c)
@@ -773,20 +773,20 @@ func TestHeartbeat_MonthlySpend_ExactCap(t *testing.T) {
 	handler := NewRegistryHandler(newTestBroadcaster())
 
 	mock.ExpectQuery("SELECT COALESCE\\(current_task").
-		WithArgs("ws-spend-cap").
+		WithArgs("00000000-0000-0000-0000-000000000008").
 		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
 
 	mock.ExpectExec("UPDATE workspaces SET").
-		WithArgs("ws-spend-cap", 0.0, "", 0, 0, "", int64(1_000_000_000_000)).
+		WithArgs("00000000-0000-0000-0000-000000000008", 0.0, "", 0, 0, "", int64(1_000_000_000_000)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	mock.ExpectQuery("SELECT status FROM workspaces WHERE id").
-		WithArgs("ws-spend-cap").
+		WithArgs("00000000-0000-0000-0000-000000000008").
 		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("online"))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	body := `{"workspace_id":"ws-spend-cap","monthly_spend":1000000000000}`
+	body := `{"workspace_id":"00000000-0000-0000-0000-000000000008","monthly_spend":1000000000000}`
 	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 	handler.Heartbeat(c)
@@ -808,22 +808,22 @@ func TestHeartbeat_MonthlySpend_Zero_NoUpdate(t *testing.T) {
 	handler := NewRegistryHandler(newTestBroadcaster())
 
 	mock.ExpectQuery("SELECT COALESCE\\(current_task").
-		WithArgs("ws-spend-zero").
+		WithArgs("00000000-0000-0000-0000-000000000009").
 		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
 
 	// 6-argument UPDATE — monthly_spend NOT included.
 	mock.ExpectExec("UPDATE workspaces SET").
-		WithArgs("ws-spend-zero", 0.0, "", 0, 0, "").
+		WithArgs("00000000-0000-0000-0000-000000000009", 0.0, "", 0, 0, "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	mock.ExpectQuery("SELECT status FROM workspaces WHERE id").
-		WithArgs("ws-spend-zero").
+		WithArgs("00000000-0000-0000-0000-000000000009").
 		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("online"))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	// Explicitly set monthly_spend = 0.
-	body := `{"workspace_id":"ws-spend-zero","monthly_spend":0}`
+	body := `{"workspace_id":"00000000-0000-0000-0000-000000000009","monthly_spend":0}`
 	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 	handler.Heartbeat(c)
@@ -834,4 +834,29 @@ func TestHeartbeat_MonthlySpend_Zero_NoUpdate(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("monthly_spend=0 must not trigger a DB write for spend: %v", err)
 	}
+}
+
+// TestHeartbeatHandler_NonUUIDWorkspaceID verifies that a syntactically invalid
+// workspace_id (not a UUID) returns 400 instead of 500. Without the validation
+// guard, the non-UUID string reaches Postgres's UUID column and produces a type
+// error that surfaces as an internal 500 — this is bad client input, not a
+// server fault. The UUID check fires before any DB call, so no mock expectations
+// are required here.
+func TestHeartbeatHandler_NonUUIDWorkspaceID(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewRegistryHandler(broadcaster)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"workspace_id":"not-a-uuid","error_rate":0.0}`
+	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	handler.Heartbeat(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 on non-UUID workspace_id (was 500 before fix), got %d: %s", w.Code, w.Body.String())
+	}
+	// No mock expectations — UUID validation fires before any DB call.
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/models"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type RegistryHandler struct {
@@ -216,6 +217,15 @@ func (h *RegistryHandler) Heartbeat(c *gin.Context) {
 	var payload models.HeartbeatPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate UUID format before any DB call. The workspaces.id column is
+	// type UUID in Postgres — passing a non-UUID string causes a type error
+	// that surfaces as a 500. Return 400 instead: this is bad client input,
+	// not a server fault.
+	if _, err := uuid.Parse(payload.WorkspaceID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "workspace_id must be a valid UUID"})
 		return
 	}
 
