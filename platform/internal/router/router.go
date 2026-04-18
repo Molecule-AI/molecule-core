@@ -10,6 +10,7 @@ import (
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/channels"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/embeddings"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/handlers"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/metrics"
@@ -170,8 +171,11 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		trsh := handlers.NewTranscriptHandler()
 		wsAuth.GET("/transcript", trsh.Get)
 
-		// Agent Memories (HMA)
-		memsh := handlers.NewMemoriesHandler()
+		// Agent Memories (HMA) — semantic search activated when OPENAI_API_KEY is
+		// present; degrades gracefully to FTS/ILIKE when the env var is absent or
+		// when the embedding call fails (issue #576 chunk 1).
+		memsh := handlers.NewMemoriesHandler().
+			WithEmbedding(embeddings.NewOpenAIEmbeddingFunc())
 		wsAuth.POST("/memories", memsh.Commit)
 		wsAuth.GET("/memories", memsh.Search)
 		wsAuth.DELETE("/memories/:memoryId", memsh.Delete)
