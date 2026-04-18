@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -815,6 +816,42 @@ func TestChannelHandler_Send_CrossWorkspace_Returns404(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp["error"] != "channel not found" {
 		t.Errorf("expected 'channel not found', got %v", resp["error"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations not met: %v", err)
+	}
+}
+
+// TestChannelHandler_Send_DBError_Returns500 verifies that a transient DB error
+// on the ownership+budget query returns 500 and does NOT fall through to
+// SendOutbound. Prior to this fix the handler was fail-open: any non-ErrNoRows
+// error was logged but execution continued, turning DB errors into IDOR bypasses.
+func TestChannelHandler_Send_DBError_Returns500(t *testing.T) {
+	mock := setupTestDB(t)
+	handler := NewChannelHandler(newTestChannelManager())
+
+	// Simulate a connection timeout / driver error on the ownership+budget query.
+	mock.ExpectQuery("SELECT message_count, channel_budget FROM workspace_channels WHERE id").
+		WithArgs("ch-any", "ws-1").
+		WillReturnError(fmt.Errorf("pq: connection timeout"))
+
+	body, _ := json.Marshal(map[string]string{"text": "hello"})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/workspaces/ws-1/channels/ch-any/send", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{{Key: "id", Value: "ws-1"}, {Key: "channelId", Value: "ch-any"}}
+
+	handler.Send(c)
+
+	// Must be 500 — handler must NOT fall through to SendOutbound on DB error.
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 on DB error (fail-closed), got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "channel lookup failed" {
+		t.Errorf("unexpected error body: %v", resp["error"])
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("sqlmock expectations not met: %v", err)

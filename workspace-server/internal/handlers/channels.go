@@ -276,11 +276,13 @@ func (h *ChannelHandler) Send(c *gin.Context) {
 		return
 	}
 
-	// Per-channel budget enforcement (#368).
-	// The WHERE clause also enforces workspace ownership — ErrNoRows means the
-	// channel doesn't exist within this workspace (IDOR prevention). DB errors
-	// are logged and treated as fail-open (budget not enforced) so a transient
-	// DB hiccup doesn't silently block outbound messages.
+	// Per-channel budget enforcement (#368) + workspace ownership check (IDOR prevention).
+	// Both are enforced in a single query: WHERE id=$1 AND workspace_id=$2.
+	//
+	// Error handling must be fail-CLOSED — since ownership verification is in
+	// this same query, a transient DB error cannot be treated as fail-open.
+	// Falling through to SendOutbound without a verified ownership row would
+	// be an IDOR bypass (a DB hiccup becomes a security hole).
 	var msgCount int
 	var budget sql.NullInt64
 	err := db.DB.QueryRowContext(ctx,
@@ -288,12 +290,15 @@ func (h *ChannelHandler) Send(c *gin.Context) {
 		channelID, workspaceID,
 	).Scan(&msgCount, &budget)
 	if err == sql.ErrNoRows {
+		// Channel doesn't exist in this workspace — reject to prevent IDOR.
 		c.JSON(http.StatusNotFound, gin.H{"error": "channel not found"})
 		return
 	}
 	if err != nil {
-		log.Printf("Channels: budget check failed for channel %s: %v", channelID, err)
-		// fail-open: budget not enforced on transient DB error
+		// Cannot verify ownership — fail-closed, never fall through.
+		log.Printf("Channels: ownership+budget check failed for channel %s: %v", channelID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "channel lookup failed"})
+		return
 	}
 	if budget.Valid && int64(msgCount) >= budget.Int64 {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "channel budget exceeded"})
