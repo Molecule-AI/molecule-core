@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useId, cloneElement, type ReactElement } from "react";
+import { useState, useEffect, useCallback, useRef, useId, cloneElement, type ReactElement } from "react";
 import { api } from "@/lib/api";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { StatusDot } from "../StatusDot";
@@ -36,6 +36,8 @@ export function DetailsTab({ workspaceId, data }: Props) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const selectNode = useCanvasStore((s) => s.selectNode);
+  // Ref for the "Delete Workspace" trigger — Cancel returns focus here
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setName(data.name);
@@ -255,7 +257,7 @@ export function DetailsTab({ workspaceId, data }: Props) {
           </div>
         )}
         {confirmDelete ? (
-          <div className="flex gap-2">
+          <div role="alert" className="flex gap-2">
             <button
               onClick={handleDelete}
               className="px-3 py-1 bg-red-600 hover:bg-red-500 text-xs rounded text-white"
@@ -263,7 +265,12 @@ export function DetailsTab({ workspaceId, data }: Props) {
               Confirm Delete
             </button>
             <button
-              onClick={() => { setConfirmDelete(false); setDeleteError(null); }}
+              onClick={() => {
+                setConfirmDelete(false);
+                setDeleteError(null);
+                // Return focus to the trigger so keyboard users aren't stranded
+                deleteButtonRef.current?.focus();
+              }}
               className="px-3 py-1 bg-zinc-700 hover:bg-zinc-600 text-xs rounded text-zinc-300"
             >
               Cancel
@@ -271,6 +278,7 @@ export function DetailsTab({ workspaceId, data }: Props) {
           </div>
         ) : (
           <button
+            ref={deleteButtonRef}
             onClick={() => setConfirmDelete(true)}
             className="px-3 py-1 bg-zinc-800 hover:bg-red-900 border border-zinc-700 hover:border-red-700 text-xs rounded text-zinc-400 hover:text-red-400 transition-colors"
           >
