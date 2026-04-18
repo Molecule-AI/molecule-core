@@ -6,7 +6,7 @@
 # logs `--dangerously-skip-permissions cannot be used with root/sudo
 # privileges for security reasons`.
 #
-# Pattern matches the legacy monorepo workspace-template/entrypoint.sh:
+# Pattern matches the legacy monorepo workspace/entrypoint.sh:
 # fix volume ownership as root, then re-exec via gosu as agent (uid 1000).
 
 if [ "$(id -u)" = "0" ]; then

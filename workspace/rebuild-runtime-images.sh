@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # rebuild-runtime-images.sh — Rebuild all 6 workspace runtime Docker images.
 #
-# Run this script from the repo root (or from workspace-template/) after any
-# change to workspace-template/Dockerfile, entrypoint.sh, or the git credential
+# Run this script from the repo root (or from workspace/) after any
+# change to workspace/Dockerfile, entrypoint.sh, or the git credential
 # helper scripts. Also run after PR #640 merged.
 #
 # What this does:
@@ -24,10 +24,10 @@
 # Prerequisites: docker, git, gh (authenticated)
 #
 # Usage (from repo root):
-#   bash workspace-template/rebuild-runtime-images.sh
+#   bash workspace/rebuild-runtime-images.sh
 #
 # To rebuild a single runtime:
-#   bash workspace-template/rebuild-runtime-images.sh claude-code
+#   bash workspace/rebuild-runtime-images.sh claude-code
 #
 set -euo pipefail
 
