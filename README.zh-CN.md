@@ -257,7 +257,7 @@ cd molecule-monorepo
 # `molecule-monorepo-net` Docker 网络上。Temporal 默认无鉴权，
 # 仅用于本地开发；生产环境必须加 mTLS / API Key。
 
-cd platform
+cd workspace-server
 go run ./cmd/server
 
 cd ../canvas
