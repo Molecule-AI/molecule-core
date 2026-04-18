@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"log"
 	"net/http"
 	"regexp"
@@ -356,6 +357,16 @@ func (h *SecretsHandler) SetGlobal(c *gin.Context) {
 		return
 	}
 
+	// Phase H risk_flag — notify-only (no blocking).
+	// Global secret creation is a high-sensitivity operation: a new or rotated
+	// credential is now in scope for every workspace that inherits it.
+	// We emit a structured WARNING and record a platform-level structure_event
+	// (workspace_id NULL — global secrets are not scoped to one workspace).
+	// structure_events.workspace_id is nullable UUID (migration 003).
+	// We do NOT write to audit_events — that table is HMAC-chained and
+	// exclusively written by the Python ledger (molecule_audit/ledger.py).
+	emitRiskFlagEvent(ctx, "GLOBAL_SECRET_CREATED", body.Key)
+
 	// Issue #15: global secrets are injected into containers as env vars at
 	// Start() time, so a rotating token (e.g. CLAUDE_CODE_OAUTH_TOKEN) doesn't
 	// reach existing workspaces until the container is recreated. Auto-restart
@@ -363,7 +374,7 @@ func (h *SecretsHandler) SetGlobal(c *gin.Context) {
 	// workspace-level override of the same key.
 	go h.restartAllAffectedByGlobalKey(body.Key)
 
-	c.JSON(http.StatusOK, gin.H{"status": "saved", "key": body.Key, "scope": "global"})
+	c.JSON(http.StatusOK, gin.H{"status": "saved", "key": body.Key, "scope": "global", "risk_flag": true})
 }
 
 // restartAllAffectedByGlobalKey restarts every non-paused, non-removed
@@ -424,11 +435,48 @@ func (h *SecretsHandler) DeleteGlobal(c *gin.Context) {
 		return
 	}
 
+	// Phase H risk_flag — notify-only (no blocking).
+	// Global secret deletion removes a credential from all workspaces that
+	// inherit it — any workspace relying on it will break at next task.
+	// Same mechanism as SetGlobal: WARNING log + platform-level structure_event.
+	emitRiskFlagEvent(ctx, "GLOBAL_SECRET_DELETED", key)
+
 	// Issue #15: propagate deletion to running containers — otherwise they
 	// keep the stale env var until manual restart.
 	go h.restartAllAffectedByGlobalKey(key)
 
-	c.JSON(http.StatusOK, gin.H{"status": "deleted", "key": key, "scope": "global"})
+	c.JSON(http.StatusOK, gin.H{"status": "deleted", "key": key, "scope": "global", "risk_flag": true})
+}
+
+// emitRiskFlagEvent logs a WARNING and records a platform-level structure_event
+// for risk-flagged global-secret operations (Phase H, notify-only).
+//
+// Why structure_events and not audit_events:
+//   - audit_events is HMAC-chained and exclusively written by the Python ledger
+//     (molecule_audit/ledger.py). Writing from Go would break the HMAC chain.
+//   - structure_events.workspace_id is nullable UUID (migration 003), designed
+//     for platform-scope events that do not belong to a single workspace.
+//
+// The event is non-fatal: a failure to write the risk signal MUST NOT block the
+// secret operation. Errors are logged but not returned to the caller.
+func emitRiskFlagEvent(ctx context.Context, eventType, secretKey string) {
+	log.Printf("WARN [risk_flag] op=%s key=%q — platform-level secret operation detected (Phase H notify-only)", eventType, secretKey)
+
+	payload, err := json.Marshal(map[string]interface{}{
+		"risk_flag": true,
+		"key":       secretKey,
+		"op":        eventType,
+	})
+	if err != nil {
+		log.Printf("WARN [risk_flag] failed to marshal payload for %s: %v (non-fatal)", eventType, err)
+		return
+	}
+	if _, err := db.DB.ExecContext(ctx, `
+		INSERT INTO structure_events (event_type, workspace_id, payload)
+		VALUES ($1, NULL, $2::jsonb)
+	`, eventType, string(payload)); err != nil {
+		log.Printf("WARN [risk_flag] failed to record structure_event for %s key=%q: %v (non-fatal)", eventType, secretKey, err)
+	}
 }
 
 // GetModel handles GET /workspaces/:id/model

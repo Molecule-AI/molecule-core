@@ -705,6 +705,11 @@ func TestSetGlobal_AutoRestartsAffectedWorkspaces(t *testing.T) {
 		WithArgs("CLAUDE_CODE_OAUTH_TOKEN", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
+	// Phase H: risk_flag structure_event INSERT (fires before auto-restart).
+	mock.ExpectExec("INSERT INTO structure_events").
+		WithArgs("GLOBAL_SECRET_CREATED", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
 	// Query for affected workspaces — ws-A inherits, ws-B overrides (excluded).
 	mock.ExpectQuery("SELECT id FROM workspaces").
 		WithArgs("CLAUDE_CODE_OAUTH_TOKEN").
@@ -756,6 +761,11 @@ func TestDeleteGlobal_AutoRestartsAffectedWorkspaces(t *testing.T) {
 		WithArgs("OLD_KEY").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
+	// Phase H: risk_flag structure_event INSERT
+	mock.ExpectExec("INSERT INTO structure_events").
+		WithArgs("GLOBAL_SECRET_DELETED", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
 	mock.ExpectQuery("SELECT id FROM workspaces").
 		WithArgs("OLD_KEY").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ws-x"))
@@ -782,5 +792,240 @@ func TestDeleteGlobal_AutoRestartsAffectedWorkspaces(t *testing.T) {
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// ==================== Phase H risk_flag — SetGlobal ====================
+
+// TestSetGlobal_RiskFlag_RecordsEventAndSetsFlag verifies that SetGlobal:
+//   - records a GLOBAL_SECRET_CREATED structure_event with risk_flag:true
+//   - includes risk_flag:true in the HTTP response body
+//   - completes normally (operation is NOT blocked)
+func TestSetGlobal_RiskFlag_RecordsEventAndSetsFlag(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewSecretsHandler(nil)
+
+	// Main secret upsert
+	mock.ExpectExec("INSERT INTO global_secrets").
+		WithArgs("ANTHROPIC_API_KEY", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Phase H: risk_flag structure_event — workspace_id is NULL for platform events
+	mock.ExpectExec("INSERT INTO structure_events").
+		WithArgs("GLOBAL_SECRET_CREATED", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"key":"ANTHROPIC_API_KEY","value":"sk-ant-test"}`
+	c.Request = httptest.NewRequest("POST", "/admin/secrets", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.SetGlobal(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("bad JSON: %v", err)
+	}
+	if resp["risk_flag"] != true {
+		t.Errorf("expected risk_flag:true in response, got %v", resp["risk_flag"])
+	}
+	if resp["status"] != "saved" {
+		t.Errorf("expected status saved, got %v", resp["status"])
+	}
+	if resp["scope"] != "global" {
+		t.Errorf("expected scope global, got %v", resp["scope"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestSetGlobal_RiskFlag_NonFatal_StructureEventFails verifies that a failure
+// to write the risk_flag structure_event does NOT block the secret write.
+// The operation must return 200 even when the INSERT INTO structure_events fails.
+func TestSetGlobal_RiskFlag_NonFatal_StructureEventFails(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewSecretsHandler(nil)
+
+	// Main secret upsert succeeds
+	mock.ExpectExec("INSERT INTO global_secrets").
+		WithArgs("SOME_KEY", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Structure_event INSERT fails — simulating transient DB error
+	mock.ExpectExec("INSERT INTO structure_events").
+		WithArgs("GLOBAL_SECRET_CREATED", sqlmock.AnyArg()).
+		WillReturnError(sql.ErrConnDone)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"key":"SOME_KEY","value":"some-value"}`
+	c.Request = httptest.NewRequest("POST", "/admin/secrets", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.SetGlobal(c)
+
+	// MUST still return 200 — risk_flag failure is non-fatal
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 even when structure_event fails, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("bad JSON: %v", err)
+	}
+	// risk_flag is still true in the response (emitted before the DB error)
+	if resp["risk_flag"] != true {
+		t.Errorf("expected risk_flag:true in response even on event failure, got %v", resp["risk_flag"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestSetGlobal_RiskFlag_NotFiredOnBadRequest verifies that the risk_flag event
+// is NOT emitted when SetGlobal returns early due to a bad request (missing key).
+// No structure_events INSERT should be attempted.
+func TestSetGlobal_RiskFlag_NotFiredOnBadRequest(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewSecretsHandler(nil)
+
+	// No DB expectations — handler returns before any DB call on bad request
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"value":"some-value"}` // missing required "key"
+	c.Request = httptest.NewRequest("POST", "/admin/secrets", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.SetGlobal(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations (no DB calls expected): %v", err)
+	}
+}
+
+// ==================== Phase H risk_flag — DeleteGlobal ====================
+
+// TestDeleteGlobal_RiskFlag_RecordsEventAndSetsFlag verifies that DeleteGlobal:
+//   - records a GLOBAL_SECRET_DELETED structure_event with risk_flag:true
+//   - includes risk_flag:true in the HTTP response body
+//   - completes normally (operation is NOT blocked)
+func TestDeleteGlobal_RiskFlag_RecordsEventAndSetsFlag(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewSecretsHandler(nil)
+
+	// Main DELETE
+	mock.ExpectExec("DELETE FROM global_secrets").
+		WithArgs("DANGER_KEY").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Phase H: risk_flag structure_event
+	mock.ExpectExec("INSERT INTO structure_events").
+		WithArgs("GLOBAL_SECRET_DELETED", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "key", Value: "DANGER_KEY"}}
+	c.Request = httptest.NewRequest("DELETE", "/admin/secrets/DANGER_KEY", nil)
+
+	handler.DeleteGlobal(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("bad JSON: %v", err)
+	}
+	if resp["risk_flag"] != true {
+		t.Errorf("expected risk_flag:true in response, got %v", resp["risk_flag"])
+	}
+	if resp["status"] != "deleted" {
+		t.Errorf("expected status deleted, got %v", resp["status"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestDeleteGlobal_RiskFlag_NonFatal_StructureEventFails verifies that a failure
+// to write the risk_flag structure_event does NOT block the delete operation.
+func TestDeleteGlobal_RiskFlag_NonFatal_StructureEventFails(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewSecretsHandler(nil)
+
+	mock.ExpectExec("DELETE FROM global_secrets").
+		WithArgs("KEY_TO_DELETE").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// structure_event INSERT fails
+	mock.ExpectExec("INSERT INTO structure_events").
+		WithArgs("GLOBAL_SECRET_DELETED", sqlmock.AnyArg()).
+		WillReturnError(sql.ErrConnDone)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "key", Value: "KEY_TO_DELETE"}}
+	c.Request = httptest.NewRequest("DELETE", "/admin/secrets/KEY_TO_DELETE", nil)
+
+	handler.DeleteGlobal(c)
+
+	// MUST still return 200
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 even when structure_event fails, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestDeleteGlobal_RiskFlag_NotFiredOnNotFound verifies that the risk_flag event
+// is NOT emitted when the secret doesn't exist (rows affected == 0). There is
+// nothing to flag if no deletion occurred.
+func TestDeleteGlobal_RiskFlag_NotFiredOnNotFound(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewSecretsHandler(nil)
+
+	mock.ExpectExec("DELETE FROM global_secrets").
+		WithArgs("NONEXISTENT").
+		WillReturnResult(sqlmock.NewResult(0, 0)) // 0 rows affected
+
+	// No structure_events INSERT expected
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "key", Value: "NONEXISTENT"}}
+	c.Request = httptest.NewRequest("DELETE", "/admin/secrets/NONEXISTENT", nil)
+
+	handler.DeleteGlobal(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations (no structure_event expected): %v", err)
 	}
 }
