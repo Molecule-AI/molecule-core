@@ -565,6 +565,16 @@ func (p *Provisioner) CopyTemplateToContainer(ctx context.Context, containerID, 
 			if err != nil {
 				return err
 			}
+			// Strip CRLF from shell scripts and Python files. Windows
+			// git checkout introduces \r\n even with .gitattributes eol=lf;
+			// Linux containers choke on \r in shebangs and Python path args.
+			// This is the single fix point — every file that enters a
+			// container passes through CopyTemplateToContainer.
+			ext := filepath.Ext(path)
+			if ext == ".sh" || ext == ".py" || ext == ".md" {
+				data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+			}
+			header.Size = int64(len(data))
 			if _, err := tw.Write(data); err != nil {
 				return err
 			}
