@@ -205,7 +205,7 @@ func (h *DiscoveryHandler) Peers(c *gin.Context) {
 
 	// Siblings
 	if parentID.Valid {
-		siblings, _ := queryPeerMaps(`
+		siblings, _ := queryPeerMaps(ctx, `
 			SELECT w.id, w.name, COALESCE(w.role, ''), w.tier, w.status,
 				   COALESCE(w.agent_card, 'null'::jsonb), COALESCE(w.url, ''),
 				   w.parent_id, w.active_tasks
@@ -213,7 +213,7 @@ func (h *DiscoveryHandler) Peers(c *gin.Context) {
 			parentID.String, workspaceID)
 		peers = append(peers, siblings...)
 	} else {
-		siblings, _ := queryPeerMaps(`
+		siblings, _ := queryPeerMaps(ctx, `
 			SELECT w.id, w.name, COALESCE(w.role, ''), w.tier, w.status,
 				   COALESCE(w.agent_card, 'null'::jsonb), COALESCE(w.url, ''),
 				   w.parent_id, w.active_tasks
@@ -223,7 +223,7 @@ func (h *DiscoveryHandler) Peers(c *gin.Context) {
 	}
 
 	// Children
-	children, _ := queryPeerMaps(`
+	children, _ := queryPeerMaps(ctx, `
 		SELECT w.id, w.name, COALESCE(w.role, ''), w.tier, w.status,
 			   COALESCE(w.agent_card, 'null'::jsonb), COALESCE(w.url, ''),
 			   w.parent_id, w.active_tasks
@@ -232,7 +232,7 @@ func (h *DiscoveryHandler) Peers(c *gin.Context) {
 
 	// Parent
 	if parentID.Valid {
-		parent, _ := queryPeerMaps(`
+		parent, _ := queryPeerMaps(ctx, `
 			SELECT w.id, w.name, COALESCE(w.role, ''), w.tier, w.status,
 				   COALESCE(w.agent_card, 'null'::jsonb), COALESCE(w.url, ''),
 				   w.parent_id, w.active_tasks
@@ -247,8 +247,8 @@ func (h *DiscoveryHandler) Peers(c *gin.Context) {
 }
 
 // queryPeerMaps returns clean JSON-serializable maps instead of Workspace structs.
-func queryPeerMaps(query string, args ...interface{}) ([]map[string]interface{}, error) {
-	rows, err := db.DB.Query(query, args...)
+func queryPeerMaps(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+	rows, err := db.DB.QueryContext(ctx, query, args...)
 	if err != nil {
 		log.Printf("queryPeerMaps error: %v", err)
 		return nil, err
