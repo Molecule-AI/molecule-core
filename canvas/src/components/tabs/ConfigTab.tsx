@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useId } from "react";
 import { api } from "@/lib/api";
 import { useCanvasStore } from "@/store/canvas";
 import { type ConfigData, DEFAULT_CONFIG, TextInput, NumberInput, Toggle, TagList, Section } from "./config/form-inputs";
@@ -170,6 +170,14 @@ export function ConfigTab({ workspaceId }: Props) {
     }
   };
 
+  // Stable IDs for bare label↔control pairs (WCAG 1.3.1)
+  const descriptionId = useId();
+  const tierId = useId();
+  const runtimeId = useId();
+  const effortId = useId();
+  const taskBudgetId = useId();
+  const sandboxBackendId = useId();
+
   const isDirty = rawMode ? rawDraft !== originalYaml : toYaml(config) !== originalYaml;
 
   if (loading) {
@@ -214,8 +222,9 @@ export function ConfigTab({ workspaceId }: Props) {
           <Section title="General">
             <TextInput label="Name" value={config.name} onChange={(v) => update("name", v)} />
             <div>
-              <label className="text-[10px] text-zinc-500 block mb-1">Description</label>
+              <label htmlFor={descriptionId} className="text-[10px] text-zinc-500 block mb-1">Description</label>
               <textarea
+                id={descriptionId}
                 value={config.description}
                 onChange={(e) => update("description", e.target.value)}
                 rows={3}
@@ -225,8 +234,9 @@ export function ConfigTab({ workspaceId }: Props) {
             <div className="grid grid-cols-2 gap-3">
               <TextInput label="Version" value={config.version} onChange={(v) => update("version", v)} mono />
               <div>
-                <label className="text-[10px] text-zinc-500 block mb-1">Tier</label>
+                <label htmlFor={tierId} className="text-[10px] text-zinc-500 block mb-1">Tier</label>
                 <select
+                  id={tierId}
                   value={config.tier}
                   onChange={(e) => update("tier", parseInt(e.target.value, 10))}
                   className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
@@ -242,8 +252,9 @@ export function ConfigTab({ workspaceId }: Props) {
           <Section title="Runtime">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[10px] text-zinc-500 block mb-1">Runtime</label>
+                <label htmlFor={runtimeId} className="text-[10px] text-zinc-500 block mb-1">Runtime</label>
                 <select
+                  id={runtimeId}
                   value={config.runtime || ""}
                   onChange={(e) => update("runtime", e.target.value)}
                   className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
@@ -273,11 +284,12 @@ export function ConfigTab({ workspaceId }: Props) {
             (config.runtime_config?.model || config.model || "").toLowerCase().includes("anthropic")) && (
             <Section title="Claude Settings" defaultOpen={false}>
               <div>
-                <label className="text-[10px] text-zinc-500 block mb-1">
+                <label htmlFor={effortId} className="text-[10px] text-zinc-500 block mb-1">
                   Effort
                   <span className="ml-1 text-zinc-600">(output_config.effort — Opus 4.7+)</span>
                 </label>
                 <select
+                  id={effortId}
                   value={config.effort || ""}
                   onChange={(e) => update("effort", e.target.value)}
                   className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
@@ -292,11 +304,12 @@ export function ConfigTab({ workspaceId }: Props) {
                 </select>
               </div>
               <div>
-                <label className="text-[10px] text-zinc-500 block mb-1">
+                <label htmlFor={taskBudgetId} className="text-[10px] text-zinc-500 block mb-1">
                   Task Budget (tokens)
                   <span className="ml-1 text-zinc-600">(output_config.task_budget.total — 0 = unset)</span>
                 </label>
                 <input
+                  id={taskBudgetId}
                   type="number"
                   min={0}
                   step={1000}
@@ -334,8 +347,9 @@ export function ConfigTab({ workspaceId }: Props) {
 
           <Section title="Sandbox" defaultOpen={false}>
             <div>
-              <label className="text-[10px] text-zinc-500 block mb-1">Backend</label>
+              <label htmlFor={sandboxBackendId} className="text-[10px] text-zinc-500 block mb-1">Backend</label>
               <select
+                id={sandboxBackendId}
                 value={config.sandbox?.backend || "docker"}
                 onChange={(e) => updateNested("sandbox" as keyof ConfigData, "backend", e.target.value)}
                 className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
