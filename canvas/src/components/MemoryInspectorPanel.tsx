@@ -188,7 +188,7 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
 
       {/* Error banner */}
       {error && (
-        <div className="mx-4 mt-3 px-3 py-2 bg-red-950/30 border border-red-800/40 rounded text-xs text-red-400">
+        <div role="alert" className="mx-4 mt-3 px-3 py-2 bg-red-950/30 border border-red-800/40 rounded text-xs text-red-400">
           {error}
         </div>
       )}
