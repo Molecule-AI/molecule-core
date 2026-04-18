@@ -622,6 +622,56 @@ self-hosted per-customer). Ordered by dependency + ROI.
 
 ---
 
+## Phase 35: SaaS Production Hardening (post-2026-04-17 retrospective)
+
+> **Goal:** Address security gaps, remove debug code, fix workspace
+> registration, and reduce boot time identified during the SaaS buildout
+> session. See `docs/retrospectives/2026-04-17-saas-buildout.md` for full
+> context.
+
+### Phase 35.1 — Security (CRITICAL, before any public launch)
+
+- [ ] Fix #756 — X-Workspace-ID header forge bypasses CanCommunicate
+  (derive callerID from authenticated token, not raw header)
+- [ ] Fix #757 — GLOBAL memory poisoning mitigations (content delimiters
+  + audit log at minimum)
+- [ ] Remove ADMIN_TOKEN from public `/cp/orgs/:slug/instance` endpoint —
+  store in Worker KV at provision time instead
+- [ ] Encrypt ADMIN_TOKEN in `org_instances` table (use envelope key)
+- [ ] Remove debug HTTP server (:9999) from workspace boot script
+- [ ] Remove `set -ex` from boot scripts (leaks env vars to EC2 console)
+- [ ] Restrict workspace EC2 security group (Cloudflare IPs + tenant IP only)
+- [ ] Add HTTPS between Worker and EC2 (or Cloudflare Tunnel)
+
+### Phase 35.2 — Workspace registration fix
+
+- [ ] Pass workspace auth token in EC2 boot script env so runtime can
+  register with `POST /registry/register`
+- [ ] Or: have runtime request a token at startup via
+  `GET /admin/workspaces/:id/test-token`
+- [ ] Verify workspace status flips to "online" on Canvas after boot
+- [ ] Test full Canvas flow: deploy → STARTING → online → chat works
+
+### Phase 35.3 — Boot time optimization
+
+- [ ] Pre-baked AMI per runtime (Packer or EC2 Image Builder):
+  - `ami-hermes`: Python + openai + anthropic + molecule-runtime + hermes adapter
+  - `ami-claude-code`: Node + claude-code SDK + molecule-runtime
+  - `ami-langgraph`: Python + langchain + langgraph + molecule-runtime
+- [ ] Runtime switch = launch from different AMI. Boot ~30s vs current ~9 min
+- [ ] Remove apt-get + pip install from boot script (only config + secrets + start)
+
+### Phase 35.4 — Stability + CI
+
+- [ ] Fix go.mod replace directive (PR #900) — unblocks all CI
+- [ ] Use stable origin IP for wildcard DNS (dedicated proxy or Tunnel)
+- [ ] Add workspace boot integration test to CI
+- [ ] Add SaaS tenant smoke test (`tests/e2e/test_saas_tenant.sh`) to CI
+- [ ] Clean up Cloudflare edge cache poisoning from session
+  (or wait ~24h for natural expiry)
+
+---
+
 ## Infra footnote — Temporal
 
 `docker-compose.infra.yml` now includes Temporal (`:7233` gRPC, `:8233` Web
