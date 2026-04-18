@@ -33,6 +33,19 @@ interface Props {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Sanitise a memory key for use in an HTML id attribute.
+ * HTML IDs must not contain whitespace; many non-alphanumeric characters also
+ * cause selector or ARIA failures. Replace every non-alphanumeric character
+ * with a hyphen, collapse consecutive hyphens, then strip leading/trailing ones.
+ */
+function sanitizeId(key: string): string {
+  return key
+    .replace(/[^a-zA-Z0-9]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 function formatRelativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   if (diff < 60_000) return `${Math.floor(diff / 1000)}s`;
@@ -414,7 +427,7 @@ function MemoryEntryRow({
   onCancelEdit,
   onDelete,
 }: MemoryEntryRowProps) {
-  const bodyId = `memory-body-${entry.key.replace(/\s+/g, "-")}`;
+  const bodyId = `mem-body-${sanitizeId(entry.key)}`;
   return (
     <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/50 overflow-hidden">
       {/* Header row — click to expand/collapse */}
