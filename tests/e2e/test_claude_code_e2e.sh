@@ -1,10 +1,10 @@
 #!/bin/bash
 # Full E2E test for Claude Code workspace runtime
-# Run from repo root after: docker compose up -d && docker build -t workspace-template:latest workspace-template/
+# Run from repo root after: docker compose up -d && docker build -t workspace:latest workspace/
 #
 # Prerequisites:
 #   - Platform running on localhost:8080
-#   - workspace-template:latest image built
+#   - workspace:latest image built
 #   - .auth-token in workspace-configs-templates/claude-code-default/
 
 set -euo pipefail

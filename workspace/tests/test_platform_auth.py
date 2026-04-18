@@ -1,4 +1,4 @@
-"""Tests for workspace-template/platform_auth.py (Phase 30.1)."""
+"""Tests for workspace/platform_auth.py (Phase 30.1)."""
 from __future__ import annotations
 
 import os

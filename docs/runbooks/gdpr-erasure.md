@@ -1,6 +1,6 @@
 # GDPR Art. 17 hard-delete cascade
 
-Operational reference for the "delete my org" flow in `molecule-controlplane`.
+Operational reference for the "delete my org" flow in `the private control-plane repo`.
 Skim this before replying to an erasure request, answering a DPA (Data
 Processing Addendum) audit, or debugging a failed purge.
 
@@ -89,7 +89,7 @@ any purge row is older than 48h without hitting `completed`.
 
 ## Testing the cascade
 
-See the test plan in [PR #29](https://github.com/Molecule-AI/molecule-controlplane/pull/29)
+See the test plan in [PR #29](https://github.com/Molecule-AI/the private control-plane repo/pull/29)
 for the staging checklist. The unit tests cover the orchestrator logic
 (happy path, resume-from-step, Stripe failure, no-customer); end-to-end
 proof requires a real Stripe test-mode customer + provisioned Fly Machine
@@ -102,5 +102,5 @@ because the failure modes that matter are transport errors, not logic.
 - `docs/runbooks/admin-auth.md` — `DELETE /cp/orgs/:slug` is behind
   session-cookie auth in controlplane, not the workspace bearer-token
   middleware documented there
-- `molecule-controlplane/internal/handlers/purge.go` — the orchestrator
-- `molecule-controlplane/migrations/006_org_purges.*.sql` — audit schema
+- `the private control-plane repo/internal/handlers/purge.go` — the orchestrator
+- `the private control-plane repo/migrations/006_org_purges.*.sql` — audit schema

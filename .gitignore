@@ -1,6 +1,6 @@
 # Binaries
-platform/server
-platform/molecli
+workspace-server/server
+workspace-server/molecli
 *.exe
 *.out
 *.bin
@@ -87,7 +87,7 @@ redis_data/
 workspace-configs-templates/ws-*
 
 # Local dev cruft — provisioner writes here at runtime; templates live at repo root
-platform/workspace-configs-templates/
+workspace-server/workspace-configs-templates/
 
 # Codex/Gemini agent skill cache (local only, not authoritative)
 .agents/

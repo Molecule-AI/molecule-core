@@ -741,14 +741,14 @@ func TestImageNotFoundErrorIncludesBuildHint(t *testing.T) {
 
 	tag := runtimeTagFromImage("workspace-template:openclaw")
 	wrapped := testErr(
-		`docker image "workspace-template:openclaw" not found — run 'bash workspace-template/build-all.sh ` +
+		`docker image "workspace-template:openclaw" not found — run 'bash workspace/build-all.sh ` +
 			tag + `' to build it (underlying error: ` + underlying.Error() + `)`,
 	)
 	s := wrapped.Error()
 
 	for _, want := range []string{
 		`"workspace-template:openclaw"`,
-		`bash workspace-template/build-all.sh openclaw`,
+		`bash workspace/build-all.sh openclaw`,
 		`No such image: workspace-template:openclaw`,
 	} {
 		if !strings.Contains(s, want) {

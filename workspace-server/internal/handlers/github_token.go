@@ -23,7 +23,7 @@
 //     AdminAuth — any valid workspace bearer token can call it.
 //
 //  2. Workspace side: a shell credential helper
-//     (workspace-template/scripts/molecule-git-token-helper.sh) configured
+//     (workspace/scripts/molecule-git-token-helper.sh) configured
 //     as the git credential helper. git calls it on every push/fetch;
 //     it hits this endpoint and emits the fresh token to stdout. A 30-min
 //     cron also runs `gh auth login --with-token` using the same helper.
