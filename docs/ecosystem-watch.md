@@ -1821,7 +1821,9 @@ complementary: a Molecule AI workspace running ADK agents is a natural pairing.
 - ADK is the official successor for teams currently using LangGraph with Gemini → our
   langgraph adapter should note ADK as an alternative path.
 
-**Last reviewed:** 2026-04-16 · **Stars / activity:** ~19k ⭐, v1.29.0 April 9, 2026, Google-maintained
+**Last reviewed:** 2026-04-18 · **Stars / activity:** ~22k ⭐, v1.31.0 April 17 2026, Google-maintained
+
+**v1.31.0 update (2026-04-18):** Multi-language parity landed — Python, TypeScript, Java, Go all at 1.0. Native A2A added: full protocol (agent cards, message/send, task lifecycle, streaming, gRPC v0.3). A2A is Linux Foundation-governed, not Google-only — interops with any framework. **Platform gaps confirmed open**: no scheduling, no cron, no org-level workspace management, no cross-agent HITL (ADK `require_confirmation` explicitly broken across agent boundaries, maintainer-confirmed GitHub Discussion #3276). **Verdict: WATCH** (not elevated). Protocol layer compressed; Molecule platform layer intact. Escalation triggers: Vertex ships org-level workspace mgmt OR ADK fixes cross-agent HITL.
 
 ---
 
@@ -2913,3 +2915,65 @@ langgraph/crewai adapters.
 **Signals to react to:** Claw Code ships A2A support → evaluate `molecule-ai-workspace-template-claw-code`. Anthropic legal action → monitor for project discontinuation risk. Claw Code's Python SDK becomes pip-installable → simplifies potential workspace template adapter.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 100k+★, Rust+Python, 72.6k forks, fastest-growing repo in GitHub history
+
+---
+
+### MemPalace — `milla-jovovich/mempalace`
+
+> ⛔ **BLOCKED — COORDINATED FRAUD** (Security Audit 2026-04-18). Do not integrate, evaluate, or reference this project.
+
+**Pitch (original):** Local-first AI memory system using the "Method of Loci" — stores full conversation verbatim in a hierarchical palace structure (wings → rooms → drawers) with semantic search.
+
+**Fraud findings (SA forensic audit — 2026-04-18):**
+
+- **F1 CRITICAL — Star fraud (89%):** 42,497 of 47,600 stars are bot-farmed. Bot activity ran April 6–13 at metronomic 30-second intervals; confirmed via stargazer timestamp forensics. Authentic star count ≈ 5,000.
+- **F2 CRITICAL — Malware domain:** `mempalace.tech` (cited in the project's own `HISTORY.md`) is a confirmed malware impostor domain. Any traffic to this domain must be treated as hostile.
+- **F3 CRITICAL — Deleted PyPI maintainer:** GitHub account `aya-thekeeper` (sole PyPI maintainer) was deleted after publishing — live supply-chain attack surface. Any version published under that account is unverifiable.
+- **F4 HIGH — Unpatched ChromaDB RCE:** Depends on ChromaDB with an open server-side + client-side RCE via `trust_remote_code` (GitHub issue #6717). Maintainer has not patched.
+- **F5 HIGH — Non-existent PyPI package:** `uvx mempalace-mcp` does not exist on PyPI — squattable typosquat attack surface.
+- **F6 HIGH — Unsafe model loading:** HuggingFace model download with pickle deserialization (no hash pinning).
+- **F7 MEDIUM — Crypto fraud:** Associated with `MEMPALACE` Solana token pump-and-dump scheme.
+
+**GH #912** (molecule-mempalace plugin proposal) closed — BLOCKED by this audit. Do not reopen without a full independent security re-audit.
+
+**Last reviewed:** 2026-04-18 · **Stars / activity:** 47.6k★ claimed (89% bot-farmed; ~5k authentic), Python, MIT, v3.3.0 April 14 2026. **Verdict: BLOCKED/FRAUD**
+
+---
+
+### chrome-devtools-mcp — `ChromeDevTools/chrome-devtools-mcp`
+
+**Pitch:** "Chrome DevTools for coding agents" — 29 MCP tools exposing browser navigation, input automation, network inspection, Lighthouse auditing, and performance tracing directly to AI agents.
+
+**Shape:** Official MCP server from Google's Chrome DevTools team (not a third-party wrapper). TypeScript, Apache-2.0, 35.9k★. 29 tools across 6 categories: input (click, type, fill_form), navigation, emulation, performance traces, network inspection, script execution + screenshots.
+
+**Overlap with us:** Molecule's MCP client already wires up to `opencode.json` and workspace config — this drops in as a bundled MCP server for any workspace agent. Complements existing `browser-automation` plugin (Puppeteer/CDP scraper) with DevTools-level depth: network HAR exports, JS console, Lighthouse audits, memory snapshots.
+
+**Differentiation:** Pure MCP server — no orchestration, no agent runtime. Molecule is the governance layer that decides *which* workspaces get browser access.
+
+**Worth borrowing:** Add as a recommended/bundled MCP server option in workspace templates. Instant browser-equipped agents with no build effort.
+
+**Terminology collisions:** None.
+
+**Signals to react to:** Google's own DevTools team shipping an MCP server is the strongest possible MCP adoption signal. If it becomes the canonical browser integration, Molecule's MCP client tier-1 support becomes a harder differentiator.
+
+**Last reviewed:** 2026-04-18 · **Stars / activity:** 35.9k★, TypeScript, Apache-2.0, official Google Chrome DevTools
+
+---
+
+### craft-agents-oss — `lukilabs/craft-agents-oss`
+
+**Pitch:** Open-source desktop agent app built on Anthropic's Claude Agent SDK — multi-session inbox, 3-tier permissions, MCP + REST API connections, event-driven automations.
+
+**Shape:** Electron desktop app (+ headless server + CLI), TypeScript, Apache-2.0, 4.3k★, v0.8.9 released April 16 2026. Single-user; 4 LLM providers (Anthropic, Google, OpenAI, GitHub Copilot); drag-drop file attachments; automations triggered by labels, schedules, or tool usage.
+
+**Overlap with us:** UI-layer overlap — multi-session management, permission tiers, MCP connections, multi-LLM support all map onto Molecule's workspace lifecycle and canvas. Built on the same Claude Agent SDK stack.
+
+**Differentiation:** craft-agents-oss is single-user desktop; Molecule is multi-tenant org-graph with A2A inter-agent coordination. No agent-to-agent delegation, no org hierarchy, no Docker workspace isolation.
+
+**Worth borrowing:** 3-tier permission UI (Explore / Ask to Edit / Auto) and multi-session inbox labeling workflow are clean UX references for Molecule's workspace approval queue.
+
+**Terminology collisions:** "sessions" = Molecule's "workspaces"; "sources" = Molecule's "tools/plugins." Watch for user confusion.
+
+**Signals to react to:** 4.3k stars on launch day signals strong demand for a GUI wrapper around Claude Agent SDK. Molecule's org-chart canvas is the richer multi-tenant answer — worth differentiating loudly in positioning.
+
+**Last reviewed:** 2026-04-18 · **Stars / activity:** 4.3k★, TypeScript, Apache-2.0, v0.8.9 April 16 2026
