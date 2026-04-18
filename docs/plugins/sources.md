@@ -64,7 +64,7 @@ curl $PLATFORM/plugins/sources
 ## Registering a new source
 
 ```go
-// platform/internal/router/router.go
+// workspace-server/internal/router/router.go
 plgh := handlers.NewPluginsHandler(pluginsDir, dockerCli, wh.RestartByID).
     WithSourceResolver(NewClawhubResolver(clawhubToken))
 ```

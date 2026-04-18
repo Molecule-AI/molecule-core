@@ -4,12 +4,12 @@
 
 The shared workspace runtime infrastructure lives in two places:
 
-1. **Source of truth (monorepo):** `workspace-template/` — this is where all development happens
+1. **Source of truth (monorepo):** `workspace/` — this is where all development happens
 2. **Published package:** [`molecule-ai-workspace-runtime`](https://pypi.org/project/molecule-ai-workspace-runtime/) on PyPI
 
 ## What's in the package
 
-Everything in `workspace-template/` except adapter-specific code:
+Everything in `workspace/` except adapter-specific code:
 
 - `molecule_runtime/` — all shared `.py` files (main.py, config.py, heartbeat.py, etc.)
 - `molecule_runtime/adapters/` — `BaseAdapter`, `AdapterConfig`, `SetupResult`, `shared_runtime`

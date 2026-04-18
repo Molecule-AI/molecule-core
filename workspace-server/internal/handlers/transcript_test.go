@@ -1,0 +1,344 @@
+package handlers
+
+import (
+	"database/sql"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"testing"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/gin-gonic/gin"
+)
+
+// urlParse is a tiny wrapper so table-driven tests can keep their lines short.
+func urlParse(s string) (*url.URL, error) { return url.Parse(s) }
+
+// expectWorkspaceURLLookup programs the sqlmock to answer the SELECT that
+// TranscriptHandler.Get issues for `agent_card->>'url'`. Tests call this
+// instead of inserting real rows (we use sqlmock — there's no DB).
+//
+// Returns the workspace ID as the handler's :id path param.
+func expectWorkspaceURLLookup(mock sqlmock.Sqlmock, agentURL string) string {
+	id := "11111111-2222-3333-4444-555555555555"
+	mock.ExpectQuery("SELECT agent_card->>'url' FROM workspaces WHERE id = \\$1").
+		WithArgs(id).
+		WillReturnRows(sqlmock.NewRows([]string{"url"}).AddRow(agentURL))
+	return id
+}
+
+// ==================== GET /workspaces/:id/transcript ====================
+
+func TestTranscript_WorkspaceNotFound(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	h := NewTranscriptHandler()
+
+	mock.ExpectQuery("SELECT agent_card->>'url' FROM workspaces WHERE id = \\$1").
+		WithArgs("00000000-0000-0000-0000-000000000000").
+		WillReturnError(sql.ErrNoRows)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "00000000-0000-0000-0000-000000000000"}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/00000000-0000-0000-0000-000000000000/transcript", nil)
+	h.Get(c)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTranscript_ProxyForwardsAndReturnsBody(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	h := NewTranscriptHandler()
+
+	// Spin up a fake "workspace" agent that returns a canned transcript
+	gotPath := ""
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"runtime":"claude-code","supported":true,"lines":[{"type":"user"}],"cursor":1,"more":false}`))
+	}))
+	defer stub.Close()
+
+	wsID := expectWorkspaceURLLookup(mock,stub.URL)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: wsID}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/"+wsID+"/transcript?since=5&limit=20", nil)
+	h.Get(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if gotPath != "/transcript" {
+		t.Errorf("expected proxy to hit /transcript, got %q", gotPath)
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("response not JSON: %v", err)
+	}
+	if resp["runtime"] != "claude-code" {
+		t.Errorf("expected runtime=claude-code, got %v", resp["runtime"])
+	}
+	if lines, ok := resp["lines"].([]interface{}); !ok || len(lines) != 1 {
+		t.Errorf("expected 1 line, got %v", resp["lines"])
+	}
+}
+
+func TestTranscript_ProxyPropagatesAllowlistedQueryParams(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	h := NewTranscriptHandler()
+
+	gotQuery := ""
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.Write([]byte(`{}`))
+	}))
+	defer stub.Close()
+
+	wsID := expectWorkspaceURLLookup(mock,stub.URL)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: wsID}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/"+wsID+"/transcript?since=42&limit=7&secret=leak&cmd=rm", nil)
+	h.Get(c)
+	// url.Values.Encode() sorts alphabetically — limit before since.
+	// Crucially: secret + cmd are dropped (not in the allowlist).
+	if gotQuery != "limit=7&since=42" {
+		t.Errorf("expected only allowlisted since/limit forwarded, got %q", gotQuery)
+	}
+}
+
+// SSRF regression tests — see issue #272. agent_card->>'url' is attacker-
+// writable via /registry/register so validateWorkspaceURL must reject
+// link-local / cloud-metadata / non-http(s) targets before the outbound
+// HTTP call fires.
+
+func TestTranscript_RejectsCloudMetadataIP(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	h := NewTranscriptHandler()
+
+	wsID := expectWorkspaceURLLookup(mock,"http://169.254.169.254/")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: wsID}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/"+wsID+"/transcript", nil)
+	h.Get(c)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for IMDS target, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTranscript_RejectsNonHTTPScheme(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	h := NewTranscriptHandler()
+
+	wsID := expectWorkspaceURLLookup(mock,"file:///etc/passwd")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: wsID}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/"+wsID+"/transcript", nil)
+	h.Get(c)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for file:// scheme, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTranscript_RejectsMetadataHostname(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	h := NewTranscriptHandler()
+
+	wsID := expectWorkspaceURLLookup(mock,"http://metadata.google.internal/computeMetadata/v1/")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: wsID}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/"+wsID+"/transcript", nil)
+	h.Get(c)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for metadata hostname, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTranscript_RejectsLinkLocalIPv6(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	h := NewTranscriptHandler()
+
+	wsID := expectWorkspaceURLLookup(mock,"http://[fe80::1]/")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: wsID}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/"+wsID+"/transcript", nil)
+	h.Get(c)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for link-local IPv6, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// validateWorkspaceURL unit tests — pure function, no DB/Redis needed.
+func TestValidateWorkspaceURL(t *testing.T) {
+	cases := []struct {
+		name    string
+		raw     string
+		wantErr bool
+	}{
+		{"http localhost allowed (dev)", "http://127.0.0.1:8000", false},
+		{"https public allowed", "https://agent.example.com", false},
+		{"docker internal allowed", "http://host.docker.internal:8000", false},
+		{"IMDS IP rejected", "http://169.254.169.254", true},
+		{"GCP metadata hostname rejected", "http://metadata.google.internal", true},
+		{"Azure metadata rejected", "http://metadata.azure.com", true},
+		{"file scheme rejected", "file:///etc/passwd", true},
+		{"gopher rejected", "gopher://internal:70/", true},
+		{"IPv6 link-local rejected", "http://[fe80::1]", true},
+		{"IPv4 link-local multicast rejected", "http://224.0.0.1", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			u, parseErr := urlParse(tc.raw)
+			if parseErr != nil && !tc.wantErr {
+				t.Fatalf("parse error: %v", parseErr)
+			}
+			if parseErr != nil {
+				return // unparseable URLs are rejected upstream; not this function's job
+			}
+			err := validateWorkspaceURL(u)
+			if tc.wantErr && err == nil {
+				t.Errorf("expected error for %q, got nil", tc.raw)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("expected OK for %q, got %v", tc.raw, err)
+			}
+		})
+	}
+}
+
+func TestTranscript_UnreachableWorkspaceReturns502(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	h := NewTranscriptHandler()
+
+	wsID := expectWorkspaceURLLookup(mock,"http://127.0.0.1:1") // refused
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: wsID}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/"+wsID+"/transcript", nil)
+	h.Get(c)
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestTranscript_ForwardsAuthHeader is a regression guard for the fix where
+// TranscriptHandler.Get was not forwarding the Authorization header to the
+// workspace's /transcript endpoint (QA finding 2026-04-16).
+//
+// The workspace's /transcript endpoint (secured by #287/#328) requires a valid
+// `Authorization: Bearer <token>` header — it fails-closed when the header
+// is absent. The platform's WorkspaceAuth middleware validates the token before
+// the handler runs; forwarding it to the workspace is correct and safe.
+//
+// Fix applied: after constructing the outbound request, the handler now calls
+//   req.Header.Set("Authorization", c.GetHeader("Authorization"))
+// This test verifies the fix and acts as a regression guard.
+func TestTranscript_ForwardsAuthHeader(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	h := NewTranscriptHandler()
+
+	const testToken = "Bearer test-workspace-token-abc123"
+
+	var receivedAuth string
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		// Simulate the workspace's #328 fail-closed behaviour: reject missing auth.
+		if receivedAuth == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"runtime":"claude-code","supported":true,"lines":[],"cursor":0,"more":false}`))
+	}))
+	defer stub.Close()
+
+	wsID := expectWorkspaceURLLookup(mock, stub.URL)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: wsID}}
+	// Simulate a request that has already passed WorkspaceAuth middleware —
+	// the bearer token is present and valid on the incoming request.
+	req := httptest.NewRequest("GET", "/workspaces/"+wsID+"/transcript", nil)
+	req.Header.Set("Authorization", testToken)
+	c.Request = req
+	h.Get(c)
+
+	// The proxy must forward the bearer token so the workspace accepts the call.
+	if receivedAuth == "" {
+		t.Error("TranscriptHandler did not forward Authorization header — workspace would return 401")
+	}
+	if receivedAuth != testToken {
+		t.Errorf("Authorization header mismatch: forwarded %q, want %q", receivedAuth, testToken)
+	}
+	if w.Code == http.StatusUnauthorized {
+		t.Errorf("workspace returned 401: transcript proxy did not authenticate; auth forwarded: %q", receivedAuth)
+	}
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestTranscript_NoAuthHeader_PassesThrough verifies that a request with no
+// Authorization header (e.g. unauthenticated local-dev call that somehow
+// bypassed WorkspaceAuth) results in no Authorization header on the upstream
+// request. The workspace will return 401 in this case, which the proxy
+// faithfully relays — no silent upgrade of privilege.
+func TestTranscript_NoAuthHeader_PassesThrough(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	h := NewTranscriptHandler()
+
+	var receivedAuth string
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		if receivedAuth == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"runtime":"claude-code","supported":true,"lines":[]}`))
+	}))
+	defer stub.Close()
+
+	wsID := expectWorkspaceURLLookup(mock, stub.URL)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: wsID}}
+	// No Authorization header on the request.
+	c.Request = httptest.NewRequest("GET", "/workspaces/"+wsID+"/transcript", nil)
+	h.Get(c)
+
+	// Without a token the workspace returns 401; the proxy must relay it faithfully.
+	if receivedAuth != "" {
+		t.Errorf("expected no Authorization forwarded to workspace, got %q", receivedAuth)
+	}
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected proxy to relay workspace 401, got %d: %s", w.Code, w.Body.String())
+	}
+}

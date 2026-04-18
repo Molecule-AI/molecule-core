@@ -14,7 +14,7 @@
 
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "platform/Dockerfile"
+dockerfilePath = "workspace-server/Dockerfile"
 
 [deploy]
 startCommand = "./server"
@@ -28,8 +28,8 @@ name = "platform"
 
 [services.build]
 builder = "DOCKERFILE"
-dockerfilePath = "platform/Dockerfile"
-buildContext = "platform"
+dockerfilePath = "workspace-server/Dockerfile"
+buildContext = "workspace-server"
 
 [services.deploy]
 startCommand = "./server"

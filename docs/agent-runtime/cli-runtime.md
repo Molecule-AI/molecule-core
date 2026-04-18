@@ -4,7 +4,7 @@
 
 The workspace runtime uses a **pluggable adapter architecture** — each agent infrastructure (Claude Code, OpenClaw, LangGraph, CrewAI, AutoGen, etc.) has its own adapter that bridges the A2A protocol to the infra's native interface.
 
-Adapters live in `workspace-template/adapters/<runtime>/` and are auto-discovered at startup. Each adapter implements `BaseAdapter` (from `adapters/base.py`) with `setup()` and `create_executor()` methods.
+Adapters live in `workspace/adapters/<runtime>/` and are auto-discovered at startup. Each adapter implements `BaseAdapter` (from `adapters/base.py`) with `setup()` and `create_executor()` methods.
 
 The runtime is selected via `config.yaml`:
 
@@ -162,7 +162,7 @@ And it provisions, registers, and comes online automatically.
 
 ## Dockerfile
 
-The unified `workspace-template/Dockerfile` includes both Python and Node.js:
+The unified `workspace/Dockerfile` includes both Python and Node.js:
 
 ```dockerfile
 FROM python:3.11-slim
@@ -282,7 +282,7 @@ For production with many concurrent agents, consider:
 
 To add a new adapter:
 
-1. Create `workspace-template/adapters/<name>/` with:
+1. Create `workspace/adapters/<name>/` with:
    - `adapter.py` — class extending `BaseAdapter` with `setup()` and `create_executor()` methods
    - `requirements.txt` — runtime-specific Python dependencies (installed at container startup)
    - `__init__.py` — exports adapter class as `Adapter`

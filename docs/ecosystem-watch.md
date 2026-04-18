@@ -360,7 +360,7 @@ snapshots:
     notable_changes: >
       v1.30.4 (Apr 10 2026) patches CVE-2026-5724 MEDIUM authorization
       vulnerability; $300M Series D (Feb 2026, $5B valuation); we integrate
-      Temporal as infra via workspace-template/builtin_tools/temporal_workflow.py.
+      Temporal as infra via workspace/builtin_tools/temporal_workflow.py.
     source_url: https://github.com/temporalio/temporal/releases
 
   - name: Chrome DevTools MCP
@@ -657,7 +657,7 @@ snapshots:
       orchestration). Cloudflare assembling full-stack agent platform.
       Escalate to MEDIUM if Agents SDK integrates all four primitives into
       one-click multi-agent deployment.
-    source_url: https://blog.cloudflare.com/ai-platform/
+    source_url: https://blog.cloudflare.com/ai-workspace-server/
 
   - name: EvoMap Evolver
     slug: evomap-evolver
@@ -784,7 +784,7 @@ workspaces.
   finalize our plugin manifest schema.
 - Topic tags on the repo include `openclaw`, `clawdbot`, `moltbot`,
   `claude-code`, `codex` — Nous Research has a whole agent family. Our
-  `workspace-template/adapters/openclaw/` adapter predates Hermes's
+  `workspace/adapters/openclaw/` adapter predates Hermes's
   rebrand; check whether it still points to a live project.
 
 **Signals to react to:**
@@ -881,7 +881,7 @@ can act on user-connected accounts. MIT-adjacent, ~18k ⭐.
 
 **Overlap with us:** Both provide agent-accessible Slack, Telegram, and
 Discord channels. Both handle OAuth / credential management for workspace
-integrations. Channels feature in `platform/internal/handlers/channels.go`
+integrations. Channels feature in `workspace-server/internal/handlers/channels.go`
 does a subset of what Composio does for the messaging platforms.
 
 **Differentiation:** Composio is a tool library, not a runtime or org
@@ -1402,11 +1402,11 @@ builders; Molecule AI users are developers building agent companies.
 
 **Differentiation:** No persistent agent memory, no visual canvas, no A2A between agents, no channels. It is the container orchestration layer beneath agents; we are the agent identity and collaboration layer above.
 
-**Worth borrowing:** `agents.md` capability spec — a standard file per workspace declaring what the agent can do. Adopt in `workspace-template/` for Scion interoperability.
+**Worth borrowing:** `agents.md` capability spec — a standard file per workspace declaring what the agent can do. Adopt in `workspace/` for Scion interoperability.
 
 **Terminology collisions:** "profile" — Scion: named runtime config; ours: undefined. "harness" — both mean "the process managing agent execution."
 
-**Signals to react to:** If Scion adds A2A or a memory layer → direct overlap. If `agents.md` gains wide adoption → align `workspace-template/` to the spec.
+**Signals to react to:** If Scion adds A2A or a memory layer → direct overlap. If `agents.md` gains wide adoption → align `workspace/` to the spec.
 
 **Last reviewed:** 2026-04-15 · **Stars / activity:** GCP repo, 230 HN pts at launch, April 8, 2026
 
@@ -1478,15 +1478,15 @@ builders; Molecule AI users are developers building agent companies.
 
 **Shape:** TypeScript (MIT), ~18.1k ⭐, +396 today. Defines AI coding workflows as YAML DAGs: planning → implementation → validation → review → PR. Each run is git-worktree-isolated. Nodes are either AI-powered (Claude Code generation) or deterministic (bash, test runners). Human approval gates at any phase. Delivery to Slack, Telegram, Discord, GitHub, or web UI. "What Dockerfiles did for infra, Archon does for AI coding."
 
-**Overlap with us:** Wraps Claude Code in a structured pipeline — the same pattern as our Dev Lead delegating to a Claude Code workspace. Approval gates map to our `approvals` table. Git-worktree isolation mirrors our `workspace-template/` worktree pattern.
+**Overlap with us:** Wraps Claude Code in a structured pipeline — the same pattern as our Dev Lead delegating to a Claude Code workspace. Approval gates map to our `approvals` table. Git-worktree isolation mirrors our `workspace/` worktree pattern.
 
 **Differentiation:** No persistent agent identity, no org hierarchy, no A2A, no canvas, no multi-session scheduling. Archon defines a single delivery run; Molecule AI is the persistent company those runs operate inside.
 
-**Worth borrowing:** YAML-DAG workflow definition (planning → implementation → validation → PR) with mixed AI/deterministic nodes — natural extension of `workspace-template/` for repeatable, auditable delivery pipelines.
+**Worth borrowing:** YAML-DAG workflow definition (planning → implementation → validation → PR) with mixed AI/deterministic nodes — natural extension of `workspace/` for repeatable, auditable delivery pipelines.
 
 **Terminology collisions:** "workflow" — their YAML DAG vs our informal usage. "harness" — Archon, Scion, and our Claude Code runner all claim the word; Molecule AI docs should clarify its own use.
 
-**Signals to react to:** If Archon adds multi-workspace coordination → direct competitor to our orchestration layer. If their YAML workflow schema gains wide adoption → add an Archon import adapter to `workspace-template/`.
+**Signals to react to:** If Archon adds multi-workspace coordination → direct competitor to our orchestration layer. If their YAML workflow schema gains wide adoption → add an Archon import adapter to `workspace/`.
 
 **Last reviewed:** 2026-04-15 · **Stars / activity:** ~18.1k ⭐, +396 today, v0.3.6
 
@@ -1930,7 +1930,7 @@ competing, for most use cases. The gap is LangGraph Cloud vs our hosted platform
   per-session checkpoints) → direct hosted-platform competition; accelerate our
   LangGraph adapter differentiation.
 - If LangGraph 2.0 guardrail nodes become the standard compliance primitive for AI
-  pipelines → expose an equivalent gate type in `workspace-template/` adapters.
+  pipelines → expose an equivalent gate type in `workspace/` adapters.
 - If LangSmith + LangGraph Cloud bundle as an all-in-one enterprise platform → we
   need to position our model-agnostic, self-hostable story more aggressively against
   LangChain lock-in.
@@ -2017,7 +2017,7 @@ K8s or Docker. Raised $300M Series D at $5B valuation February 2026, with AI dri
 demand for durable execution. v1.30.4 released April 10 2026.
 
 **Overlap with us:** Molecule AI already integrates Temporal via
-`workspace-template/builtin_tools/temporal_workflow.py`. The `infra/scripts/setup.sh`
+`workspace/builtin_tools/temporal_workflow.py`. The `infra/scripts/setup.sh`
 starts a local Temporal server (`:7233` gRPC + `:8233` Web UI). Any Molecule AI
 workspace that needs bulletproof long-running or retryable work delegates to Temporal.
 Temporal's Worker Versioning (GA March 2026) solves the same code-deploy-during-live-

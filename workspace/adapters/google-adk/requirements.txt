@@ -1,0 +1,7 @@
+# Google ADK adapter dependencies
+# Pin to the latest stable release — update when a new version is verified.
+google-adk==1.30.0
+
+# google-adk transitively requires google-genai; pin explicitly for
+# reproducibility (same pinning convention as other adapter requirements.txt).
+google-genai>=1.16.0

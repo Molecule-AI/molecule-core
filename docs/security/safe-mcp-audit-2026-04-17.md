@@ -6,7 +6,7 @@
 **Audit date:** 2026-04-17
 **Auditor:** Security Auditor agent (`security-auditor-agent`)
 **Framework:** SAFE-MCP (Linux Foundation / OpenID Foundation, Apr 2026) — ATT&CK-style, 14 tactical categories, 80+ SAFE-T#### IDs
-**Scope:** `workspace-template/a2a_mcp_server.py`, A2A proxy, plugin install pipeline, memory subsystem, `.mcp.json`, `builtin_tools/`
+**Scope:** `workspace/a2a_mcp_server.py`, A2A proxy, plugin install pipeline, memory subsystem, `.mcp.json`, `builtin_tools/`
 **Branch audited:** `main` @ `0276e7b`
 
 ---
@@ -42,8 +42,8 @@ Six findings remain open across four SAFE-T categories. One previously-filed CRI
 | Request body cap | `plugins_install.go:36-37` | `PLUGIN_INSTALL_BODY_MAX_BYTES` (default 64 KiB) |
 | Staged dir size cap | `plugins_install_pipeline.go:184-191` | `PLUGIN_INSTALL_MAX_DIR_BYTES` (default 100 MiB) |
 | Plugin name validation | `plugins_install_pipeline.go:73-84` | Rejects `/`, `\`, `..`; no path traversal |
-| Git arg injection guard | `platform/internal/plugins/github.go:54-55,94-95` | `--` separator before URL; ref validated by `repoRE` (no leading `-`) |
-| Org plugin allowlist | `platform/internal/handlers/org_plugin_allowlist.go` | Per-org allowlist gate (#591) |
+| Git arg injection guard | `workspace-server/internal/plugins/github.go:54-55,94-95` | `--` separator before URL; ref validated by `repoRE` (no leading `-`) |
+| Org plugin allowlist | `workspace-server/internal/handlers/org_plugin_allowlist.go` | Per-org allowlist gate (#591) |
 | Symlink skip | `plugins_install_pipeline.go:338-340` | Symlinks skipped in `streamDirAsTar` |
 | Plugin name re-validation post-fetch | `plugins_install_pipeline.go:177-183` | Resolver-returned name re-checked for safety |
 
@@ -95,7 +95,7 @@ SAFE-T1102 directly: the MCP server install pathway fetches an external source a
 
 ### VULN-003 (HIGH) — No Manifest Signing on GitHub Plugin Install
 
-**File:** `platform/internal/plugins/github.go`
+**File:** `workspace-server/internal/plugins/github.go`
 
 `GithubResolver.Fetch` clones the target GitHub repository with `git clone --depth=1` and writes content to the staging directory with no cryptographic verification. There is no checksum field in `manifest.json`, no hash comparison, and no GPG signature requirement.
 
@@ -115,7 +115,7 @@ A compromised GitHub account, a CDN MITM on the git HTTPS transport, or a supply
 
 ### VULN-004 (HIGH) — Floating Plugin Refs
 
-**File:** `platform/internal/plugins/github.go:88-96`
+**File:** `workspace-server/internal/plugins/github.go:88-96`
 
 When a plugin source has no `#ref` (e.g. `github://org/plugin`), the resolver fetches default-branch HEAD at install time. Two installs of `org/plugin` at different times may produce different code — no audit trail exists for what changed.
 
@@ -127,7 +127,7 @@ When a plugin source has no `#ref` (e.g. `github://org/plugin`), the resolver fe
 
 ### VULN-002 (HIGH) — GLOBAL Memory Poisoning (Partially Mitigated)
 
-**Files:** `platform/internal/handlers/memories.go`, `workspace-template/a2a_mcp_server.py`
+**Files:** `workspace-server/internal/handlers/memories.go`, `workspace/a2a_mcp_server.py`
 
 #### Current Mitigation (PR #767) ✅
 
@@ -163,7 +163,7 @@ There is also **no content scanning** on writes: the platform stores whatever th
 
 ### VULN-006 (MEDIUM) — No Tool Output Sanitization in MCP Server
 
-**File:** `workspace-template/a2a_mcp_server.py:267-278`
+**File:** `workspace/a2a_mcp_server.py:267-278`
 
 ```python
 result_text = await handle_tool_call(tool_name, tool_args)
@@ -214,7 +214,7 @@ All eight tools reflect a reasonable least-privilege design for A2A agents. `com
 
 ### NEW-002 (MEDIUM) — Default Subprocess Sandbox Allows Shell Execution
 
-**File:** `workspace-template/builtin_tools/sandbox.py:37,67-104`
+**File:** `workspace/builtin_tools/sandbox.py:37,67-104`
 
 The `run_code` builtin tool defaults to `SANDBOX_BACKEND = "subprocess"`:
 
@@ -251,7 +251,7 @@ A prompt injection attack that causes an agent to call `run_code(code="...", lan
 
 ### NEW-001 (MEDIUM) — LangGraph Runtime Missing Auth Headers on A2A Calls
 
-**Files:** `workspace-template/builtin_tools/a2a_tools.py:19-20`, `workspace-template/builtin_tools/delegation.py:163-165, 184-187`
+**Files:** `workspace/builtin_tools/a2a_tools.py:19-20`, `workspace/builtin_tools/delegation.py:163-165, 184-187`
 
 The LangGraph adapter path (`builtin_tools/`) does not send the workspace bearer token when making A2A-adjacent platform requests:
 
@@ -306,7 +306,7 @@ outgoing_headers = inject_trace_headers({
 
 ### VULN-005 (MEDIUM) — GLOBAL Memories Readable by All Workspaces
 
-**File:** `platform/internal/handlers/memories.go:321-325`
+**File:** `workspace-server/internal/handlers/memories.go:321-325`
 
 ```go
 case "GLOBAL":
@@ -331,7 +331,7 @@ The `globalMemoryDelimiter` mitigation (#767) reduces the instructability risk b
 
 ### ~~VULN-001~~ — X-Workspace-ID System-Caller Forge (FIXED in #761)
 
-**File:** `platform/internal/handlers/a2a_proxy.go:179-190`
+**File:** `workspace-server/internal/handlers/a2a_proxy.go:179-190`
 
 The previously reported CRITICAL vulnerability — where any authenticated workspace agent could set `X-Workspace-ID: system:anything` to bypass both token validation and `CanCommunicate` — is confirmed **fixed** in the current codebase:
 
@@ -357,7 +357,7 @@ The HTTP handler now explicitly blocks forge attempts before reaching `proxyA2AR
 
 ### NEW-004 (LOW) — `_maybe_log_skill_promotion` Unauthenticated Heartbeat
 
-**File:** `workspace-template/builtin_tools/memory.py:449-464`
+**File:** `workspace/builtin_tools/memory.py:449-464`
 
 The `_maybe_log_skill_promotion` function posts to `/workspaces/<id>/activity` and `/registry/heartbeat` without calling `auth_headers()`:
 
@@ -383,7 +383,7 @@ These are best-effort observability calls, so the impact is low — they will si
 
 ## MCP Tool Description Audit (SAFE-T1201)
 
-All eight tool descriptions in `workspace-template/a2a_mcp_server.py` were reviewed for injected instructions. **None found.** Descriptions are functional, specific, and do not contain embedded commands or LLM-manipulation text.
+All eight tool descriptions in `workspace/a2a_mcp_server.py` were reviewed for injected instructions. **None found.** Descriptions are functional, specific, and do not contain embedded commands or LLM-manipulation text.
 
 | Tool | Description | Injection Risk |
 |------|-------------|---------------|
@@ -428,11 +428,11 @@ Week 3 (MEDIUM):
   - SAFE-T1301 — Excessive Tool Permissions
   - SAFE-T1401 — Secret Exfiltration via Tool Response
 - Platform issue #767 — GLOBAL memory delimiter (#761 for system-caller forge)
-- `platform/internal/handlers/a2a_proxy.go` — ProxyA2A, isSystemCaller
-- `platform/internal/handlers/memories.go` — GLOBAL scope read/write + delimiter
-- `workspace-template/a2a_mcp_server.py` — MCP server tool definitions
-- `workspace-template/builtin_tools/a2a_tools.py` — LangGraph delegation path
-- `workspace-template/builtin_tools/delegation.py` — LangGraph async delegation
-- `workspace-template/builtin_tools/sandbox.py` — run_code tool
-- `platform/internal/plugins/github.go` — GitHub plugin resolver
+- `workspace-server/internal/handlers/a2a_proxy.go` — ProxyA2A, isSystemCaller
+- `workspace-server/internal/handlers/memories.go` — GLOBAL scope read/write + delimiter
+- `workspace/a2a_mcp_server.py` — MCP server tool definitions
+- `workspace/builtin_tools/a2a_tools.py` — LangGraph delegation path
+- `workspace/builtin_tools/delegation.py` — LangGraph async delegation
+- `workspace/builtin_tools/sandbox.py` — run_code tool
+- `workspace-server/internal/plugins/github.go` — GitHub plugin resolver
 - `.mcp.json` — MCP server configuration

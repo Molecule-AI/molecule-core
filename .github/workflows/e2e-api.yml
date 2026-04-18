@@ -16,13 +16,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'platform/**'
+      - 'workspace-server/**'
       - 'tests/e2e/**'
       - '.github/workflows/e2e-api.yml'
   pull_request:
     branches: [main]
     paths:
-      - 'platform/**'
+      - 'workspace-server/**'
       - 'tests/e2e/**'
       - '.github/workflows/e2e-api.yml'
 
@@ -54,7 +54,7 @@ jobs:
         with:
           go-version: 'stable'
           cache: true
-          cache-dependency-path: platform/go.sum
+          cache-dependency-path: workspace-server/go.sum
       - name: Start Postgres (docker)
         run: |
           docker rm -f "$PG_CONTAINER" 2>/dev/null || true
@@ -105,7 +105,7 @@ jobs:
             sleep 1
           done
           echo "::error::Platform did not become healthy in 30s"
-          cat platform/platform.log || true
+          cat workspace-server/platform.log || true
           exit 1
       - name: Assert migrations applied
         # Migrations auto-run at platform boot. Fail fast if they silently
@@ -114,7 +114,7 @@ jobs:
           tables=$(docker exec "$PG_CONTAINER" psql -U dev -d molecule -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='workspaces'")
           if [ "$tables" != "1" ]; then
             echo "::error::Migrations did not apply — 'workspaces' table missing"
-            cat platform/platform.log || true
+            cat workspace-server/platform.log || true
             exit 1
           fi
           echo "Migrations OK (workspaces table present)"
@@ -122,12 +122,12 @@ jobs:
         run: bash tests/e2e/test_api.sh
       - name: Dump platform log on failure
         if: failure()
-        run: cat platform/platform.log || true
+        run: cat workspace-server/platform.log || true
       - name: Stop platform
         if: always()
         run: |
-          if [ -f platform/platform.pid ]; then
-            kill "$(cat platform/platform.pid)" 2>/dev/null || true
+          if [ -f workspace-server/platform.pid ]; then
+            kill "$(cat workspace-server/platform.pid)" 2>/dev/null || true
           fi
       - name: Stop service containers
         if: always()
