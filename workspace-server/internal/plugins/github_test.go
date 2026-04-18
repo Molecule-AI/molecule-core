@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -81,6 +82,7 @@ func TestGithubResolver_ClonesAndStripsGitDir(t *testing.T) {
 }
 
 func TestGithubResolver_PassesRefAsBranch(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // tag ref — only valid with bypass; tests --branch pass-through
 	var seenArgs []string
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
@@ -138,7 +140,7 @@ func TestGithubResolver_RejectsInvalidSpec(t *testing.T) {
 }
 
 func TestGithubResolver_BubblesUpGitError(t *testing.T) {
-	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true")
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // bypass pinned-ref gate; test targets git error bubbling
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
 			return errors.New("simulated auth failure")
@@ -154,7 +156,7 @@ func TestGithubResolver_BubblesUpGitError(t *testing.T) {
 }
 
 func TestGithubResolver_UsesDefaultsWhenNilFields(t *testing.T) {
-	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true")
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // bypass pinned-ref gate; test targets default-fields logic
 	// A zero-value GithubResolver should still have defaults filled in
 	// at Fetch time. Verified indirectly: we pass a stub that records
 	// the URL passed to `git clone`.
@@ -213,6 +215,7 @@ func TestDefaultGitRunner_UsesWorkingDirHomeFallback(t *testing.T) {
 }
 
 func TestGithubResolver_NilGitRunnerUsesDefault(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // bypass pinned-ref gate; test targets nil-runner fallback
 	// Passing nil GitRunner should fall back to defaultGitRunner. With no
 	// git on PATH, that fallback errors — we don't need real git here.
 	t.Setenv("PATH", "/nonexistent")
@@ -224,6 +227,7 @@ func TestGithubResolver_NilGitRunnerUsesDefault(t *testing.T) {
 }
 
 func TestGithubResolver_CopyToDstFailure(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // bypass pinned-ref gate; test targets copy failure
 	r := &GithubResolver{
 		GitRunner: stubGit(map[string]string{"plugin.yaml": "name: x\n"}),
 	}
@@ -258,8 +262,9 @@ func TestGithubResolver_AlwaysPassesDepth1(t *testing.T) {
 }
 
 func TestGithubResolver_PassesDoubleDashBeforeURL(t *testing.T) {
-	// When a ref is specified, we pass `--` after --branch <ref> as
-	// defense-in-depth against ref-as-flag injection.
+	// When a branch/tag ref is specified (PLUGIN_ALLOW_UNPINNED=true), we pass
+	// `--` after --branch <ref> as defense-in-depth against ref-as-flag injection.
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // branch ref only valid with bypass
 	var seenArgs []string
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
@@ -285,7 +290,7 @@ func TestGithubResolver_RejectsRefStartingWithHyphen(t *testing.T) {
 }
 
 func TestGithubResolver_MapsRepositoryNotFoundToSentinel(t *testing.T) {
-	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true")
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // bypass pinned-ref gate; test targets ErrPluginNotFound mapping
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
 			return errors.New("remote: Repository not found.\nfatal: repository 'https://github.com/x/y.git' not found")
@@ -298,6 +303,7 @@ func TestGithubResolver_MapsRepositoryNotFoundToSentinel(t *testing.T) {
 }
 
 func TestGithubResolver_MapsMissingBranchToSentinel(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // non-SHA ref; bypass gate to test git error mapping
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
 			return errors.New("fatal: Remote branch bogus not found in upstream origin")
@@ -310,6 +316,7 @@ func TestGithubResolver_MapsMissingBranchToSentinel(t *testing.T) {
 }
 
 func TestGithubResolver_AuthFailureIsNotErrPluginNotFound(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "true") // bypass pinned-ref gate; test targets auth error classification
 	r := &GithubResolver{
 		GitRunner: func(ctx context.Context, dir string, args ...string) error {
 			return errors.New("fatal: Authentication failed for 'https://github.com/private/repo.git/'")
@@ -321,5 +328,171 @@ func TestGithubResolver_AuthFailureIsNotErrPluginNotFound(t *testing.T) {
 	}
 	if errors.Is(err, ErrPluginNotFound) {
 		t.Errorf("auth failure must not surface as ErrPluginNotFound: %v", err)
+	}
+}
+
+// ---- SHA-enforcement tests (VULN-004 / issue #768 supply-chain hardening) ----
+
+// stubGitSHA creates a GitRunner stub for the three-command SHA fetch sequence:
+// "init <target>", "fetch --depth=1 -- <url> <sha>", "checkout FETCH_HEAD".
+// On "init" it creates the target dir; on "fetch" it writes repoContents into dir;
+// on "checkout" it is a no-op (content is already present from the fetch step).
+func stubGitSHA(repoContents map[string]string) func(ctx context.Context, dir string, args ...string) error {
+	return func(ctx context.Context, dir string, args ...string) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if len(args) == 0 {
+			return errors.New("stubGitSHA: empty args")
+		}
+		switch args[0] {
+		case "init":
+			// args: init -- <target>
+			target := args[len(args)-1]
+			return os.MkdirAll(target, 0o755)
+		case "fetch":
+			// dir is the cloneTarget; write contents here so copyTree finds them.
+			for path, content := range repoContents {
+				full := filepath.Join(dir, path)
+				if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+					return err
+				}
+				if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+					return err
+				}
+			}
+			return nil
+		case "checkout":
+			return nil // content was already written during the fetch step
+		default:
+			return fmt.Errorf("stubGitSHA: unexpected command %q (args: %v)", args[0], args)
+		}
+	}
+}
+
+// fakeSHA is a valid 40-char hex commit SHA used across SHA-enforcement tests.
+const fakeSHA = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+
+// TestGithubResolver_RejectsNonSHARef verifies that branch names and movable
+// tags are rejected by the supply-chain gate when PLUGIN_ALLOW_UNPINNED is unset.
+func TestGithubResolver_RejectsNonSHARef(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "")
+	r := NewGithubResolver()
+	for _, ref := range []string{"main", "dev", "v1.2.3", "release/2026", "feature-x"} {
+		spec := "org/repo#" + ref
+		t.Run(ref, func(t *testing.T) {
+			_, err := r.Fetch(context.Background(), spec, t.TempDir())
+			if err == nil {
+				t.Errorf("should have rejected non-SHA ref %q", ref)
+			}
+			if !strings.Contains(err.Error(), "not a pinned commit SHA") {
+				t.Errorf("error should mention supply-chain gate, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestGithubResolver_SHARefAcceptedWithoutAllowUnpinned verifies that a full
+// 40-char hex SHA is accepted even when PLUGIN_ALLOW_UNPINNED is unset.
+func TestGithubResolver_SHARefAcceptedWithoutAllowUnpinned(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "")
+	r := &GithubResolver{
+		GitRunner: stubGitSHA(map[string]string{"plugin.yaml": "name: test\n"}),
+		BaseURL:   "file:///dev/null",
+	}
+	_, err := r.Fetch(context.Background(), "org/repo#"+fakeSHA, t.TempDir())
+	if err != nil {
+		t.Fatalf("SHA ref must be accepted without PLUGIN_ALLOW_UNPINNED: %v", err)
+	}
+}
+
+// TestGithubResolver_SHARefUsesInitFetchCheckout verifies that a SHA ref
+// triggers the init→fetch→checkout strategy (NOT git clone --branch).
+func TestGithubResolver_SHARefUsesInitFetchCheckout(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "")
+	var callLog []string
+	r := &GithubResolver{
+		GitRunner: func(ctx context.Context, dir string, args ...string) error {
+			if len(args) > 0 {
+				callLog = append(callLog, args[0])
+			}
+			// Satisfy the stub: create target on init, create a file on fetch.
+			switch args[0] {
+			case "init":
+				target := args[len(args)-1]
+				return os.MkdirAll(target, 0o755)
+			case "fetch":
+				return os.WriteFile(filepath.Join(dir, "plugin.yaml"), []byte("name: x\n"), 0o644)
+			case "checkout":
+				return nil
+			}
+			return fmt.Errorf("unexpected git command %q", args[0])
+		},
+		BaseURL: "file:///dev/null",
+	}
+	dst := t.TempDir()
+	if _, err := r.Fetch(context.Background(), "org/repo#"+fakeSHA, dst); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(callLog) != 3 || callLog[0] != "init" || callLog[1] != "fetch" || callLog[2] != "checkout" {
+		t.Errorf("expected [init fetch checkout], got %v", callLog)
+	}
+	// Verify clone strategy did NOT use "clone" command.
+	for _, cmd := range callLog {
+		if cmd == "clone" {
+			t.Error("SHA ref must not use git clone -- use init+fetch+checkout instead")
+		}
+	}
+}
+
+// TestGithubResolver_SHARefMapsNotOurRefToSentinel verifies that a SHA that
+// the remote rejects with "not our ref" maps to ErrPluginNotFound.
+func TestGithubResolver_SHARefMapsNotOurRefToSentinel(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "")
+	r := &GithubResolver{
+		GitRunner: func(ctx context.Context, dir string, args ...string) error {
+			switch args[0] {
+			case "init":
+				target := args[len(args)-1]
+				return os.MkdirAll(target, 0o755)
+			case "fetch":
+				return errors.New("error: Server does not allow request for unadvertised object — not our ref")
+			}
+			return nil
+		},
+		BaseURL: "file:///dev/null",
+	}
+	_, err := r.Fetch(context.Background(), "org/repo#"+fakeSHA, t.TempDir())
+	if !errors.Is(err, ErrPluginNotFound) {
+		t.Errorf("expected ErrPluginNotFound for unavailable SHA, got %v", err)
+	}
+}
+
+// TestGithubResolver_UppercaseSHANormalized verifies that an uppercase hex SHA
+// is accepted after normalization (strings.ToLower).
+func TestGithubResolver_UppercaseSHANormalized(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "")
+	upperSHA := strings.ToUpper(fakeSHA) // 40 uppercase hex chars
+	r := &GithubResolver{
+		GitRunner: stubGitSHA(map[string]string{"plugin.yaml": "name: test\n"}),
+		BaseURL:   "file:///dev/null",
+	}
+	_, err := r.Fetch(context.Background(), "org/repo#"+upperSHA, t.TempDir())
+	if err != nil {
+		t.Fatalf("uppercase SHA must be accepted after ToLower normalization: %v", err)
+	}
+}
+
+// TestGithubResolver_BareSpecRejectedWithoutAllowUnpinned verifies that a spec
+// with no #ref fragment is always rejected unless PLUGIN_ALLOW_UNPINNED=true.
+func TestGithubResolver_BareSpecRejectedWithoutAllowUnpinned(t *testing.T) {
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "")
+	r := NewGithubResolver()
+	_, err := r.Fetch(context.Background(), "org/repo", t.TempDir())
+	if err == nil {
+		t.Fatal("bare spec must be rejected without PLUGIN_ALLOW_UNPINNED")
+	}
+	if !strings.Contains(err.Error(), "requires a pinned commit SHA") {
+		t.Errorf("error should mention pinned commit SHA requirement, got: %v", err)
 	}
 }

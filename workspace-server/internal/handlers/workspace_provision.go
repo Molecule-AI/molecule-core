@@ -152,6 +152,23 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 	// wins the race against the Python adapter's startup time (~1-2 s).
 	h.issueAndInjectToken(ctx, workspaceID, &cfg)
 
+	// Token revocation guard (security Q6 — orphaned token cleanup).
+	// issueAndInjectToken rotates the token; if Start() fails the freshly-
+	// issued token would remain live in the DB even though the workspace is
+	// stuck at 'failed'. ValidateAnyToken only excludes 'removed' workspaces,
+	// so a failed workspace's token could still authenticate API calls.
+	// This deferred revocation fires on ANY non-success exit from this function.
+	// We use context.Background() because ctx may already be cancelled by the
+	// time the defer runs (e.g. ProvisionTimeout expired).
+	startSucceeded := false
+	defer func() {
+		if !startSucceeded {
+			if rErr := wsauth.RevokeAllForWorkspace(context.Background(), db.DB, workspaceID); rErr != nil {
+				log.Printf("Provisioner: failed to revoke orphaned token for %s after start failure: %v", workspaceID, rErr)
+			}
+		}
+	}()
+
 	url, err := h.provisioner.Start(ctx, cfg)
 	if err != nil {
 		// Persist the error text to last_sample_error so the canvas and
@@ -183,8 +200,10 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 			log.Printf("Provisioner: failed to cache internal URL for %s: %v", workspaceID, cacheErr)
 		}
 	}
-	// On success, the workspace will register via POST /registry/register
-	// which transitions status to 'online' and broadcasts WORKSPACE_ONLINE
+	// On success, disarm the token revocation guard so the defer is a no-op.
+	// The workspace will register via POST /registry/register which transitions
+	// status to 'online' and broadcasts WORKSPACE_ONLINE.
+	startSucceeded = true
 }
 
 func workspaceAwarenessNamespace(workspaceID string) string {
@@ -500,6 +519,21 @@ func loadWorkspaceSecrets(ctx context.Context, workspaceID string) (map[string]s
 }
 
 // provisionWorkspaceCP provisions a workspace via the control plane API.
+//
+// Token ordering (fix for launch HIGH #6 — workspaces stuck at "provisioning"):
+//
+// The workspace agent boots on EC2 and immediately calls POST /registry/register.
+// The registry issues a bearer token ONLY on first registration; subsequent
+// re-registrations are idempotent and return no token. If the platform issues a
+// token here AFTER cpProv.Start() returns, the token exists in the DB by the time
+// the EC2 instance registers — so the registration is treated as a re-register,
+// no token is returned, the agent has no credential, and all subsequent heartbeats
+// fail with 401 → workspace stays at "provisioning" forever.
+//
+// Fix: issue the token BEFORE launching the instance and inject it as
+// MOLECULE_AUTH_TOKEN in the boot environment. The workspace-template reads this
+// env var in platform_auth.get_token() and persists it to .auth_token on first
+// use, so it survives subsequent restarts without re-reading the env var.
 func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string, configFiles map[string][]byte, payload models.CreateWorkspacePayload) {
 	ctx, cancel := context.WithTimeout(context.Background(), provisioner.ProvisionTimeout)
 	defer cancel()
@@ -520,6 +554,25 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 		return
 	}
 
+	// Issue the auth token BEFORE launching the EC2 instance so it can be
+	// injected into the boot environment. The token must exist in the DB
+	// before the instance registers — if it were issued after Start(), the
+	// registration call would be treated as a re-registration (token already
+	// exists) and return no token, leaving the agent unable to heartbeat.
+	token, tokenErr := wsauth.IssueToken(ctx, db.DB, workspaceID)
+	if tokenErr != nil {
+		log.Printf("CPProvisioner: failed to issue token for %s: %v", workspaceID, tokenErr)
+		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
+			workspaceID, tokenErr.Error())
+		return
+	}
+	log.Printf("CPProvisioner: issued auth token for workspace %s (prefix: %s...)", workspaceID, token[:8])
+
+	// Inject MOLECULE_AUTH_TOKEN so the EC2 boot environment carries the
+	// credential. The workspace-template reads this env var in
+	// platform_auth.get_token() and auto-persists it to .auth_token.
+	envVars["MOLECULE_AUTH_TOKEN"] = token
+
 	cfg := provisioner.WorkspaceConfig{
 		WorkspaceID: workspaceID,
 		Tier:        payload.Tier,
@@ -527,6 +580,19 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 		EnvVars:     envVars,
 		PlatformURL: h.platformURL,
 	}
+
+	// Token revocation guard (security Q6 — orphaned token cleanup).
+	// The token was issued above; if cpProv.Start() fails the workspace is
+	// set to 'failed' but the token would remain live in the DB. Revoke it
+	// so it cannot be used for authenticated API calls by a never-launched agent.
+	cpStartSucceeded := false
+	defer func() {
+		if !cpStartSucceeded {
+			if rErr := wsauth.RevokeAllForWorkspace(context.Background(), db.DB, workspaceID); rErr != nil {
+				log.Printf("CPProvisioner: failed to revoke orphaned token for %s after start failure: %v", workspaceID, rErr)
+			}
+		}
+	}()
 
 	machineID, err := h.cpProv.Start(ctx, cfg)
 	if err != nil {
@@ -539,12 +605,7 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 		return
 	}
 
+	// Disarm the revocation guard — the EC2 instance started; the token is needed.
+	cpStartSucceeded = true
 	log.Printf("CPProvisioner: workspace %s started as machine %s via control plane", workspaceID, machineID)
-	// Issue token so the agent can authenticate on boot
-	token, tokenErr := wsauth.IssueToken(ctx, db.DB, workspaceID)
-	if tokenErr != nil {
-		log.Printf("CPProvisioner: failed to issue token for %s: %v", workspaceID, tokenErr)
-	} else {
-		log.Printf("CPProvisioner: issued auth token for workspace %s (prefix: %s...)", workspaceID, token[:8])
-	}
 }

@@ -998,7 +998,10 @@ func TestActivityHandler_ReportMissingBody(t *testing.T) {
 
 // ---------- TestWorkspaceGet_CurrentTask ----------
 
-func TestWorkspaceGet_CurrentTask(t *testing.T) {
+// TestWorkspaceGet_CurrentTask_Authenticated verifies that an authenticated caller
+// receives current_task and active_tasks in the full response. (SA finding: these
+// fields are stripped from unauthenticated callers — auth is required to see them.)
+func TestWorkspaceGet_CurrentTask_Authenticated(t *testing.T) {
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
@@ -1018,10 +1021,16 @@ func TestWorkspaceGet_CurrentTask(t *testing.T) {
 			nil, int64(0),
 		))
 
+	// ValidateAnyToken: SELECT t.id FROM workspace_auth_tokens t JOIN workspaces w ...
+	mock.ExpectQuery("SELECT t.id").
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-task-001"))
+
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "dddddddd-0004-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("GET", "/workspaces/ws-task", nil)
+	c.Request.Header.Set("Authorization", "Bearer test-token-for-current-task")
 
 	handler.Get(c)
 
