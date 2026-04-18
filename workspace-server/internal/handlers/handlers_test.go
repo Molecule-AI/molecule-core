@@ -1032,8 +1032,9 @@ func TestWorkspaceGet_CurrentTask(t *testing.T) {
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
 
-	if resp["current_task"] != "Analyzing document" {
-		t.Errorf("expected current_task 'Analyzing document', got %v", resp["current_task"])
+	// current_task stripped from public GET response (#955)
+	if _, exists := resp["current_task"]; exists {
+		t.Errorf("current_task should be stripped from public GET response")
 	}
 	if resp["active_tasks"] != float64(2) {
 		t.Errorf("expected active_tasks 2, got %v", resp["active_tasks"])

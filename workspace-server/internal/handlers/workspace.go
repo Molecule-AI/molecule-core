@@ -436,11 +436,13 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 		return
 	}
 
-	// Strip financial fields — GET /workspaces/:id is on the open router.
-	// Any caller with a valid UUID would otherwise read billing data.
-	// The dedicated budget/spend endpoints are AdminAuth-gated. (#611)
+	// Strip sensitive fields — GET /workspaces/:id is on the open router.
+	// Any caller with a valid UUID would otherwise read operational data.
 	delete(ws, "budget_limit")
 	delete(ws, "monthly_spend")
+	delete(ws, "current_task")      // operational surveillance risk (#955)
+	delete(ws, "last_sample_error") // internal error details
+	delete(ws, "workspace_dir")     // host path disclosure
 
 	c.JSON(http.StatusOK, ws)
 }
