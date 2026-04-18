@@ -152,6 +152,23 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 	// wins the race against the Python adapter's startup time (~1-2 s).
 	h.issueAndInjectToken(ctx, workspaceID, &cfg)
 
+	// Token revocation guard (security Q6 — orphaned token cleanup).
+	// issueAndInjectToken rotates the token; if Start() fails the freshly-
+	// issued token would remain live in the DB even though the workspace is
+	// stuck at 'failed'. ValidateAnyToken only excludes 'removed' workspaces,
+	// so a failed workspace's token could still authenticate API calls.
+	// This deferred revocation fires on ANY non-success exit from this function.
+	// We use context.Background() because ctx may already be cancelled by the
+	// time the defer runs (e.g. ProvisionTimeout expired).
+	startSucceeded := false
+	defer func() {
+		if !startSucceeded {
+			if rErr := wsauth.RevokeAllForWorkspace(context.Background(), db.DB, workspaceID); rErr != nil {
+				log.Printf("Provisioner: failed to revoke orphaned token for %s after start failure: %v", workspaceID, rErr)
+			}
+		}
+	}()
+
 	url, err := h.provisioner.Start(ctx, cfg)
 	if err != nil {
 		// Persist the error text to last_sample_error so the canvas and
@@ -183,8 +200,10 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 			log.Printf("Provisioner: failed to cache internal URL for %s: %v", workspaceID, cacheErr)
 		}
 	}
-	// On success, the workspace will register via POST /registry/register
-	// which transitions status to 'online' and broadcasts WORKSPACE_ONLINE
+	// On success, disarm the token revocation guard so the defer is a no-op.
+	// The workspace will register via POST /registry/register which transitions
+	// status to 'online' and broadcasts WORKSPACE_ONLINE.
+	startSucceeded = true
 }
 
 func workspaceAwarenessNamespace(workspaceID string) string {
@@ -562,6 +581,19 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 		PlatformURL: h.platformURL,
 	}
 
+	// Token revocation guard (security Q6 — orphaned token cleanup).
+	// The token was issued above; if cpProv.Start() fails the workspace is
+	// set to 'failed' but the token would remain live in the DB. Revoke it
+	// so it cannot be used for authenticated API calls by a never-launched agent.
+	cpStartSucceeded := false
+	defer func() {
+		if !cpStartSucceeded {
+			if rErr := wsauth.RevokeAllForWorkspace(context.Background(), db.DB, workspaceID); rErr != nil {
+				log.Printf("CPProvisioner: failed to revoke orphaned token for %s after start failure: %v", workspaceID, rErr)
+			}
+		}
+	}()
+
 	machineID, err := h.cpProv.Start(ctx, cfg)
 	if err != nil {
 		log.Printf("CPProvisioner: failed to start workspace %s: %v", workspaceID, err)
@@ -573,5 +605,7 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 		return
 	}
 
+	// Disarm the revocation guard — the EC2 instance started; the token is needed.
+	cpStartSucceeded = true
 	log.Printf("CPProvisioner: workspace %s started as machine %s via control plane", workspaceID, machineID)
 }
