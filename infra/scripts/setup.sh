@@ -27,7 +27,7 @@ KEA=$(docker compose -f "$ROOT_DIR/docker-compose.infra.yml" exec -T redis redis
 echo "    notify-keyspace-events = $KEA"
 
 echo "==> Running migrations..."
-MIGRATIONS_DIR="$ROOT_DIR/platform/migrations"
+MIGRATIONS_DIR="$ROOT_DIR/workspace-server/migrations"
 if [ -d "$MIGRATIONS_DIR" ]; then
   for f in "$MIGRATIONS_DIR"/*.sql; do
     echo "    Applying $(basename "$f")..."
