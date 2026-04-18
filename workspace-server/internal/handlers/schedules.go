@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -96,6 +97,10 @@ func (h *ScheduleHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// Strip CRLF from prompts — org-template files committed on Windows
+	// inject \r\n, causing empty agent responses (issue #958).
+	body.Prompt = strings.ReplaceAll(body.Prompt, "\r", "")
+
 	if body.Timezone == "" {
 		body.Timezone = "UTC"
 	}
@@ -159,6 +164,12 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
 		return
+	}
+
+	// Strip CRLF from prompt if provided (issue #958).
+	if body.Prompt != nil {
+		clean := strings.ReplaceAll(*body.Prompt, "\r", "")
+		body.Prompt = &clean
 	}
 
 	// If cron_expr or timezone changed, revalidate and recompute next_run
