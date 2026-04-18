@@ -24,7 +24,7 @@ import (
 // RuntimeImages maps runtime names to their Docker image tags.
 // Each adapter has its own pre-built image extending workspace-template:base,
 // with runtime-specific deps pre-installed for fast startup.
-// Build all: workspace-template/Dockerfile (base), then each adapters/*/Dockerfile.
+// Build all: workspace/Dockerfile (base), then each adapters/*/Dockerfile.
 var RuntimeImages = map[string]string{
 	"langgraph":   "workspace-template:langgraph",
 	"claude-code": "workspace-template:claude-code",
@@ -244,7 +244,7 @@ func (p *Provisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string, e
 	if err != nil {
 		if isImageNotFoundErr(err) {
 			return "", fmt.Errorf(
-				"docker image %q not found — run 'bash workspace-template/build-all.sh %s' to build it (underlying error: %w)",
+				"docker image %q not found — run 'bash workspace/build-all.sh %s' to build it (underlying error: %w)",
 				image, runtimeTagFromImage(image), err,
 			)
 		}

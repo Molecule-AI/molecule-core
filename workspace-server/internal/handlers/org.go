@@ -93,7 +93,7 @@ type OrgDefaults struct {
 	// when both are set.
 	InitialPromptFile string `yaml:"initial_prompt_file" json:"initial_prompt_file"`
 	// IdlePrompt / IdleIntervalSeconds are the workspace-default idle-loop
-	// body and cadence (see workspace-template/heartbeat.py). They were
+	// body and cadence (see workspace/heartbeat.py). They were
 	// previously dropped by the org importer because the struct didn't
 	// declare them — causing live configs to boot without idle_prompts
 	// even when org.yaml had them. Phase 1 scalability work adds both
@@ -539,7 +539,7 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 		// Resolve idle_prompt — same precedence (ws inline → ws file → defaults).
 		// Inject into config.yaml alongside idle_interval_seconds so the
 		// workspace's heartbeat loop picks up the idle-reflection cadence on
-		// boot (see workspace-template/heartbeat.py + config.py).
+		// boot (see workspace/heartbeat.py + config.py).
 		idlePrompt, err := resolvePromptRef(ws.IdlePrompt, ws.IdlePromptFile, orgBaseDir, ws.FilesDir)
 		if err != nil {
 			log.Printf("Org import: failed to resolve idle_prompt for %s: %v", ws.Name, err)
@@ -569,7 +569,7 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 			// means the idle loop never fires regardless of interval, so we
 			// only emit interval when there's a body to go with it.
 			if idleInterval <= 0 {
-				idleInterval = 600 // same default as workspace-template/config.py
+				idleInterval = 600 // same default as workspace/config.py
 			}
 			block := fmt.Sprintf("idle_interval_seconds: %d\nidle_prompt: |\n  %s\n", idleInterval, indented)
 			configFiles["config.yaml"] = appendYAMLBlock(configFiles["config.yaml"], block)
