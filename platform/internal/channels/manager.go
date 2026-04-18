@@ -454,9 +454,11 @@ func (m *Manager) BroadcastToWorkspaceChannels(ctx context.Context, workspaceID,
 	if len(runes) > 500 {
 		text = string(runes[:497]) + "..."
 	}
+	// Only auto-post to Slack channels. Telegram is CEO-only — explicit
+	// escalations via the agent's outbound call, never auto-post from crons.
 	rows, err := db.DB.QueryContext(ctx, `
 		SELECT id FROM workspace_channels
-		WHERE workspace_id = $1 AND enabled = true
+		WHERE workspace_id = $1 AND enabled = true AND channel_type = 'slack'
 	`, workspaceID)
 	if err != nil {
 		return
