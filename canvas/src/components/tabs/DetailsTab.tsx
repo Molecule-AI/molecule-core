@@ -255,19 +255,29 @@ export function DetailsTab({ workspaceId, data }: Props) {
           </div>
         )}
         {confirmDelete ? (
-          <div className="flex gap-2">
-            <button
-              onClick={handleDelete}
-              className="px-3 py-1 bg-red-600 hover:bg-red-500 text-xs rounded text-white"
-            >
-              Confirm Delete
-            </button>
-            <button
-              onClick={() => { setConfirmDelete(false); setDeleteError(null); }}
-              className="px-3 py-1 bg-zinc-700 hover:bg-zinc-600 text-xs rounded text-zinc-300"
-            >
-              Cancel
-            </button>
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-confirm-title"
+            className="space-y-2"
+          >
+            <h3 id="delete-confirm-title" className="text-xs font-medium text-red-400">
+              Confirm deletion
+            </h3>
+            <div className="flex gap-2">
+              <button
+                onClick={handleDelete}
+                className="px-3 py-1 bg-red-600 hover:bg-red-500 text-xs rounded text-white"
+              >
+                Confirm Delete
+              </button>
+              <button
+                onClick={() => { setConfirmDelete(false); setDeleteError(null); }}
+                className="px-3 py-1 bg-zinc-700 hover:bg-zinc-600 text-xs rounded text-zinc-300"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         ) : (
           <button
