@@ -19,12 +19,14 @@ beforeEach(() => {
 });
 
 vi.mock("@/lib/auth", () => ({
-  fetchSession: (...args: unknown[]) => mockFetchSession(...args),
-  redirectToLogin: (...args: unknown[]) => mockRedirectToLogin(...args),
+  // Cast required: vi.fn() returns Mock<Procedure | Constructable> which TypeScript
+  // won't call directly inside a factory closure (TS2348). Cast to Function resolves it.
+  fetchSession: (...args: unknown[]) => (mockFetchSession as unknown as (...a: unknown[]) => unknown)(...args),
+  redirectToLogin: (...args: unknown[]) => (mockRedirectToLogin as unknown as (...a: unknown[]) => unknown)(...args),
 }));
 
 vi.mock("@/lib/tenant", () => ({
-  getTenantSlug: (...args: unknown[]) => mockGetTenantSlug(...args),
+  getTenantSlug: (...args: unknown[]) => (mockGetTenantSlug as unknown as (...a: unknown[]) => unknown)(...args),
 }));
 
 // Import after mocks are set up
