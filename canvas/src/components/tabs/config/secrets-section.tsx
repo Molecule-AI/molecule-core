@@ -86,7 +86,7 @@ function SecretRow({ label, secretKey, isSet, scope, globalMode, onSave, onDelet
           <button
             onClick={() => { onSave(value); setEditing(false); setValue(""); }}
             disabled={!value}
-            className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-zinc-50 disabled:opacity-30"
+            className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-zinc-100 disabled:opacity-30"
           >Save</button>
         </div>
       )}
@@ -139,7 +139,7 @@ function CustomSecretRow({ secretKey, scope, globalMode, onSave, onDelete }: {
           <button
             onClick={() => { onSave(value); setEditing(false); setValue(""); }}
             disabled={!value}
-            className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-zinc-50 disabled:opacity-30"
+            className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-zinc-100 disabled:opacity-30"
           >Save</button>
         </div>
       )}
@@ -292,7 +292,7 @@ export function SecretsSection({ workspaceId }: { workspaceId: string }) {
                 className="w-full bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-[10px] text-zinc-100 focus:outline-none focus:border-blue-500" />
               <div className="flex gap-2">
                 <button onClick={() => { if (newKey && newValue) handleSave(newKey, newValue); }} disabled={!newKey || !newValue}
-                  className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-zinc-50 disabled:opacity-30">
+                  className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-zinc-100 disabled:opacity-30">
                   Save{globalMode ? " (Global)" : ""}
                 </button>
                 <button onClick={() => { setShowAdd(false); setNewKey(""); setNewValue(""); }}
