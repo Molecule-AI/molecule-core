@@ -6,7 +6,7 @@ This repo uses the standard monorepo testing convention: **unit tests live with 
 
 | Scope | Location |
 |---|---|
-| Go unit + integration (platform, CLI, handlers) | `platform/**/*_test.go` — run with `cd platform && go test -race ./...` |
+| Go unit + integration (platform, CLI, handlers) | `workspace-server/**/*_test.go` — run with `cd workspace-server && go test -race ./...` |
 | TypeScript unit (canvas components, hooks, store) | `canvas/src/**/__tests__/` — run with `cd canvas && npm test -- --run` |
 | TypeScript unit (MCP server handlers) | `mcp-server/src/__tests__/` — run with `cd mcp-server && npx jest` |
 | Python unit (workspace runtime, adapters) | `workspace-template/tests/` — run with `cd workspace-template && python3 -m pytest` |
