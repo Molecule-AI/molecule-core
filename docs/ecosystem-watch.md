@@ -1821,7 +1821,9 @@ complementary: a Molecule AI workspace running ADK agents is a natural pairing.
 - ADK is the official successor for teams currently using LangGraph with Gemini → our
   langgraph adapter should note ADK as an alternative path.
 
-**Last reviewed:** 2026-04-16 · **Stars / activity:** ~19k ⭐, v1.29.0 April 9, 2026, Google-maintained
+**Last reviewed:** 2026-04-18 · **Stars / activity:** ~19.8k ⭐, v1.31.0 April 17, 2026, Google-maintained
+
+**Update (2026-04-18):** ADK v1.31.0 adds gRPC transport to A2A protocol support (task states: working/completed/failed now properly enumerated). Evaluation framework promoted from experimental to stable.
 
 ---
 
@@ -2913,3 +2915,22 @@ langgraph/crewai adapters.
 **Signals to react to:** Claw Code ships A2A support → evaluate `molecule-ai-workspace-template-claw-code`. Anthropic legal action → monitor for project discontinuation risk. Claw Code's Python SDK becomes pip-installable → simplifies potential workspace template adapter.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 100k+★, Rust+Python, 72.6k forks, fastest-growing repo in GitHub history
+### MemPalace — `MemPalace/mempalace`
+
+**Pitch:** "Method of loci MCP memory server — 29 tools for spatial agent memory with hybrid semantic+BM25 retrieval, temporal validity windows, and agent-autonomous consolidation."
+
+**Shape:** Python, MIT, v3.3.0, April 14 2026, 47.6k★. Spatial memory architecture organised as wings → rooms → drawers (method of loci). Backend: ChromaDB + SQLite, BM25 keyword + semantic vector retrieval. Ships as `uvx mempalace-mcp` — zero-config MCP server, 29 tools.
+
+**Overlap with us:** Direct overlap with `platform/internal/memories.go` — both provide persistent agent memory. MemPalace's spatial loci organisation addresses the same scalability gap that prompted issue #726 (Cognee). Unlike our flat key-value store (LOCAL/TEAM/GLOBAL tiers), MemPalace adds spatial scoping, hybrid retrieval, and temporal validity windows. Its 29 MCP tools (create_wing, create_room, store, search, create_tunnel) overlap with our `commit_memory` / `recall_memory` A2A tools in function. Plugin proposal: #912.
+
+**Differentiation:** No persistent workspace, no org hierarchy, no scheduling. MCP-native — any MCP-capable runtime picks this up. Our platform is the orchestration/governance layer; MemPalace is a memory backend plugin (like Cognee #726). No native TEAM/GLOBAL scope — multi-agent shared memory requires explicit tunnel wiring per agent pair, vs our single `scope=TEAM` flag.
+
+**Worth borrowing:** Hybrid BM25 + semantic retrieval as the upgrade path for our current keyword-only `recall_memory` — highest-impact single change to `molecule-session-context`. Temporal validity windows: memories auto-expire after N hours without renewal (prevents stale context accumulation). Loci tunnel primitive: cross-agent memory linking that would extend our TEAM scope with spatial structure.
+
+**Terminology collisions:** "wing" (MemPalace) ≈ our memory scope. "room" ≈ memory category. "drawer" ≈ individual memory entry. "tunnel" ≈ cross-scope reference.
+
+**Signals to react to:** MemPalace ships native TEAM-scope shared palace → competes directly with our TEAM memory tier; evaluate merger. MemPalace v4.0 adds hosted backend → our flat memory store becomes the legacy default for new customers. MemPalace hits 100k★ → community establishes it as the de-facto MCP memory backend; must ship molecule-mempalace plugin before that inflection.
+
+**Last reviewed:** 2026-04-18 · **Stars / activity:** 47.6k★, v3.3.0, Python MIT, active development April 2026
+
+---
