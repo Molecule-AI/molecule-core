@@ -211,27 +211,68 @@ func (h *WorkspaceHandler) Hibernate(c *gin.Context) {
 // 'hibernated'. Called by the hibernation monitor when a workspace has had
 // active_tasks == 0 for longer than its configured hibernation_idle_minutes.
 // Hibernated workspaces auto-wake on the next incoming A2A message.
+//
+// TOCTOU safety (#819): the three-step pattern below is atomic at the DB level.
+//
+//  1. Atomic claim: a single UPDATE WHERE locks the row by transitioning
+//     status → 'hibernating', gated on status IN ('online','degraded') AND
+//     active_tasks = 0.  If any concurrent caller (another goroutine, the
+//     idle-timer, or a manual API call) already claimed the row, or if tasks
+//     arrived since the caller decided to hibernate, rowsAffected == 0 and
+//     this function returns immediately without stopping anything.
+//
+//  2. provisioner.Stop: safe to call now because status == 'hibernating';
+//     the routing layer rejects new tasks for non-online/degraded workspaces,
+//     so no new task can be dispatched between step 1 and step 2.
+//
+//  3. Final UPDATE to 'hibernated': records the completed hibernation.
 func (h *WorkspaceHandler) HibernateWorkspace(ctx context.Context, workspaceID string) {
-	var wsName string
-	var tier int
-	err := db.DB.QueryRowContext(ctx,
-		`SELECT name, tier FROM workspaces WHERE id = $1 AND status IN ('online', 'degraded')`, workspaceID,
-	).Scan(&wsName, &tier)
+	// ── Step 1: Atomic claim ──────────────────────────────────────────────────
+	// The UPDATE acts as a DB-level advisory lock: only one concurrent caller
+	// can transition the row from online/degraded → hibernating.  The
+	// active_tasks = 0 predicate ensures we never interrupt a running task.
+	result, err := db.DB.ExecContext(ctx, `
+		UPDATE workspaces
+		SET    status = 'hibernating', updated_at = now()
+		WHERE  id = $1
+		  AND  status IN ('online', 'degraded')
+		  AND  active_tasks = 0`, workspaceID)
 	if err != nil {
-		// Already changed state (paused, removed, etc.) — nothing to do.
+		log.Printf("Hibernate: atomic claim failed for %s: %v", workspaceID, err)
+		return
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		// Either already hibernating/hibernated/paused/removed, or active_tasks > 0 —
+		// safe to abort without side-effects.
 		return
 	}
 
+	// Fetch name/tier for logging and event broadcast (after the claim, so we
+	// can use a simple SELECT without a status guard).
+	var wsName string
+	var tier int
+	if scanErr := db.DB.QueryRowContext(ctx,
+		`SELECT name, tier FROM workspaces WHERE id = $1`, workspaceID,
+	).Scan(&wsName, &tier); scanErr != nil {
+		wsName = workspaceID // fallback for log messages
+	}
+
+	// ── Step 2: Stop the container ────────────────────────────────────────────
+	// Status is now 'hibernating'; the router rejects new task routing here, so
+	// there is no race window between claiming the row and stopping the container.
 	log.Printf("Hibernate: stopping container for %s (%s)", wsName, workspaceID)
-	if h.provisioner != nil {
+	if h.stopFnOverride != nil {
+		h.stopFnOverride(ctx, workspaceID)
+	} else if h.provisioner != nil {
 		h.provisioner.Stop(ctx, workspaceID)
 	}
 
-	_, err = db.DB.ExecContext(ctx,
-		`UPDATE workspaces SET status = 'hibernated', url = '', updated_at = now() WHERE id = $1 AND status IN ('online', 'degraded')`,
-		workspaceID)
-	if err != nil {
-		log.Printf("Hibernate: failed to update status for %s: %v", workspaceID, err)
+	// ── Step 3: Mark fully hibernated ─────────────────────────────────────────
+	if _, err = db.DB.ExecContext(ctx,
+		`UPDATE workspaces SET status = 'hibernated', url = '', updated_at = now() WHERE id = $1`,
+		workspaceID); err != nil {
+		log.Printf("Hibernate: failed to mark hibernated for %s: %v", workspaceID, err)
 		return
 	}
 

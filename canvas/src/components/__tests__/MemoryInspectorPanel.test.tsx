@@ -401,6 +401,45 @@ describe("MemoryInspectorPanel — Refresh button", () => {
   });
 });
 
+// ── role=alert a11y (issue #830) ─────────────────────────────────────────────
+
+describe("MemoryInspectorPanel — error elements have role=alert (issue #830)", () => {
+  it("fetch error banner has role='alert'", async () => {
+    mockGet.mockRejectedValue(new Error("Network error"));
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await waitFor(() => screen.getByText("Network error"));
+    const alert = screen.getByRole("alert");
+    expect(alert).toBeTruthy();
+    expect(alert.textContent).toContain("Network error");
+  });
+
+  it("editError paragraph has role='alert' on invalid JSON submission", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue(TWO_ENTRIES as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await waitFor(() => screen.getByText("task-queue"));
+
+    // Expand and open edit mode
+    fireEvent.click(screen.getByText("task-queue").closest("button")!);
+    await waitFor(() =>
+      screen.getByRole("button", { name: "Edit task-queue" })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit task-queue" }));
+
+    // Submit invalid JSON to trigger editError
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Edit memory value" }),
+      { target: { value: "{{bad json" } }
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => screen.getByText(/invalid json/i));
+    const alert = screen.getByRole("alert");
+    expect(alert).toBeTruthy();
+    expect(alert.textContent).toMatch(/invalid json/i);
+  });
+});
+
 // ── Semantic search (issue #783) ──────────────────────────────────────────────
 
 describe("MemoryInspectorPanel — semantic search", () => {
@@ -473,6 +512,47 @@ describe("MemoryInspectorPanel — semantic search", () => {
     expect(
       document.querySelector('[data-testid="similarity-badge"]')
     ).toBeNull();
+  });
+
+  it("colors similarity-badge blue-500 when score >= 0.8", async () => {
+    mockGet.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { ...ENTRY_A, similarity_score: 0.92 },
+    ] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await waitFor(() => screen.getByText("task-queue"));
+    const badge = document.querySelector('[data-testid="similarity-badge"]');
+    expect(badge?.className).toContain("text-blue-500");
+    expect(badge?.className).not.toContain("text-zinc-400");
+    expect(badge?.className).not.toContain("text-zinc-600");
+  });
+
+  it("colors similarity-badge zinc-400 when score is between 0.5 and 0.8", async () => {
+    mockGet.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { ...ENTRY_A, similarity_score: 0.65 },
+    ] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await waitFor(() => screen.getByText("task-queue"));
+    const badge = document.querySelector('[data-testid="similarity-badge"]');
+    expect(badge?.className).toContain("text-zinc-400");
+    expect(badge?.className).not.toContain("text-blue-500");
+    expect(badge?.className).not.toContain("text-zinc-600");
+  });
+
+  it("colors similarity-badge zinc-400 italic with tilde prefix when score is below 0.5", async () => {
+    mockGet.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { ...ENTRY_A, similarity_score: 0.31 },
+    ] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await waitFor(() => screen.getByText("task-queue"));
+    const badge = document.querySelector('[data-testid="similarity-badge"]');
+    expect(badge?.className).toContain("text-zinc-400");
+    expect(badge?.className).toContain("italic");
+    expect(badge?.className).not.toContain("text-blue-500");
+    expect(badge?.className).not.toContain("text-zinc-600");
+    expect(badge?.textContent).toBe("~31%");
   });
 
   it("clear button resets debouncedQuery immediately and re-fetches without ?q=", async () => {

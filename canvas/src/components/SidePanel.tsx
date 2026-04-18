@@ -23,6 +23,7 @@ import { summarizeWorkspaceCapabilities } from "@/store/canvas";
 const SIDEPANEL_WIDTH_KEY = "molecule:sidepanel-width";
 const SIDEPANEL_DEFAULT_WIDTH = 480;
 const SIDEPANEL_MIN_WIDTH = 320;
+const SIDEPANEL_MAX_WIDTH = 800;
 
 const TABS: { id: PanelTab; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "◈" },
@@ -72,6 +73,29 @@ export function SidePanel() {
     document.body.style.userSelect = "none";
   }, [width]);
 
+  const onResizeKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const STEP = 16;
+    let newWidth: number | null = null;
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      newWidth = Math.min(width + STEP, SIDEPANEL_MAX_WIDTH);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      newWidth = Math.max(width - STEP, SIDEPANEL_MIN_WIDTH);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      newWidth = SIDEPANEL_MIN_WIDTH;
+    } else if (e.key === "End") {
+      e.preventDefault();
+      newWidth = SIDEPANEL_MAX_WIDTH;
+    }
+    if (newWidth !== null) {
+      setWidth(newWidth);
+      widthRef.current = newWidth;
+      localStorage.setItem(SIDEPANEL_WIDTH_KEY, String(newWidth));
+    }
+  }, [width]);
+
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (!dragging.current) return;
@@ -111,8 +135,16 @@ export function SidePanel() {
     >
       {/* Resize handle */}
       <div
+        role="separator"
+        aria-label="Resize workspace panel"
+        aria-valuenow={width}
+        aria-valuemin={SIDEPANEL_MIN_WIDTH}
+        aria-valuemax={SIDEPANEL_MAX_WIDTH}
+        aria-orientation="vertical"
+        tabIndex={0}
         onMouseDown={onMouseDown}
-        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/30 active:bg-blue-500/50 transition-colors z-10"
+        onKeyDown={onResizeKeyDown}
+        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/30 active:bg-blue-500/50 transition-colors z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset"
       />
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800/40 bg-zinc-900/30">
@@ -140,9 +172,10 @@ export function SidePanel() {
         </div>
         <button
           onClick={() => selectNode(null)}
+          aria-label="Close workspace panel"
           className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors"
         >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
             <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
         </button>

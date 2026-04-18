@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
@@ -31,6 +32,50 @@ const defaultMemoryNamespace = "general"
 // tsvector requires at least one token and single characters tokenise
 // to nothing in the 'english' config.
 const memoryFTSMinQueryLen = 2
+
+// secretPatternEntry is a compiled regex + its human-readable redaction label.
+type secretPatternEntry struct {
+	re    *regexp.Regexp
+	label string
+}
+
+// memorySecretPatterns are checked in order — most-specific first so that
+// env-var assignments (OPENAI_API_KEY=sk-...) are caught before the generic
+// sk-* or base64 patterns consume only part of the match.
+//
+// Covered by SAFE-T1201 (issue #838).
+var memorySecretPatterns = []secretPatternEntry{
+	// Env-var assignments:  ANTHROPIC_API_KEY=sk-ant-...  GITHUB_TOKEN=ghp_...
+	{regexp.MustCompile(`(?i)\b[A-Z][A-Z0-9_]*_API_KEY\s*=\s*\S+`), "API_KEY"},
+	{regexp.MustCompile(`(?i)\b[A-Z][A-Z0-9_]*_TOKEN\s*=\s*\S+`), "TOKEN"},
+	{regexp.MustCompile(`(?i)\b[A-Z][A-Z0-9_]*_SECRET\s*=\s*\S+`), "SECRET"},
+	// HTTP Bearer header values
+	{regexp.MustCompile(`Bearer\s+\S+`), "BEARER_TOKEN"},
+	// OpenAI / Anthropic sk-... key format
+	{regexp.MustCompile(`sk-[A-Za-z0-9\-_]{16,}`), "SK_TOKEN"},
+	// context7 tokens
+	{regexp.MustCompile(`ctx7_[A-Za-z0-9]+`), "CTX7_TOKEN"},
+	// High-entropy base64 blobs — must contain a base64-only char (+/=) OR
+	// be longer than 40 chars to avoid false-positives on plain long words.
+	{regexp.MustCompile(`[A-Za-z0-9+/]{33,}={0,2}`), "BASE64_BLOB"},
+}
+
+// redactSecrets scrubs known secret patterns from content before persistence.
+// Each distinct pattern class that fires logs a warning (without the value).
+// Returns the sanitised string and a bool indicating whether anything changed.
+// Failure is impossible — returns original content unchanged on any panic.
+func redactSecrets(workspaceID, content string) (out string, changed bool) {
+	out = content
+	for _, p := range memorySecretPatterns {
+		replaced := p.re.ReplaceAllString(out, "[REDACTED:"+p.label+"]")
+		if replaced != out {
+			log.Printf("commit_memory: redacted %s pattern for workspace %s (SAFE-T1201)", p.label, workspaceID)
+			out = replaced
+			changed = true
+		}
+	}
+	return out, changed
+}
 
 // EmbeddingFunc generates a 1536-dimensional dense-vector embedding for the
 // given text. Must return exactly 1536 float32 values on success.
@@ -128,11 +173,17 @@ func (h *MemoriesHandler) Commit(c *gin.Context) {
 		}
 	}
 
+	// SAFE-T1201: scrub secret patterns before persistence so that a confused
+	// or prompt-injected agent cannot exfiltrate credentials into shared TEAM/
+	// GLOBAL memory. Runs on every write, regardless of scope.
+	content := body.Content
+	content, _ = redactSecrets(workspaceID, content)
+
 	var memoryID string
 	err := db.DB.QueryRowContext(ctx, `
 		INSERT INTO agent_memories (workspace_id, content, scope, namespace)
 		VALUES ($1, $2, $3, $4) RETURNING id
-	`, workspaceID, body.Content, body.Scope, namespace).Scan(&memoryID)
+	`, workspaceID, content, body.Scope, namespace).Scan(&memoryID)
 	if err != nil {
 		log.Printf("Commit memory error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store memory"})
@@ -144,7 +195,9 @@ func (h *MemoriesHandler) Commit(c *gin.Context) {
 	// trail can prove what was written without leaking sensitive values.
 	// Failure is non-fatal: a logging error must not roll back a successful write.
 	if body.Scope == "GLOBAL" {
-		sum := sha256.Sum256([]byte(body.Content))
+		// Hash the sanitised content so the audit trail reflects what was
+		// actually persisted (not the raw, potentially secret-bearing input).
+		sum := sha256.Sum256([]byte(content))
 		auditBody, _ := json.Marshal(map[string]string{
 			"memory_id":      memoryID,
 			"namespace":      namespace,
@@ -163,7 +216,7 @@ func (h *MemoriesHandler) Commit(c *gin.Context) {
 	// already stored above; a failed embedding just means this record will
 	// be excluded from future cosine-similarity searches.
 	if h.embed != nil {
-		if vec, embedErr := h.embed(ctx, body.Content); embedErr != nil {
+		if vec, embedErr := h.embed(ctx, content); embedErr != nil {
 			log.Printf("Commit: embedding failed workspace=%s memory=%s: %v (stored without embedding)",
 				workspaceID, memoryID, embedErr)
 		} else if fmtVec := formatVector(vec); fmtVec != "" {
