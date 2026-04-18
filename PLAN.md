@@ -575,13 +575,61 @@ self-hosted per-customer). Ordered by dependency + ROI.
 
 ---
 
-## Phase 33: Wildcard DNS + Cloudflare Worker Proxy
+## Phase 36: Full Staging Environment — GATES ALL INFRA CHANGES
 
-> **Goal:** Eliminate DNS propagation delays and NXDOMAIN caching for tenant
-> subdomains. Every SaaS (Vercel, Railway, Fly.io) uses this pattern —
-> wildcard DNS + edge proxy routing by hostname.
+> **Goal:** Stop merging untested infra changes to production. Every change
+> ships to staging first, gets verified, then promotes to production.
 >
-> **Docs:** `docs/architecture/wildcard-dns-proxy.md`
+> **Why now:** The 2026-04-17 session broke CI twice and caused hours of
+> edge cache issues because there was no staging to catch regressions.
+> This gates Phase 33 (Tunnel migration) and Phase 35 (security hardening).
+>
+> **Docs:** `docs/architecture/staging-environment.md`
+
+### Phase 36.1 — Railway + Neon staging
+
+- [ ] Create Railway `staging` environment with staging-specific vars
+- [ ] Create Neon staging branch from main
+- [ ] Add `staging.api.moleculesai.app` CNAME to Railway staging
+- [ ] Verify CP deploys and boots on staging
+
+### Phase 36.2 — Image + deploy pipeline
+
+- [ ] Publish workflow pushes `:staging` tag (not `:latest`) on main merge
+- [ ] Add `promote-to-production.yml` workflow (manual trigger)
+- [ ] Promotion: retag `:staging` → `:latest`, deploy CP to production
+- [ ] Production tenants auto-update via Option B cron
+
+### Phase 36.3 — Staging DNS + Vercel
+
+- [ ] `*.staging.moleculesai.app` for staging tenant subdomains
+- [ ] `staging.app.moleculesai.app` for Vercel staging preview
+- [ ] Staging Cloudflare Tunnel (or Worker) for tenant routing
+
+### Phase 36.4 — Automated verification
+
+- [ ] Post-deploy staging smoke test (run `test_saas_tenant.sh`)
+- [ ] Block promotion if smoke test fails
+- [ ] Slack/GitHub notification on staging deploy + promotion
+
+### Success criteria for Phase 36
+
+- No infra change reaches production without passing staging first
+- Staging mirrors production (same services, same auth, separate data)
+- Promotion is a single manual action (button click or CLI command)
+- Staging cleanup is automated (terminate test EC2s after verification)
+
+---
+
+## Phase 33: Tenant Subdomain Routing — MIGRATING TO CLOUDFLARE TUNNEL
+
+> **Original:** Wildcard DNS + Cloudflare Worker (implemented 2026-04-17).
+> **Replacing with:** Cloudflare Tunnel per tenant (issue #933).
+> Worker approach caused edge cache poisoning + security gaps (ADMIN_TOKEN
+> in plaintext, unencrypted HTTP). Tunnel eliminates all of these.
+> **Docs:** `docs/architecture/wildcard-dns-proxy.md` (original),
+> issue #933 (tunnel migration plan).
+> **Prerequisite:** Phase 36 (staging) — test tunnel on staging first.
 
 ### Phase 33.1 — Worker + wildcard DNS (no tenant changes)
 
