@@ -190,10 +190,10 @@ describe("WorkspaceNode — TeamMemberChip a11y (issue #831)", () => {
     expect(mockSelectNode).toHaveBeenCalledWith(CHILD_ID);
   });
 
-  it("eject button has aria-label='Extract from team'", () => {
+  it("eject button has aria-label='Extract <name> from team'", () => {
     renderParentNode();
     const ejectBtn = screen.getByRole("button", {
-      name: "Extract from team",
+      name: "Extract Child Workspace from team",
     });
     expect(ejectBtn).toBeTruthy();
   });
