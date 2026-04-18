@@ -142,6 +142,34 @@ The skill will use default activation semantics in each tool. Molecule AI's
 plugin bundle (runtimes, adapters, rules) is not needed — it only matters
 if the skill is installed inside Molecule AI.
 
+## Hermes runtime compatibility (issue #852)
+
+As of 2026-04-18, `hermes` has been added to the `runtimes:` field in
+the five SKILL.md-only first-party plugins. agentskills.io v0.8.0
+confirmed that SKILL.md-only plugins are natively hermes-compatible via
+**raw-drop** (no adapter file required). Hook-based plugins remain
+`claude_code`-only — they rely on harness-level hooks that hermes does
+not expose.
+
+| Plugin | Before | After |
+|---|---|---|
+| `ecc` | `[claude_code, deepagents]` | `[claude_code, deepagents, hermes]` |
+| `superpowers` | `[claude_code, deepagents]` | `[claude_code, deepagents, hermes]` |
+| `molecule-dev` | `[claude_code, deepagents]` | `[claude_code, deepagents, hermes]` |
+| `molecule-skill-cron-learnings` | `[claude_code]` | `[claude_code, hermes]` |
+| `molecule-skill-update-docs` | `[claude_code]` | `[claude_code, hermes]` |
+
+Companion PRs:
+- [molecule-ai-plugin-ecc#2](https://github.com/Molecule-AI/molecule-ai-plugin-ecc/pull/2)
+- [molecule-ai-plugin-superpowers#2](https://github.com/Molecule-AI/molecule-ai-plugin-superpowers/pull/2)
+- [molecule-ai-plugin-molecule-dev#2](https://github.com/Molecule-AI/molecule-ai-plugin-molecule-dev/pull/2)
+- [molecule-ai-plugin-molecule-skill-cron-learnings#2](https://github.com/Molecule-AI/molecule-ai-plugin-molecule-skill-cron-learnings/pull/2)
+- [molecule-ai-plugin-molecule-skill-update-docs#2](https://github.com/Molecule-AI/molecule-ai-plugin-molecule-skill-update-docs/pull/2)
+
+Security note: Security Auditor was offline at time of change. Self-assessed
+as non-security-impacting — adding `hermes` to a string list in `plugin.yaml`
+creates no new tool surface or execution path.
+
 ## Why this matters strategically
 
 - **Zero-cost distribution.** Every skill we ship to Molecule AI users is
