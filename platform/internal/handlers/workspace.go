@@ -437,6 +437,33 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 	delete(ws, "budget_limit")
 	delete(ws, "monthly_spend")
 
+	// Strip operational fields — this endpoint is intentionally unauthenticated
+	// (canvas nodes poll it without tokens).  Leaking these fields exposes
+	// internal network topology (container URLs), live prompt snippets, and
+	// runtime diagnostic data to any party that knows a workspace UUID. (#934)
+	for _, f := range []string{
+		"url",               // internal container / loopback address
+		"current_task",      // live prompt snippet
+		"uptime_seconds",    // operational metric
+		"last_error_rate",   // operational metric
+		"last_sample_error", // error detail text
+		"workspace_dir",     // host filesystem path
+	} {
+		delete(ws, f)
+	}
+
+	// Scrub the "url" field from within agent_card — it carries the same
+	// internal container address in A2A discovery format.
+	if raw, ok := ws["agent_card"].(json.RawMessage); ok && len(raw) > 0 {
+		var card map[string]interface{}
+		if err := json.Unmarshal(raw, &card); err == nil {
+			delete(card, "url")
+			if remarshaled, err := json.Marshal(card); err == nil {
+				ws["agent_card"] = json.RawMessage(remarshaled)
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, ws)
 }
 

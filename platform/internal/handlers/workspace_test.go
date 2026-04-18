@@ -902,6 +902,167 @@ func TestWorkspaceGet_FinancialFieldsStripped(t *testing.T) {
 	}
 }
 
+// ==================== #934 Security Auditor regressions ====================
+
+// TestWorkspaceGet_OperationalFieldsStripped verifies that GET /workspaces/:id
+// does NOT expose any of the six operational fields that were identified as
+// leaking internal network topology and runtime state to unauthenticated
+// callers. (#934)
+func TestWorkspaceGet_OperationalFieldsStripped(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	columns := []string{
+		"id", "name", "role", "tier", "status", "agent_card", "url",
+		"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
+		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
+		"budget_limit", "monthly_spend",
+	}
+	mock.ExpectQuery("SELECT w.id, w.name").
+		WithArgs("cccccccc-0020-0000-0000-000000000000").
+		WillReturnRows(sqlmock.NewRows(columns).
+			AddRow(
+				"cccccccc-0020-0000-0000-000000000000", "Ops Test", "worker", 1, "online",
+				[]byte(`{"name":"ops-agent"}`),
+				"http://172.17.0.5:8080",       // url — must be stripped
+				nil,                             // parent_id
+				3,                               // active_tasks — must be retained
+				0.12,                            // last_error_rate — must be stripped
+				"connection refused",            // last_sample_error — must be stripped
+				3600,                            // uptime_seconds — must be stripped
+				"Summarising quarterly reports", // current_task — must be stripped
+				"langgraph",
+				"/host/data/workspaces/cccc", // workspace_dir — must be stripped
+				100.0, 200.0, false,
+				nil, int64(0),
+			))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0020-0000-0000-000000000000"}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/cccccccc-0020-0000-0000-000000000000", nil)
+
+	handler.Get(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	// These six fields must be absent from the open endpoint response.
+	stripped := []string{"url", "current_task", "uptime_seconds", "last_error_rate", "last_sample_error", "workspace_dir"}
+	for _, field := range stripped {
+		if _, present := resp[field]; present {
+			t.Errorf("field %q must not appear in GET /workspaces/:id response (got %v)", field, resp[field])
+		}
+	}
+
+	// Core fields required for canvas rendering must still be present.
+	retained := map[string]interface{}{
+		"id":          "cccccccc-0020-0000-0000-000000000000",
+		"name":        "Ops Test",
+		"status":      "online",
+		"active_tasks": float64(3),
+		"runtime":     "langgraph",
+	}
+	for field, want := range retained {
+		if got := resp[field]; got != want {
+			t.Errorf("field %q: got %v, want %v", field, got, want)
+		}
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestWorkspaceGet_AgentCardURLScrubbed verifies that the "url" key inside
+// agent_card is removed before the response is written.  The agent_card url
+// holds the same internal container address as the top-level url field —
+// both must be absent from the open endpoint. (#934)
+func TestWorkspaceGet_AgentCardURLScrubbed(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	columns := []string{
+		"id", "name", "role", "tier", "status", "agent_card", "url",
+		"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
+		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
+		"budget_limit", "monthly_spend",
+	}
+	// agent_card contains a "url" key pointing to the internal container address.
+	agentCard := []byte(`{"name":"scrub-agent","url":"http://172.17.0.7:8080","version":"1.0","skills":[]}`)
+	mock.ExpectQuery("SELECT w.id, w.name").
+		WithArgs("cccccccc-0021-0000-0000-000000000000").
+		WillReturnRows(sqlmock.NewRows(columns).
+			AddRow(
+				"cccccccc-0021-0000-0000-000000000000", "Card Scrub Test", "worker", 1, "online",
+				agentCard,
+				"http://172.17.0.7:8080",
+				nil, 0, 0.0, "", 0, "", "langgraph", "",
+				0.0, 0.0, false,
+				nil, int64(0),
+			))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0021-0000-0000-000000000000"}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/cccccccc-0021-0000-0000-000000000000", nil)
+
+	handler.Get(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	// Top-level url must be stripped.
+	if _, present := resp["url"]; present {
+		t.Errorf("top-level url must not appear in open GET /workspaces/:id response")
+	}
+
+	// agent_card must be present but must NOT contain a "url" key.
+	rawCard, ok := resp["agent_card"]
+	if !ok {
+		t.Fatal("agent_card must be present in response")
+	}
+	// Gin serialises json.RawMessage inline — re-marshal and unmarshal to inspect.
+	cardBytes, err := json.Marshal(rawCard)
+	if err != nil {
+		t.Fatalf("failed to re-marshal agent_card: %v", err)
+	}
+	var card map[string]interface{}
+	if err := json.Unmarshal(cardBytes, &card); err != nil {
+		t.Fatalf("failed to parse agent_card: %v", err)
+	}
+	if _, present := card["url"]; present {
+		t.Errorf("agent_card.url must be scrubbed from open GET /workspaces/:id response (got %v)", card["url"])
+	}
+	// Other agent_card fields should be intact.
+	if card["name"] != "scrub-agent" {
+		t.Errorf("agent_card.name: got %v, want scrub-agent", card["name"])
+	}
+	if card["version"] != "1.0" {
+		t.Errorf("agent_card.version: got %v, want 1.0", card["version"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 // TestWorkspaceUpdate_BudgetLimitIgnored verifies that including budget_limit
 // in a PATCH /workspaces/:id body does NOT trigger a DB write. The only write
 // path for budget_limit is PATCH /workspaces/:id/budget (AdminAuth-gated).
