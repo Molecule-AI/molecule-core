@@ -29,7 +29,7 @@ name = "platform"
 [services.build]
 builder = "DOCKERFILE"
 dockerfilePath = "workspace-server/Dockerfile"
-buildContext = "workspace-server"
+buildContext = "."
 
 [services.deploy]
 startCommand = "./server"
