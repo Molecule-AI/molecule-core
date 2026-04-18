@@ -63,14 +63,18 @@ func (h *SecretsHandler) List(c *gin.Context) {
 			"updated_at": updatedAt,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("List secrets iteration error for workspace %s: %v", workspaceID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
+		return
+	}
 
 	// 2. Global secrets not overridden at workspace level
 	globalRows, err := db.DB.QueryContext(ctx,
 		`SELECT key, created_at, updated_at FROM global_secrets ORDER BY key`)
 	if err != nil {
 		log.Printf("List global secrets (merged) error: %v", err)
-		// Non-fatal: return workspace secrets only
-		c.JSON(http.StatusOK, secrets)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
 	defer globalRows.Close()
@@ -90,6 +94,11 @@ func (h *SecretsHandler) List(c *gin.Context) {
 			"created_at": createdAt,
 			"updated_at": updatedAt,
 		})
+	}
+	if err := globalRows.Err(); err != nil {
+		log.Printf("List global secrets iteration error for workspace %s: %v", workspaceID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
+		return
 	}
 
 	c.JSON(http.StatusOK, secrets)
@@ -151,9 +160,17 @@ func (h *SecretsHandler) Values(c *gin.Context) {
 	// instead of returning a partial bundle that boots a broken agent.
 	var failedKeys []string
 
+	// Fail-loud posture (mirrors workspace_provision.go): a remote agent that
+	// boots with only PART of its secrets will fail at task time with mysterious
+	// KeyErrors. Better to refuse to serve the bundle and force the operator to
+	// investigate. This posture covers both decrypt failures AND query failures —
+	// previously query errors were silently swallowed via `if gErr == nil`.
 	globalRows, gErr := db.DB.QueryContext(ctx,
 		`SELECT key, encrypted_value, encryption_version FROM global_secrets`)
-	if gErr == nil {
+	if gErr != nil {
+		log.Printf("secrets.Values: global secrets query failed for workspace %s: %v", workspaceID, gErr)
+		failedKeys = append(failedKeys, "global:query-failed")
+	} else {
 		defer globalRows.Close()
 		for globalRows.Next() {
 			var k string
@@ -162,11 +179,6 @@ func (h *SecretsHandler) Values(c *gin.Context) {
 			if globalRows.Scan(&k, &v, &ver) == nil {
 				decrypted, decErr := crypto.DecryptVersioned(v, ver)
 				if decErr != nil {
-					// Fail-loud (mirrors workspace_provision.go's posture):
-					// a remote agent that boots with only PART of its secrets
-					// will fail at task time with mysterious KeyErrors. Better
-					// to refuse to serve the bundle and force the operator to
-					// rotate the broken key.
 					log.Printf("secrets.Values: decrypt global %s failed (version=%d): %v", k, ver, decErr)
 					failedKeys = append(failedKeys, "global:"+k)
 					continue
@@ -174,12 +186,19 @@ func (h *SecretsHandler) Values(c *gin.Context) {
 				out[k] = string(decrypted)
 			}
 		}
+		if iterErr := globalRows.Err(); iterErr != nil {
+			log.Printf("secrets.Values: global secrets iteration error for workspace %s: %v", workspaceID, iterErr)
+			failedKeys = append(failedKeys, "global:iteration-failed")
+		}
 	}
 
 	wsRows, wErr := db.DB.QueryContext(ctx,
 		`SELECT key, encrypted_value, encryption_version FROM workspace_secrets WHERE workspace_id = $1`,
 		workspaceID)
-	if wErr == nil {
+	if wErr != nil {
+		log.Printf("secrets.Values: workspace secrets query failed for workspace %s: %v", workspaceID, wErr)
+		failedKeys = append(failedKeys, "workspace:query-failed")
+	} else {
 		defer wsRows.Close()
 		for wsRows.Next() {
 			var k string
@@ -194,6 +213,10 @@ func (h *SecretsHandler) Values(c *gin.Context) {
 				}
 				out[k] = string(decrypted) // workspace override wins over global
 			}
+		}
+		if iterErr := wsRows.Err(); iterErr != nil {
+			log.Printf("secrets.Values: workspace secrets iteration error for workspace %s: %v", workspaceID, iterErr)
+			failedKeys = append(failedKeys, "workspace:iteration-failed")
 		}
 	}
 
@@ -321,6 +344,11 @@ func (h *SecretsHandler) ListGlobal(c *gin.Context) {
 			"scope":      "global",
 		})
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("ListGlobal secrets iteration error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
+		return
+	}
 	c.JSON(http.StatusOK, secrets)
 }
 
@@ -396,6 +424,13 @@ func (h *SecretsHandler) restartAllAffectedByGlobalKey(key string) {
 		if err := rows.Scan(&id); err == nil {
 			ids = append(ids, id)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		// Can't return an HTTP error from a goroutine — log and abort so we
+		// don't restart a partial set (which would leave some workspaces with
+		// the old secret and others with the new one).
+		log.Printf("Global secret %s: iteration error listing affected workspaces: %v", key, err)
+		return
 	}
 	if len(ids) == 0 {
 		return

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -780,6 +781,144 @@ func TestDeleteGlobal_AutoRestartsAffectedWorkspaces(t *testing.T) {
 		t.Fatal("auto-restart not fired")
 	}
 
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// ==================== Values: query-failure fail-loud paths ====================
+//
+// Prior to this fix, the Values handler used `if gErr == nil { ... }` to gate
+// the global-secrets and workspace-secrets loops. A query failure silently
+// dropped all keys from that scope and returned HTTP 200 with a partial bundle,
+// bypassing the failedKeys fail-loud mechanism. These tests assert that query
+// failures now surface as 500 with a descriptive failed_keys entry so operators
+// know why the agent is refusing to start.
+
+// TestSecretsValues_GlobalQueryFails_Returns500 verifies that a DB error on the
+// global-secrets SELECT causes Values to return 500 with "global:query-failed"
+// in the failed_keys array rather than silently omitting global secrets.
+func TestSecretsValues_GlobalQueryFails_Returns500(t *testing.T) {
+	mock := setupTestDB(t)
+	handler := NewSecretsHandler(nil)
+
+	// Grandfathered — no tokens on file.
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM workspace_auth_tokens`).
+		WithArgs(testWsID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	// Global secrets query fails (e.g. connection timeout).
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM global_secrets`).
+		WillReturnError(fmt.Errorf("pq: connection timeout"))
+
+	// Workspace secrets query still runs — returns empty rows.
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM workspace_secrets WHERE workspace_id`).
+		WithArgs(testWsID).
+		WillReturnRows(sqlmock.NewRows([]string{"key", "encrypted_value", "encryption_version"}))
+
+	w := httptest.NewRecorder()
+	c := secretsValuesRequest(w, "")
+	handler.Values(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when global query fails, got %d: %s", w.Code, w.Body.String())
+	}
+	var body map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	keys, _ := body["failed_keys"].([]interface{})
+	if len(keys) == 0 || keys[0] != "global:query-failed" {
+		t.Errorf("expected failed_keys=[global:query-failed], got %v", keys)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestSecretsValues_WorkspaceQueryFails_Returns500 verifies that a DB error on
+// the workspace-secrets SELECT causes Values to return 500 with
+// "workspace:query-failed" rather than silently omitting workspace secrets.
+func TestSecretsValues_WorkspaceQueryFails_Returns500(t *testing.T) {
+	mock := setupTestDB(t)
+	handler := NewSecretsHandler(nil)
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM workspace_auth_tokens`).
+		WithArgs(testWsID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	// Global secrets succeed — one key returned.
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM global_secrets`).
+		WillReturnRows(sqlmock.NewRows([]string{"key", "encrypted_value", "encryption_version"}).
+			AddRow("GLOBAL_KEY", []byte("plainvalue"), 0))
+
+	// Workspace secrets query fails.
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM workspace_secrets WHERE workspace_id`).
+		WithArgs(testWsID).
+		WillReturnError(fmt.Errorf("pq: server closed the connection unexpectedly"))
+
+	w := httptest.NewRecorder()
+	c := secretsValuesRequest(w, "")
+	handler.Values(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when workspace query fails, got %d: %s", w.Code, w.Body.String())
+	}
+	var body map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	keys, _ := body["failed_keys"].([]interface{})
+	found := false
+	for _, k := range keys {
+		if k == "workspace:query-failed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'workspace:query-failed' in failed_keys, got %v", keys)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestSecretsValues_BothQueriesFail_Returns500 verifies that when both global
+// and workspace secret queries fail, both are reported in failed_keys and the
+// response is 500 (not 200 with an empty map).
+func TestSecretsValues_BothQueriesFail_Returns500(t *testing.T) {
+	mock := setupTestDB(t)
+	handler := NewSecretsHandler(nil)
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM workspace_auth_tokens`).
+		WithArgs(testWsID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM global_secrets`).
+		WillReturnError(fmt.Errorf("pq: connection reset by peer"))
+
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM workspace_secrets WHERE workspace_id`).
+		WithArgs(testWsID).
+		WillReturnError(fmt.Errorf("pq: connection reset by peer"))
+
+	w := httptest.NewRecorder()
+	c := secretsValuesRequest(w, "")
+	handler.Values(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when both queries fail, got %d: %s", w.Code, w.Body.String())
+	}
+	var body map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	keys, _ := body["failed_keys"].([]interface{})
+	hasGlobal, hasWS := false, false
+	for _, k := range keys {
+		if k == "global:query-failed" {
+			hasGlobal = true
+		}
+		if k == "workspace:query-failed" {
+			hasWS = true
+		}
+	}
+	if !hasGlobal || !hasWS {
+		t.Errorf("expected both query failures in failed_keys, got %v", keys)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
