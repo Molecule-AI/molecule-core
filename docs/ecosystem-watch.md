@@ -2899,3 +2899,43 @@ langgraph/crewai adapters.
 **GH #912** (molecule-mempalace plugin proposal) closed — BLOCKED by this audit. Do not reopen without a full independent security re-audit.
 
 **Last reviewed:** 2026-04-18 · **Stars / activity:** 47.6k★ claimed (89% bot-farmed; ~5k authentic), Python, MIT, v3.3.0 April 14 2026. **Verdict: BLOCKED/FRAUD**
+
+---
+
+### chrome-devtools-mcp — `ChromeDevTools/chrome-devtools-mcp`
+
+**Pitch:** "Chrome DevTools for coding agents" — 29 MCP tools exposing browser navigation, input automation, network inspection, Lighthouse auditing, and performance tracing directly to AI agents.
+
+**Shape:** Official MCP server from Google's Chrome DevTools team (not a third-party wrapper). TypeScript, Apache-2.0, 35.9k★. 29 tools across 6 categories: input (click, type, fill_form), navigation, emulation, performance traces, network inspection, script execution + screenshots.
+
+**Overlap with us:** Molecule's MCP client already wires up to `opencode.json` and workspace config — this drops in as a bundled MCP server for any workspace agent. Complements existing `browser-automation` plugin (Puppeteer/CDP scraper) with DevTools-level depth: network HAR exports, JS console, Lighthouse audits, memory snapshots.
+
+**Differentiation:** Pure MCP server — no orchestration, no agent runtime. Molecule is the governance layer that decides *which* workspaces get browser access.
+
+**Worth borrowing:** Add as a recommended/bundled MCP server option in workspace templates. Instant browser-equipped agents with no build effort.
+
+**Terminology collisions:** None.
+
+**Signals to react to:** Google's own DevTools team shipping an MCP server is the strongest possible MCP adoption signal. If it becomes the canonical browser integration, Molecule's MCP client tier-1 support becomes a harder differentiator.
+
+**Last reviewed:** 2026-04-18 · **Stars / activity:** 35.9k★, TypeScript, Apache-2.0, official Google Chrome DevTools
+
+---
+
+### craft-agents-oss — `lukilabs/craft-agents-oss`
+
+**Pitch:** Open-source desktop agent app built on Anthropic's Claude Agent SDK — multi-session inbox, 3-tier permissions, MCP + REST API connections, event-driven automations.
+
+**Shape:** Electron desktop app (+ headless server + CLI), TypeScript, Apache-2.0, 4.3k★, v0.8.9 released April 16 2026. Single-user; 4 LLM providers (Anthropic, Google, OpenAI, GitHub Copilot); drag-drop file attachments; automations triggered by labels, schedules, or tool usage.
+
+**Overlap with us:** UI-layer overlap — multi-session management, permission tiers, MCP connections, multi-LLM support all map onto Molecule's workspace lifecycle and canvas. Built on the same Claude Agent SDK stack.
+
+**Differentiation:** craft-agents-oss is single-user desktop; Molecule is multi-tenant org-graph with A2A inter-agent coordination. No agent-to-agent delegation, no org hierarchy, no Docker workspace isolation.
+
+**Worth borrowing:** 3-tier permission UI (Explore / Ask to Edit / Auto) and multi-session inbox labeling workflow are clean UX references for Molecule's workspace approval queue.
+
+**Terminology collisions:** "sessions" = Molecule's "workspaces"; "sources" = Molecule's "tools/plugins." Watch for user confusion.
+
+**Signals to react to:** 4.3k stars on launch day signals strong demand for a GUI wrapper around Claude Agent SDK. Molecule's org-chart canvas is the richer multi-tenant answer — worth differentiating loudly in positioning.
+
+**Last reviewed:** 2026-04-18 · **Stars / activity:** 4.3k★, TypeScript, Apache-2.0, v0.8.9 April 16 2026
