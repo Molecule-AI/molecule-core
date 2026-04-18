@@ -34,6 +34,7 @@ function makeNode(
       currentTask: "",
       needsRestart: false,
       runtime: "",
+      budgetLimit: null,
       ...overrides,
     },
   };

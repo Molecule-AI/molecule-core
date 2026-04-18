@@ -217,3 +217,14 @@ describe("SidePanel — localStorage width persistence (issue #425)", () => {
     expect(parseInt(saved!, 10)).toBeGreaterThanOrEqual(320);
   });
 });
+
+// ── Fix #832: close button accessibility ─────────────────────────────────────
+describe("SidePanel — close button a11y (issue #832)", () => {
+  it("close button has aria-label='Close workspace panel'", () => {
+    render(<SidePanel />);
+    const closeBtn = screen.getByRole("button", {
+      name: "Close workspace panel",
+    });
+    expect(closeBtn).toBeTruthy();
+  });
+});

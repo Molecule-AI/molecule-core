@@ -1512,6 +1512,22 @@ builders; Molecule AI users are developers building agent companies.
 
 ---
 
+### Anthropic Managed Agents — `api.anthropic.com` *(commercial, public beta)*
+
+**Pitch:** "Run managed agent sessions with built-in sandboxing, checkpointing, credential management, and end-to-end tracing — without managing infrastructure."
+
+**Shape:** Anthropic-hosted API, public beta since April 8, 2026 (`managed-agents-2026-04-01` beta header required). Bundles: agent loop + tool execution, sandboxed container per session, state persistence (conversation-history checkpointing per session), credential management + scoped permissions, end-to-end tracing. Pricing: standard API token cost + **$0.08/session-hour** active runtime (idle = zero cost). SSE stream endpoint (`GET /v1/sessions/{id}/stream`) for real-time event delivery. `user.tool_confirmation` SSE event supports async tool approval/denial from the application layer.
+
+**Overlap with us:** Idle-zero billing addresses the same problem as GH #711 (workspace hibernation). Per-session sandboxing overlaps E2B (#574). Session-level conversation checkpointing partially overlaps Temporal durable execution (#583).
+
+**Differentiation:** Session checkpointing ≠ Temporal — Managed Agents checkpoints conversation history; Temporal handles cross-workspace workflow orchestration, retry sagas, and distributed state. Our Docker workspace model is richer: persistent identity, multi-agent A2A, org hierarchy, RBAC, visual canvas, model-agnosticism. RBAC passthrough requires an async out-of-band sidecar (our `check_permission` gates run inside the workspace process; Managed Agents loop runs server-side). Cost neutral at ~2 active hrs/day (~$0.16/day vs ~$0.10–0.17/day Fly.io shared-1x); more expensive for high-throughput workspaces (8+ active hrs/day). API surface explicitly unstable ("behaviors may be refined between releases" — Anthropic docs).
+
+**Signals to react to:** GA announcement → re-evaluate `ClaudeManagedAgentsExecutor` adapter spike (GH #742 closed: WATCH-FOR-GA). Multiagent coordination + memory research-preview features exit waitlist → evaluate whether built-in multi-agent replaces our A2A layer or complements it. `tool_confirmation` API stabilizes → simplifies our RBAC passthrough sidecar design. Price drop below $0.05/session-hour → re-run cost model for high-traffic workspaces.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** Anthropic cloud API, public beta (Apr 8 2026). **Verdict: WATCH-FOR-GA** (GH #742 closed). Adapter estimated ~150–200 LOC, non-trivial async session model, RBAC interception requires architectural work.
+
+---
+
 ### Microsoft Agent Framework — `microsoft/agent-framework`
 
 **Pitch:** "A framework for building, orchestrating and deploying AI agents and multi-agent workflows with support for Python and .NET."
@@ -1805,7 +1821,9 @@ complementary: a Molecule AI workspace running ADK agents is a natural pairing.
 - ADK is the official successor for teams currently using LangGraph with Gemini → our
   langgraph adapter should note ADK as an alternative path.
 
-**Last reviewed:** 2026-04-16 · **Stars / activity:** ~19k ⭐, v1.29.0 April 9, 2026, Google-maintained
+**Last reviewed:** 2026-04-18 · **Stars / activity:** ~22k ⭐, v1.31.0 April 17 2026, Google-maintained
+
+**v1.31.0 update (2026-04-18):** Multi-language parity landed — Python, TypeScript, Java, Go all at 1.0. Native A2A added: full protocol (agent cards, message/send, task lifecycle, streaming, gRPC v0.3). A2A is Linux Foundation-governed, not Google-only — interops with any framework. **Platform gaps confirmed open**: no scheduling, no cron, no org-level workspace management, no cross-agent HITL (ADK `require_confirmation` explicitly broken across agent boundaries, maintainer-confirmed GitHub Discussion #3276). **Verdict: WATCH** (not elevated). Protocol layer compressed; Molecule platform layer intact. Escalation triggers: Vertex ships org-level workspace mgmt OR ADK fixes cross-agent HITL.
 
 ---
 
@@ -2858,6 +2876,28 @@ langgraph/crewai adapters.
 
 ---
 
+### smolagents — `huggingface/smolagents`
+
+**Pitch:** "The simplest library to build powerful agents" — Hugging Face's barebones, code-first agent framework.
+
+**Shape:** Python, Apache-2.0, 26.5k★, ~1,000 lines of core library code. Primary primitive is `CodeAgent`: instead of emitting tool calls as JSON, the agent writes executable Python that calls tools directly — "thinking in code." Model-agnostic via LiteLLM (OpenAI, Anthropic, Mistral, Ollama, etc.). Sandboxed code execution via E2B, Modal, Docker, or Pyodide (WASM). Hugging Face Hub integration for sharing reusable tools and agents. Multimodal support (text, vision). CLI utilities (`smolagent`, `webagent`). Companion: `huggingface/agents-course` for onboarding.
+
+**Overlap with us:** (1) Code-first agent execution sits at the same runtime layer as `molecule-ai-workspace-template`. (2) Tool sharing via Hub = a public registry alternative to our internal tool registry. (3) Sandboxed execution (E2B/Docker) mirrors our Docker workspace isolation model. (4) Multimodal + model-agnostic design aligns with our workspace-template flexibility goals. (5) 26.5k★ + Hugging Face distribution = strong community pull for developers who land here before Molecule.
+
+**Differentiation:** Single-agent, no multi-agent orchestration, no A2A protocol, no org hierarchy, no canvas, no scheduling, no workspace lifecycle management. "Barebones by design" — Molecule is the governance + multi-tenant + orchestration layer smolagents explicitly omits. smolagents' code execution sandbox is local-process; Molecule provides a full Docker workspace per agent.
+
+**Worth borrowing:** CodeAgent pattern (agent writes Python to call tools) as an optional execution mode for workspace-template. Hub-based tool registry concept — could inform a public Molecule tool/template marketplace. E2B integration pattern for lightweight sandboxing of short-lived tasks.
+
+**Terminology collisions:** "agents" (identical), "tools" (identical), "CodeAgent" ≈ our workspace-template code execution runner.
+
+**Signals to react to:** Monitor HF Hub publish progress (template in active development). If SmolAgents ships native A2A → shim becomes zero-LOC, elevate template priority. If HuggingFace officially designates smolagents as the default agent runtime for HF Spaces → distribution advantage increases, fast-track release. Docker-in-Docker gotcha: default must be `executor_type="local"` (AST-sandboxed); `DockerExecutor` requires `--privileged` and must never be the default.
+
+**Threshold override note:** BUILD authorized at 26,688★ (below 30k criterion). Rationale: HuggingFace corporate backing, zero-cost `Tool.from_langchain` integration path (~145 LOC A2A shim — `fastapi-agents` SmolagentsAgent validates pattern), and ~60-day trajectory to 30k. Waiting risked a community fork defining the integration pattern before us.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 26,688★, Python, Apache-2.0, active Hugging Face development. **Verdict: BUILD** (threshold override — GH #792 closed, Dev Lead issue filed). Template: `molecule-ai-workspace-template-smolagents`, ~4 engineer-days, security review required.
+
+---
+
 ### Claw Code — `ultraworkers/claw-code`
 
 **Pitch:** Clean-room Python + Rust rewrite of the Claude Code agentic architecture — fastest GitHub repository to 100k stars in history.
@@ -2875,3 +2915,65 @@ langgraph/crewai adapters.
 **Signals to react to:** Claw Code ships A2A support → evaluate `molecule-ai-workspace-template-claw-code`. Anthropic legal action → monitor for project discontinuation risk. Claw Code's Python SDK becomes pip-installable → simplifies potential workspace template adapter.
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 100k+★, Rust+Python, 72.6k forks, fastest-growing repo in GitHub history
+
+---
+
+### MemPalace — `milla-jovovich/mempalace`
+
+> ⛔ **BLOCKED — COORDINATED FRAUD** (Security Audit 2026-04-18). Do not integrate, evaluate, or reference this project.
+
+**Pitch (original):** Local-first AI memory system using the "Method of Loci" — stores full conversation verbatim in a hierarchical palace structure (wings → rooms → drawers) with semantic search.
+
+**Fraud findings (SA forensic audit — 2026-04-18):**
+
+- **F1 CRITICAL — Star fraud (89%):** 42,497 of 47,600 stars are bot-farmed. Bot activity ran April 6–13 at metronomic 30-second intervals; confirmed via stargazer timestamp forensics. Authentic star count ≈ 5,000.
+- **F2 CRITICAL — Malware domain:** `mempalace.tech` (cited in the project's own `HISTORY.md`) is a confirmed malware impostor domain. Any traffic to this domain must be treated as hostile.
+- **F3 CRITICAL — Deleted PyPI maintainer:** GitHub account `aya-thekeeper` (sole PyPI maintainer) was deleted after publishing — live supply-chain attack surface. Any version published under that account is unverifiable.
+- **F4 HIGH — Unpatched ChromaDB RCE:** Depends on ChromaDB with an open server-side + client-side RCE via `trust_remote_code` (GitHub issue #6717). Maintainer has not patched.
+- **F5 HIGH — Non-existent PyPI package:** `uvx mempalace-mcp` does not exist on PyPI — squattable typosquat attack surface.
+- **F6 HIGH — Unsafe model loading:** HuggingFace model download with pickle deserialization (no hash pinning).
+- **F7 MEDIUM — Crypto fraud:** Associated with `MEMPALACE` Solana token pump-and-dump scheme.
+
+**GH #912** (molecule-mempalace plugin proposal) closed — BLOCKED by this audit. Do not reopen without a full independent security re-audit.
+
+**Last reviewed:** 2026-04-18 · **Stars / activity:** 47.6k★ claimed (89% bot-farmed; ~5k authentic), Python, MIT, v3.3.0 April 14 2026. **Verdict: BLOCKED/FRAUD**
+
+---
+
+### chrome-devtools-mcp — `ChromeDevTools/chrome-devtools-mcp`
+
+**Pitch:** "Chrome DevTools for coding agents" — 29 MCP tools exposing browser navigation, input automation, network inspection, Lighthouse auditing, and performance tracing directly to AI agents.
+
+**Shape:** Official MCP server from Google's Chrome DevTools team (not a third-party wrapper). TypeScript, Apache-2.0, 35.9k★. 29 tools across 6 categories: input (click, type, fill_form), navigation, emulation, performance traces, network inspection, script execution + screenshots.
+
+**Overlap with us:** Molecule's MCP client already wires up to `opencode.json` and workspace config — this drops in as a bundled MCP server for any workspace agent. Complements existing `browser-automation` plugin (Puppeteer/CDP scraper) with DevTools-level depth: network HAR exports, JS console, Lighthouse audits, memory snapshots.
+
+**Differentiation:** Pure MCP server — no orchestration, no agent runtime. Molecule is the governance layer that decides *which* workspaces get browser access.
+
+**Worth borrowing:** Add as a recommended/bundled MCP server option in workspace templates. Instant browser-equipped agents with no build effort.
+
+**Terminology collisions:** None.
+
+**Signals to react to:** Google's own DevTools team shipping an MCP server is the strongest possible MCP adoption signal. If it becomes the canonical browser integration, Molecule's MCP client tier-1 support becomes a harder differentiator.
+
+**Last reviewed:** 2026-04-18 · **Stars / activity:** 35.9k★, TypeScript, Apache-2.0, official Google Chrome DevTools
+
+---
+
+### craft-agents-oss — `lukilabs/craft-agents-oss`
+
+**Pitch:** Open-source desktop agent app built on Anthropic's Claude Agent SDK — multi-session inbox, 3-tier permissions, MCP + REST API connections, event-driven automations.
+
+**Shape:** Electron desktop app (+ headless server + CLI), TypeScript, Apache-2.0, 4.3k★, v0.8.9 released April 16 2026. Single-user; 4 LLM providers (Anthropic, Google, OpenAI, GitHub Copilot); drag-drop file attachments; automations triggered by labels, schedules, or tool usage.
+
+**Overlap with us:** UI-layer overlap — multi-session management, permission tiers, MCP connections, multi-LLM support all map onto Molecule's workspace lifecycle and canvas. Built on the same Claude Agent SDK stack.
+
+**Differentiation:** craft-agents-oss is single-user desktop; Molecule is multi-tenant org-graph with A2A inter-agent coordination. No agent-to-agent delegation, no org hierarchy, no Docker workspace isolation.
+
+**Worth borrowing:** 3-tier permission UI (Explore / Ask to Edit / Auto) and multi-session inbox labeling workflow are clean UX references for Molecule's workspace approval queue.
+
+**Terminology collisions:** "sessions" = Molecule's "workspaces"; "sources" = Molecule's "tools/plugins." Watch for user confusion.
+
+**Signals to react to:** 4.3k stars on launch day signals strong demand for a GUI wrapper around Claude Agent SDK. Molecule's org-chart canvas is the richer multi-tenant answer — worth differentiating loudly in positioning.
+
+**Last reviewed:** 2026-04-18 · **Stars / activity:** 4.3k★, TypeScript, Apache-2.0, v0.8.9 April 16 2026
