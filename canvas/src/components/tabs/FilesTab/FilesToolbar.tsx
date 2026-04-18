@@ -38,12 +38,12 @@ export function FilesToolbar({
           <option value="/workspace">/workspace</option>
           <option value="/plugins">/plugins</option>
         </select>
-        <span className="text-[10px] text-zinc-500">{fileCount} files</span>
+        <span className="text-[10px] text-zinc-400">{fileCount} files</span>
       </div>
       <div className="flex gap-1.5">
         {root === "/configs" && (
           <>
-            <button onClick={onNewFile} className="text-[10px] text-blue-400 hover:text-blue-300" title="Create new file">
+            <button onClick={onNewFile} className="text-[10px] text-blue-400 hover:text-blue-300 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none rounded" title="Create new file">
               + New
             </button>
             <input
@@ -55,20 +55,20 @@ export function FilesToolbar({
               className="hidden"
               onChange={(e) => e.target.files && onUpload(e.target.files)}
             />
-            <button onClick={() => uploadRef.current?.click()} className="text-[10px] text-blue-400 hover:text-blue-300" title="Upload folder">
+            <button onClick={() => uploadRef.current?.click()} className="text-[10px] text-blue-400 hover:text-blue-300 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none rounded" title="Upload folder">
               Upload
             </button>
           </>
         )}
-        <button onClick={onDownloadAll} className="text-[10px] text-zinc-500 hover:text-zinc-300" title="Download all files">
+        <button onClick={onDownloadAll} className="text-[10px] text-zinc-400 hover:text-zinc-300 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none rounded" title="Download all files">
           Export
         </button>
         {root === "/configs" && (
-          <button onClick={onClearAll} className="text-[10px] text-red-400/60 hover:text-red-400" title="Delete all files">
+          <button onClick={onClearAll} className="text-[10px] text-red-400/60 hover:text-red-400 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none rounded" title="Delete all files">
             Clear
           </button>
         )}
-        <button onClick={onRefresh} className="text-[10px] text-zinc-500 hover:text-zinc-300" title="Refresh">
+        <button onClick={onRefresh} className="text-[10px] text-zinc-400 hover:text-zinc-300 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none rounded" title="Refresh">
           ↻
         </button>
       </div>

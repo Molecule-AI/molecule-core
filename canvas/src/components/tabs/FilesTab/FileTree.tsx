@@ -62,7 +62,7 @@ function TreeItem({
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
           onClick={() => onToggleDir(node.path)}
         >
-          <span className="text-[9px] text-zinc-500 w-3">{isLoading ? "…" : expanded ? "▼" : "▶"}</span>
+          <span className="text-[10px] text-zinc-400 w-3" aria-hidden="true">{isLoading ? "…" : expanded ? "▼" : "▶"}</span>
           <span className="text-[10px]">📁</span>
           <span className="text-[10px] text-zinc-400 flex-1">{node.name}</span>
           <button
@@ -70,7 +70,7 @@ function TreeItem({
               e.stopPropagation();
               onDelete(node.path);
             }}
-            className="text-[9px] text-red-400/0 group-hover:text-red-400/60 hover:!text-red-400 transition-colors"
+            className="text-[10px] text-red-400/0 group-hover:text-red-400/60 hover:!text-red-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none rounded"
           >
             ✕
           </button>
@@ -99,7 +99,7 @@ function TreeItem({
       style={{ paddingLeft: `${depth * 12 + 20}px` }}
       onClick={() => onSelect(node.path)}
     >
-      <span className="text-[9px]">{getIcon(node.name, false)}</span>
+      <span className="text-[10px]" aria-hidden="true">{getIcon(node.name, false)}</span>
       <span className="text-[10px] flex-1 truncate font-mono">{node.name}</span>
       <button
         onClick={(e) => {

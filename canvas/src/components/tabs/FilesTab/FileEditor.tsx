@@ -36,7 +36,7 @@ export function FileEditor({
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
           <div className="text-2xl opacity-20 mb-2">📄</div>
-          <p className="text-[10px] text-zinc-600">Select a file to edit</p>
+          <p className="text-[10px] text-zinc-400">Select a file to edit</p>
         </div>
       </div>
     );
@@ -49,13 +49,13 @@ export function FileEditor({
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="text-[10px] opacity-50">{getIcon(selectedFile, false)}</span>
           <span className="text-[10px] font-mono text-zinc-300 truncate">{selectedFile}</span>
-          {isDirty && <span className="text-[9px] text-amber-400">modified</span>}
+          {isDirty && <span className="text-[10px] text-amber-400">modified</span>}
         </div>
         <div className="flex items-center gap-2">
-          {success && <span className="text-[9px] text-emerald-400">{success}</span>}
+          {success && <span className="text-[10px] text-emerald-400">{success}</span>}
           <button
             onClick={onDownload}
-            className="text-[10px] text-zinc-500 hover:text-zinc-300"
+            className="text-[10px] text-zinc-400 hover:text-zinc-300 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none rounded"
             title="Download file"
           >
             ↓
@@ -64,7 +64,7 @@ export function FileEditor({
             <button
               onClick={onSave}
               disabled={!isDirty || saving}
-              className="text-[10px] text-blue-400 hover:text-blue-300 disabled:opacity-30"
+              className="text-[10px] text-blue-400 hover:text-blue-300 disabled:opacity-30 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none rounded"
             >
               {saving ? "Saving..." : "Save"}
             </button>
@@ -74,7 +74,7 @@ export function FileEditor({
 
       {/* Editor area */}
       {loadingFile ? (
-        <div className="p-4 text-xs text-zinc-500">Loading...</div>
+        <div role="status" aria-live="polite" className="p-4 text-xs text-zinc-400">Loading...</div>
       ) : (
         <textarea
           ref={editorRef}
@@ -103,7 +103,7 @@ export function FileEditor({
             }
           }}
           spellCheck={false}
-          className="flex-1 w-full bg-zinc-950 p-3 text-[11px] font-mono text-zinc-200 leading-relaxed resize-none focus:outline-none"
+          className="flex-1 w-full bg-zinc-950 p-3 text-[11px] font-mono text-zinc-200 leading-relaxed resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500/40"
           style={{ tabSize: 2 }}
         />
       )}

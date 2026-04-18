@@ -51,13 +51,13 @@ export const DEFAULT_CONFIG: ConfigData = {
 export function TextInput({ label, value, onChange, placeholder, mono }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; mono?: boolean }) {
   return (
     <div>
-      <label className="text-[10px] text-zinc-500 block mb-1">{label}</label>
+      <label className="text-[10px] text-zinc-400 block mb-1">{label}</label>
       <input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className={`w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-blue-500 ${mono ? "font-mono" : ""}`}
+        className={`w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none ${mono ? "font-mono" : ""}`}
       />
     </div>
   );
@@ -66,14 +66,14 @@ export function TextInput({ label, value, onChange, placeholder, mono }: { label
 export function NumberInput({ label, value, onChange, min, max }: { label: string; value: number; onChange: (v: number) => void; min?: number; max?: number }) {
   return (
     <div>
-      <label className="text-[10px] text-zinc-500 block mb-1">{label}</label>
+      <label className="text-[10px] text-zinc-400 block mb-1">{label}</label>
       <input
         type="number"
         value={value}
         onChange={(e) => onChange(parseInt(e.target.value, 10) || 0)}
         min={min}
         max={max}
-        className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-blue-500 font-mono"
+        className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none font-mono"
       />
     </div>
   );
@@ -92,12 +92,12 @@ export function TagList({ label, values, onChange, placeholder }: { label: strin
   const [input, setInput] = useState("");
   return (
     <div>
-      <label className="text-[10px] text-zinc-500 block mb-1">{label}</label>
+      <label className="text-[10px] text-zinc-400 block mb-1">{label}</label>
       <div className="flex flex-wrap gap-1 mb-1">
         {values.map((v, i) => (
           <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px] text-zinc-300 font-mono">
             {v}
-            <button onClick={() => onChange(values.filter((_, j) => j !== i))} className="text-zinc-500 hover:text-red-400">×</button>
+            <button onClick={() => onChange(values.filter((_, j) => j !== i))} className="text-zinc-400 hover:text-red-400 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none rounded">×</button>
           </span>
         ))}
       </div>
@@ -112,7 +112,7 @@ export function TagList({ label, values, onChange, placeholder }: { label: strin
           }
         }}
         placeholder={placeholder || "Type and press Enter"}
-        className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-[10px] text-zinc-200 focus:outline-none focus:border-blue-500 font-mono"
+        className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-[10px] text-zinc-200 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none font-mono"
       />
     </div>
   );
@@ -122,7 +122,7 @@ export function Section({ title, children, defaultOpen = true }: { title: string
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="border border-zinc-800 rounded mb-2">
-      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] text-zinc-400 hover:text-zinc-200 bg-zinc-900/50">
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] text-zinc-400 hover:text-zinc-200 bg-zinc-900/50 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none">
         <span className="font-medium uppercase tracking-wider">{title}</span>
         <span>{open ? "▾" : "▸"}</span>
       </button>
