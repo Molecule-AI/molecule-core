@@ -100,7 +100,7 @@ Full contract: `docs/runbooks/admin-auth.md`.
 
 ## Database
 
-Migration files live in `platform/migrations/` (latest: `022_workspace_schedules_source`). Each migration ships as a `.up.sql`/`.down.sql` pair. The migration runner globs `*.sql`, filters out `.down.sql` files, sorts alphabetically, and executes each file on boot. All `.up.sql` files must be idempotent (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... IF NOT EXISTS`) because the runner re-applies every migration on every boot.
+Migration files live in `workspace-server/migrations/` (latest: `022_workspace_schedules_source`). Each migration ships as a `.up.sql`/`.down.sql` pair. The migration runner globs `*.sql`, filters out `.down.sql` files, sorts alphabetically, and executes each file on boot. All `.up.sql` files must be idempotent (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... IF NOT EXISTS`) because the runner re-applies every migration on every boot.
 
 ### Key Tables
 

@@ -15,10 +15,10 @@ Canvas (Next.js :3000) ←WebSocket→ Platform (Go :8080) ←HTTP→ Postgres +
 
 ## Main Components
 
-- **Platform** (`platform/`): Go/Gin control plane — workspace CRUD, registry, discovery, WebSocket hub, liveness monitoring.
+- **Workspace Server** (`workspace-server/`): Go/Gin control plane — workspace CRUD, registry, discovery, WebSocket hub, liveness monitoring.
 - **Canvas** (`canvas/`): Next.js 15 + React Flow (@xyflow/react v12) + Zustand + Tailwind — visual workspace graph.
-- **Workspace Runtime** (`workspace-template/`): Shared runtime published as [`molecule-ai-workspace-runtime`](https://pypi.org/project/molecule-ai-workspace-runtime/) on PyPI. Supports LangGraph, Claude Code, OpenClaw, DeepAgents, CrewAI, AutoGen. Each adapter lives in its own standalone template repo (e.g. `molecule-ai-workspace-template-claude-code`). See `docs/workspace-runtime-package.md` for the full picture.
-- **molecli** (`platform/cmd/cli/`): Go TUI dashboard (Bubbletea + Lipgloss) — real-time workspace monitoring, event log, health overview, delete/filter operations.
+- **Workspace Runtime** (`workspace/`): Shared runtime published as [`molecule-ai-workspace-runtime`](https://pypi.org/project/molecule-ai-workspace-runtime/) on PyPI. Supports LangGraph, Claude Code, OpenClaw, DeepAgents, CrewAI, AutoGen. Each adapter lives in its own standalone template repo (e.g. `molecule-ai-workspace-template-claude-code`). See `docs/workspace-runtime-package.md` for the full picture.
+- **molecli** (`workspace-server/cmd/cli/`): Go TUI dashboard (Bubbletea + Lipgloss) — real-time workspace monitoring, event log, health overview, delete/filter operations.
 
 ## Key Architectural Patterns
 
@@ -30,7 +30,7 @@ The platform uses function injection to avoid Go import cycles between `ws`, `re
 - `registry.StartLivenessMonitor(ctx, onOffline OfflineHandler)` — Liveness accepts a broadcaster callback.
 - `registry.StartHealthSweep(ctx, checker ContainerChecker, interval, onOffline)` — Health sweep accepts a Docker checker interface.
 
-Wiring happens in `platform/cmd/server/main.go` — init order: `wh → onWorkspaceOffline → liveness/healthSweep → router`.
+Wiring happens in `workspace-server/cmd/server/main.go` — init order: `wh → onWorkspaceOffline → liveness/healthSweep → router`.
 
 ### Container Health Detection
 
@@ -118,7 +118,7 @@ Three Gin middleware classes gate server-side routes. Full contract in `docs/run
 - **`middleware.CanvasOrBearer(db.DB)`** — accepts a bearer token OR an Origin matching `CORS_ORIGINS`. Used **only** for cosmetic routes where a forged request has zero data/security impact. Currently only on `PUT /canvas/viewport`. Do not extend this to any route that leaks data or creates resources — see the runbook.
 - **`middleware.WorkspaceAuth(db.DB)`** — binds a bearer token to `:id`. Workspace A's token cannot hit workspace B's sub-routes. Used for the entire `/workspaces/:id/*` group except the A2A proxy (which has its own `CanCommunicate` layer).
 
-### Migration Runner (`platform/internal/db/postgres.go`)
+### Migration Runner (`workspace-server/internal/db/postgres.go`)
 
 `RunMigrations` globs `*.sql` in `migrationsDir`, filters out `.down.sql` files, sorts alphabetically, then `DB.Exec()`s each file on boot. The filter is load-bearing: without it, alphabetical sort places `.down.sql` before `.up.sql` (since "d" sorts before "u"), which would wipe tables like `workspace_auth_tokens` on every boot. All `.up.sql` files must be **idempotent** (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) because the runner re-applies every migration on every startup.
 
@@ -145,4 +145,4 @@ State transitions:
 
 Paused workspaces are excluded from the health sweep, liveness monitor, and auto-restart.
 
-**Restart context message:** After any restart and successful re-registration, the platform sends a synthetic A2A `message/send` to the workspace with `metadata.kind=restart_context`. The body contains the restart timestamp, previous session end time + duration, and the env-var keys (keys only, never values) now available in the container. The sender uses the `system:restart-context` caller prefix, which bypasses `CanCommunicate` via `isSystemCaller()`. If the workspace does not re-register within 30 seconds, the message is dropped (logged). Handler: `platform/internal/handlers/restart_context.go`.
+**Restart context message:** After any restart and successful re-registration, the platform sends a synthetic A2A `message/send` to the workspace with `metadata.kind=restart_context`. The body contains the restart timestamp, previous session end time + duration, and the env-var keys (keys only, never values) now available in the container. The sender uses the `system:restart-context` caller prefix, which bypasses `CanCommunicate` via `isSystemCaller()`. If the workspace does not re-register within 30 seconds, the message is dropped (logged). Handler: `workspace-server/internal/handlers/restart_context.go`.
