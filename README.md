@@ -161,11 +161,11 @@ Most agent systems stop at "a smart runtime." Molecule AI pushes further: it giv
 
 | Core mechanism | Molecule AI module(s) | Why it matters |
 |---|---|---|
-| **Durable memory that survives sessions** | `workspace-template/builtin_tools/memory.py`, `workspace-template/builtin_tools/awareness_client.py`, `platform/internal/handlers/memories.go` | Memory is not just durable, it is **workspace-scoped** and can route into awareness namespaces tied to the org structure |
-| **Cross-session recall** | `platform/internal/handlers/activity.go` (`/workspaces/:id/session-search`) | Recall spans both activity history and memory rows, so the system can search what happened and what was learned without inventing a separate hidden store |
-| **Skills built from experience** | `workspace-template/builtin_tools/memory.py` (`_maybe_log_skill_promotion`) | Promotion from memory into a skill candidate is surfaced as an explicit platform activity, not a silent internal side effect |
-| **Skill improvement during use** | `workspace-template/skill_loader/watcher.py`, `workspace-template/skill_loader/loader.py`, `workspace-template/main.py` | Skills hot-reload into the live runtime, so improvements become available on the next A2A task without restarting the workspace |
-| **Persistent skill lifecycle** | `platform/cmd/cli/cmd_agent_skill.go`, `workspace-template/plugins.py` | Skills are not just generated once; they can be audited, installed, published, shared, mounted by plugins, and governed as reusable operational assets |
+| **Durable memory that survives sessions** | `workspace/builtin_tools/memory.py`, `workspace/builtin_tools/awareness_client.py`, `workspace-server/internal/handlers/memories.go` | Memory is not just durable, it is **workspace-scoped** and can route into awareness namespaces tied to the org structure |
+| **Cross-session recall** | `workspace-server/internal/handlers/activity.go` (`/workspaces/:id/session-search`) | Recall spans both activity history and memory rows, so the system can search what happened and what was learned without inventing a separate hidden store |
+| **Skills built from experience** | `workspace/builtin_tools/memory.py` (`_maybe_log_skill_promotion`) | Promotion from memory into a skill candidate is surfaced as an explicit platform activity, not a silent internal side effect |
+| **Skill improvement during use** | `workspace/skill_loader/watcher.py`, `workspace/skill_loader/loader.py`, `workspace/main.py` | Skills hot-reload into the live runtime, so improvements become available on the next A2A task without restarting the workspace |
+| **Persistent skill lifecycle** | `workspace-server/cmd/cli/cmd_agent_skill.go`, `workspace/plugins.py` | Skills are not just generated once; they can be audited, installed, published, shared, mounted by plugins, and governed as reusable operational assets |
 
 ### Why this matters in Molecule AI
 
@@ -204,7 +204,7 @@ The result is not just “an agent that learns.” It is **an organization that 
 
 ### Runtime
 
-- unified `workspace-template/` image
+- unified `workspace/` image
 - adapter-driven execution
 - Agent Card registration
 - awareness-backed memory integration

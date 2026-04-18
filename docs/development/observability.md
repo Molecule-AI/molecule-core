@@ -30,7 +30,7 @@ Automatic traces include:
 A2A delegations are HTTP calls — LangGraph doesn't know about them. The delegation tool creates a manual span:
 
 ```python
-# workspace-template/builtin_tools/delegation.py
+# workspace/builtin_tools/delegation.py
 
 from langfuse import Langfuse
 langfuse = Langfuse()
@@ -73,7 +73,7 @@ The current task description (`current_task` field in heartbeat) is displayed as
 
 ## Prometheus Metrics
 
-The platform exposes a `GET /metrics` endpoint in Prometheus text exposition format (v0.0.4). No external dependencies — implemented in `platform/internal/metrics/metrics.go`.
+The platform exposes a `GET /metrics` endpoint in Prometheus text exposition format (v0.0.4). No external dependencies — implemented in `workspace-server/internal/metrics/metrics.go`.
 
 | Metric | Type | Description |
 |--------|------|-------------|

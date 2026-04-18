@@ -14,10 +14,10 @@
 **Title:** `feat(hermes): add workspace-template:hermes Docker image`
 
 **Files touched:**
-- `workspace-template/adapters/hermes/Dockerfile` (new)
-- `workspace-template/adapters/hermes/requirements.txt` (new)
-- `workspace-template/adapters/hermes/__init__.py` (new)
-- `workspace-template/build-all.sh` (1-line addition)
+- `workspace/adapters/hermes/Dockerfile` (new)
+- `workspace/adapters/hermes/requirements.txt` (new)
+- `workspace/adapters/hermes/__init__.py` (new)
+- `workspace/build-all.sh` (1-line addition)
 
 **Description:** Adds the Hermes Docker image layer. `Dockerfile` extends `workspace-template:base` and installs `hermes-agent` (and declared deps) via pip at build time. `build-all.sh` gains `hermes` in the adapter list so `bash build-all.sh` and `bash build-all.sh hermes` both work. No Python adapter logic yet — just proves the image builds and that `import hermes` succeeds inside the container. CI: add `hermes` to the docker-build matrix.
 
@@ -28,8 +28,8 @@
 **Title:** `feat(hermes): implement HermesAdapter and A2A executor`
 
 **Files touched:**
-- `workspace-template/adapters/hermes/adapter.py` (new, ~80 lines)
-- `workspace-template/tests/test_adapters.py` (extend existing test file, ~30 lines)
+- `workspace/adapters/hermes/adapter.py` (new, ~80 lines)
+- `workspace/tests/test_adapters.py` (extend existing test file, ~30 lines)
 
 **Description:** Implements `HermesAdapter(BaseAdapter)` with `name()`, `display_name()`, `description()`, `get_config_schema()`, `setup()`, and `create_executor()`. `setup()` calls `_common_setup()` to load plugins/skills/tools identically to other adapters, then validates that `NOUS_API_KEY` or `OPENROUTER_API_KEY` is present and initialises a Hermes SDK session. `create_executor()` wraps the session as an `AgentExecutor`. Tests cover: adapter name/display_name contract, `setup()` raises `RuntimeError` when both API keys are absent, executor is returned after valid setup.
 
@@ -40,8 +40,8 @@
 **Title:** `fix(provisioner): add hermes to RuntimeImages map`
 
 **Files touched:**
-- `platform/internal/provisioner/provisioner.go` (1-line addition)
-- `platform/internal/provisioner/provisioner_test.go` (1-line addition in RuntimeImages coverage test)
+- `workspace-server/internal/provisioner/provisioner.go` (1-line addition)
+- `workspace-server/internal/provisioner/provisioner_test.go` (1-line addition in RuntimeImages coverage test)
 
 **Description:** Adds `"hermes": "workspace-template:hermes"` to the `RuntimeImages` map. Without this entry the platform falls back to `workspace-template:langgraph` (wrong deps, agent fails to start). Test: extend the existing table-driven test that asserts every declared runtime resolves to a non-empty image tag.
 

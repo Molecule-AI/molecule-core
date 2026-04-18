@@ -131,7 +131,7 @@ The context menu is rendered by `WorkspaceContextMenu` in the canvas.
 
 **Timing note:** If provisioning takes > 3 seconds in your recording, set the
 workspace tier to 1 (no Docker pull needed) and pre-build the workspace image
-(`docker build -t workspace-template:latest workspace-template/`).
+(`docker build -t workspace-template:latest workspace/`).
 
 ---
 

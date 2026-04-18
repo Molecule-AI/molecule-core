@@ -7,14 +7,14 @@
 
 ---
 
-## 1. Files Under `workspace-template/adapters/hermes/`
+## 1. Files Under `workspace/adapters/hermes/`
 
 | File | Purpose |
 |------|---------|
 | `Dockerfile` | Extends `workspace-template:base`; installs `hermes-agent` Python SDK and its deps via pip at image build time |
 | `requirements.txt` | Python package list — at minimum `hermes-agent`; pin to a specific release tag for reproducibility |
 | `adapter.py` | `HermesAdapter(BaseAdapter)` — implements `name()`, `display_name()`, `description()`, `get_config_schema()`, `setup()`, `create_executor()`; delegates to `_common_setup()` for plugins/skills/tools |
-| `__init__.py` | Exports `Adapter = HermesAdapter` — required by the adapter autodiscovery loader in `workspace-template/adapters/__init__.py` |
+| `__init__.py` | Exports `Adapter = HermesAdapter` — required by the adapter autodiscovery loader in `workspace/adapters/__init__.py` |
 
 ### `Dockerfile` sketch (no implementation — shape only)
 
@@ -46,7 +46,7 @@ class HermesAdapter(BaseAdapter):
 
 ## 2. Platform-Side Changes
 
-### `platform/internal/provisioner/provisioner.go` — `RuntimeImages` map
+### `workspace-server/internal/provisioner/provisioner.go` — `RuntimeImages` map
 
 Add one entry to the existing map:
 
@@ -59,7 +59,7 @@ var RuntimeImages = map[string]string{
 
 No other platform Go changes are required for the minimal adapter shell. The `runtime` column in the `workspaces` table is a free-form string; no enum migration needed.
 
-### `workspace-template/build-all.sh`
+### `workspace/build-all.sh`
 
 Add `hermes` to the adapter build loop so `build-all.sh` (and the `build-all.sh claude-code`-style single-runtime path) includes it:
 

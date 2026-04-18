@@ -27,7 +27,7 @@ The `channel:<type>` caller prefix bypasses workspace hierarchy access checks (s
 | `discord` | Planned | — |
 | `whatsapp` | Planned | — |
 
-To add a new adapter: implement `ChannelAdapter` in `platform/internal/channels/`, register in `registry.go`. Everything else (CRUD API, Canvas UI, MCP tools) works automatically.
+To add a new adapter: implement `ChannelAdapter` in `workspace-server/internal/channels/`, register in `registry.go`. Everything else (CRUD API, Canvas UI, MCP tools) works automatically.
 
 ## Telegram Setup
 
@@ -192,11 +192,11 @@ test_channel({ workspace_id, channel_id })                           // test con
 
 | File | Purpose |
 |------|---------|
-| `platform/internal/channels/adapter.go` | `ChannelAdapter` interface |
-| `platform/internal/channels/registry.go` | Adapter registry |
-| `platform/internal/channels/telegram.go` | Telegram implementation |
-| `platform/internal/channels/manager.go` | Orchestrator with hot reload |
-| `platform/internal/handlers/channels.go` | REST API + webhook |
-| `platform/migrations/016_workspace_channels.sql` | DB schema |
+| `workspace-server/internal/channels/adapter.go` | `ChannelAdapter` interface |
+| `workspace-server/internal/channels/registry.go` | Adapter registry |
+| `workspace-server/internal/channels/telegram.go` | Telegram implementation |
+| `workspace-server/internal/channels/manager.go` | Orchestrator with hot reload |
+| `workspace-server/internal/handlers/channels.go` | REST API + webhook |
+| `workspace-server/migrations/016_workspace_channels.sql` | DB schema |
 | `canvas/src/components/tabs/ChannelsTab.tsx` | Canvas UI |
 | `mcp-server/src/index.ts` | 7 MCP tools |

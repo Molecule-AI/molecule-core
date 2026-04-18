@@ -127,10 +127,10 @@ Canvas (Next.js :3000) ←WebSocket→ Platform (Go :8080) ←HTTP→ Postgres +
 ```
 
 Four main components:
-- **Platform** (`platform/`): Go/Gin control plane — workspace CRUD, registry, discovery, WebSocket hub, liveness monitoring
+- **Workspace Server** (`workspace-server/`): Go/Gin control plane — workspace CRUD, registry, discovery, WebSocket hub, liveness monitoring
 - **Canvas** (`canvas/`): Next.js 15 + React Flow (@xyflow/react v12) + Zustand + Tailwind — visual workspace graph
-- **Workspace Runtime** (`workspace-template/`): Shared runtime published as [`molecule-ai-workspace-runtime`](https://pypi.org/project/molecule-ai-workspace-runtime/) on PyPI. Supports LangGraph, Claude Code, OpenClaw, DeepAgents, CrewAI, AutoGen. Each adapter lives in its own standalone template repo (e.g. `molecule-ai-workspace-template-claude-code`). See `docs/workspace-runtime-package.md` for the full picture.
-- **molecli** (`platform/cmd/cli/`): Go TUI dashboard (Bubbletea + Lipgloss) — real-time workspace monitoring, event log, health overview, delete/filter operations
+- **Workspace Runtime** (`workspace/`): Shared runtime published as [`molecule-ai-workspace-runtime`](https://pypi.org/project/molecule-ai-workspace-runtime/) on PyPI. Supports LangGraph, Claude Code, OpenClaw, DeepAgents, CrewAI, AutoGen. Each adapter lives in its own standalone template repo (e.g. `molecule-ai-workspace-template-claude-code`). See `docs/workspace-runtime-package.md` for the full picture.
+- **molecli** (`workspace-server/cmd/cli/`): Go TUI dashboard (Bubbletea + Lipgloss) — real-time workspace monitoring, event log, health overview, delete/filter operations
 
 ## Build & Run Commands
 
@@ -144,7 +144,7 @@ Infra services (via `docker-compose.infra.yml`, all attached to the shared `mole
 - **Postgres** `:5432` — primary datastore (also backs Langfuse + Temporal via separate DBs)
 - **Redis** `:6379` — pub/sub, heartbeat TTLs
 - **Langfuse** `:3001` — LLM trace viewer (backed by Clickhouse)
-- **Temporal** `:7233` (gRPC) + `:8233` (Web UI) — durable workflow engine for `workspace-template/builtin_tools/temporal_workflow.py`. **Dev-only posture:** the auto-setup image runs with no auth on `0.0.0.0:7233`; production deployments must gate access via mTLS or an API key / reverse proxy.
+- **Temporal** `:7233` (gRPC) + `:8233` (Web UI) — durable workflow engine for `workspace/builtin_tools/temporal_workflow.py`. **Dev-only posture:** the auto-setup image runs with no auth on `0.0.0.0:7233`; production deployments must gate access via mTLS or an API key / reverse proxy.
 
 ### Platform (Go)
 ```bash
@@ -154,7 +154,7 @@ go run ./cmd/server          # Run server (requires Postgres + Redis running)
 go build -o molecli ./cmd/cli  # Build TUI dashboard
 ./molecli                    # Run TUI dashboard (requires platform running)
 ```
-Must run from `platform/` directory (not repo root). Env vars: `DATABASE_URL`, `REDIS_URL`, `PORT`, `ADMIN_TOKEN` (**required to close issue #684** — when set, only this exact value is accepted on all `/admin/*` and `/approvals/*` routes; without it, any valid workspace bearer token passes AdminAuth, which is the #684 vulnerability. Generate: `openssl rand -base64 32`. Never commit the actual value — inject via `fly secrets set` or deployment env. PR #729), `PLATFORM_URL` (default `http://host.docker.internal:PORT` — passed to agent containers so they can reach the platform), `SECRETS_ENCRYPTION_KEY` (optional AES-256, 32 bytes), `CONFIGS_DIR` (auto-discovered), `PLUGINS_DIR` (deprecated — plugins are now installed per-workspace via API; the `plugins/` registry at repo root is auto-discovered), `ACTIVITY_RETENTION_DAYS` (default `7`), `ACTIVITY_CLEANUP_INTERVAL_HOURS` (default `6`), `CORS_ORIGINS` (comma-separated, default `http://localhost:3000,http://localhost:3001`), `RATE_LIMIT` (requests/min, default `600`), `WORKSPACE_DIR` (optional — global fallback host path for `/workspace` bind-mount; overridden by per-workspace `workspace_dir` column in DB; if neither is set, each workspace gets an isolated Docker named volume), `AWARENESS_URL` (optional — if set, injected into workspace containers along with a deterministic `AWARENESS_NAMESPACE` derived from workspace ID), `MOLECULE_IN_DOCKER` (optional — set to `1` when the platform itself runs inside Docker so the A2A proxy rewrites `127.0.0.1:<port>` URLs to container hostnames; auto-detected via `/.dockerenv`), `MOLECULE_ENV` (optional — set to `production` to hide the `/admin/workspaces/:id/test-token` E2E helper endpoint; unset or any other value leaves it enabled), `MOLECULE_ENABLE_TEST_TOKENS` (optional — set to `1` to force-enable the test-token endpoint even when `MOLECULE_ENV=production`; intended for staging runs only), `MOLECULE_ORG_ID` (optional — the public repo's only SaaS hook. When set to a UUID, every non-allowlisted request must carry a matching `X-Molecule-Org-Id` header or gets a 404; when unset, the guard is a passthrough so self-hosted / dev / CI are unaffected. Set only by the private `molecule-controlplane` provisioner on Fly Machines tenant instances — never by self-hosters).
+Must run from `workspace-server/` directory (not repo root). Env vars: `DATABASE_URL`, `REDIS_URL`, `PORT`, `ADMIN_TOKEN` (**required to close issue #684** — when set, only this exact value is accepted on all `/admin/*` and `/approvals/*` routes; without it, any valid workspace bearer token passes AdminAuth, which is the #684 vulnerability. Generate: `openssl rand -base64 32`. Never commit the actual value — inject via `fly secrets set` or deployment env. PR #729), `PLATFORM_URL` (default `http://host.docker.internal:PORT` — passed to agent containers so they can reach the platform), `SECRETS_ENCRYPTION_KEY` (optional AES-256, 32 bytes), `CONFIGS_DIR` (auto-discovered), `PLUGINS_DIR` (deprecated — plugins are now installed per-workspace via API; the `plugins/` registry at repo root is auto-discovered), `ACTIVITY_RETENTION_DAYS` (default `7`), `ACTIVITY_CLEANUP_INTERVAL_HOURS` (default `6`), `CORS_ORIGINS` (comma-separated, default `http://localhost:3000,http://localhost:3001`), `RATE_LIMIT` (requests/min, default `600`), `WORKSPACE_DIR` (optional — global fallback host path for `/workspace` bind-mount; overridden by per-workspace `workspace_dir` column in DB; if neither is set, each workspace gets an isolated Docker named volume), `AWARENESS_URL` (optional — if set, injected into workspace containers along with a deterministic `AWARENESS_NAMESPACE` derived from workspace ID), `MOLECULE_IN_DOCKER` (optional — set to `1` when the platform itself runs inside Docker so the A2A proxy rewrites `127.0.0.1:<port>` URLs to container hostnames; auto-detected via `/.dockerenv`), `MOLECULE_ENV` (optional — set to `production` to hide the `/admin/workspaces/:id/test-token` E2E helper endpoint; unset or any other value leaves it enabled), `MOLECULE_ENABLE_TEST_TOKENS` (optional — set to `1` to force-enable the test-token endpoint even when `MOLECULE_ENV=production`; intended for staging runs only), `MOLECULE_ORG_ID` (optional — the public repo's only SaaS hook. When set to a UUID, every non-allowlisted request must carry a matching `X-Molecule-Org-Id` header or gets a 404; when unset, the guard is a passthrough so self-hosted / dev / CI are unaffected. Set only by the private `molecule-controlplane` provisioner on Fly Machines tenant instances — never by self-hosters).
 
 **Workspace tier resource limits** (issue #14 — override the per-tier memory/CPU caps in `provisioner.ApplyTierConfig`; CPU_SHARES follows Docker's 1024 = 1 CPU convention, translated to NanoCPUs for a hard cap):
 - `TIER2_MEMORY_MB` / `TIER2_CPU_SHARES` — Standard tier (defaults `512` / `1024`)
@@ -183,9 +183,9 @@ Env vars: `NEXT_PUBLIC_PLATFORM_URL` (default http://localhost:8080), `NEXT_PUBL
 
 ### Workspace Images
 ```bash
-bash workspace-template/build-all.sh   # Build base image only (workspace-template:base)
+bash workspace/build-all.sh   # Build base image only (workspace-template:base)
 ```
-Adapters are now in standalone template repos. Each repo has its own `Dockerfile` that installs `molecule-ai-workspace-runtime` from PyPI + adapter-specific deps. The base `workspace-template/Dockerfile` still builds `:base` for local dev. See `docs/workspace-runtime-package.md` for the adapter repo list and details.
+Adapters are now in standalone template repos. Each repo has its own `Dockerfile` that installs `molecule-ai-workspace-runtime` from PyPI + adapter-specific deps. The base `workspace/Dockerfile` still builds `:base` for local dev. See `docs/workspace-runtime-package.md` for the adapter repo list and details.
 
 | Runtime | Standalone Repo | Key Deps |
 |---------|-----------------|----------|
@@ -237,7 +237,7 @@ Shared plugins in `plugins/` are auto-loaded by every workspace:
 
 These are distilled from the harness-level guardrails the orchestrator uses on itself. A workspace can install one (e.g., just `molecule-careful-bash` for safety) or stack the full set for the same posture as the Molecule AI orchestrator.
 
-**Org-template plugin resolution (PR #71, issue #68):** per-workspace `plugins:` lists in org template `org.yaml` role overrides **UNION** with `defaults.plugins` (deduplicated, defaults first) — they do **not** REPLACE them. To opt a specific default out for a given role/workspace, prefix the plugin name with `!` or `-` (e.g. `!browser-automation`). Implemented by `mergePlugins` in `platform/internal/handlers/org.go`. Org templates now live in standalone repos: `Molecule-AI/molecule-ai-org-template-*`.
+**Org-template plugin resolution (PR #71, issue #68):** per-workspace `plugins:` lists in org template `org.yaml` role overrides **UNION** with `defaults.plugins` (deduplicated, defaults first) — they do **not** REPLACE them. To opt a specific default out for a given role/workspace, prefix the plugin name with `!` or `-` (e.g. `!browser-automation`). Implemented by `mergePlugins` in `workspace-server/internal/handlers/org.go`. Org templates now live in standalone repos: `Molecule-AI/molecule-ai-org-template-*`.
 
 ### Scripts
 ```bash
@@ -284,11 +284,11 @@ saving ~15 min of runner time. The path filters are:
 
 | Job | Triggers on |
 |-----|-------------|
-| **platform-build** | `platform/**` |
+| **platform-build** | `workspace-server/**` |
 | **canvas-build** | `canvas/**` |
-| **python-lint** | `workspace-template/**` |
+| **python-lint** | `workspace/**` |
 | **shellcheck** | `tests/e2e/**`, `scripts/**` |
-| **e2e-api** | `platform/**`, `tests/e2e/**` |
+| **e2e-api** | `workspace-server/**`, `tests/e2e/**` |
 
 All jobs also trigger on `.github/workflows/ci.yml` changes (self-test).
 
@@ -298,7 +298,7 @@ Job details:
 - **python-lint**: `pytest --cov=. --cov-report=term-missing` (workspace-template tests; SDK + MCP now in standalone repos)
 - **e2e-api** (`.github/workflows/e2e-api.yml`): spins up Postgres + Redis service containers, runs platform migrations via `docker exec`, then executes `tests/e2e/test_api.sh` against a locally-built binary (62/62 must pass)
 - **shellcheck**: lints every `tests/e2e/*.sh` via shellcheck on the self-hosted runner
-- **publish-platform-image** (`.github/workflows/publish-platform-image.yml`): on push to main touching `platform/**`, builds `platform/Dockerfile` (clones templates + plugins from GitHub via `manifest.json` at build time) and pushes to `ghcr.io/molecule-ai/platform:latest` + `:sha-<short>`. Tenant image uses `platform/Dockerfile.tenant` (combined Go + Canvas). Manual re-trigger via `workflow_dispatch`.
+- **publish-platform-image** (`.github/workflows/publish-platform-image.yml`): on push to main touching `workspace-server/**`, builds `workspace-server/Dockerfile` (clones templates + plugins from GitHub via `manifest.json` at build time) and pushes to `ghcr.io/molecule-ai/platform:latest` + `:sha-<short>`. Tenant image uses `workspace-server/Dockerfile.tenant` (combined Go + Canvas). Manual re-trigger via `workflow_dispatch`.
 
 **Standalone repo CI** — all 33 plugin + template repos call reusable workflows from `Molecule-AI/molecule-ci`:
 - Plugins: validates `plugin.yaml` schema, content presence, secrets scan
@@ -318,7 +318,7 @@ The platform uses function injection to avoid Go import cycles between ws, regis
 - `ws.NewHub(canCommunicate AccessChecker)` — Hub accepts `registry.CanCommunicate` as a function
 - `registry.StartLivenessMonitor(ctx, onOffline OfflineHandler)` — Liveness accepts broadcaster callback
 - `registry.StartHealthSweep(ctx, checker ContainerChecker, interval, onOffline)` — Health sweep accepts Docker checker interface
-- Wiring happens in `platform/cmd/server/main.go` — init order: `wh → onWorkspaceOffline → liveness/healthSweep → router`
+- Wiring happens in `workspace-server/cmd/server/main.go` — init order: `wh → onWorkspaceOffline → liveness/healthSweep → router`
 
 ### Container Health Detection
 Three layers detect dead containers (e.g. Docker Desktop crash):
@@ -391,13 +391,13 @@ Three Gin middleware classes gate server-side routes — pick the right one. Ful
 - **`middleware.CanvasOrBearer(db.DB)`** — accepts bearer OR Origin matching `CORS_ORIGINS`. Used ONLY for cosmetic routes where a forged request has zero data/security impact. Currently only on `PUT /canvas/viewport`. **Do not extend** without rereading the runbook — PR #194 was rejected because adding this to `/bundles/import` would have re-opened #164 CRITICAL.
 - **`middleware.WorkspaceAuth(db.DB)`** — binds a bearer to `:id`. Workspace A's token cannot hit workspace B's sub-routes. Used for the entire `/workspaces/:id/*` group except the A2A proxy (which has its own `CanCommunicate` layer).
 
-### Migration runner (`platform/internal/db/postgres.go`)
+### Migration runner (`workspace-server/internal/db/postgres.go`)
 `RunMigrations` globs `*.sql` in `migrationsDir`, filters out `.down.sql` files, sorts alphabetically, then `DB.Exec()`s each on boot. The filter is load-bearing: before PR #212 every boot ran `.down.sql` **before** `.up.sql` (alphabetical sort puts "d" before "u"), wiping `workspace_auth_tokens` + other pair-migration tables and silently regressing AdminAuth to fail-open. All `.up.sql` files must be **idempotent** (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... IF NOT EXISTS`) because the runner re-applies every migration on every boot. A proper `schema_migrations` tracking table is tracked as a Phase-H cleanup.
 
 ### Workspace Lifecycle
 `provisioning` → `online` (on register) → `degraded` (error_rate > 0.5) → `online` (recovered) → `offline` (Redis TTL expired OR health sweep detects dead container) → auto-restart → `provisioning` → ... → `removed` (deleted). Any state → `paused` (user pauses) → `provisioning` (user resumes). Paused workspaces skip health sweep, liveness monitor, and auto-restart.
 
-**Restart context message (issue #19 Layer 1):** After any restart (HTTP `/restart` or programmatic `RestartByID`) and successful re-registration, the platform sends a synthetic A2A `message/send` to the workspace with `metadata.kind=restart_context` — body contains restart timestamp, previous session end + duration, and env-var keys (keys only, never values) now available. Sender uses the `system:restart-context` caller prefix so it bypasses `CanCommunicate` via `isSystemCaller()`. If the workspace does not re-register within 30s the message is dropped (logged). Handler: `platform/internal/handlers/restart_context.go`. Layer 2 (user-defined `restart_prompt` from `config.yaml` / `org.yaml`) is tracked as GitHub issue #66.
+**Restart context message (issue #19 Layer 1):** After any restart (HTTP `/restart` or programmatic `RestartByID`) and successful re-registration, the platform sends a synthetic A2A `message/send` to the workspace with `metadata.kind=restart_context` — body contains restart timestamp, previous session end + duration, and env-var keys (keys only, never values) now available. Sender uses the `system:restart-context` caller prefix so it bypasses `CanCommunicate` via `isSystemCaller()`. If the workspace does not re-register within 30s the message is dropped (logged). Handler: `workspace-server/internal/handlers/restart_context.go`. Layer 2 (user-defined `restart_prompt` from `config.yaml` / `org.yaml`) is tracked as GitHub issue #66.
 
 ## Platform API Routes
 
@@ -477,7 +477,7 @@ Three Gin middleware classes gate server-side routes — pick the right one. Ful
 
 ## Database
 
-Migration files in `platform/migrations/` (latest: `022_workspace_schedules_source` — 2026-04-14 tick-7, PR #76). Each later migration is a `.up.sql`/`.down.sql` pair. Key tables: `workspaces` (core entity with status, runtime, agent_card JSONB, heartbeat columns, current_task, awareness_namespace, workspace_dir), `canvas_layouts` (x/y position), `structure_events` (append-only event log), `activity_logs` (A2A communications, task updates, agent logs, errors — `error_detail` is now populated by `scheduler.fireSchedule` so `GET /workspaces/:id/schedules/:id/history` can surface why a cron run failed, #152 / PR #206), `workspace_schedules` (cron tasks with expression, timezone, prompt, run history, `source` — `'template'` for org/import-seeded, `'runtime'` for Canvas/API-created, and `last_status` now includes `'skipped'` when `scheduler.fireSchedule` concurrency-aware-skips a busy workspace, #115 / PR #207), `workspace_channels` (social channel integrations — Telegram, Slack, etc., with JSONB config and allowlist), `agents`, `workspace_secrets`, `global_secrets`, `workspace_auth_tokens` (Phase 30.1 bearer tokens; now auto-revoked on workspace delete, #110), `agent_memories` (HMA scoped memory), `approvals`.
+Migration files in `workspace-server/migrations/` (latest: `022_workspace_schedules_source` — 2026-04-14 tick-7, PR #76). Each later migration is a `.up.sql`/`.down.sql` pair. Key tables: `workspaces` (core entity with status, runtime, agent_card JSONB, heartbeat columns, current_task, awareness_namespace, workspace_dir), `canvas_layouts` (x/y position), `structure_events` (append-only event log), `activity_logs` (A2A communications, task updates, agent logs, errors — `error_detail` is now populated by `scheduler.fireSchedule` so `GET /workspaces/:id/schedules/:id/history` can surface why a cron run failed, #152 / PR #206), `workspace_schedules` (cron tasks with expression, timezone, prompt, run history, `source` — `'template'` for org/import-seeded, `'runtime'` for Canvas/API-created, and `last_status` now includes `'skipped'` when `scheduler.fireSchedule` concurrency-aware-skips a busy workspace, #115 / PR #207), `workspace_channels` (social channel integrations — Telegram, Slack, etc., with JSONB config and allowlist), `agents`, `workspace_secrets`, `global_secrets`, `workspace_auth_tokens` (Phase 30.1 bearer tokens; now auto-revoked on workspace delete, #110), `agent_memories` (HMA scoped memory), `approvals`.
 
 The platform auto-discovers and runs migrations on startup from several candidate paths. The runner filters out `*.down.sql` files — see the "Migration runner" section above for the history of PR #212 and why this filter is load-bearing.
 

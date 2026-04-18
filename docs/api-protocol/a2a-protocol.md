@@ -179,7 +179,7 @@ await a2a.send({
 The workspace handles cancellation via the `LangGraphA2AExecutor.cancel()` method, which uses LangGraph's interrupt mechanism:
 
 ```python
-# workspace-template/a2a_executor.py
+# workspace/a2a_executor.py
 async def cancel(self, context: RequestContext, queue: EventQueue):
     await self.agent.ainterrupt(context.context_id)
     # status → canceled, SSE terminal event fires automatically

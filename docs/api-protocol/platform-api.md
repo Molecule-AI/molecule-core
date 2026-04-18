@@ -48,7 +48,7 @@ Violations return `400 Bad Request` with `{ "error": "<field> must be at most N 
 **Migration steps for callers:**
 1. Add `Authorization: Bearer <workspace-token>` to all `PATCH /workspaces/:id` requests.
 2. Add an admin bearer token to `GET /templates` and `GET /org/templates` requests.
-3. Ensure `:id` values in E2E scripts and automation are valid UUIDs. Update any test fixtures that use non-UUID IDs (see `platform/internal/handlers/*_test.go` for updated examples).
+3. Ensure `:id` values in E2E scripts and automation are valid UUIDs. Update any test fixtures that use non-UUID IDs (see `workspace-server/internal/handlers/*_test.go` for updated examples).
 
 ## Core Endpoints
 
