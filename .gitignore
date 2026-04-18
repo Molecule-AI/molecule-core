@@ -118,5 +118,7 @@ backups/
 # Cloned-via-manifest dirs — populated locally by scripts/clone-manifest.sh,
 # tracked in their own standalone repos. Never commit to core.
 /org-templates/
-/plugins/
+/plugins/*
+# Exceptions: plugins tracked directly in this repo (not in standalone repos).
+!/plugins/molecule-context7/
 /workspace-configs-templates/

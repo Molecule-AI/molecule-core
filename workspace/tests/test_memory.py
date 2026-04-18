@@ -920,3 +920,124 @@ def test_record_memory_activity_omits_target_id_when_none(memory_modules_with_mo
     asyncio.run(memory._record_memory_activity("GLOBAL", "fact", None))
 
     assert "target_id" not in captured[0]
+
+
+# ---------------------------------------------------------------------------
+# _redact_secrets — #834 C2 HIGH: platform-wide secret scrub before storage
+# ---------------------------------------------------------------------------
+
+
+class TestRedactSecrets:
+    """Each _SECRET_PATTERNS entry must be independently verified.
+
+    Uses the ``memory_modules`` fixture so memory.py is loaded with all its
+    internal dependencies properly wired (awareness_client, audit, etc.).
+    """
+
+    def test_redacts_ctx7_token(self, memory_modules):
+        memory, _ = memory_modules
+        assert memory._redact_secrets("ctx7_abcDEF12345678") == "[REDACTED]"
+
+    def test_redacts_ctx7_token_min_length(self, memory_modules):
+        memory, _ = memory_modules
+        # Minimum suffix length is 8 chars.
+        assert "[REDACTED]" in memory._redact_secrets("ctx7_12345678")
+
+    def test_ctx7_too_short_not_redacted(self, memory_modules):
+        memory, _ = memory_modules
+        # Only 7 chars after prefix — below threshold.
+        result = memory._redact_secrets("ctx7_1234567")
+        assert "ctx7_1234567" in result
+
+    def test_redacts_sk_key(self, memory_modules):
+        memory, _ = memory_modules
+        assert memory._redact_secrets("sk-" + "a" * 20) == "[REDACTED]"
+
+    def test_sk_key_in_sentence(self, memory_modules):
+        memory, _ = memory_modules
+        text = f"My key is sk-{'x' * 25} please store it"
+        result = memory._redact_secrets(text)
+        assert "[REDACTED]" in result
+        assert "sk-" not in result
+
+    def test_redacts_github_pat(self, memory_modules):
+        memory, _ = memory_modules
+        pat = "ghp_" + "A" * 36
+        assert memory._redact_secrets(pat) == "[REDACTED]"
+
+    def test_github_pat_too_short_not_redacted(self, memory_modules):
+        memory, _ = memory_modules
+        # One char below threshold — 35 < 36.
+        short = "ghp_" + "A" * 35
+        result = memory._redact_secrets(short)
+        assert short in result
+
+    def test_redacts_bearer_token(self, memory_modules):
+        memory, _ = memory_modules
+        token = "Bearer " + "a" * 20
+        assert memory._redact_secrets(token) == "[REDACTED]"
+
+    def test_bearer_token_in_content(self, memory_modules):
+        memory, _ = memory_modules
+        text = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.stuff"
+        result = memory._redact_secrets(text)
+        assert "[REDACTED]" in result
+        assert "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" not in result
+
+    def test_redacts_env_api_key(self, memory_modules):
+        memory, _ = memory_modules
+        text = "OPENAI_API_KEY=sk123abc456def7890"
+        assert "[REDACTED]" in memory._redact_secrets(text)
+
+    def test_env_api_key_too_short_value_not_redacted(self, memory_modules):
+        memory, _ = memory_modules
+        # Value only 9 chars — below threshold of 10.
+        text = "OPENAI_API_KEY=123456789"
+        result = memory._redact_secrets(text)
+        assert "123456789" in result
+
+    def test_clean_content_unchanged(self, memory_modules):
+        memory, _ = memory_modules
+        text = "Completed the analysis of React hooks."
+        assert memory._redact_secrets(text) == text
+
+    def test_multiple_secrets_all_redacted(self, memory_modules):
+        memory, _ = memory_modules
+        text = f"ctx7_abcdef12 key=sk-{'x' * 20} pat=ghp_{'A' * 36}"
+        result = memory._redact_secrets(text)
+        assert result.count("[REDACTED]") == 3
+
+    def test_empty_string(self, memory_modules):
+        memory, _ = memory_modules
+        assert memory._redact_secrets("") == ""
+
+    def test_idempotent(self, memory_modules):
+        memory, _ = memory_modules
+        text = "ctx7_abcdef12345678"
+        once = memory._redact_secrets(text)
+        twice = memory._redact_secrets(once)
+        assert once == twice == "[REDACTED]"
+
+    def test_redact_applied_before_commit_content_in_memory(self, memory_modules, monkeypatch):
+        """commit_memory must call _redact_secrets on content before any persistence."""
+        memory, _ = memory_modules
+        committed: list = []
+        original = memory._redact_secrets
+
+        def _capture(text):
+            committed.append(text)
+            return original(text)
+
+        monkeypatch.setattr(memory, "_redact_secrets", _capture)
+
+        class FakeAwarenessClient:
+            async def commit(self, content, scope):
+                return {"success": True, "id": "mem-1"}
+
+        monkeypatch.setattr(memory, "build_awareness_client", lambda: FakeAwarenessClient())
+
+        content_with_secret = "Remember ctx7_abcdef12345678"
+        asyncio.run(memory.commit_memory(content_with_secret, "LOCAL"))
+
+        assert len(committed) > 0, "_redact_secrets was never called"
+        assert committed[0] == content_with_secret
