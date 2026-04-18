@@ -475,7 +475,7 @@ function MyChatPanel({ workspaceId, data }: Props) {
           <button
             onClick={sendMessage}
             disabled={!input.trim() || !agentReachable || sending}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-xs font-medium rounded-lg text-white disabled:opacity-30 transition-colors shrink-0"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-xs font-medium rounded-lg text-zinc-50 disabled:opacity-30 transition-colors shrink-0"
           >
             Send
           </button>
