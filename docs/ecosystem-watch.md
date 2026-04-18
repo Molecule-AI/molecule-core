@@ -702,7 +702,22 @@ snapshots:
       2,646 pre-extracted node configs ship as local DB (offline node lookup).
       Plugin proposal filed (molecule-n8n — GH pending token rotation).
     source_url: https://github.com/czlonkowski/n8n-mcp/releases
-```
+
+  - name: Craft Agents
+    slug: craft-agents
+    date: "2026-04-17"
+    version: "active"
+    stars: "4.3k"
+    threat_level: low
+    notable_changes: >
+      4.3k★, TypeScript, Apache-2.0; GitHub Trending Apr 17 2026. Claude Agent
+      SDK-native desktop app + headless server; multi-session inbox, full MCP
+      support (32+ tools), event-driven automations, multi-provider LLM
+      (Anthropic/OpenAI/Google/GitHub Copilot/OpenRouter). Consumer "Claude
+      desktop workspace" shape — single-user, no A2A, no org hierarchy. Similar
+      to Holaboss but MCP-complete. Permission modes (Explore/Ask to Edit/Auto)
+      worth borrowing for workspace tool-access tier UX.
+    source_url: https://github.com/lukilabs/craft-agents-oss
 
 ---
 
@@ -2946,3 +2961,23 @@ langgraph/crewai adapters.
 **Signals to react to:** n8n-mcp ships A2A support → evaluate deep integration. Plugin proposal accepted → molecule-n8n becomes default channel integration for new org templates. n8n-mcp reaches 30k★ → upgrade to MEDIUM threat (de facto agent-to-automation bridge).
 
 **Last reviewed:** 2026-04-17 · **Stars / activity:** 18.3k★, TypeScript, MIT, v2.47.12 (Apr 17 2026). **Plugin proposal pending** (molecule-n8n — GH issue queued, pending GH_TOKEN rotation).
+
+---
+
+### Craft Agents — `lukilabs/craft-agents-oss`
+
+**Pitch:** "A beautiful, agent-native desktop app and headless server for intuitive multitasking with Claude."
+
+**Shape:** TypeScript, Apache-2.0, 4.3k★, GitHub Trending Apr 17 2026. Desktop app + headless server. Claude Agent SDK-native; multi-provider LLM (Anthropic, OpenAI, Google, GitHub Copilot, OpenRouter). Full MCP support (32+ tools: document, Linear, GitHub, Notion, custom OpenAPI). Event-driven automations (schedule, label, tool-use triggers). Multi-session inbox, streaming real-time tool visualization, three permission modes (Explore / Ask to Edit / Auto).
+
+**Overlap with us:** Multi-session management ≈ workspace lifecycle. Event-driven automations ≈ `workspace_schedules`. MCP-first ≈ our plugin architecture. Skills-per-workspace ≈ our `plugins/` convention. No-code agent config by conversation ≈ our Config tab intent.
+
+**Differentiation:** Single-user desktop app — no org hierarchy, no A2A protocol, no canvas, no multi-tenant isolation, no Docker workspace isolation. Same consumer shape as Holaboss, but MCP-complete and multi-provider. Molecule provides the server-side governance + orchestration layer Craft Agents explicitly omits.
+
+**Worth borrowing:** Permission mode UX (Explore/Ask to Edit/Auto) as a model for workspace tool-access tiers. Real-time streaming tool visualization for Agent Comms tab.
+
+**Terminology collisions:** "workspace" (identical), "skills" (= our plugins/ convention).
+
+**Signals to react to:** Adds A2A support → evaluate `molecule-ai-workspace-template-craft`. Headless server gains multi-user/team support → upgrade to MEDIUM threat. Crosses 20k★ → re-evaluate competitive posture.
+
+**Last reviewed:** 2026-04-17 · **Stars / activity:** 4.3k★, TypeScript, Apache-2.0, GitHub Trending Apr 17 2026
