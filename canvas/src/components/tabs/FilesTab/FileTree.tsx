@@ -106,7 +106,7 @@ function TreeItem({
           e.stopPropagation();
           onDelete(node.path);
         }}
-        className="text-[9px] text-red-400/0 group-hover:text-red-400/60 hover:!text-red-400 transition-colors"
+        className="text-[10px] text-red-400/0 group-hover:text-red-400/60 hover:!text-red-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none rounded"
       >
         ✕
       </button>
