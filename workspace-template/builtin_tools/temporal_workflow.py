@@ -67,6 +67,41 @@ _ACTIVITY_START_TO_CLOSE_TIMEOUT = timedelta(minutes=10)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+async def _fetch_latest_checkpoint(workspace_id: str) -> Optional[dict]:
+    """GET /workspaces/:id/checkpoints/latest — returns the most recently
+    completed step for this workspace, or None if no checkpoints exist yet.
+
+    Non-fatal: any HTTP error, network failure, or timeout returns None so
+    the calling code continues without a resume context.  A 404 (no checkpoints)
+    is the expected response for a freshly provisioned workspace.
+
+    Args:
+        workspace_id: The workspace to query.
+
+    Reads:
+        PLATFORM_URL  Platform base URL (default ``http://localhost:8080``).
+    """
+    try:
+        from platform_auth import auth_headers as _auth_headers  # type: ignore[import]
+
+        platform_url = os.environ.get("PLATFORM_URL", "http://localhost:8080")
+        url = f"{platform_url}/workspaces/{workspace_id}/checkpoints/latest"
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url, headers=_auth_headers())
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as exc:
+        logger.debug(
+            "Temporal: latest checkpoint fetch skipped workspace=%s: %s "
+            "(non-fatal — starting fresh context)",
+            workspace_id,
+            exc,
+        )
+        return None
+
+
 async def _save_checkpoint(
     workspace_id: str,
     workflow_id: str,
@@ -539,12 +574,40 @@ class TemporalWorkflowWrapper:
             await executor._core_execute(context, event_queue)
             return
 
+        workspace_id_env = os.environ.get("WORKSPACE_ID", "unknown")
+
+        # Issue #837: query the latest checkpoint for this workspace.
+        # If a previous workflow crashed mid-step, inject the last known
+        # step into the history so the agent is aware of its prior state.
+        # Non-fatal: a missing or 404 response means starting fresh.
+        last_ckpt = await _fetch_latest_checkpoint(workspace_id_env)
+        if last_ckpt:
+            step_name = last_ckpt.get("step_name", "unknown")
+            workflow_id_ckpt = last_ckpt.get("workflow_id", "")
+            completed_at = last_ckpt.get("completed_at", "")
+            ckpt_note = (
+                f"[SYSTEM: This workspace was previously executing workflow "
+                f"'{workflow_id_ckpt}'. The last recorded step was '{step_name}' "
+                f"(completed at {completed_at}). If the current task is a "
+                f"continuation of that workflow, resume from this point. "
+                f"Otherwise ignore this context and start fresh.]"
+            )
+            # Prepend as a synthetic context entry so the agent sees it at the
+            # start of its history — before any user messages for this task.
+            history = [["system", ckpt_note]] + history
+            logger.info(
+                "Temporal: injecting checkpoint context task_id=%s last_step=%s wf=%s",
+                task_id,
+                step_name,
+                workflow_id_ckpt,
+            )
+
         inp = AgentTaskInput(
             task_id=task_id,
             context_id=context_id,
             user_input=user_input,
             model=getattr(executor, "_model", "unknown"),
-            workspace_id=os.environ.get("WORKSPACE_ID", "unknown"),
+            workspace_id=workspace_id_env,
             history=history,
         )
 

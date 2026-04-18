@@ -878,3 +878,182 @@ async def test_save_checkpoint_standalone_http_error_is_swallowed(
         )
 
     assert result is None, "_save_checkpoint must return None (no exception) on HTTP 500"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _fetch_latest_checkpoint — unit tests (issue #837)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_fetch_latest_checkpoint_returns_none_on_404(
+    real_temporal_with_temporalio, monkeypatch
+):
+    """_fetch_latest_checkpoint returns None when the platform responds 404.
+
+    404 is the expected response for a freshly provisioned workspace that has
+    never completed a checkpoint.  The caller must not crash.
+    """
+    import httpx as _httpx
+
+    mod, _mocks, _mock_shared = real_temporal_with_temporalio
+
+    mock_platform_auth = MagicMock()
+    mock_platform_auth.auth_headers = MagicMock(return_value={"Authorization": "Bearer tok"})
+    monkeypatch.setitem(__import__("sys").modules, "platform_auth", mock_platform_auth)
+
+    mock_response = MagicMock()
+    mock_response.status_code = 404
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.get = AsyncMock(return_value=mock_response)
+
+    with monkeypatch.context() as m:
+        m.setattr(_httpx, "AsyncClient", MagicMock(return_value=mock_client))
+        result = await mod._fetch_latest_checkpoint("ws-404")
+
+    assert result is None, "404 from platform must return None (non-fatal)"
+
+
+@pytest.mark.asyncio
+async def test_fetch_latest_checkpoint_returns_dict_on_200(
+    real_temporal_with_temporalio, monkeypatch
+):
+    """_fetch_latest_checkpoint returns the parsed JSON dict on a 200 OK."""
+    import httpx as _httpx
+
+    mod, _mocks, _mock_shared = real_temporal_with_temporalio
+
+    mock_platform_auth = MagicMock()
+    mock_platform_auth.auth_headers = MagicMock(return_value={"Authorization": "Bearer tok"})
+    monkeypatch.setitem(__import__("sys").modules, "platform_auth", mock_platform_auth)
+
+    checkpoint_payload = {
+        "id": "ckpt-1",
+        "workspace_id": "ws-200",
+        "workflow_id": "wf-abc",
+        "step_name": "llm_call",
+        "step_index": 1,
+        "completed_at": "2026-04-18T10:00:00Z",
+        "payload": None,
+    }
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()  # no-op
+    mock_response.json = MagicMock(return_value=checkpoint_payload)
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.get = AsyncMock(return_value=mock_response)
+
+    with monkeypatch.context() as m:
+        m.setattr(_httpx, "AsyncClient", MagicMock(return_value=mock_client))
+        result = await mod._fetch_latest_checkpoint("ws-200")
+
+    assert result == checkpoint_payload, "200 OK should return the parsed checkpoint dict"
+    assert result["step_name"] == "llm_call"
+    assert result["workflow_id"] == "wf-abc"
+
+
+@pytest.mark.asyncio
+async def test_fetch_latest_checkpoint_swallows_exceptions(
+    real_temporal_with_temporalio, monkeypatch
+):
+    """_fetch_latest_checkpoint returns None and does NOT raise on network error.
+
+    Non-fatal contract: a transient network failure or misconfiguration must
+    never propagate to the caller — the workflow should start fresh instead.
+    """
+    import httpx as _httpx
+
+    mod, _mocks, _mock_shared = real_temporal_with_temporalio
+
+    mock_platform_auth = MagicMock()
+    mock_platform_auth.auth_headers = MagicMock(return_value={"Authorization": "Bearer tok"})
+    monkeypatch.setitem(__import__("sys").modules, "platform_auth", mock_platform_auth)
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.get = AsyncMock(
+        side_effect=_httpx.ConnectError("connection refused")
+    )
+
+    with monkeypatch.context() as m:
+        m.setattr(_httpx, "AsyncClient", MagicMock(return_value=mock_client))
+        result = await mod._fetch_latest_checkpoint("ws-err")
+
+    assert result is None, "network error must be swallowed — non-fatal contract"
+
+
+@pytest.mark.asyncio
+async def test_execute_injects_checkpoint_into_history(
+    real_temporal_with_temporalio, monkeypatch
+):
+    """execute() prepends a [system, ...] checkpoint note to AgentTaskInput.history.
+
+    When _fetch_latest_checkpoint returns a checkpoint dict, the wrapper must
+    prepend a synthetic system context entry to the serialised history before
+    submitting the Temporal workflow.  The injected entry starts with '[SYSTEM:'
+    and contains the workflow_id and step_name from the checkpoint.
+    """
+    mod, mocks, mock_shared = real_temporal_with_temporalio
+
+    # Patch _fetch_latest_checkpoint to return a preset checkpoint
+    fake_ckpt = {
+        "id": "ckpt-inject",
+        "workspace_id": "ws-inject",
+        "workflow_id": "wf-prev",
+        "step_name": "task_receive",
+        "step_index": 0,
+        "completed_at": "2026-04-18T09:00:00Z",
+    }
+    monkeypatch.setattr(mod, "_fetch_latest_checkpoint", AsyncMock(return_value=fake_ckpt))
+    monkeypatch.setenv("WORKSPACE_ID", "ws-inject")
+
+    # Wire a TemporalWorkflowWrapper in available mode with the mock client
+    client_instance = mocks["_client_instance"]
+    client_instance.execute_workflow = AsyncMock(return_value=None)
+
+    wrapper = mod.TemporalWorkflowWrapper.__new__(mod.TemporalWorkflowWrapper)
+    wrapper._available = True
+    wrapper._client = client_instance
+
+    # Minimal mock executor and context
+    executor = MagicMock()
+    executor._model = "claude-3-5-sonnet-20241022"
+    executor._core_execute = AsyncMock()
+
+    context = MagicMock()
+    context.task_id = "t-inject"
+    context.context_id = "ctx-inject"
+
+    event_queue = MagicMock()
+
+    # shared_runtime mocks already set via fixture:
+    #   extract_message_text → "hello world"
+    #   extract_history → [("human", "prior msg")]
+
+    await wrapper.run(executor, context, event_queue)
+
+    assert client_instance.execute_workflow.called, "execute_workflow must be called"
+
+    # The second positional arg to execute_workflow is the AgentTaskInput
+    call_args = client_instance.execute_workflow.call_args
+    inp = call_args[0][1]  # positional args[1]
+
+    assert isinstance(inp, mod.AgentTaskInput)
+    assert len(inp.history) >= 2, "history must have at least the injected note + original entry"
+
+    system_entry = inp.history[0]
+    assert system_entry[0] == "system", "first history entry must be a system message"
+    assert "[SYSTEM:" in system_entry[1], "injected note must start with [SYSTEM:"
+    assert "wf-prev" in system_entry[1], "injected note must include the prior workflow_id"
+    assert "task_receive" in system_entry[1], "injected note must include the last step_name"
+
+    # Original history entries must still follow the injected system note
+    assert inp.history[1] == ["human", "prior msg"], "original history must be preserved after injection"

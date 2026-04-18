@@ -163,6 +163,50 @@ func (h *CheckpointsHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, checkpoints)
 }
 
+// Latest handles GET /workspaces/:id/checkpoints/latest
+//
+// Returns the single most recently completed checkpoint across all workflows
+// for this workspace — ordered by completed_at DESC.  The workspace-template
+// Temporal resume path calls this on startup to inject the last known step
+// into the agent context (issue #837 step 3/3, closes #583).
+//
+// 200 — checkpoint found; body is a single checkpointEntry JSON object.
+// 404 — no checkpoints exist yet for this workspace.
+func (h *CheckpointsHandler) Latest(c *gin.Context) {
+	workspaceID := c.Param("id")
+	if callerMismatch(c, workspaceID) {
+		return
+	}
+	ctx := c.Request.Context()
+
+	var e checkpointEntry
+	var payload []byte
+	err := h.db.QueryRowContext(ctx, `
+		SELECT id, workspace_id, workflow_id, step_name, step_index, completed_at, payload
+		FROM workflow_checkpoints
+		WHERE workspace_id = $1
+		ORDER BY completed_at DESC
+		LIMIT 1
+	`, workspaceID).Scan(
+		&e.ID, &e.WorkspaceID, &e.WorkflowID,
+		&e.StepName, &e.StepIndex, &e.CompletedAt, &payload,
+	)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no checkpoints found for workspace"})
+		return
+	}
+	if err != nil {
+		log.Printf("Latest checkpoint error workspace=%s: %v", workspaceID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch latest checkpoint"})
+		return
+	}
+
+	if len(payload) > 0 {
+		e.Payload = json.RawMessage(payload)
+	}
+	c.JSON(http.StatusOK, e)
+}
+
 // Delete handles DELETE /workspaces/:id/checkpoints/:wfid
 //
 // Removes all checkpoints for a workflow (clean shutdown path).
