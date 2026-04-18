@@ -7,15 +7,15 @@ update doesn't silently break production.
 
 | Secret | Location(s) | Purpose |
 |---|---|---|
-| `FLY_API_TOKEN` | **(a)** `molecule-monorepo` GitHub Actions secret (push image to `registry.fly.io/molecule-tenant`) + **(b)** `fly secrets` on `molecule-cp` app (control plane creates + deletes tenant Fly Machines) | Any Fly Machines API call |
-| `NEON_API_KEY` | `fly secrets` on `molecule-cp` | Create + delete tenant Neon branches |
-| `DATABASE_URL` | `fly secrets` on `molecule-cp` | Control-plane Postgres connection (Neon `cool-sea-89357706`) |
-| `TENANT_REDIS_URL` | `fly secrets` on `molecule-cp` | Injected into every tenant container as `REDIS_URL` |
-| `SECRETS_ENCRYPTION_KEY` | `fly secrets` on `molecule-cp` | AES-256 key wrapping tenant DB/Redis URLs in `org_instances` (provisioner + tenant use this) |
-| `RESEND_API_KEY` | `fly secrets` on `molecule-cp` | Resend REST API token used by `internal/email.ResendProvider` — GDPR erasure confirmation today; welcome + plan-change emails later. Empty → `DisabledProvider` silently no-ops all sends |
-| `RESEND_FROM_EMAIL` | `fly secrets` on `molecule-cp` | RFC-5322 From line, typically `"Molecule AI <noreply@moleculesai.app>"`. Must resolve to a Resend-verified domain or sends fail with `403 domain not verified` |
-| `STRIPE_API_KEY` | `fly secrets` on `molecule-cp` | `sk_live_…` secret key used by `internal/billing.StripeProvider` for customer/subscription/checkout mutations + GDPR Art. 17 cascade |
-| `STRIPE_WEBHOOK_SECRET` | `fly secrets` on `molecule-cp` | `whsec_…` used by `internal/billing.verifySignature` to reject forged webhook calls. Rotated independently from the API key — Stripe treats them as separate secrets |
+| `FLY_API_TOKEN` | **(a)** `molecule-monorepo` GitHub Actions secret (push image to `registry.fly.io/molecule-tenant`) + **(b)** `fly secrets` on `<fly-app-name>` app (control plane creates + deletes tenant Fly Machines) | Any Fly Machines API call |
+| `NEON_API_KEY` | `fly secrets` on `<fly-app-name>` | Create + delete tenant Neon branches |
+| `DATABASE_URL` | `fly secrets` on `<fly-app-name>` | Control-plane Postgres connection (Neon `<neon-project-id>`) |
+| `TENANT_REDIS_URL` | `fly secrets` on `<fly-app-name>` | Injected into every tenant container as `REDIS_URL` |
+| `SECRETS_ENCRYPTION_KEY` | `fly secrets` on `<fly-app-name>` | AES-256 key wrapping tenant DB/Redis URLs in `org_instances` (provisioner + tenant use this) |
+| `RESEND_API_KEY` | `fly secrets` on `<fly-app-name>` | Resend REST API token used by `internal/email.ResendProvider` — GDPR erasure confirmation today; welcome + plan-change emails later. Empty → `DisabledProvider` silently no-ops all sends |
+| `RESEND_FROM_EMAIL` | `fly secrets` on `<fly-app-name>` | RFC-5322 From line, typically `"Molecule AI <noreply@moleculesai.app>"`. Must resolve to a Resend-verified domain or sends fail with `403 domain not verified` |
+| `STRIPE_API_KEY` | `fly secrets` on `<fly-app-name>` | `sk_live_…` secret key used by `internal/billing.StripeProvider` for customer/subscription/checkout mutations + GDPR Art. 17 cascade |
+| `STRIPE_WEBHOOK_SECRET` | `fly secrets` on `<fly-app-name>` | `whsec_…` used by `internal/billing.verifySignature` to reject forged webhook calls. Rotated independently from the API key — Stripe treats them as separate secrets |
 | `GITHUB_TOKEN` | Built-in GitHub Actions token | GHCR push; rotated automatically |
 | `ANTHROPIC_API_KEY` | **Global secret** via `PUT /settings/secrets` on each tenant platform instance | Default LLM provider (`MODEL_PROVIDER=anthropic`). Must be set as a **global** secret so it propagates to all workspace containers — workspace-level-only is not sufficient for SDK-direct workspaces (e.g. molecule-hitl). See [rotation procedure below](#anthropic_api_key). |
 
@@ -31,12 +31,12 @@ one** will cause **silent** breakage:
 
 1. Generate new token:
    ```
-   flyctl tokens create deploy --name molecule-cp-rotation-$(date +%Y%m%d)
+   flyctl tokens create deploy --name <fly-app-name>-rotation-$(date +%Y%m%d)
    ```
 2. Update **both** locations (order matters — Fly secrets first, then GHA):
    ```
    # (b) Fly secrets — triggers zero-downtime redeploy
-   flyctl secrets set --app molecule-cp FLY_API_TOKEN='FlyV1 fm2_...'
+   flyctl secrets set --app <fly-app-name> FLY_API_TOKEN='FlyV1 fm2_...'
 
    # (a) GitHub Actions secret — next workflow run uses new token
    echo 'FlyV1 fm2_...' | gh secret set FLY_API_TOKEN --repo Molecule-AI/molecule-monorepo
@@ -44,7 +44,7 @@ one** will cause **silent** breakage:
 3. Verify:
    ```
    # Control plane can reach Fly API:
-   curl https://molecule-cp.fly.dev/health
+   curl https://<fly-app-name>.fly.dev/health
    # Trigger image publish (dispatches workflow, pushes to both registries):
    gh workflow run publish-platform-image.yml --repo Molecule-AI/molecule-monorepo
    gh run list --repo Molecule-AI/molecule-monorepo --workflow publish-platform-image --limit 1
@@ -60,15 +60,15 @@ one** will cause **silent** breakage:
 1. Create replacement key in Neon console → Account Settings → API Keys.
 2. Update Fly secrets:
    ```
-   flyctl secrets set --app molecule-cp NEON_API_KEY='napi_...'
+   flyctl secrets set --app <fly-app-name> NEON_API_KEY='napi_...'
    ```
 3. Trigger a test provision (dry run — create + delete):
    ```
-   curl -X POST https://molecule-cp.fly.dev/cp/orgs \
+   curl -X POST https://<fly-app-name>.fly.dev/cp/orgs \
      -H 'Content-Type: application/json' \
      -d '{"slug":"keytest-'$(date +%s)'","name":"Rotation test"}'
    # Wait 60s, inspect logs:
-   flyctl logs --app molecule-cp --no-tail | tail -30
+   flyctl logs --app <fly-app-name> --no-tail | tail -30
    # Clean up the test org via DELETE once live
    ```
 4. Revoke old key in Neon console.
@@ -83,7 +83,7 @@ Mitigation: we intentionally defer real KMS + key-rotation to Phase H. Until
 then, **do not rotate this key unless compromised.** If compromise, procedure is:
 
 1. Generate new key: `openssl rand -hex 32`
-2. Set new key on `molecule-cp`.
+2. Set new key on `<fly-app-name>`.
 3. For every row in `org_instances`: re-provision the tenant (creates fresh
    Neon branch + Fly machine). The old encrypted URLs are un-decryptable but
    irrelevant — we mint fresh ones.
@@ -92,7 +92,7 @@ then, **do not rotate this key unless compromised.** If compromise, procedure is
 
 ## Rotation procedure — DATABASE_URL (control plane)
 
-The Neon `molecule-cp` project has a stable primary endpoint. Rotate only if:
+The Neon `<fly-app-name>` project has a stable primary endpoint. Rotate only if:
 - Neon forces a migration
 - The connection-URI password is leaked
 
@@ -106,11 +106,11 @@ path and sends fail loudly (the cascade logs `purge confirmation email
 failed`) without breaking user-facing flows.
 
 1. In Resend dashboard → API Keys → create a new key scoped to
-   "molecule-cp production", e.g. name
-   `molecule-cp-rotation-$(date +%Y%m%d)`.
+   "<fly-app-name> production", e.g. name
+   `<fly-app-name>-rotation-$(date +%Y%m%d)`.
 2. Stage the replacement on Fly (not immediately live):
    ```
-   flyctl secrets set --app molecule-cp \
+   flyctl secrets set --app <fly-app-name> \
      --stage RESEND_API_KEY='re_...'
    ```
    `--stage` holds the secret for the next deploy instead of restarting
@@ -149,11 +149,11 @@ the other — they can be rotated on separate schedules.
    secret key. Stripe gives you a new `sk_live_…`.
 2. Stage on Fly:
    ```
-   flyctl secrets set --app molecule-cp \
+   flyctl secrets set --app <fly-app-name> \
      --stage STRIPE_API_KEY='sk_live_...'
    ```
 3. Redeploy, then verify: hit
-   `https://molecule-cp.fly.dev/cp/billing/checkout` from an authenticated
+   `https://<fly-app-name>.fly.dev/cp/billing/checkout` from an authenticated
    test session and confirm the returned checkout URL redirects to a
    valid Stripe-hosted page.
 4. Stripe auto-revokes the old key after rolling — no manual revoke
@@ -161,7 +161,7 @@ the other — they can be rotated on separate schedules.
 
 For `STRIPE_WEBHOOK_SECRET`:
 
-1. Stripe dashboard → Developers → Webhooks → the molecule-cp endpoint →
+1. Stripe dashboard → Developers → Webhooks → the <fly-app-name> endpoint →
    **Roll secret**.
 2. Stripe shows you BOTH old and new secret for a 24-hour overlap window.
    Copy the new `whsec_…`.
@@ -169,7 +169,7 @@ For `STRIPE_WEBHOOK_SECRET`:
 4. Inside the overlap window, send a Stripe CLI test event:
    ```
    stripe trigger customer.subscription.updated \
-     --forward-to https://molecule-cp.fly.dev/webhooks/stripe
+     --forward-to https://<fly-app-name>.fly.dev/webhooks/stripe
    ```
    If the signature-verification layer accepts it (no `400 invalid
    signature` in Fly logs), the new secret is live.
@@ -197,7 +197,7 @@ shadow the global value — the per-workspace value takes precedence.
      -d '{"key":"ANTHROPIC_API_KEY","value":"sk-ant-api03-..."}'
 
    # SaaS control plane — set on the tenant platform via control-plane API
-   # (details TBD when molecule-cp exposes a /cp/orgs/:id/secrets endpoint)
+   # (details TBD when <fly-app-name> exposes a /cp/orgs/:id/secrets endpoint)
    ```
    The platform auto-restarts every non-paused workspace on set.
 

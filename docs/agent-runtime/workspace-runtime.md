@@ -1,6 +1,6 @@
 # Workspace Runtime
 
-The `workspace-template/` directory is Molecule AI's unified runtime image. Every provisioned workspace starts from this image, loads its own config, selects a runtime adapter, registers an Agent Card, exposes A2A, and joins the platform heartbeat/activity loop.
+The `workspace/` directory is Molecule AI's unified runtime image. Every provisioned workspace starts from this image, loads its own config, selects a runtime adapter, registers an Agent Card, exposes A2A, and joins the platform heartbeat/activity loop.
 
 ## Runtime Matrix In Current `main`
 
@@ -54,7 +54,7 @@ Important behavior:
 
 ## Startup Sequence
 
-At a high level, `workspace-template/main.py` does this:
+At a high level, `workspace/main.py` does this:
 
 1. Initialize telemetry.
 2. Load `config.yaml`.

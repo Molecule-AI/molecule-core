@@ -7,7 +7,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'platform/**'
+      - 'workspace-server/**'
       - 'canvas/**'
       - 'manifest.json'
       - '.github/workflows/publish-platform-image.yml'
@@ -58,7 +58,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./platform/Dockerfile
+          file: ./workspace-server/Dockerfile
           platforms: linux/amd64
           push: true
           tags: |
@@ -75,7 +75,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./platform/Dockerfile.tenant
+          file: ./workspace-server/Dockerfile.tenant
           platforms: linux/amd64
           push: true
           tags: |

@@ -35,7 +35,7 @@ A workspace bundle is the portable unit of the platform. It is a single `.bundle
   },
   "sub_workspaces": [],
   "agent_card": { "...": "A2A card snapshot" },
-  "author": "hongming",
+  "author": "your-name",
   "version": "1.2.0"
 }
 ```

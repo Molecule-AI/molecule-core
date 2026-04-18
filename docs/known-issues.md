@@ -7,7 +7,7 @@ automated agent contexts). Each entry has: location, symptom, impact, suggested 
 
 ## KI-001 — Telegram channel `kicked` event does not persist disabled state to DB
 
-**File:** `platform/internal/channels/telegram.go:596`  
+**File:** `workspace-server/internal/channels/telegram.go:596`  
 **Status:** TODO comment in source, unimplemented  
 **Severity:** Medium
 
@@ -36,7 +36,7 @@ by `manager.go`'s `clearChatHistory` callback at line 603.
 
 ## KI-002 — Delegation system has no idempotency guard against duplicate execution on container-restart race
 
-**File:** `platform/internal/handlers/delegation.go` (see also `delegationRetryDelay`)  
+**File:** `workspace-server/internal/handlers/delegation.go` (see also `delegationRetryDelay`)  
 **Status:** Identified in `docs/ecosystem-watch.md` (Trigger.dev section); no fix yet  
 **Severity:** Medium
 
@@ -63,7 +63,7 @@ timestamp_minute)` to scope deduplication to a natural retry window.
 
 ## KI-003 — `commit_memory` MCP tool calls are not surfaced in `activity_logs`
 
-**File:** `workspace-template/builtin_tools/memory.py` + `platform/internal/handlers/activity.go`  
+**File:** `workspace/builtin_tools/memory.py` + `workspace-server/internal/handlers/activity.go`  
 **Status:** Identified in `docs/ecosystem-watch.md` (Letta section); no fix yet  
 **Severity:** Low (visibility / debugging quality)
 

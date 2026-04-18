@@ -103,7 +103,7 @@ adapters (`plugins/<name>/adapters/<runtime>.py`) bridge the gap for
 runtimes that don't read `SKILL.md` natively. For most plugins the
 built-in `AgentskillsAdaptor` covers the common shape (copy skills to
 `/configs/skills/`, append rules to CLAUDE.md). See
-[plugins_registry](../../workspace-template/plugins_registry/__init__.py)
+[plugins_registry](../../workspace/plugins_registry/__init__.py)
 for the resolution order.
 
 ## Validator

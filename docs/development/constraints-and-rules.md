@@ -64,7 +64,7 @@ Concurrent canvas modifications from multiple clients use last-write-wins. No op
 
 ## 13. Security Headers on All Responses
 
-The platform applies HTTP security headers via middleware (`platform/internal/middleware/securityheaders.go`):
+The platform applies HTTP security headers via middleware (`workspace-server/internal/middleware/securityheaders.go`):
 - `X-Content-Type-Options: nosniff`
 - `X-Frame-Options: DENY`
 - `X-XSS-Protection: 1; mode=block`

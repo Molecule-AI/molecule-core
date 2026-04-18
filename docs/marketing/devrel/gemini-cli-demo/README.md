@@ -1,7 +1,7 @@
 # Gemini CLI Runtime Adapter — Live Demo
 
 > **Feature:** [`feat(adapters): add gemini-cli runtime adapter`](https://github.com/Molecule-AI/molecule-core/pull/379)  
-> **Adapter path:** `workspace-template/adapters/gemini_cli/`  
+> **Adapter path:** `workspace/adapters/gemini_cli/`  
 > **Runtime key:** `gemini-cli`
 
 This demo provisions a Gemini CLI workspace on Molecule AI, sends it a task via
@@ -17,7 +17,7 @@ the A2A proxy, and prints the result — all in about 60 seconds.
 | Admin bearer token | Printed on first `go run ./cmd/server` startup |
 | `GEMINI_API_KEY` | [Google AI Studio → Get API key](https://aistudio.google.com/apikey) |
 | Python ≥ 3.11 + pip | `python --version` |
-| `@google/gemini-cli` Docker image built | `bash workspace-template/build-all.sh gemini-cli` |
+| `@google/gemini-cli` Docker image built | `bash workspace/build-all.sh gemini-cli` |
 
 ---
 
@@ -27,7 +27,7 @@ the A2A proxy, and prints the result — all in about 60 seconds.
 
 ```bash
 # From the repo root
-bash workspace-template/build-all.sh gemini-cli
+bash workspace/build-all.sh gemini-cli
 ```
 
 Expected output: `Successfully tagged workspace-template:gemini-cli`
@@ -171,6 +171,6 @@ is running on the other side.
 
 - [PR #379 — gemini-cli runtime adapter](https://github.com/Molecule-AI/molecule-core/pull/379)
 - [Tutorial: Running a Gemini CLI Workspace](../../docs/tutorials/gemini-cli-runtime.md) *(PR #509)*
-- [Adapter source](../../workspace-template/adapters/gemini_cli/adapter.py)
-- [CLI executor preset](../../workspace-template/cli_executor.py)
+- [Adapter source](../../workspace/adapters/gemini_cli/adapter.py)
+- [CLI executor preset](../../workspace/cli_executor.py)
 - [A2A proxy API reference](../../docs/api-reference.md#a2a-proxy)

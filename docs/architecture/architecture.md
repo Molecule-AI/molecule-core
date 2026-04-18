@@ -15,7 +15,7 @@ The platform consists of four distinct systems:
 +-----------------------------+-----------------------------+
                               | HTTP + WebSocket
 +-----------------------------v-----------------------------+
-|  platform/            Go (gin) backend                     |
+|  workspace-server/            Go (gin) backend                     |
 |  Registry, hierarchy, event log, provisioner, bundles       |
 +------+---------------------------------------+------------+
        | Postgres                               | Redis
@@ -26,7 +26,7 @@ The platform consists of four distinct systems:
 
        A2A HTTP (JSON-RPC 2.0) — direct workspace-to-workspace
 +-----------------------------------------------------------+
-|  workspace-template/  pluggable workspace runtime          |
+|  workspace/  pluggable workspace runtime          |
 |  LangGraph / DeepAgents / Claude Code / CrewAI / AutoGen   |
 |  / OpenClaw + a2a-sdk                                      |
 +-----------------------------------------------------------+
@@ -73,8 +73,8 @@ molecule/
 +-- README.md
 |
 +-- canvas/                          # Next.js 15 frontend
-+-- platform/                        # Go backend
-+-- workspace-template/              # Python agent runtime (generic image)
++-- workspace-server/                        # Go backend
++-- workspace/              # Python agent runtime (generic image)
 +-- workspace-configs-templates/     # workspace personality definitions
 +-- infra/                           # scripts + langfuse compose
 +-- docs/                            # documentation

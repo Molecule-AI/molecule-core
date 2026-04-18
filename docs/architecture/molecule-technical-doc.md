@@ -152,7 +152,7 @@ Six runtime adapters ship production-ready on `main`: LangGraph, DeepAgents, Cla
 - Prometheus metrics endpoint
 
 **3. Workspace Runtime (Python 3.11+)**
-- Unified `workspace-template/` Docker image
+- Unified `workspace/` Docker image
 - Adapter-driven execution (6 adapters)
 - A2A server via Uvicorn
 - Heartbeat loop (30s default)
@@ -175,7 +175,7 @@ Six runtime adapters ship production-ready on `main`: LangGraph, DeepAgents, Cla
 
 ## 4. Database Schema
 
-11 migration files in `platform/migrations/`.
+11 migration files in `workspace-server/migrations/`.
 
 ### Core Tables
 
@@ -490,7 +490,7 @@ Unknown tier values default to T2 for safety. Applied via `provisioner.ApplyTier
 
 ## 12. Workspace Runtime
 
-### Entry Point: `workspace-template/main.py`
+### Entry Point: `workspace/main.py`
 
 **Startup Sequence** (10 steps):
 
@@ -728,7 +728,7 @@ requires:
 
 ## 16. Tools & Capabilities
 
-### Workspace Tools (`workspace-template/builtin_tools/`)
+### Workspace Tools (`workspace/builtin_tools/`)
 
 | Tool File | Purpose | RBAC |
 |-----------|---------|------|
@@ -779,7 +779,7 @@ requires:
 ### Python Runtime (95 files)
 
 ```
-workspace-template/
+workspace/
 ├── main.py                    # Entry point (startup sequence)
 ├── config.py                  # Config parsing → dataclasses (120+ lines)
 ├── heartbeat.py               # 30s heartbeat loop
@@ -807,7 +807,7 @@ workspace-template/
 ### Go Platform (94 files)
 
 ```
-platform/
+workspace-server/
 ├── cmd/
 │   ├── server/main.go         # Entry point + dependency injection
 │   └── cli/                   # molecli TUI dashboard
@@ -888,7 +888,7 @@ On workspace create: (1) check template folder → (2) try `{runtime}-default` �
 
 ### Infrastructure-Only (`docker-compose.infra.yml`)
 
-Postgres + Redis + Langfuse only (for local development without containerized platform/canvas).
+Postgres + Redis + Langfuse only (for local development without containerized workspace-server/canvas).
 
 ---
 

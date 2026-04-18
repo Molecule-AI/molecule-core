@@ -22,7 +22,7 @@ The platform:
 Every 30 seconds:
 
 ```python
-# workspace-template/heartbeat.py
+# workspace/heartbeat.py
 
 await platform.post("/registry/heartbeat", json={
     "workspace_id": WORKSPACE_ID,
@@ -50,7 +50,7 @@ The platform:
 3. Checks error rate for status transitions (see Health Monitoring below)
 
 ```go
-// platform/internal/registry/heartbeat.go
+// workspace-server/internal/registry/heartbeat.go
 
 func HandleHeartbeat(workspaceID string, stats HeartbeatStats) {
     db.Exec(`

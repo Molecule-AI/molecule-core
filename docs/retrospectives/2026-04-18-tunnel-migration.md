@@ -34,7 +34,7 @@ Also closed issue #920 (Slack OAuth) and commented on #889 (VULN-004 dead letter
 
 ### 2. Cloudflare API Token — Tunnel Permission
 
-**Problem:** The existing CF API token (`cfut_loLR...`) had DNS:Edit but NOT Cloudflare Tunnel:Edit permission. Tunnel create/list/delete calls returned `code 10000: Authentication error`.
+**Problem:** The existing CF API token (`cfut_****...`) had DNS:Edit but NOT Cloudflare Tunnel:Edit permission. Tunnel create/list/delete calls returned `code 10000: Authentication error`.
 
 **Fix:** CEO added Account → Cloudflare Tunnel → Edit permission in Cloudflare Dashboard → API Tokens.
 
@@ -142,7 +142,7 @@ User → slug.moleculesai.app (CNAME → tunnel-id.cfargotunnel.com, proxied)
 ## Known Issues & Risks
 
 ### 1. Worker Must Stay Until All Tenants Migrate
-The Worker route `*.moleculesai.app/*` still serves existing tenants (e.g., `hongmingwang.moleculesai.app`). Cannot delete until every tenant has a tunnel + CNAME. The Worker passthrough for reserved/multi-level slugs is the bridge.
+The Worker route `*.moleculesai.app/*` still serves existing tenants (e.g., `<example-org>.moleculesai.app`). Cannot delete until every tenant has a tunnel + CNAME. The Worker passthrough for reserved/multi-level slugs is the bridge.
 
 ### 2. Worker Source Not in Version Control
 The Worker code lives in `/tmp/molecule-tenant-proxy/` — not tracked in any repo. Needs to be committed somewhere before the session ends. Two changes were deployed:
@@ -176,7 +176,7 @@ If `cloudflared` crashes on the EC2 but the instance stays running, the tunnel g
 
 ### Short-term (this week)
 
-- [ ] **Migrate `hongmingwang` tenant to tunnel** — create tunnel, add CNAME, update EC2 to run cloudflared, add slug to Worker RESERVED, verify, then remove old A record
+- [ ] **Migrate existing tenant to tunnel** — create tunnel, add CNAME, update EC2 to run cloudflared, add slug to Worker RESERVED, verify, then remove old A record
 - [ ] **Staging image pipeline** — publish `:staging` tag on main merge, `:latest` only on manual promote
 - [ ] **Move tunnel token to SSM Parameter Store** — EC2 user-data is not secret-safe; retrieve token at boot via instance role
 

@@ -40,7 +40,7 @@ jobs:
             exit 0
           fi
           DIFF=$(git diff --name-only "$BASE" HEAD 2>/dev/null || echo ".github/workflows/ci.yml")
-          echo "platform=$(echo "$DIFF" | grep -qE '^platform/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "platform=$(echo "$DIFF" | grep -qE '^workspace-server/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "canvas=$(echo "$DIFF" | grep -qE '^canvas/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "python=$(echo "$DIFF" | grep -qE '^workspace-template/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "scripts=$(echo "$DIFF" | grep -qE '^tests/e2e/|^scripts/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
@@ -152,7 +152,7 @@ jobs:
 
           Once it completes (~3–5 min), apply on the host machine with:
           ```bash
-          cd /g/personal_programs/molecule-monorepo
+          cd <runner-workspace>
           git pull origin main
           docker compose pull canvas && docker compose up -d canvas
           ```
@@ -182,7 +182,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # setup-python@v5 cannot write to /Users/runner (GitHub-hosted path) on
-      # the self-hosted macOS arm64 runner (user: hongming-claw) and also hits
+      # the self-hosted macOS arm64 runner (user: <runner-user>) and also hits
       # EACCES on /usr/local/bin due to macOS SIP. Skip it — Homebrew installs
       # Python 3.11 at /opt/homebrew/opt/python@3.11 which is already on PATH.
       - name: Verify Python 3.11 (Homebrew)

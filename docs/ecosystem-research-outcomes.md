@@ -22,11 +22,11 @@ spent. All effort tags are S (≤1 day), M (1–3 days), L (≥1 week).
 ### 1. Memory: Postgres FTS + namespace scoping — **S, high impact**
 
 Replace the `content ILIKE '%q%'` sequential scan in
-`platform/internal/handlers/memories.go:Search` with a `tsvector`
+`workspace-server/internal/handlers/memories.go:Search` with a `tsvector`
 generated column, GIN index, and `ts_rank` ordering. Add a
 `namespace VARCHAR(50) DEFAULT 'general'` column plus the
 `(workspace_id, namespace)` composite index. Ship as migration
-`platform/migrations/017_memories_fts_namespace.sql`. Purely
+`workspace-server/migrations/017_memories_fts_namespace.sql`. Purely
 additive — old rows get `namespace = 'general'`, new query params
 (`?q=`, `?namespace=`) are optional, no breaking change.
 
@@ -43,7 +43,7 @@ filesystem-as-memory hierarchy.
 ### 2. Workspace hibernation: idle watchdog + auto-pause — **M, DevOps win**
 
 DevOps Engineer's proposal: add a `_idle_watchdog` background job
-in `workspace-template/entrypoint.sh` that reads `/tmp/.last_activity`
+in `workspace/entrypoint.sh` that reads `/tmp/.last_activity`
 (written by `main.py` on each A2A request) and calls the existing
 `POST /workspaces/:id/pause` after `IDLE_SHUTDOWN_MINUTES` (default
 30). Platform's existing liveness monitor handles resume on next task;
@@ -57,7 +57,7 @@ with hibernation.
 
 ### 3. Parallel adapter builds — **S, QoL**
 
-`workspace-template/build-all.sh` builds the 6 adapter images
+`workspace/build-all.sh` builds the 6 adapter images
 sequentially (~15 min wall-clock). They all `FROM
 workspace-template:base` with no inter-adapter dependency — swap the
 Step 3 loop for background jobs + `wait`, log each build to
@@ -66,7 +66,7 @@ Prerequisite for hibernate/wake feeling snappy (Proposal 2).
 
 ### 4. Plugin manifest: permissions + version floor + config schema — **S, spec-alignment**
 
-Extend `pluginInfo` in `platform/internal/handlers/plugins.go`
+Extend `pluginInfo` in `workspace-server/internal/handlers/plugins.go`
 with `permissions []string` (e.g. `env:GITHUB_TOKEN`,
 `path:/workspace/repo`, `docker:CAP`), `min_platform_version`
 (semver floor enforced at install time when `PLATFORM_VERSION`
@@ -90,7 +90,7 @@ back to storing secrets in plaintext. Flip to fail-secure: if the
 binary is built with `go build -tags prod` (or `MOLECULE_ENV=prod`
 is set), refuse to start without a 32-byte key and log a loud
 abort. Dev builds retain the current fallback with a startup
-warning. Small, surgical change in `platform/internal/crypto/aes.go`
+warning. Small, surgical change in `workspace-server/internal/crypto/aes.go`
 + `cmd/server/main.go` init; unit test already exists to verify
 encryption path.
 
@@ -154,7 +154,7 @@ marked ✅.
 2. ✅ Plugin manifest extension (→ Top-5 #4)
 3. Schedule import/export via bundle system — **M**; currently
    `workspace_schedules` rows are orphaned on `bundles/export`. Small
-   handler change in `platform/internal/handlers/bundle.go`.
+   handler change in `workspace-server/internal/handlers/bundle.go`.
 
 ### DevOps Engineer (6,761 chars)
 
@@ -168,14 +168,14 @@ marked ✅.
 
 1. ✅ Fail-secure encryption at boot (→ Top-5 #5)
 2. Remove `test:*` from production `systemCallerPrefixes` — **S**.
-   `platform/internal/handlers/a2a_proxy.go:50` currently whitelists
+   `workspace-server/internal/handlers/a2a_proxy.go:50` currently whitelists
    the literal prefix `test:` in every environment; it's an
    access-control bypass waiting to be exploited. Guard behind
    `MOLECULE_ENV != prod`.
 3. Plugin supply-chain hardening — mandate `plugin.yaml` presence
    and reject staged trees containing executable bits (`+x`) outside
    `skills/*/hook.sh`. **S**; adds a preflight in
-   `platform/internal/plugins/localresolver.go`.
+   `workspace-server/internal/plugins/localresolver.go`.
 
 ### QA Engineer (6,395 chars)
 
