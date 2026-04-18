@@ -4,12 +4,12 @@
 # NOTE: Adapters have been extracted to standalone template repos:
 #   https://github.com/Molecule-AI/molecule-ai-workspace-template-<runtime>
 #
-# This script now only builds the base image from workspace-template/Dockerfile.
+# This script now only builds the base image from workspace/Dockerfile.
 # Each adapter repo has its own Dockerfile that installs molecule-ai-workspace-runtime
 # from PyPI and the adapter-specific deps.
 #
 # Usage:
-#   bash workspace-template/build-all.sh          # Build base image only
+#   bash workspace/build-all.sh          # Build base image only
 #
 # Standalone adapter repos still reference the legacy base image for local dev
 # (e.g. FROM workspace-template:base). To build those locally, clone the adapter
