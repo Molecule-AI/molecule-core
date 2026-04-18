@@ -13,14 +13,14 @@
 
 | Change | Repo | Status |
 |--------|------|--------|
-| Railway deployment for control plane | molecule-controlplane | Deployed, auto-deploy on push |
-| EC2 provisioner for tenants (Postgres + Redis + Platform in Docker) | molecule-controlplane | Deployed |
-| EC2 provisioner for workspaces (pip install runtime at boot) | molecule-controlplane | Deployed, 9 min cold start |
+| Railway deployment for control plane | the private control-plane repo | Deployed, auto-deploy on push |
+| EC2 provisioner for tenants (Postgres + Redis + Platform in Docker) | the private control-plane repo | Deployed |
+| EC2 provisioner for workspaces (pip install runtime at boot) | the private control-plane repo | Deployed, 9 min cold start |
 | Cloudflare Worker for wildcard subdomain routing | molecule-tenant-proxy (new repo) | Deployed |
 | Wildcard DNS `*.moleculesai.app` → Worker | Cloudflare dashboard | Done |
-| Per-tenant ADMIN_TOKEN for Worker auth injection | molecule-controlplane | Deployed |
-| Auto-updater cron on tenant EC2s (Option B) | molecule-controlplane | Deployed |
-| Phase 33.2: stop creating per-tenant DNS records | molecule-controlplane | Deployed |
+| Per-tenant ADMIN_TOKEN for Worker auth injection | the private control-plane repo | Deployed |
+| Auto-updater cron on tenant EC2s (Option B) | the private control-plane repo | Deployed |
+| Phase 33.2: stop creating per-tenant DNS records | the private control-plane repo | Deployed |
 | Provisioning status page (progress bar + ETA) | molecule-app | Deployed to Vercel |
 | Delete org button with type-to-confirm | molecule-app | Deployed to Vercel |
 | Remove admin section from SaaS app | molecule-app | Deployed to Vercel |

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-# Resolve workspace-template/ so `import plugins_registry` works in CI without
+# Resolve workspace/ so `import plugins_registry` works in CI without
 # requiring an installed package.
 _WS_TEMPLATE = Path(__file__).resolve().parents[1]
 if str(_WS_TEMPLATE) not in sys.path:

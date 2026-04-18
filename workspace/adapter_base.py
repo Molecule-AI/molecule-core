@@ -39,7 +39,7 @@ class BaseAdapter(ABC):
     """Interface every agent infrastructure adapter must implement.
 
     To add a new agent infra:
-    1. Create workspace-template/adapters/<your_infra>/
+    1. Create workspace/adapters/<your_infra>/
     2. Implement adapter.py with a class extending BaseAdapter
     3. Add requirements.txt with your infra's dependencies
     4. Export as Adapter in __init__.py

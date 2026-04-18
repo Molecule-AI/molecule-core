@@ -1,11 +1,11 @@
 # Shell scripts must stay LF so they execute inside Linux containers
 # when cloned on Windows with core.autocrlf=true.
 *.sh text eol=lf
-workspace-template/entrypoint.sh text eol=lf
+workspace/entrypoint.sh text eol=lf
 
 # Python hook files are invoked by .sh hooks with path substitution;
 # CRLF in either the .sh OR the .py file breaks the hook dispatch.
-# See Molecule-AI/molecule-core#507 — SessionStart hook failed silently,
+# See #507 — SessionStart hook failed silently,
 # agents returned "(no response generated)" on every A2A call.
 *.py text eol=lf
 

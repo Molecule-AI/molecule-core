@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # test_saas_tenant.sh — smoke test a live SaaS tenant through the Cloudflare Worker
 #
-# Usage: TENANT_SLUG=hongming2 bash tests/e2e/test_saas_tenant.sh
-#        TENANT_SLUG=hongming2 DIRECT_IP=3.144.193.40 bash tests/e2e/test_saas_tenant.sh
+# Usage: TENANT_SLUG=example-org bash tests/e2e/test_saas_tenant.sh
+#        TENANT_SLUG=example-org DIRECT_IP=<EC2_IP> bash tests/e2e/test_saas_tenant.sh
 #
 # Tests both Worker-proxied routes and (optionally) direct EC2 access.
 # Exits 0 if all critical tests pass, 1 otherwise.

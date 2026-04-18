@@ -358,7 +358,7 @@ func configDirName(workspaceID string) string {
 // string, and the path-traversal oracle where `runtime: ../../sensitive`
 // probed host directories for existence.
 //
-// Keep in sync with workspace-template/build-all.sh — adding a new
+// Keep in sync with workspace/build-all.sh — adding a new
 // runtime means bumping both this list and the Docker image tags.
 var knownRuntimes = map[string]struct{}{
 	"langgraph":   {},

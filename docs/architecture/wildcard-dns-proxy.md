@@ -218,10 +218,10 @@ continues to work as the primary flow (redirect after org creation).
 
 | File | Change |
 |------|--------|
-| `molecule-controlplane/internal/provisioner/ec2.go` | Remove Cloudflare DNS creation, remove Caddy from user-data |
-| `molecule-controlplane/internal/cloudflareapi/dns.go` | Eventually removable (Worker replaces it) |
-| `molecule-controlplane/internal/handlers/orgs.go` | Add `GET /cp/orgs/:slug/instance` endpoint |
-| New: `infra/cloudflare-worker/` | Worker source + wrangler.toml |
+| `the private control-plane repo/internal/provisioner/ec2.go` | Remove Cloudflare DNS creation, remove Caddy from user-data |
+| `the private control-plane repo/internal/cloudflareapi/dns.go` | Eventually removable (Worker replaces it) |
+| `the private control-plane repo/internal/handlers/orgs.go` | Add `GET /cp/orgs/:slug/instance` endpoint |
+| New: `Molecule-AI/molecule-tenant-proxy (separate repo)` | Worker source + wrangler.toml |
 | `docs/runbooks/saas-secrets.md` | Add Worker secrets (CF account ID, API token) |
 | `.github/workflows/deploy-worker.yml` | CI/CD for Worker deploys |
 
