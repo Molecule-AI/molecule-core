@@ -2,7 +2,7 @@
 
 Resolution order for ``(plugin_name, runtime)``:
 
-  1. Platform registry  → ``workspace-template/plugins_registry/<plugin>/<runtime>.py``
+  1. Platform registry  → ``workspace/plugins_registry/<plugin>/<runtime>.py``
   2. Plugin-shipped     → ``<plugin_root>/adapters/<runtime>.py``
   3. Raw filesystem     → :class:`RawDropAdaptor` (warns, drops files only)
 

@@ -2,7 +2,7 @@ package handlers
 
 // Package handlers — MCP bridge for opencode integration (#800, #809, #810).
 //
-// Exposes the same 8 A2A tools as workspace-template/a2a_mcp_server.py but
+// Exposes the same 8 A2A tools as workspace/a2a_mcp_server.py but
 // served directly from the platform over HTTP so CLI runtimes running
 // OUTSIDE workspace containers (opencode, Claude Code on the developer's
 // machine) can participate in the A2A mesh.
@@ -96,7 +96,7 @@ func NewMCPHandler(database *sql.DB, broadcaster *events.Broadcaster) *MCPHandle
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tool definitions (mirrors workspace-template/a2a_mcp_server.py TOOLS list)
+// Tool definitions (mirrors workspace/a2a_mcp_server.py TOOLS list)
 // ─────────────────────────────────────────────────────────────────────────────
 
 var mcpAllTools = []mcpTool{

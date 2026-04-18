@@ -42,7 +42,7 @@ jobs:
           DIFF=$(git diff --name-only "$BASE" HEAD 2>/dev/null || echo ".github/workflows/ci.yml")
           echo "platform=$(echo "$DIFF" | grep -qE '^workspace-server/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "canvas=$(echo "$DIFF" | grep -qE '^canvas/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          echo "python=$(echo "$DIFF" | grep -qE '^workspace-template/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "python=$(echo "$DIFF" | grep -qE '^workspace/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "scripts=$(echo "$DIFF" | grep -qE '^tests/e2e/|^scripts/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
   platform-build:

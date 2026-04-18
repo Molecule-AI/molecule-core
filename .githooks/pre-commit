@@ -64,7 +64,7 @@ fi
 # 3. Python: No bare except pass (silent swallowing)
 # ──────────────────────────────────────────────────────────
 
-STAGED_PY=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' | grep 'workspace-template/' || true)
+STAGED_PY=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' | grep 'workspace/' || true)
 
 if [ -n "$STAGED_PY" ]; then
   for f in $STAGED_PY; do
@@ -82,7 +82,7 @@ fi
 # 4. Go: No string-concatenated SQL
 # ──────────────────────────────────────────────────────────
 
-STAGED_GO=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' | grep 'platform/' || true)
+STAGED_GO=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' | grep 'workspace-server/' || true)
 
 if [ -n "$STAGED_GO" ]; then
   for f in $STAGED_GO; do

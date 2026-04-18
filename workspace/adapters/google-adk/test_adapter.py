@@ -37,7 +37,7 @@ import pytest
 def _make_a2a_stubs() -> None:
     """Register minimal a2a SDK stubs in sys.modules.
 
-    Mirrors what workspace-template/tests/conftest.py does; needed because
+    Mirrors what workspace/tests/conftest.py does; needed because
     this test file lives outside the ``tests/`` directory and conftest.py
     is not automatically loaded for it.
     """

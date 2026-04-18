@@ -1,5 +1,5 @@
 {
-  "_comment": "TODO: pin refs to release tags (v1.0.0) before first customer deploy for reproducible builds. 'main' is OK while all repos are internal.",
+  "_comment": "Pin refs to release tags for reproducible builds. 'main' is OK while all repos are internal.",
   "version": 1,
   "plugins": [
     {"name": "browser-automation", "repo": "Molecule-AI/molecule-ai-plugin-browser-automation", "ref": "main"},
