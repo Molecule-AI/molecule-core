@@ -119,3 +119,53 @@ def test_default_configs_dir_fallback(tmp_path, monkeypatch):
     # We expect _token_file() to resolve under /configs when env is unset.
     path = platform_auth._token_file()
     assert str(path).startswith("/configs")
+
+
+# ---------------------------------------------------------------------------
+# MOLECULE_AUTH_TOKEN env-var bootstrap (EC2 / CP provisioner boot path)
+# HIGH #6 fix: CP provisioner injects token in env before launching the
+# EC2 instance so the agent can heartbeat without going through registration.
+# ---------------------------------------------------------------------------
+
+def test_env_var_used_when_file_absent(tmp_path, monkeypatch):
+    """MOLECULE_AUTH_TOKEN is returned when no .auth_token file exists."""
+    monkeypatch.setenv("MOLECULE_AUTH_TOKEN", "env-boot-token-abc")
+    assert platform_auth.get_token() == "env-boot-token-abc"
+
+
+def test_env_var_persisted_to_file(tmp_path, monkeypatch):
+    """Token read from env var is immediately persisted to .auth_token file
+    so it survives process restarts that don't inherit the env."""
+    monkeypatch.setenv("MOLECULE_AUTH_TOKEN", "env-boot-token-persisted")
+    platform_auth.get_token()
+    tok_file = tmp_path / ".auth_token"
+    assert tok_file.exists(), ".auth_token file should be written on first env-var read"
+    assert tok_file.read_text() == "env-boot-token-persisted"
+
+
+def test_env_var_persisted_file_is_0600(tmp_path, monkeypatch):
+    """Token file written from env var bootstrap has 0600 permissions."""
+    monkeypatch.setenv("MOLECULE_AUTH_TOKEN", "secure-boot-token")
+    platform_auth.get_token()
+    import stat as _stat
+    mode = _stat.S_IMODE((tmp_path / ".auth_token").stat().st_mode)
+    assert mode == 0o600, f"expected 0600 mode, got 0o{mode:o}"
+
+
+def test_file_takes_priority_over_env_var(tmp_path, monkeypatch):
+    """On-disk token takes priority over MOLECULE_AUTH_TOKEN (restart path)."""
+    (tmp_path / ".auth_token").write_text("file-token")
+    monkeypatch.setenv("MOLECULE_AUTH_TOKEN", "env-token-should-be-ignored")
+    assert platform_auth.get_token() == "file-token"
+
+
+def test_empty_env_var_falls_through(tmp_path, monkeypatch):
+    """Empty MOLECULE_AUTH_TOKEN must not be used — treat as absent."""
+    monkeypatch.setenv("MOLECULE_AUTH_TOKEN", "   ")
+    assert platform_auth.get_token() is None
+
+
+def test_env_var_absent_returns_none_when_no_file(tmp_path, monkeypatch):
+    """No file + no env var → None (unchanged baseline behaviour)."""
+    monkeypatch.delenv("MOLECULE_AUTH_TOKEN", raising=False)
+    assert platform_auth.get_token() is None

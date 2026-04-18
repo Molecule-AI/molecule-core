@@ -39,22 +39,56 @@ def _token_file() -> Path:
 
 
 def get_token() -> str | None:
-    """Return the cached token, reading it from disk on first call."""
+    """Return the cached token, reading it from disk on first call.
+
+    Source priority (highest to lowest):
+
+    1. In-process cache (fastest, avoids disk I/O on every heartbeat).
+    2. ``${CONFIGS_DIR}/.auth_token`` file — the normal persistent store.
+       Written by ``save_token()`` after registration or boot injection.
+    3. ``MOLECULE_AUTH_TOKEN`` environment variable — set by the control-plane
+       provisioner (EC2 boot path) when it injects a pre-issued bearer token
+       before launching the instance.  On first read the value is persisted to
+       ``.auth_token`` so it survives subsequent restarts even if the env var
+       is absent in the restarted process (e.g. a Docker container restart
+       that does not inherit the original launch environment).
+    """
     global _cached_token
     if _cached_token is not None:
         return _cached_token
     path = _token_file()
-    if not path.exists():
-        return None
-    try:
-        tok = path.read_text().strip()
-    except OSError as exc:
-        logger.warning("platform_auth: failed to read %s: %s", path, exc)
-        return None
-    if not tok:
-        return None
-    _cached_token = tok
-    return tok
+    if path.exists():
+        try:
+            tok = path.read_text().strip()
+        except OSError as exc:
+            logger.warning("platform_auth: failed to read %s: %s", path, exc)
+            tok = ""
+        if tok:
+            _cached_token = tok
+            return tok
+
+    # Fallback: check the boot-time env var injected by the CP provisioner.
+    # Persist it directly to disk (0600) without going through save_token to
+    # avoid the recursion: save_token → get_token → save_token → …
+    # (save_token's idempotency check calls get_token which would re-enter here
+    # before _cached_token is set, causing infinite recursion.)
+    env_tok = os.environ.get("MOLECULE_AUTH_TOKEN", "").strip()
+    if env_tok:
+        logger.info("platform_auth: bootstrapping token from MOLECULE_AUTH_TOKEN env var")
+        _cached_token = env_tok  # set cache first so callers see it immediately
+        path = _token_file()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            try:
+                os.write(fd, env_tok.encode())
+            finally:
+                os.close(fd)
+        except Exception as exc:  # pragma: no cover — disk full / permissions error
+            logger.warning("platform_auth: failed to persist MOLECULE_AUTH_TOKEN: %s", exc)
+        return env_tok
+
+    return None
 
 
 def save_token(token: str) -> None:

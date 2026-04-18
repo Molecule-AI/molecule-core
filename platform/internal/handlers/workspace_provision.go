@@ -500,6 +500,21 @@ func loadWorkspaceSecrets(ctx context.Context, workspaceID string) (map[string]s
 }
 
 // provisionWorkspaceCP provisions a workspace via the control plane API.
+//
+// Token ordering (fix for launch HIGH #6 — workspaces stuck at "provisioning"):
+//
+// The workspace agent boots on EC2 and immediately calls POST /registry/register.
+// The registry issues a bearer token ONLY on first registration; subsequent
+// re-registrations are idempotent and return no token. If the platform issues a
+// token here AFTER cpProv.Start() returns, the token exists in the DB by the time
+// the EC2 instance registers — so the registration is treated as a re-register,
+// no token is returned, the agent has no credential, and all subsequent heartbeats
+// fail with 401 → workspace stays at "provisioning" forever.
+//
+// Fix: issue the token BEFORE launching the instance and inject it as
+// MOLECULE_AUTH_TOKEN in the boot environment. The workspace-template reads this
+// env var in platform_auth.get_token() and persists it to .auth_token on first
+// use, so it survives subsequent restarts without re-reading the env var.
 func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string, configFiles map[string][]byte, payload models.CreateWorkspacePayload) {
 	ctx, cancel := context.WithTimeout(context.Background(), provisioner.ProvisionTimeout)
 	defer cancel()
@@ -519,6 +534,25 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 			workspaceID, err.Error())
 		return
 	}
+
+	// Issue the auth token BEFORE launching the EC2 instance so it can be
+	// injected into the boot environment. The token must exist in the DB
+	// before the instance registers — if it were issued after Start(), the
+	// registration call would be treated as a re-registration (token already
+	// exists) and return no token, leaving the agent unable to heartbeat.
+	token, tokenErr := wsauth.IssueToken(ctx, db.DB, workspaceID)
+	if tokenErr != nil {
+		log.Printf("CPProvisioner: failed to issue token for %s: %v", workspaceID, tokenErr)
+		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
+			workspaceID, tokenErr.Error())
+		return
+	}
+	log.Printf("CPProvisioner: issued auth token for workspace %s (prefix: %s...)", workspaceID, token[:8])
+
+	// Inject MOLECULE_AUTH_TOKEN so the EC2 boot environment carries the
+	// credential. The workspace-template reads this env var in
+	// platform_auth.get_token() and auto-persists it to .auth_token.
+	envVars["MOLECULE_AUTH_TOKEN"] = token
 
 	cfg := provisioner.WorkspaceConfig{
 		WorkspaceID: workspaceID,
@@ -540,11 +574,4 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 	}
 
 	log.Printf("CPProvisioner: workspace %s started as machine %s via control plane", workspaceID, machineID)
-	// Issue token so the agent can authenticate on boot
-	token, tokenErr := wsauth.IssueToken(ctx, db.DB, workspaceID)
-	if tokenErr != nil {
-		log.Printf("CPProvisioner: failed to issue token for %s: %v", workspaceID, tokenErr)
-	} else {
-		log.Printf("CPProvisioner: issued auth token for workspace %s (prefix: %s...)", workspaceID, token[:8])
-	}
 }
