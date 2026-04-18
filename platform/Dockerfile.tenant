@@ -16,7 +16,9 @@
 # ── Stage 1: Go platform binary ──────────────────────────────────────
 FROM golang:1.25-alpine AS go-builder
 WORKDIR /app
+COPY molecule-ai-plugin-github-app-auth/ /plugin/
 COPY platform/go.mod platform/go.sum ./
+RUN echo 'replace github.com/Molecule-AI/molecule-ai-plugin-github-app-auth => /plugin' >> go.mod
 RUN go mod download
 COPY platform/ .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /platform ./cmd/server
