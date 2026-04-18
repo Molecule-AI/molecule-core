@@ -10,7 +10,7 @@
 #
 #   git config --global \
 #     "credential.https://github.com.helper" \
-#     "!/workspace-template/scripts/molecule-git-token-helper.sh"
+#     "!/workspace/scripts/molecule-git-token-helper.sh"
 #
 # # How git calls this helper
 #
@@ -43,7 +43,7 @@
 #
 # To also fix `gh` CLI auth, run this from a workspace cron prompt:
 #
-#   token=$(bash /workspace-template/scripts/molecule-git-token-helper.sh _fetch_token)
+#   token=$(bash /workspace/scripts/molecule-git-token-helper.sh _fetch_token)
 #   echo "$token" | gh auth login --with-token
 #
 # (The _fetch_token private action returns only the raw token string.)
