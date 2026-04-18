@@ -1,14 +1,17 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
-	"github.com/DATA-DOG/go-sqlmock"
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 )
 
@@ -334,3 +337,195 @@ func TestResumeHandler_NilProvisionerReturns503(t *testing.T) {
 // Note: TestResumeHandler_ParentPausedBlocksResume requires a non-nil provisioner
 // (Resume checks provisioner before isParentPaused). This is covered in
 // handlers_additional_test.go's integration-style tests.
+
+// ==================== HibernateWorkspace — TOCTOU fix (#819) ====================
+
+// TestHibernateWorkspace_ActiveTasksNotHibernated verifies that a workspace
+// with active_tasks > 0 is NOT hibernated: the atomic UPDATE WHERE active_tasks=0
+// returns 0 rows, and the function returns without calling Stop or the final
+// status update.
+func TestHibernateWorkspace_ActiveTasksNotHibernated(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	var stopCalls int32
+	handler.stopFnOverride = func(_ context.Context, _ string) {
+		atomic.AddInt32(&stopCalls, 1)
+	}
+
+	// The atomic claim UPDATE returns 0 rows because active_tasks > 0 fails the WHERE.
+	mock.ExpectExec(`UPDATE workspaces`).
+		WithArgs("ws-active").
+		WillReturnResult(sqlmock.NewResult(0, 0)) // rowsAffected = 0
+
+	handler.HibernateWorkspace(context.Background(), "ws-active")
+
+	if got := atomic.LoadInt32(&stopCalls); got != 0 {
+		t.Errorf("provisioner.Stop called %d times; want 0 (active_tasks > 0 must prevent hibernation)", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestHibernateWorkspace_AlreadyHibernatingNotHibernated verifies that a
+// workspace already in status 'hibernating' (claimed by a concurrent caller)
+// is skipped: the atomic UPDATE returns 0 rows because status no longer
+// matches IN ('online','degraded').
+func TestHibernateWorkspace_AlreadyHibernatingNotHibernated(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	var stopCalls int32
+	handler.stopFnOverride = func(_ context.Context, _ string) {
+		atomic.AddInt32(&stopCalls, 1)
+	}
+
+	// Another goroutine already transitioned the workspace to 'hibernating',
+	// so this UPDATE finds nothing matching the WHERE clause.
+	mock.ExpectExec(`UPDATE workspaces`).
+		WithArgs("ws-already").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	handler.HibernateWorkspace(context.Background(), "ws-already")
+
+	if got := atomic.LoadInt32(&stopCalls); got != 0 {
+		t.Errorf("provisioner.Stop called %d times; want 0 (concurrent claim should abort this call)", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestHibernateWorkspace_SuccessPath verifies the happy path: atomic claim
+// succeeds (rowsAffected=1), Stop is called exactly once, and the final
+// 'hibernated' UPDATE is executed.
+func TestHibernateWorkspace_SuccessPath(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	var stopCalls int32
+	handler.stopFnOverride = func(_ context.Context, _ string) {
+		atomic.AddInt32(&stopCalls, 1)
+	}
+
+	// Step 1: atomic claim succeeds
+	mock.ExpectExec(`UPDATE workspaces`).
+		WithArgs("ws-ok").
+		WillReturnResult(sqlmock.NewResult(0, 1)) // rowsAffected = 1
+
+	// Name/tier fetch after claim
+	mock.ExpectQuery(`SELECT name, tier FROM workspaces WHERE id`).
+		WithArgs("ws-ok").
+		WillReturnRows(sqlmock.NewRows([]string{"name", "tier"}).AddRow("My Agent", 1))
+
+	// Step 3: final hibernated UPDATE
+	mock.ExpectExec(`UPDATE workspaces SET status = 'hibernated'`).
+		WithArgs("ws-ok").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// broadcaster INSERT
+	mock.ExpectExec(`INSERT INTO structure_events`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	handler.HibernateWorkspace(context.Background(), "ws-ok")
+
+	if got := atomic.LoadInt32(&stopCalls); got != 1 {
+		t.Errorf("provisioner.Stop called %d times; want exactly 1", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestHibernateWorkspace_ConcurrentOnlyOneStop verifies the core TOCTOU guarantee:
+// when two callers race to hibernate the same workspace, the DB atomicity ensures
+// only one proceeds (rowsAffected=1) and only one Stop() is issued.
+//
+// The real Postgres guarantee (only one UPDATE wins) is modelled here by running
+// both calls sequentially against the same mock, with FIFO expectations:
+//   - First call wins   → rowsAffected=1 → Stop is called
+//   - Second call loses → rowsAffected=0 → Stop is NOT called
+//
+// This directly verifies the invariant "at most one Stop per workspace across
+// any number of concurrent hibernate attempts."
+func TestHibernateWorkspace_ConcurrentOnlyOneStop(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	var stopCalls int32
+	handler.stopFnOverride = func(_ context.Context, _ string) {
+		atomic.AddInt32(&stopCalls, 1)
+	}
+
+	// ── Caller A wins the race ────────────────────────────────────────────────
+	mock.ExpectExec(`UPDATE workspaces`).
+		WithArgs("ws-race").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT name, tier FROM workspaces WHERE id`).
+		WithArgs("ws-race").
+		WillReturnRows(sqlmock.NewRows([]string{"name", "tier"}).AddRow("Race Agent", 2))
+	mock.ExpectExec(`UPDATE workspaces SET status = 'hibernated'`).
+		WithArgs("ws-race").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO structure_events`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// ── Caller B loses — workspace is already 'hibernating' ───────────────────
+	mock.ExpectExec(`UPDATE workspaces`).
+		WithArgs("ws-race").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	// Execute sequentially (sqlmock is not safe for concurrent goroutines);
+	// the test models the serialized DB outcome that Postgres enforces.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done(); handler.HibernateWorkspace(context.Background(), "ws-race") }()
+	wg.Wait()
+
+	wg.Add(1)
+	go func() { defer wg.Done(); handler.HibernateWorkspace(context.Background(), "ws-race") }()
+	wg.Wait()
+
+	if got := atomic.LoadInt32(&stopCalls); got != 1 {
+		t.Errorf("provisioner.Stop called %d times; want exactly 1 across two hibernate attempts", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestHibernateWorkspace_DBErrorOnClaim verifies that a DB error on the
+// atomic claim UPDATE aborts the hibernation without calling Stop.
+func TestHibernateWorkspace_DBErrorOnClaim(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	var stopCalls int32
+	handler.stopFnOverride = func(_ context.Context, _ string) {
+		atomic.AddInt32(&stopCalls, 1)
+	}
+
+	mock.ExpectExec(`UPDATE workspaces`).
+		WithArgs("ws-dberr").
+		WillReturnError(sql.ErrConnDone)
+
+	handler.HibernateWorkspace(context.Background(), "ws-dberr")
+
+	if got := atomic.LoadInt32(&stopCalls); got != 0 {
+		t.Errorf("provisioner.Stop called %d times on DB error; want 0", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
