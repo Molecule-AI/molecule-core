@@ -235,6 +235,22 @@ func (h *PluginsHandler) resolveAndStage(ctx context.Context, req installRequest
 		}
 	}
 
+	// Manifest integrity check (supply-chain hardening, issue #768 / VULN-004).
+	// If the staged plugin contains a manifest.json with a "sha256" field,
+	// verify the entire staged tree matches the declared digest. This is the
+	// full-tree check that complements the plugin.yaml-only check above:
+	//   - req.SHA256 (above): caller-provided hash of plugin.yaml (audit pin)
+	//   - manifest.json sha256 (here): plugin-provided hash of all files
+	// Absent manifest.json or absent sha256 field → skip (backward-compatible).
+	// A mismatch aborts the install before deliverToContainer is reached.
+	if err := plugins.VerifyManifestIntegrity(stagedDir); err != nil {
+		cleanup()
+		return nil, newHTTPErr(http.StatusUnprocessableEntity, gin.H{
+			"error":  err.Error(),
+			"source": source.Raw(),
+		})
+	}
+
 	return &stageResult{StagedDir: stagedDir, PluginName: pluginName, Source: source}, nil
 }
 

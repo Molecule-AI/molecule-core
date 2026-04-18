@@ -65,6 +65,20 @@ func (r *GithubResolver) Fetch(ctx context.Context, spec string, dst string) (st
 	}
 	owner, repo, ref := m[1], m[2], m[3]
 
+	// Pinned-ref enforcement (supply-chain hardening, issue #768 / VULN-004).
+	// A bare spec without a "#<tag|sha>" fragment installs from the mutable
+	// default-branch tip, whose content can change silently between an audit
+	// and the actual install. Require an explicit pinned ref unless the
+	// operator opts in via PLUGIN_ALLOW_UNPINNED=true (local-dev escape hatch).
+	if ref == "" && os.Getenv("PLUGIN_ALLOW_UNPINNED") != "true" {
+		return "", fmt.Errorf(
+			"github resolver: spec %q requires a pinned ref "+
+				"(e.g. \"github://owner/repo#v1.2.0\" or \"github://owner/repo#<sha>\"); "+
+				"set PLUGIN_ALLOW_UNPINNED=true to override",
+			spec,
+		)
+	}
+
 	runner := r.GitRunner
 	if runner == nil {
 		runner = defaultGitRunner
