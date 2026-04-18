@@ -506,3 +506,70 @@ func FetchChannelHistory(ctx context.Context, botToken, channelID string, limit 
 func (s *SlackAdapter) StartPolling(_ context.Context, _ map[string]interface{}, _ MessageHandler) error {
 	return nil
 }
+
+// SlackConversation is a Slack channel or IM returned by conversations.list.
+type SlackConversation struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	IsPrivate  bool   `json:"is_private"`
+	IsIM       bool   `json:"is_im"`
+	IsMember   bool   `json:"is_member"`
+	NumMembers int    `json:"num_members,omitempty"`
+}
+
+// ListConversations calls conversations.list and returns all channels the bot
+// has access to (public channels the bot is in, private channels, and DMs).
+// Used by the canvas channel-picker after a Slack OAuth install.
+func ListConversations(ctx context.Context, botToken string) ([]SlackConversation, error) {
+	if botToken == "" {
+		return nil, fmt.Errorf("slack: bot_token is required")
+	}
+
+	// Fetch public + private + IM in a single call via types parameter.
+	// exclude_archived=true reduces noise.
+	url := "https://slack.com/api/conversations.list?limit=200&exclude_archived=true&types=public_channel,private_channel,im"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("slack: build conversations.list request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+botToken)
+
+	resp, err := slackHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("slack: conversations.list: %w", err)
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 131072)) // 128 KiB cap
+	resp.Body.Close()
+
+	var result struct {
+		OK       bool `json:"ok"`
+		Error    string `json:"error"`
+		Channels []struct {
+			ID         string `json:"id"`
+			Name       string `json:"name"`
+			IsPrivate  bool   `json:"is_private"`
+			IsIM       bool   `json:"is_im"`
+			IsMember   bool   `json:"is_member"`
+			NumMembers int    `json:"num_members"`
+		} `json:"channels"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("slack: parse conversations.list: %w", err)
+	}
+	if !result.OK {
+		return nil, fmt.Errorf("slack: conversations.list API error: %s", result.Error)
+	}
+
+	out := make([]SlackConversation, 0, len(result.Channels))
+	for _, ch := range result.Channels {
+		out = append(out, SlackConversation{
+			ID:         ch.ID,
+			Name:       ch.Name,
+			IsPrivate:  ch.IsPrivate,
+			IsIM:       ch.IsIM,
+			IsMember:   ch.IsMember,
+			NumMembers: ch.NumMembers,
+		})
+	}
+	return out, nil
+}

@@ -495,6 +495,23 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	r.POST("/channels/discover", middleware.AdminAuth(db.DB), chh.Discover)
 	r.POST("/webhooks/:type", chh.Webhook)
 
+	// Slack OAuth install flow (#860).
+	//   GET /integrations/slack/install?workspace_id=X
+	//       → browser redirect to Slack authorize page (open, no auth — the
+	//         browser session is the implicit authorization; workspace_id is
+	//         validated to exist in DB before redirecting).
+	//   GET /integrations/slack/callback?code=Y&state=X
+	//       → Slack redirects here after user approval; open so Slack can reach
+	//         it without a bearer token.  The handler validates state (workspace_id)
+	//         against the DB before persisting the bot token.
+	//   GET /workspaces/:id/integrations/slack/conversations
+	//       → WorkspaceAuth-gated; returns the channel list for the bot token
+	//         stored for this workspace (canvas channel-picker).
+	slackOAuth := handlers.NewSlackOAuthHandler(platformURL)
+	r.GET("/integrations/slack/install", slackOAuth.Install)
+	r.GET("/integrations/slack/callback", slackOAuth.Callback)
+	wsAuth.GET("/integrations/slack/conversations", slackOAuth.ListConversations)
+
 	// Audit — EU AI Act Annex III compliance endpoint (#594).
 	// Returns append-only HMAC-chained agent event log with optional inline
 	// chain verification when AUDIT_LEDGER_SALT is configured.
