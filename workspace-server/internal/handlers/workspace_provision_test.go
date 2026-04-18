@@ -769,3 +769,87 @@ func containsStr(s, substr string) bool {
 	}
 	return false
 }
+
+// ==================== loadWorkspaceSecrets ====================
+
+// TestLoadWorkspaceSecrets_GlobalQueryFails verifies that a DB error on the
+// global secrets query causes loadWorkspaceSecrets to return a non-empty error
+// string, aborting provisioning rather than silently starting without secrets.
+func TestLoadWorkspaceSecrets_GlobalQueryFails(t *testing.T) {
+	mock := setupTestDB(t)
+
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM global_secrets`).
+		WillReturnError(fmt.Errorf("pq: connection reset by peer"))
+
+	envVars, errStr := loadWorkspaceSecrets(context.Background(), "ws-provision-1")
+
+	if envVars != nil {
+		t.Errorf("expected nil envVars on global query failure, got %v", envVars)
+	}
+	if errStr == "" {
+		t.Error("expected non-empty error string on global query failure, got empty string")
+	}
+	if !contains(errStr, "global secrets query failed") {
+		t.Errorf("error string %q should mention 'global secrets query failed'", errStr)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet SQL expectations: %v", err)
+	}
+}
+
+// TestLoadWorkspaceSecrets_WorkspaceQueryFails verifies that a DB error on the
+// workspace secrets query causes loadWorkspaceSecrets to return a non-empty
+// error string even if global secrets loaded successfully.
+func TestLoadWorkspaceSecrets_WorkspaceQueryFails(t *testing.T) {
+	mock := setupTestDB(t)
+
+	// Global secrets succeed (empty result — no rows needed)
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM global_secrets`).
+		WillReturnRows(sqlmock.NewRows([]string{"key", "encrypted_value", "encryption_version"}))
+
+	// Workspace secrets query fails
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM workspace_secrets WHERE workspace_id`).
+		WithArgs("ws-provision-2").
+		WillReturnError(fmt.Errorf("pq: server closed the connection unexpectedly"))
+
+	envVars, errStr := loadWorkspaceSecrets(context.Background(), "ws-provision-2")
+
+	if envVars != nil {
+		t.Errorf("expected nil envVars on workspace query failure, got %v", envVars)
+	}
+	if errStr == "" {
+		t.Error("expected non-empty error string on workspace query failure")
+	}
+	if !contains(errStr, "workspace secrets query failed") {
+		t.Errorf("error string %q should mention 'workspace secrets query failed'", errStr)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet SQL expectations: %v", err)
+	}
+}
+
+// TestLoadWorkspaceSecrets_BothSucceed_EmptyResult verifies that when both
+// queries succeed with empty results, loadWorkspaceSecrets returns an empty
+// (non-nil) map and no error.
+func TestLoadWorkspaceSecrets_BothSucceed_EmptyResult(t *testing.T) {
+	mock := setupTestDB(t)
+
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM global_secrets`).
+		WillReturnRows(sqlmock.NewRows([]string{"key", "encrypted_value", "encryption_version"}))
+
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM workspace_secrets WHERE workspace_id`).
+		WithArgs("ws-provision-3").
+		WillReturnRows(sqlmock.NewRows([]string{"key", "encrypted_value", "encryption_version"}))
+
+	envVars, errStr := loadWorkspaceSecrets(context.Background(), "ws-provision-3")
+
+	if envVars == nil {
+		t.Error("expected non-nil envVars on success, got nil")
+	}
+	if errStr != "" {
+		t.Errorf("expected empty error string on success, got %q", errStr)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet SQL expectations: %v", err)
+	}
+}
