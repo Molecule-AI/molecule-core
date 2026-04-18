@@ -27,7 +27,7 @@ git config core.hooksPath .githooks
 ./infra/scripts/setup.sh
 
 # Build and run the platform
-cd platform
+cd workspace-server
 go run ./cmd/server
 
 # In a separate terminal, run the canvas
@@ -77,13 +77,13 @@ causing a render loop when any node position changed.
 
 ```bash
 # Go (platform)
-cd platform && go test -race ./...
+cd workspace-server && go test -race ./...
 
 # Canvas (Next.js)
 cd canvas && npm test
 
 # Workspace runtime (Python)
-cd workspace-template && python -m pytest -v
+cd workspace && python -m pytest -v
 
 # E2E API tests (requires running platform)
 bash tests/e2e/test_api.sh

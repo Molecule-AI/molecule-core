@@ -37,7 +37,7 @@ The scripts handle this by:
 
 ```bash
 # Quickest check after any platform change:
-cd platform && go build ./cmd/server && ./server &
+cd workspace-server && go build ./cmd/server && ./server &
 bash tests/e2e/test_api.sh        # expect 62/62 pass
 
 # Comprehensive sweep:

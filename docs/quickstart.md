@@ -39,7 +39,7 @@ docker compose -f docker-compose.infra.yml up -d
 ## Step 3: Start the platform
 
 ```bash
-cd platform
+cd workspace-server
 go run ./cmd/server
 ```
 
