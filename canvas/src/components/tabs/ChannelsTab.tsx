@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 import { api } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 
@@ -52,6 +52,12 @@ export function ChannelsTab({ workspaceId }: Props) {
   const [discoveredChats, setDiscoveredChats] = useState<{ chat_id: string; name: string; type: string }[]>([]);
   const [selectedChats, setSelectedChats] = useState<Set<string>>(new Set());
   const [showManualInput, setShowManualInput] = useState(false);
+
+  // Stable IDs for label↔input associations (WCAG 1.3.1)
+  const platformId = useId();
+  const botTokenId = useId();
+  const chatIdId = useId();
+  const allowedUsersId = useId();
 
   const load = useCallback(async () => {
     try {
@@ -208,8 +214,9 @@ export function ChannelsTab({ workspaceId }: Props) {
       {showForm && (
         <div className="space-y-2 p-3 bg-zinc-800/40 rounded border border-zinc-700/50">
           <div>
-            <label className="text-[10px] text-zinc-500 block mb-1">Platform</label>
+            <label htmlFor={platformId} className="text-[10px] text-zinc-500 block mb-1">Platform</label>
             <select
+              id={platformId}
               value={formType}
               onChange={(e) => setFormType(e.target.value)}
               className="w-full text-xs bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-zinc-300"
@@ -220,8 +227,9 @@ export function ChannelsTab({ workspaceId }: Props) {
             </select>
           </div>
           <div>
-            <label className="text-[10px] text-zinc-500 block mb-1">Bot Token</label>
+            <label htmlFor={botTokenId} className="text-[10px] text-zinc-500 block mb-1">Bot Token</label>
             <input
+              id={botTokenId}
               type="password"
               value={formBotToken}
               onChange={(e) => setFormBotToken(e.target.value)}
@@ -231,7 +239,7 @@ export function ChannelsTab({ workspaceId }: Props) {
           </div>
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="text-[10px] text-zinc-500">Chat IDs</label>
+              <label htmlFor={chatIdId} className="text-[10px] text-zinc-500">Chat IDs</label>
               <button
                 onClick={handleDiscover}
                 disabled={discovering || !formBotToken}
@@ -261,6 +269,7 @@ export function ChannelsTab({ workspaceId }: Props) {
             )}
             {(discoveredChats.length === 0 || showManualInput) && (
               <input
+                id={chatIdId}
                 value={formChatId}
                 onChange={(e) => setFormChatId(e.target.value)}
                 placeholder="-100123456789, -100987654321"
@@ -285,10 +294,11 @@ export function ChannelsTab({ workspaceId }: Props) {
             </p>
           </div>
           <div>
-            <label className="text-[10px] text-zinc-500 block mb-1">
+            <label htmlFor={allowedUsersId} className="text-[10px] text-zinc-500 block mb-1">
               Allowed Users <span className="text-zinc-600">(optional, comma-separated)</span>
             </label>
             <input
+              id={allowedUsersId}
               value={formAllowedUsers}
               onChange={(e) => setFormAllowedUsers(e.target.value)}
               placeholder="123456789, 987654321"

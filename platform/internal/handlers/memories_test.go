@@ -827,6 +827,146 @@ func TestRecallMemory_GlobalScope_HasDelimiter(t *testing.T) {
 	}
 }
 
+// ---------- SAFE-T1201: secret redaction (issue #838) ----------
+
+// TestRedactSecrets_CleanContent_PassesThrough verifies that content with no
+// secret patterns is returned unchanged and changed==false.
+func TestRedactSecrets_CleanContent_PassesThrough(t *testing.T) {
+	inputs := []string{
+		"The answer is 42",
+		"dogs are mammals",
+		"remember to open the PR before EOD",
+		"short",
+		"",
+	}
+	for _, in := range inputs {
+		out, changed := redactSecrets("ws-1", in)
+		if changed {
+			t.Errorf("clean content %q was unexpectedly changed to %q", in, out)
+		}
+		if out != in {
+			t.Errorf("clean content %q was mutated to %q", in, out)
+		}
+	}
+}
+
+// TestRedactSecrets_APIKeyPattern_IsRedacted verifies that env-var API key
+// assignments are scrubbed before persistence.
+func TestRedactSecrets_APIKeyPattern_IsRedacted(t *testing.T) {
+	cases := []struct {
+		input string
+		label string
+	}{
+		{"OPENAI_API_KEY=sk-1234567890abcdefgh", "API_KEY"},
+		{"ANTHROPIC_API_KEY=sk-ant-api03-longkeyvalue", "API_KEY"},
+		{"MY_SERVICE_TOKEN=ghp_ABCDEFGH1234567890", "TOKEN"},
+		{"DATABASE_SECRET=supersecret", "SECRET"},
+	}
+	for _, tc := range cases {
+		out, changed := redactSecrets("ws-1", tc.input)
+		if !changed {
+			t.Errorf("expected redaction of %q, got unchanged", tc.input)
+		}
+		want := "[REDACTED:" + tc.label + "]"
+		if out != want {
+			t.Errorf("input %q: got %q, want %q", tc.input, out, want)
+		}
+	}
+}
+
+// TestRedactSecrets_BearerToken_IsRedacted verifies HTTP Bearer header values
+// are scrubbed.
+func TestRedactSecrets_BearerToken_IsRedacted(t *testing.T) {
+	input := "Authorization: Bearer ghp_AbCdEfGhIjKlMnOp1234"
+	out, changed := redactSecrets("ws-1", input)
+	if !changed {
+		t.Errorf("Bearer token was not redacted in %q", input)
+	}
+	if strings.Contains(out, "ghp_") {
+		t.Errorf("Bearer token value still present after redaction: %q", out)
+	}
+	if !strings.Contains(out, "[REDACTED:BEARER_TOKEN]") {
+		t.Errorf("expected [REDACTED:BEARER_TOKEN] in output, got: %q", out)
+	}
+}
+
+// TestRedactSecrets_SKToken_IsRedacted verifies sk-... prefixed secret keys
+// (OpenAI / Anthropic format) are scrubbed.
+func TestRedactSecrets_SKToken_IsRedacted(t *testing.T) {
+	// Use a key that is NOT caught by the env-var pattern first (no KEY= prefix)
+	input := "the key is sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAA"
+	out, changed := redactSecrets("ws-1", input)
+	if !changed {
+		t.Errorf("sk- token was not redacted in %q", input)
+	}
+	if strings.Contains(out, "sk-ant") {
+		t.Errorf("sk- value still present after redaction: %q", out)
+	}
+}
+
+// TestRedactSecrets_Ctx7Token_IsRedacted verifies context7 tokens are scrubbed.
+func TestRedactSecrets_Ctx7Token_IsRedacted(t *testing.T) {
+	input := "ctx7_AbCdEfGhIjKlMnOpQrStUvWxYz123456"
+	out, changed := redactSecrets("ws-1", input)
+	if !changed {
+		t.Errorf("ctx7_ token was not redacted in %q", input)
+	}
+	if strings.Contains(out, "ctx7_") {
+		t.Errorf("ctx7_ value still present after redaction: %q", out)
+	}
+	if !strings.Contains(out, "[REDACTED:CTX7_TOKEN]") {
+		t.Errorf("expected [REDACTED:CTX7_TOKEN] in output, got: %q", out)
+	}
+}
+
+// TestRedactSecrets_Base64Blob_IsRedacted verifies that high-entropy base64
+// blobs of 33+ chars are scrubbed.
+func TestRedactSecrets_Base64Blob_IsRedacted(t *testing.T) {
+	// A realistic base64-encoded secret (33+ chars, contains + and /)
+	input := "stored secret: dGhpcyBpcyBhIHNlY3JldCBibG9i/AAAA=="
+	out, changed := redactSecrets("ws-1", input)
+	if !changed {
+		t.Errorf("base64 blob was not redacted in %q", input)
+	}
+	if !strings.Contains(out, "[REDACTED:BASE64_BLOB]") {
+		t.Errorf("expected [REDACTED:BASE64_BLOB] in output, got: %q", out)
+	}
+}
+
+// TestCommitMemory_SecretInContent_IsRedactedBeforeInsert verifies that the
+// Commit handler scrubs secret patterns before the INSERT so credentials are
+// never persisted verbatim. The DB mock expects the redacted value.
+func TestCommitMemory_SecretInContent_IsRedactedBeforeInsert(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewMemoriesHandler()
+
+	// The raw content contains an API key assignment. After redaction the DB
+	// must receive the scrubbed version, not the original.
+	rawContent := "OPENAI_API_KEY=sk-1234567890abcdefgh"
+	redacted, _ := redactSecrets("ws-1", rawContent) // derive expected value
+
+	mock.ExpectQuery("INSERT INTO agent_memories").
+		WithArgs("ws-1", redacted, "LOCAL", "general").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("mem-safe"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-1"}}
+	body := `{"content":"OPENAI_API_KEY=sk-1234567890abcdefgh","scope":"LOCAL"}`
+	c.Request = httptest.NewRequest("POST", "/", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Commit(c)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("secret content was not redacted before DB insert: %v", err)
+	}
+}
+
 // TestCommitMemory_GlobalScope_AuditLogEntry verifies that writing a
 // GLOBAL-scope memory always produces an activity_log entry with
 // event_type='memory_write_global'. The audit entry stores the SHA-256

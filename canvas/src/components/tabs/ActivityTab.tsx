@@ -80,6 +80,7 @@ export function ActivityTab({ workspaceId }: Props) {
             <button
               key={f.id}
               onClick={() => setFilter(f.id)}
+              aria-pressed={filter === f.id}
               className={`px-2 py-1 text-[11px] rounded-md font-medium transition-all ${
                 filter === f.id
                   ? "bg-zinc-700 text-zinc-100 ring-1 ring-zinc-600"
@@ -92,6 +93,7 @@ export function ActivityTab({ workspaceId }: Props) {
           <div className="ml-auto flex items-center gap-2">
             <button
               onClick={() => setAutoRefresh(!autoRefresh)}
+              aria-pressed={autoRefresh}
               className={`text-[11px] px-1.5 py-0.5 rounded ${
                 autoRefresh ? "text-emerald-400 bg-emerald-950/30" : "text-zinc-500"
               }`}

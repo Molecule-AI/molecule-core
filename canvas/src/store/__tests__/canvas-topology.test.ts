@@ -24,6 +24,7 @@ function makeWS(overrides: Partial<WorkspaceData> & { id: string }): WorkspaceDa
     y: 0,
     collapsed: false,
     runtime: "",
+    budget_limit: null,
     ...overrides,
   };
 }

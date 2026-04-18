@@ -29,9 +29,9 @@ function useHierarchyInfo(parentId: string) {
 }
 
 /** Eject/extract arrow icon — visually distinct from delete ✕ */
-function EjectIcon() {
+function EjectIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
       <path d="M3 7L7 3" />
       <path d="M4 3H7V6" />
     </svg>
@@ -344,9 +344,6 @@ function TeamMemberChip({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      aria-label={`Select ${data.name ?? "workspace"}`}
       className="group/child relative rounded-lg bg-zinc-800/60 hover:bg-zinc-700/70 border border-zinc-700/30 hover:border-zinc-600/40 overflow-hidden transition-colors cursor-pointer"
       onClick={(e) => {
         e.stopPropagation();
@@ -356,13 +353,6 @@ function TeamMemberChip({
         e.preventDefault();
         e.stopPropagation();
         useCanvasStore.getState().openContextMenu({ x: e.clientX, y: e.clientY, nodeId: node.id, nodeData: data });
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          e.stopPropagation();
-          onSelect(node.id);
-        }
       }}
     >
       {/* Status gradient bar */}
@@ -387,14 +377,15 @@ function TeamMemberChip({
               {tierCfg.label}
             </span>
             <button
+              aria-label={`Extract ${data.name} from team`}
+              title={`Extract ${data.name} from team`}
               onClick={(e) => {
                 e.stopPropagation();
                 onExtract(node.id);
               }}
-              aria-label="Extract from team"
               className="opacity-0 group-hover/child:opacity-100 text-zinc-500 hover:text-sky-400 transition-all"
             >
-              <EjectIcon />
+              <EjectIcon aria-hidden="true" />
             </button>
           </div>
         </div>
