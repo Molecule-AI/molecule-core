@@ -903,6 +903,70 @@ func TestWorkspaceGet_FinancialFieldsStripped(t *testing.T) {
 	}
 }
 
+// TestWorkspaceGet_SensitiveFieldsStripped verifies that GET /workspaces/:id
+// does NOT expose current_task, last_sample_error, or workspace_dir. These
+// leak operational surveillance data and host paths to any caller with a
+// valid UUID. (#955)
+func TestWorkspaceGet_SensitiveFieldsStripped(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	columns := []string{
+		"id", "name", "role", "tier", "status", "agent_card", "url",
+		"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
+		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
+		"budget_limit", "monthly_spend",
+	}
+	mock.ExpectQuery("SELECT w.id, w.name").
+		WithArgs("cccccccc-0955-0000-0000-000000000000").
+		WillReturnRows(sqlmock.NewRows(columns).
+			AddRow("cccccccc-0955-0000-0000-000000000000", "Surveillance Test", "worker", 1, "online", []byte(`{}`),
+				"http://localhost:9002", nil, 1, 0.0,
+				"panic: internal error at /secret/path.go:42",
+				100,
+				"Analyzing customer PII for the Q4 report",
+				"langgraph",
+				"/home/user/secret-projects/client-work",
+				0.0, 0.0, false,
+				nil, 0))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0955-0000-0000-000000000000"}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/ws-955", nil)
+
+	handler.Get(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	for _, field := range []string{"current_task", "last_sample_error", "workspace_dir"} {
+		if _, present := resp[field]; present {
+			t.Errorf("%s must not appear in public GET response (got %v)", field, resp[field])
+		}
+	}
+
+	// Sanity: discovery fields still present
+	if resp["name"] != "Surveillance Test" {
+		t.Errorf("expected name 'Surveillance Test', got %v", resp["name"])
+	}
+	if resp["active_tasks"] != float64(1) {
+		t.Errorf("expected active_tasks 1, got %v", resp["active_tasks"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 // TestWorkspaceUpdate_BudgetLimitIgnored verifies that including budget_limit
 // in a PATCH /workspaces/:id body does NOT trigger a DB write. The only write
 // path for budget_limit is PATCH /workspaces/:id/budget (AdminAuth-gated).
