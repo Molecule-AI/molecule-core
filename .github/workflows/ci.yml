@@ -52,7 +52,7 @@ jobs:
     runs-on: [self-hosted, macos, arm64]
     defaults:
       run:
-        working-directory: platform
+        working-directory: workspace-server
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -66,7 +66,7 @@ jobs:
         uses: golangci/golangci-lint-action@v4
         with:
           version: latest
-          working-directory: platform
+          working-directory: workspace-server
           args: --timeout 3m
         continue-on-error: true  # Warn but don't block until codebase is clean
       - name: Run tests with race detection and coverage
@@ -129,10 +129,8 @@ jobs:
     name: Canvas Deploy Reminder
     runs-on: [self-hosted, macos, arm64]
     needs: [changes, canvas-build]
-    if: needs.changes.outputs.canvas == 'true'
-    # Only fires on direct pushes to main (i.e. after a PR merges).
-    # PRs get canvas-build CI but no reminder — no deployment happens on PRs.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Only fires on direct pushes to main (i.e. after staging→main promotion).
+    if: needs.changes.outputs.canvas == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       # Required to post commit comments via the GitHub API.
       contents: write
@@ -178,7 +176,7 @@ jobs:
     runs-on: [self-hosted, macos, arm64]
     defaults:
       run:
-        working-directory: workspace-template
+        working-directory: workspace
     steps:
       - uses: actions/checkout@v4
       # setup-python@v5 cannot write to /Users/runner (GitHub-hosted path) on
