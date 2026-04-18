@@ -77,6 +77,12 @@ func (r *GithubResolver) Fetch(ctx context.Context, spec string, dst string) (st
 	}
 	owner, repo, ref := m[1], m[2], m[3]
 
+	// Normalize ref to lowercase so an uppercase commit SHA pasted from a
+	// GitHub UI (which always emits lowercase) doesn't confuse the shaRE check.
+	// Branch names and tags are case-sensitive on GitHub but SHA hex is case-
+	// insensitive, and `strings.ToLower` is a no-op for already-lowercase values.
+	ref = strings.ToLower(ref)
+
 	// Pinned-ref enforcement (supply-chain hardening, issue #768 / VULN-004).
 	//
 	// Two-level gate when PLUGIN_ALLOW_UNPINNED != "true":
