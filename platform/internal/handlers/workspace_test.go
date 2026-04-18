@@ -14,6 +14,9 @@ import (
 
 // ==================== GET /workspaces/:id ====================
 
+// TestWorkspaceGet_Success verifies the unauthenticated path: no bearer token →
+// response contains only A2A-discovery-safe fields {id, name, agent_card}.
+// Operational fields (current_task, url, status, etc.) must be absent. (SA finding)
 func TestWorkspaceGet_Success(t *testing.T) {
 	mock := setupTestDB(t)
 	setupTestRedis(t)
@@ -29,7 +32,7 @@ func TestWorkspaceGet_Success(t *testing.T) {
 	mock.ExpectQuery("SELECT w.id, w.name").
 		WithArgs("cccccccc-0001-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows(columns).
-			AddRow("cccccccc-0001-0000-0000-000000000000", "My Agent", "worker", 1, "online", []byte(`{"name":"test"}`),
+			AddRow("cccccccc-0001-0000-0000-000000000000", "My Agent", "worker", 1, "online", []byte(`{"name":"test","url":"http://172.17.0.2:8000"}`),
 				"http://localhost:8001", nil, 2, 0.05, "", 3600, "working", "langgraph",
 				"", 10.0, 20.0, false,
 				nil, 0))
@@ -38,6 +41,7 @@ func TestWorkspaceGet_Success(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0001-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("GET", "/workspaces/ws-get-1", nil)
+	// No Authorization header — unauthenticated path.
 
 	handler.Get(c)
 
@@ -49,17 +53,32 @@ func TestWorkspaceGet_Success(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
+	// Safe fields must be present.
+	if resp["id"] != "cccccccc-0001-0000-0000-000000000000" {
+		t.Errorf("expected id, got %v", resp["id"])
+	}
 	if resp["name"] != "My Agent" {
 		t.Errorf("expected name 'My Agent', got %v", resp["name"])
 	}
-	if resp["status"] != "online" {
-		t.Errorf("expected status 'online', got %v", resp["status"])
+
+	// Operational / topology fields must be absent from unauthenticated response.
+	for _, field := range []string{"current_task", "url", "status", "runtime", "tier", "role",
+		"uptime_seconds", "last_error_rate", "last_sample_error", "workspace_dir", "parent_id"} {
+		if _, present := resp[field]; present {
+			t.Errorf("field %q must be absent from unauthenticated GET /workspaces/:id (got %v)", field, resp[field])
+		}
 	}
-	if resp["runtime"] != "langgraph" {
-		t.Errorf("expected runtime 'langgraph', got %v", resp["runtime"])
-	}
-	if resp["current_task"] != "working" {
-		t.Errorf("expected current_task 'working', got %v", resp["current_task"])
+
+	// agent_card present but url scrubbed.
+	if ac, ok := resp["agent_card"].(map[string]interface{}); ok {
+		if _, urlPresent := ac["url"]; urlPresent {
+			t.Errorf("agent_card.url must be absent from unauthenticated response")
+		}
+		if ac["name"] != "test" {
+			t.Errorf("agent_card.name: got %v, want test", ac["name"])
+		}
+	} else {
+		t.Errorf("agent_card should be a map, got %T: %v", resp["agent_card"], resp["agent_card"])
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -902,13 +921,12 @@ func TestWorkspaceGet_FinancialFieldsStripped(t *testing.T) {
 	}
 }
 
-// ==================== #934 Security Auditor regressions ====================
+// ==================== SA security finding regressions ====================
 
-// TestWorkspaceGet_OperationalFieldsStripped verifies that GET /workspaces/:id
-// does NOT expose any of the six operational fields that were identified as
-// leaking internal network topology and runtime state to unauthenticated
-// callers. (#934)
-func TestWorkspaceGet_OperationalFieldsStripped(t *testing.T) {
+// TestWorkspaceGet_Unauthenticated_OnlySafeFields verifies that an unauthenticated
+// caller (no bearer token) receives ONLY {id, name, agent_card} — all operational
+// and topology fields are absent. (SA finding — replaces unconditional #934 approach)
+func TestWorkspaceGet_Unauthenticated_OnlySafeFields(t *testing.T) {
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
@@ -925,16 +943,10 @@ func TestWorkspaceGet_OperationalFieldsStripped(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(columns).
 			AddRow(
 				"cccccccc-0020-0000-0000-000000000000", "Ops Test", "worker", 1, "online",
-				[]byte(`{"name":"ops-agent"}`),
-				"http://172.17.0.5:8080",       // url — must be stripped
-				nil,                             // parent_id
-				3,                               // active_tasks — must be retained
-				0.12,                            // last_error_rate — must be stripped
-				"connection refused",            // last_sample_error — must be stripped
-				3600,                            // uptime_seconds — must be stripped
-				"Summarising quarterly reports", // current_task — must be stripped
-				"langgraph",
-				"/host/data/workspaces/cccc", // workspace_dir — must be stripped
+				[]byte(`{"name":"ops-agent","url":"http://172.17.0.5:8080"}`),
+				"http://172.17.0.5:8080",
+				nil, 3, 0.12, "connection refused", 3600, "Summarising quarterly reports",
+				"langgraph", "/host/data/workspaces/cccc",
 				100.0, 200.0, false,
 				nil, int64(0),
 			))
@@ -943,6 +955,7 @@ func TestWorkspaceGet_OperationalFieldsStripped(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0020-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("GET", "/workspaces/cccccccc-0020-0000-0000-000000000000", nil)
+	// No Authorization header — unauthenticated path.
 
 	handler.Get(c)
 
@@ -955,25 +968,34 @@ func TestWorkspaceGet_OperationalFieldsStripped(t *testing.T) {
 		t.Fatalf("failed to parse response: %v", err)
 	}
 
-	// These six fields must be absent from the open endpoint response.
-	stripped := []string{"url", "current_task", "uptime_seconds", "last_error_rate", "last_sample_error", "workspace_dir"}
-	for _, field := range stripped {
+	// All operational / topology fields must be absent.
+	for _, field := range []string{
+		"url", "current_task", "uptime_seconds", "last_error_rate", "last_sample_error",
+		"workspace_dir", "status", "tier", "role", "runtime", "parent_id",
+		"active_tasks", "x", "y", "collapsed", "budget_limit", "monthly_spend",
+	} {
 		if _, present := resp[field]; present {
-			t.Errorf("field %q must not appear in GET /workspaces/:id response (got %v)", field, resp[field])
+			t.Errorf("field %q must be absent from unauthenticated response (got %v)", field, resp[field])
 		}
 	}
 
-	// Core fields required for canvas rendering must still be present.
-	retained := map[string]interface{}{
-		"id":          "cccccccc-0020-0000-0000-000000000000",
-		"name":        "Ops Test",
-		"status":      "online",
-		"active_tasks": float64(3),
-		"runtime":     "langgraph",
+	// Only id and name safe fields present.
+	if resp["id"] != "cccccccc-0020-0000-0000-000000000000" {
+		t.Errorf("id: got %v, want cccccccc-0020-0000-0000-000000000000", resp["id"])
 	}
-	for field, want := range retained {
-		if got := resp[field]; got != want {
-			t.Errorf("field %q: got %v, want %v", field, got, want)
+	if resp["name"] != "Ops Test" {
+		t.Errorf("name: got %v, want 'Ops Test'", resp["name"])
+	}
+
+	// agent_card present but url stripped; only name/description/version kept.
+	if ac, ok := resp["agent_card"].(map[string]interface{}); !ok || ac == nil {
+		t.Fatalf("agent_card must be present as an object, got %T: %v", resp["agent_card"], resp["agent_card"])
+	} else {
+		if _, urlPresent := ac["url"]; urlPresent {
+			t.Errorf("agent_card.url must be absent from unauthenticated response")
+		}
+		if ac["name"] != "ops-agent" {
+			t.Errorf("agent_card.name: got %v, want ops-agent", ac["name"])
 		}
 	}
 
@@ -982,11 +1004,87 @@ func TestWorkspaceGet_OperationalFieldsStripped(t *testing.T) {
 	}
 }
 
-// TestWorkspaceGet_AgentCardURLScrubbed verifies that the "url" key inside
-// agent_card is removed before the response is written.  The agent_card url
-// holds the same internal container address as the top-level url field —
-// both must be absent from the open endpoint. (#934)
-func TestWorkspaceGet_AgentCardURLScrubbed(t *testing.T) {
+// TestWorkspaceGet_Authenticated_ReturnsFullResponse verifies that an authenticated
+// caller (valid bearer token) receives the complete operational response including
+// current_task, url, status, tier, etc. (SA finding)
+func TestWorkspaceGet_Authenticated_ReturnsFullResponse(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	wsColumns := []string{
+		"id", "name", "role", "tier", "status", "agent_card", "url",
+		"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
+		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
+		"budget_limit", "monthly_spend",
+	}
+	mock.ExpectQuery("SELECT w.id, w.name").
+		WithArgs("cccccccc-0022-0000-0000-000000000000").
+		WillReturnRows(sqlmock.NewRows(wsColumns).
+			AddRow(
+				"cccccccc-0022-0000-0000-000000000000", "Auth Test", "worker", 2, "online",
+				[]byte(`{"name":"auth-agent","url":"http://172.17.0.9:8000","version":"1.0"}`),
+				"http://172.17.0.9:8000",
+				nil, 1, 0.01, "", 7200, "Researching topic X",
+				"langgraph", "/mnt/ws",
+				50.0, 60.0, false,
+				nil, int64(0),
+			))
+
+	// ValidateAnyToken: SELECT t.id FROM workspace_auth_tokens t JOIN workspaces w ...
+	// The token_hash arg is computed from the plaintext; use AnyArg.
+	mock.ExpectQuery("SELECT t.id").
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-auth-001"))
+	// best-effort last_used_at UPDATE (best-effort — not critical if unmatched)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0022-0000-0000-000000000000"}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/cccccccc-0022-0000-0000-000000000000", nil)
+	c.Request.Header.Set("Authorization", "Bearer valid-test-token-for-sa-test")
+
+	handler.Get(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	// Authenticated path must include operational fields.
+	if resp["current_task"] != "Researching topic X" {
+		t.Errorf("current_task: got %v, want 'Researching topic X'", resp["current_task"])
+	}
+	if resp["status"] != "online" {
+		t.Errorf("status: got %v, want online", resp["status"])
+	}
+	if resp["tier"] != float64(2) {
+		t.Errorf("tier: got %v, want 2", resp["tier"])
+	}
+	if resp["url"] != "http://172.17.0.9:8000" {
+		t.Errorf("url: got %v, want http://172.17.0.9:8000", resp["url"])
+	}
+	if resp["uptime_seconds"] != float64(7200) {
+		t.Errorf("uptime_seconds: got %v, want 7200", resp["uptime_seconds"])
+	}
+	// Financial fields must still be absent even for authenticated callers. (#611)
+	if _, present := resp["budget_limit"]; present {
+		t.Errorf("budget_limit must not appear even for authenticated callers")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestWorkspaceGet_AgentCardURLAbsentUnauthenticated verifies the unauthenticated
+// path strips agent_card.url while keeping name/version. (SA finding)
+func TestWorkspaceGet_AgentCardURLAbsentUnauthenticated(t *testing.T) {
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
@@ -998,24 +1096,22 @@ func TestWorkspaceGet_AgentCardURLScrubbed(t *testing.T) {
 		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
 		"budget_limit", "monthly_spend",
 	}
-	// agent_card contains a "url" key pointing to the internal container address.
-	agentCard := []byte(`{"name":"scrub-agent","url":"http://172.17.0.7:8080","version":"1.0","skills":[]}`)
+	agentCard := []byte(`{"name":"scrub-agent","url":"http://172.17.0.7:8080","version":"1.0","description":"A test agent","skills":[]}`)
 	mock.ExpectQuery("SELECT w.id, w.name").
 		WithArgs("cccccccc-0021-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows(columns).
 			AddRow(
 				"cccccccc-0021-0000-0000-000000000000", "Card Scrub Test", "worker", 1, "online",
-				agentCard,
-				"http://172.17.0.7:8080",
+				agentCard, "http://172.17.0.7:8080",
 				nil, 0, 0.0, "", 0, "", "langgraph", "",
-				0.0, 0.0, false,
-				nil, int64(0),
+				0.0, 0.0, false, nil, int64(0),
 			))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "cccccccc-0021-0000-0000-000000000000"}}
 	c.Request = httptest.NewRequest("GET", "/workspaces/cccccccc-0021-0000-0000-000000000000", nil)
+	// No bearer token — unauthenticated.
 
 	handler.Get(c)
 
@@ -1028,34 +1124,30 @@ func TestWorkspaceGet_AgentCardURLScrubbed(t *testing.T) {
 		t.Fatalf("failed to parse response: %v", err)
 	}
 
-	// Top-level url must be stripped.
+	// Top-level url must be absent.
 	if _, present := resp["url"]; present {
-		t.Errorf("top-level url must not appear in open GET /workspaces/:id response")
+		t.Errorf("top-level url must be absent from unauthenticated response")
 	}
 
-	// agent_card must be present but must NOT contain a "url" key.
-	rawCard, ok := resp["agent_card"]
-	if !ok {
-		t.Fatal("agent_card must be present in response")
+	// agent_card must be present but ONLY contain name/description/version.
+	ac, ok := resp["agent_card"].(map[string]interface{})
+	if !ok || ac == nil {
+		t.Fatalf("agent_card must be a non-nil object, got %T: %v", resp["agent_card"], resp["agent_card"])
 	}
-	// Gin serialises json.RawMessage inline — re-marshal and unmarshal to inspect.
-	cardBytes, err := json.Marshal(rawCard)
-	if err != nil {
-		t.Fatalf("failed to re-marshal agent_card: %v", err)
+	if _, urlPresent := ac["url"]; urlPresent {
+		t.Errorf("agent_card.url must be absent from unauthenticated response (got %v)", ac["url"])
 	}
-	var card map[string]interface{}
-	if err := json.Unmarshal(cardBytes, &card); err != nil {
-		t.Fatalf("failed to parse agent_card: %v", err)
+	if _, skillsPresent := ac["skills"]; skillsPresent {
+		t.Errorf("agent_card.skills must be absent from unauthenticated response (only name/description/version kept)")
 	}
-	if _, present := card["url"]; present {
-		t.Errorf("agent_card.url must be scrubbed from open GET /workspaces/:id response (got %v)", card["url"])
+	if ac["name"] != "scrub-agent" {
+		t.Errorf("agent_card.name: got %v, want scrub-agent", ac["name"])
 	}
-	// Other agent_card fields should be intact.
-	if card["name"] != "scrub-agent" {
-		t.Errorf("agent_card.name: got %v, want scrub-agent", card["name"])
+	if ac["version"] != "1.0" {
+		t.Errorf("agent_card.version: got %v, want 1.0", ac["version"])
 	}
-	if card["version"] != "1.0" {
-		t.Errorf("agent_card.version: got %v, want 1.0", card["version"])
+	if ac["description"] != "A test agent" {
+		t.Errorf("agent_card.description: got %v, want 'A test agent'", ac["description"])
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

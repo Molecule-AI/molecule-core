@@ -431,40 +431,34 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 		return
 	}
 
-	// Strip financial fields — GET /workspaces/:id is on the open router.
-	// Any caller with a valid UUID would otherwise read billing data.
-	// The dedicated budget/spend endpoints are AdminAuth-gated. (#611)
+	// Strip financial fields unconditionally — the dedicated budget/spend
+	// endpoints are AdminAuth-gated; billing data must never leak on this
+	// open router endpoint regardless of caller auth status. (#611)
 	delete(ws, "budget_limit")
 	delete(ws, "monthly_spend")
 
-	// Strip operational fields — this endpoint is intentionally unauthenticated
-	// (canvas nodes poll it without tokens).  Leaking these fields exposes
-	// internal network topology (container URLs), live prompt snippets, and
-	// runtime diagnostic data to any party that knows a workspace UUID. (#934)
-	for _, f := range []string{
-		"url",               // internal container / loopback address
-		"current_task",      // live prompt snippet
-		"uptime_seconds",    // operational metric
-		"last_error_rate",   // operational metric
-		"last_sample_error", // error detail text
-		"workspace_dir",     // host filesystem path
-	} {
-		delete(ws, f)
-	}
-
-	// Scrub the "url" field from within agent_card — it carries the same
-	// internal container address in A2A discovery format.
-	if raw, ok := ws["agent_card"].(json.RawMessage); ok && len(raw) > 0 {
-		var card map[string]interface{}
-		if err := json.Unmarshal(raw, &card); err == nil {
-			delete(card, "url")
-			if remarshaled, err := json.Marshal(card); err == nil {
-				ws["agent_card"] = json.RawMessage(remarshaled)
-			}
+	// Authenticated callers (any valid bearer token) receive the full response.
+	// Unauthenticated or unrecognised-token callers receive only
+	// A2A-discovery-safe fields: {id, name, agent_card:{name,description,version}}
+	//
+	// The endpoint deliberately returns 200 in both cases — not 401 — so that
+	// public A2A peer discovery continues to work without credentials while
+	// SSRF-enabling internal topology (container URLs, current_task, etc.)
+	// is withheld from anonymous callers. (SA finding)
+	if tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization")); tok != "" {
+		if wsauth.ValidateAnyToken(c.Request.Context(), db.DB, tok) == nil {
+			// Authenticated path: full operational response.
+			c.JSON(http.StatusOK, ws)
+			return
 		}
 	}
 
-	c.JSON(http.StatusOK, ws)
+	// Unauthenticated path: return only A2A-discovery-safe fields.
+	c.JSON(http.StatusOK, gin.H{
+		"id":         ws["id"],
+		"name":       ws["name"],
+		"agent_card": publicAgentCard(ws["agent_card"]),
+	})
 }
 
 // State handles GET /workspaces/:id/state — minimal status payload for
@@ -850,6 +844,36 @@ func validateWorkspaceID(id string) error {
 		return fmt.Errorf("invalid workspace id")
 	}
 	return nil
+}
+
+// publicAgentCard returns a filtered copy of an agent_card containing only
+// A2A-discovery-safe keys: "name", "description", "version". The "url" field
+// (internal container address) and any other operational keys are omitted.
+//
+// Returns nil when raw is nil, not a json.RawMessage, or unparseable — callers
+// treat a nil agent_card as absent, which is safe for A2A peer discovery.
+func publicAgentCard(raw interface{}) interface{} {
+	if raw == nil {
+		return nil
+	}
+	msg, ok := raw.(json.RawMessage)
+	if !ok || len(msg) == 0 {
+		return nil
+	}
+	var card map[string]interface{}
+	if err := json.Unmarshal(msg, &card); err != nil {
+		return nil
+	}
+	safe := make(map[string]interface{})
+	for _, k := range []string{"name", "description", "version"} {
+		if v, ok := card[k]; ok {
+			safe[k] = v
+		}
+	}
+	if len(safe) == 0 {
+		return nil
+	}
+	return safe
 }
 
 // yamlSpecialChars is the set of YAML-special characters banned from workspace
