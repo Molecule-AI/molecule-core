@@ -161,7 +161,7 @@ def test_commit_memory_uses_platform_fallback_without_awareness(monkeypatch, mem
 
     assert result == {"success": True, "id": "platform-mem", "scope": "GLOBAL"}
     assert captured["url"] == "http://platform.test/workspaces/ws-test/memories"
-    assert captured["json"] == {"content": "remember fallback", "scope": "GLOBAL"}
+    assert captured["json"] == {"content": "remember fallback", "scope": "GLOBAL", "namespace": "general"}
 
 
 def test_commit_memory_promoted_packet_logs_skill_promotion(monkeypatch, tmp_path, memory_modules):
@@ -219,7 +219,7 @@ def test_commit_memory_promoted_packet_logs_skill_promotion(monkeypatch, tmp_pat
     skill_activity_url, skill_activity_payload = captured["calls"][2]
     heartbeat_url, heartbeat_payload = captured["calls"][3]
     assert memory_url == "http://platform.test/workspaces/ws-test/memories"
-    assert memory_payload == {"content": json.dumps(packet), "scope": "TEAM"}
+    assert memory_payload == {"content": json.dumps(packet), "scope": "TEAM", "namespace": "general"}
     assert memory_activity_url == "http://platform.test/workspaces/ws-test/activity"
     assert memory_activity_payload["activity_type"] == "memory_write"
     assert skill_activity_url == "http://platform.test/workspaces/ws-test/activity"
@@ -920,3 +920,116 @@ def test_record_memory_activity_omits_target_id_when_none(memory_modules_with_mo
     asyncio.run(memory._record_memory_activity("GLOBAL", "fact", None))
 
     assert "target_id" not in captured[0]
+
+
+# ---------------------------------------------------------------------------
+# namespace parameter (#576 chunk 2)
+# ---------------------------------------------------------------------------
+
+def test_commit_memory_with_explicit_namespace(memory_modules_with_mocks):
+    """commit_memory forwards an explicit namespace to the platform API."""
+    memory, _, _ = memory_modules_with_mocks
+    captured = {}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return None
+        async def post(self, url, json, headers=None):
+            if "/memories" in url:
+                captured["json"] = json
+            return _FakeResponse(201, {"id": "mem-ns"})
+
+    memory.httpx.AsyncClient = FakeAsyncClient
+
+    result = asyncio.run(memory.commit_memory("API design decision", "LOCAL", namespace="facts"))
+
+    assert result == {"success": True, "id": "mem-ns", "scope": "LOCAL"}
+    assert captured["json"]["namespace"] == "facts"
+    assert captured["json"]["content"] == "API design decision"
+    assert captured["json"]["scope"] == "LOCAL"
+
+
+def test_commit_memory_default_namespace_is_general(memory_modules_with_mocks):
+    """When namespace is omitted, 'general' is sent to the platform."""
+    memory, _, _ = memory_modules_with_mocks
+    captured = {}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return None
+        async def post(self, url, json, headers=None):
+            if "/memories" in url:
+                captured["json"] = json
+            return _FakeResponse(201, {"id": "mem-default"})
+
+    memory.httpx.AsyncClient = FakeAsyncClient
+
+    result = asyncio.run(memory.commit_memory("some fact", "LOCAL"))
+
+    assert captured["json"]["namespace"] == "general"
+
+
+def test_commit_memory_empty_namespace_defaults_to_general(memory_modules_with_mocks):
+    """Passing namespace='' is normalized to 'general' before sending."""
+    memory, _, _ = memory_modules_with_mocks
+    captured = {}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return None
+        async def post(self, url, json, headers=None):
+            if "/memories" in url:
+                captured["json"] = json
+            return _FakeResponse(201, {"id": "mem-empty-ns"})
+
+    memory.httpx.AsyncClient = FakeAsyncClient
+
+    result = asyncio.run(memory.commit_memory("some fact", "LOCAL", namespace=""))
+
+    assert captured["json"]["namespace"] == "general"
+
+
+def test_search_memory_with_namespace_filter(monkeypatch, memory_modules):
+    """search_memory forwards namespace as a query parameter."""
+    memory, _awareness_client = memory_modules
+    captured = {}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return None
+        async def get(self, url, params, headers=None):
+            captured["params"] = params
+            return _FakeResponse(200, [{"content": "blocker"}])
+
+    monkeypatch.setattr(memory.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(memory.search_memory("bug", scope="local", namespace="blockers"))
+
+    assert result["success"] is True
+    assert captured["params"]["namespace"] == "blockers"
+    assert captured["params"]["q"] == "bug"
+    assert captured["params"]["scope"] == "LOCAL"
+
+
+def test_search_memory_omits_namespace_when_empty(monkeypatch, memory_modules):
+    """search_memory does NOT send namespace param when it is empty."""
+    memory, _awareness_client = memory_modules
+    captured = {}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return None
+        async def get(self, url, params, headers=None):
+            captured["params"] = params
+            return _FakeResponse(200, [])
+
+    monkeypatch.setattr(memory.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(memory.search_memory("query"))
+
+    assert "namespace" not in captured["params"]

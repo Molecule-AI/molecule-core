@@ -46,17 +46,21 @@ WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")
 
 
 @tool
-async def commit_memory(content: str, scope: str = "LOCAL") -> dict:
-    """Store a fact in memory with a specific scope.
+async def commit_memory(content: str, scope: str = "LOCAL", namespace: str = "general") -> dict:
+    """Store a fact in memory with a specific scope and optional category namespace.
 
     Args:
         content: The fact or knowledge to remember.
         scope: Memory scope — LOCAL (private), TEAM (shared with team), or GLOBAL (company-wide, root only).
+        namespace: Optional category tag (Holaboss-style: facts, procedures, blockers, reference).
+                   Defaults to "general". Used by search_memory's namespace filter.
     """
     trace_id = str(uuid.uuid4())
     scope = scope.upper()
     if scope not in ("LOCAL", "TEAM", "GLOBAL"):
         return {"error": "scope must be LOCAL, TEAM, or GLOBAL"}
+    if not namespace:
+        namespace = "general"
 
     # --- RBAC check -----------------------------------------------------------
     roles, custom_perms = get_workspace_roles()
@@ -94,6 +98,7 @@ async def commit_memory(content: str, scope: str = "LOCAL") -> dict:
     with tracer.start_as_current_span("memory_write") as mem_span:
         mem_span.set_attribute(WORKSPACE_ID_ATTR, WORKSPACE_ID)
         mem_span.set_attribute(MEMORY_SCOPE, scope)
+        mem_span.set_attribute("memory.namespace", namespace)
         mem_span.set_attribute("memory.content_length", len(content))
 
         awareness_client = build_awareness_client()
@@ -129,7 +134,7 @@ async def commit_memory(content: str, scope: str = "LOCAL") -> dict:
                 try:
                     resp = await client.post(
                         f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/memories",
-                        json={"content": content, "scope": scope},
+                        json={"content": content, "scope": scope, "namespace": namespace},
                         headers=_headers,
                     )
                     if resp.status_code == 201:
@@ -186,12 +191,14 @@ async def commit_memory(content: str, scope: str = "LOCAL") -> dict:
 
 
 @tool
-async def search_memory(query: str = "", scope: str = "") -> dict:
+async def search_memory(query: str = "", scope: str = "", namespace: str = "") -> dict:
     """Search stored memories.
 
     Args:
         query: Text to search for (empty returns all).
         scope: Filter by scope — LOCAL, TEAM, GLOBAL, or empty for all accessible.
+        namespace: Optional category filter (facts, procedures, blockers, reference, general).
+                   Empty string returns memories from all namespaces.
     """
     trace_id = str(uuid.uuid4())
     scope = scope.upper()
@@ -273,6 +280,8 @@ async def search_memory(query: str = "", scope: str = "") -> dict:
             params["q"] = query
         if scope:
             params["scope"] = scope.upper()
+        if namespace:
+            params["namespace"] = namespace
 
         # #215-class bug (search path): same fix as commit_memory above —
         # the platform gates GET /workspaces/:id/memories behind workspace
