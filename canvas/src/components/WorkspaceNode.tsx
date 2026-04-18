@@ -47,6 +47,9 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
   const nestNode = useCanvasStore((s) => s.nestNode);
   const isDragTarget = useCanvasStore((s) => s.dragOverNodeId === id);
   const isSelected = selectedNodeId === id;
+  // Batch selection (Phase 20.3)
+  const isBatchSelected = useCanvasStore((s) => s.selectedNodeIds.has(id));
+  const toggleNodeSelection = useCanvasStore((s) => s.toggleNodeSelection);
   const isOnline = data.status === "online";
 
   // Get children + hierarchy info (single stable selector avoids redundant re-renders)
@@ -68,7 +71,11 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
       aria-pressed={isSelected}
       onClick={(e) => {
         e.stopPropagation();
-        selectNode(isSelected ? null : id);
+        if (e.shiftKey) {
+          toggleNodeSelection(id);
+        } else {
+          selectNode(isSelected ? null : id);
+        }
       }}
       onDoubleClick={(e) => {
         e.stopPropagation();
@@ -84,7 +91,11 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          selectNode(isSelected ? null : id);
+          if (e.shiftKey) {
+            toggleNodeSelection(id);
+          } else {
+            selectNode(isSelected ? null : id);
+          }
         } else if (e.key === "ContextMenu") {
           e.preventDefault();
           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -103,6 +114,8 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
         transition-all duration-200 ease-out
         ${isDragTarget
           ? "bg-emerald-950/40 border-2 border-emerald-400/60 ring-2 ring-emerald-400/20 scale-[1.03]"
+          : isBatchSelected
+          ? "bg-zinc-900/95 border-2 border-blue-500/80 ring-2 ring-blue-500/30 shadow-lg shadow-blue-500/15"
           : isSelected
           ? "bg-zinc-900/95 border border-blue-500/70 ring-1 ring-blue-500/30 shadow-lg shadow-blue-500/10"
           : "bg-zinc-900/90 border border-zinc-700/80 hover:border-zinc-500/60 shadow-lg shadow-black/30 hover:shadow-xl hover:shadow-black/40"
