@@ -1,7 +1,8 @@
-name: publish-platform-image
+name: publish-workspace-server-image
 
-# Builds and pushes the platform Docker images to GHCR whenever a commit
-# lands on main. EC2 tenant instances pull the tenant image from GHCR.
+# Builds and pushes Docker images to GHCR when staging is promoted to main.
+# PRs target staging (default branch). Only main push triggers production builds.
+# EC2 tenant instances pull the tenant image from GHCR.
 
 on:
   push:
