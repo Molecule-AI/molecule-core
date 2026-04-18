@@ -58,9 +58,12 @@ function TreeItem({
     return (
       <div>
         <div
-          className="group w-full flex items-center gap-1 px-2 py-0.5 text-left hover:bg-zinc-800/40 transition-colors cursor-pointer"
+          role="button"
+          tabIndex={0}
+          className="group w-full flex items-center gap-1 px-2 py-0.5 text-left hover:bg-zinc-800/40 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none"
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
           onClick={() => onToggleDir(node.path)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleDir(node.path); } }}
         >
           <span className="text-[10px] text-zinc-400 w-3" aria-hidden="true">{isLoading ? "…" : expanded ? "▼" : "▶"}</span>
           <span className="text-[10px]">📁</span>
@@ -93,11 +96,14 @@ function TreeItem({
 
   return (
     <div
-      className={`group flex items-center gap-1 px-2 py-0.5 cursor-pointer transition-colors ${
+      role="button"
+      tabIndex={0}
+      className={`group flex items-center gap-1 px-2 py-0.5 cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none ${
         isSelected ? "bg-blue-900/30 text-zinc-100" : "hover:bg-zinc-800/40 text-zinc-400"
       }`}
       style={{ paddingLeft: `${depth * 12 + 20}px` }}
       onClick={() => onSelect(node.path)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(node.path); } }}
     >
       <span className="text-[10px]" aria-hidden="true">{getIcon(node.name, false)}</span>
       <span className="text-[10px] flex-1 truncate font-mono">{node.name}</span>
