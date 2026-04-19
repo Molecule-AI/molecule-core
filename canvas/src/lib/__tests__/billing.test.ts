@@ -82,7 +82,11 @@ describe("startCheckout", () => {
     await expect(startCheckout("starter", "acme")).rejects.toThrow(/payment required/);
   });
 
-  it("uses current pathname for success/cancel URLs", async () => {
+  it("sends users to /orgs on success, back to current page on cancel", async () => {
+    // success_url is fixed to /orgs regardless of where checkout was
+    // initiated — that's the landing page where post-payment status
+    // transitions are visible. cancel_url preserves the current page
+    // so users land back on /pricing and can retry.
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
       json: async () => ({ url: "https://checkout.stripe.com/x" }),
@@ -91,7 +95,7 @@ describe("startCheckout", () => {
     const body = JSON.parse(
       (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body,
     );
-    expect(body.success_url).toBe("http://localhost:3000/pricing?checkout=success");
+    expect(body.success_url).toBe("http://localhost:3000/orgs?checkout=success");
     expect(body.cancel_url).toBe("http://localhost:3000/pricing?checkout=cancel");
   });
 });
