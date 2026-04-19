@@ -98,8 +98,16 @@ export async function startCheckout(
   plan: Exclude<PlanId, "free">,
   orgSlug: string,
 ): Promise<CheckoutResponse> {
-  const returnBase =
-    typeof window !== "undefined" ? window.location.origin + window.location.pathname : "";
+  // On success, send the user to /orgs so they can watch their newly-
+  // paid org move from awaiting_payment → provisioning → running.
+  // Landing back on /pricing (the old default) left people staring at
+  // plan cards with no indication anything happened.
+  // On cancel, keep them on the current page so they can retry.
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const cancelBase =
+    typeof window !== "undefined"
+      ? window.location.origin + window.location.pathname
+      : "";
   const res = await fetch(`${PLATFORM_URL}/cp/billing/checkout`, {
     method: "POST",
     credentials: "include",
@@ -107,8 +115,8 @@ export async function startCheckout(
     body: JSON.stringify({
       org_slug: orgSlug,
       plan,
-      success_url: `${returnBase}?checkout=success`,
-      cancel_url: `${returnBase}?checkout=cancel`,
+      success_url: `${origin}/orgs?checkout=success`,
+      cancel_url: `${cancelBase}?checkout=cancel`,
     }),
   });
   if (!res.ok) {

@@ -37,10 +37,26 @@ export default function OrgsPage() {
   const [session, setSession] = useState<Session | null | "loading">("loading");
   const [orgs, setOrgs] = useState<Org[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [justCheckedOut, setJustCheckedOut] = useState(false);
+
+  useEffect(() => {
+    // URLSearchParams is safe on the first render because this component
+    // is "use client" — window exists. Clear the flag from the URL so
+    // reloading the page doesn't keep showing the banner indefinitely.
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("checkout") === "success") {
+        setJustCheckedOut(true);
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const fetchOrgs = async () => {
       try {
         const sess = await fetchSession();
         if (cancelled) return;
@@ -58,15 +74,29 @@ export default function OrgsPage() {
         }
         const body = (await res.json()) as { orgs?: Org[] } | Org[];
         const list = Array.isArray(body) ? body : body.orgs ?? [];
-        if (!cancelled) setOrgs(list);
+        if (cancelled) return;
+        setOrgs(list);
+
+        // Poll while anything is still moving so the user sees the
+        // status flip live after a Stripe Checkout. 5s is frequent
+        // enough to feel responsive, slow enough to not DoS the CP.
+        const stillMoving = list.some(
+          (o) => o.status === "provisioning" || o.status === "awaiting_payment"
+        );
+        if (stillMoving) {
+          pollTimer = setTimeout(fetchOrgs, 5_000);
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
         }
       }
-    })();
+    };
+
+    fetchOrgs();
     return () => {
       cancelled = true;
+      if (pollTimer) clearTimeout(pollTimer);
     };
   }, []);
 
@@ -87,10 +117,11 @@ export default function OrgsPage() {
     );
   }
   if (!orgs || orgs.length === 0) {
-    return <EmptyState />;
+    return <EmptyState banner={justCheckedOut ? <CheckoutBanner /> : null} />;
   }
   return (
     <Shell>
+      {justCheckedOut && <CheckoutBanner />}
       <ul className="space-y-3">
         {orgs.map((o) => (
           <OrgRow key={o.id} org={o} />
@@ -106,6 +137,17 @@ export default function OrgsPage() {
         />
       </div>
     </Shell>
+  );
+}
+
+function CheckoutBanner() {
+  return (
+    <div className="mb-6 rounded-lg border border-emerald-700 bg-emerald-950 p-4">
+      <p className="text-sm text-emerald-200">
+        ✓ Payment confirmed. Your workspace is spinning up now — this page
+        refreshes automatically when it&apos;s ready.
+      </p>
+    </div>
   );
 }
 
@@ -195,9 +237,10 @@ function OrgCTA({ org }: { org: Org }) {
   return <span className="text-sm text-zinc-500">{org.status}…</span>;
 }
 
-function EmptyState() {
+function EmptyState({ banner }: { banner?: React.ReactNode }) {
   return (
     <Shell>
+      {banner}
       <p className="text-zinc-300">
         You don&apos;t have any organizations yet. Create one to get started — your
         workspace spins up automatically once billing is set up.
