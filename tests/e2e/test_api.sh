@@ -259,21 +259,26 @@ R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/jso
   -d "{\"workspace_id\":\"$ECHO_ID\",\"error_rate\":0.0,\"sample_error\":\"\",\"active_tasks\":1,\"uptime_seconds\":400,\"current_task\":\"Analyzing document\"}")
 check "Heartbeat with current_task" '"status":"ok"' "$R"
 
-# Test: Verify current_task in GET /workspaces/:id
+# Test: Verify state updates are observable in GET /workspaces/:id.
+# current_task itself is stripped from this endpoint as of #966 to avoid
+# leaking task bodies via the public-facing GET; active_tasks is still
+# the canonical "is it busy" signal here. The list endpoint below covers
+# the admin-only current_task visibility path.
 R=$(acurl "$BASE/workspaces/$ECHO_ID")
-check "current_task visible in workspace" '"current_task":"Analyzing document"' "$R"
 check "active_tasks updated" '"active_tasks":1' "$R"
 
-# Test: Clear current_task
+# Test: Clear current_task via heartbeat
 R=$(curl -s -X POST "$BASE/registry/heartbeat" -H "Content-Type: application/json" -H "Authorization: Bearer $ECHO_TOKEN" \
   -d "{\"workspace_id\":\"$ECHO_ID\",\"error_rate\":0.0,\"sample_error\":\"\",\"active_tasks\":0,\"uptime_seconds\":500,\"current_task\":\"\"}")
 check "Heartbeat clear current_task" '"status":"ok"' "$R"
 
 R=$(acurl "$BASE/workspaces/$ECHO_ID")
-check "current_task cleared" '"current_task":""' "$R"
+check "active_tasks cleared" '"active_tasks":0' "$R"
 
-# Test: current_task in workspace list — now admin-auth gated (C1 fix), so a
-# workspace bearer token is required once tokens exist anywhere on the platform.
+# Test: current_task IS visible in the admin workspace list — the list
+# endpoint is admin-auth gated and keeps the full record, so operators
+# can still see task progress from the dashboard without exposing it
+# over the public per-workspace GET.
 R=$(curl -s "$BASE/workspaces" -H "Authorization: Bearer $ECHO_TOKEN")
 check "current_task in list response" '"current_task"' "$R"
 
