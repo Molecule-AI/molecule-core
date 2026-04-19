@@ -591,6 +591,20 @@ func (h *WorkspaceHandler) logA2ASuccess(ctx context.Context, workspaceID, calle
 	if wsNameForLog == "" {
 		wsNameForLog = workspaceID
 	}
+
+	// #817: track outbound activity on the CALLER so orchestrators can detect
+	// silent workspaces. Only update when callerID is a real workspace (not
+	// canvas, not a system caller) and the target returned 2xx/3xx.
+	if callerID != "" && !isSystemCaller(callerID) && statusCode < 400 {
+		go func() {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if _, err := db.DB.ExecContext(bgCtx,
+				`UPDATE workspaces SET last_outbound_at = NOW() WHERE id = $1`, callerID); err != nil {
+				log.Printf("last_outbound_at update failed for %s: %v", callerID, err)
+			}
+		}()
+	}
 	summary := a2aMethod + " → " + wsNameForLog
 	go func(parent context.Context) {
 		logCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), 30*time.Second)
