@@ -310,14 +310,20 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 	// consecutive empties and escalate to 'stale' after 3 in a row.
 	isEmpty := isEmptyResponse(respBody)
 	if lastStatus == "ok" && isEmpty {
-		db.DB.ExecContext(ctx, `
+		// One query instead of UPDATE-then-SELECT: RETURNING hands back
+		// the post-increment value so the stale-threshold check doesn't
+		// cost a second roundtrip. This handler fires once per cron tick
+		// per schedule; at 100 tenants × dozens of schedules the saved
+		// query matters.
+		var consecEmpty int
+		if err := db.DB.QueryRowContext(ctx, `
 			UPDATE workspace_schedules
 			SET consecutive_empty_runs = consecutive_empty_runs + 1,
 			    updated_at = now()
-			WHERE id = $1`, sched.ID)
-		// Check if we've crossed the stale threshold
-		var consecEmpty int
-		db.DB.QueryRowContext(ctx, `SELECT consecutive_empty_runs FROM workspace_schedules WHERE id = $1`, sched.ID).Scan(&consecEmpty)
+			WHERE id = $1
+			RETURNING consecutive_empty_runs`, sched.ID).Scan(&consecEmpty); err != nil {
+			log.Printf("Scheduler: '%s' empty-run bump failed: %v", sched.Name, err)
+		}
 		if consecEmpty >= 3 {
 			lastStatus = "stale"
 			lastError = fmt.Sprintf("empty response %d consecutive times — agent may be phantom-producing (#795)", consecEmpty)
