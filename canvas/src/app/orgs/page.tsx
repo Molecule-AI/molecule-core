@@ -20,6 +20,7 @@
 import { useEffect, useState } from "react";
 import { fetchSession, redirectToLogin, type Session } from "@/lib/auth";
 import { PLATFORM_URL } from "@/lib/api";
+import { formatCredits, pillTone, bannerKind } from "@/lib/credits";
 
 type OrgStatus = "awaiting_payment" | "provisioning" | "running" | "failed" | string;
 
@@ -31,6 +32,13 @@ interface Org {
   status: OrgStatus;
   created_at: string;
   updated_at: string;
+  // Credit system fields. Present whenever the control plane's models
+  // serializer runs — tests + older snapshot JSONs may not have them,
+  // so treat as optional in TS and fall back to 0 at render time.
+  credits_balance?: number;
+  plan_monthly_credits?: number;
+  overage_used_credits?: number;
+  overage_cap_credits?: number;
 }
 
 export default function OrgsPage() {
@@ -174,10 +182,56 @@ function OrgRow({ org }: { org: Org }) {
           <div className="text-sm text-zinc-400">
             {org.slug} · <StatusLabel status={org.status} /> · {org.plan || "free"}
           </div>
+          <div className="mt-2 flex items-center gap-2">
+            <CreditsPill org={org} />
+            <LowCreditsBanner org={org} />
+          </div>
         </div>
         <OrgCTA org={org} />
       </div>
     </li>
+  );
+}
+
+// CreditsPill renders the balance with a tone that matches the banner
+// severity. Format + color logic lives in @/lib/credits so it can be
+// tested without mounting React.
+function CreditsPill({ org }: { org: Org }) {
+  const balance = org.credits_balance ?? 0;
+  return (
+    <span className={`rounded border px-2 py-0.5 text-xs ${pillTone(org)}`} title="Credit balance">
+      {formatCredits(balance)} credits
+    </span>
+  );
+}
+
+// LowCreditsBanner is a one-liner that only renders when the balance
+// is low AND the org is running. bannerKind() picks which message to
+// show; render just dispatches on it.
+function LowCreditsBanner({ org }: { org: Org }) {
+  if (org.status !== "running") return null;
+  const kind = bannerKind(org);
+  if (kind === "none") return null;
+  if (kind === "overage") {
+    const used = (org.overage_used_credits ?? 0).toLocaleString();
+    return (
+      <span className="text-xs text-amber-300">
+        overage active · {used} used
+      </span>
+    );
+  }
+  if (kind === "out-of-credits") {
+    return (
+      <a href={`/pricing?org=${encodeURIComponent(org.slug)}`} className="text-xs text-red-300 underline">
+        out of credits — upgrade to keep running
+      </a>
+    );
+  }
+  // trial-tail
+  return (
+    <a href={`/pricing?org=${encodeURIComponent(org.slug)}`} className="text-xs text-amber-300 underline">
+      trial almost out
+    </a>
   );
 }
 
