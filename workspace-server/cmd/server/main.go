@@ -30,6 +30,16 @@ import (
 )
 
 func main() {
+	// CP self-refresh: pull any operator-rotated config (e.g. a new
+	// MOLECULE_CP_SHARED_SECRET) before any other code reads env.
+	// Best-effort — if the CP is unreachable we keep booting with the
+	// env we were provisioned with. Older SaaS tenants predate PR #53
+	// and can arrive here with MOLECULE_CP_SHARED_SECRET unset; this
+	// is how they heal without SSH.
+	if err := refreshEnvFromCP(); err != nil {
+		log.Printf("CP env refresh: %v (continuing with baked-in env)", err)
+	}
+
 	// Secrets encryption. In MOLECULE_ENV=prod, boot refuses to start
 	// without a valid SECRETS_ENCRYPTION_KEY (fail-secure — Top-5 #5).
 	// In any other environment, missing keys just log a warning and
