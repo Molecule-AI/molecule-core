@@ -18,9 +18,10 @@ import (
 //
 // Auto-activated when MOLECULE_ORG_ID is set (SaaS tenant).
 type CPProvisioner struct {
-	baseURL    string
-	orgID      string
-	httpClient *http.Client
+	baseURL      string
+	orgID        string
+	sharedSecret string // bearer passed to CP's /cp/workspaces/* gate
+	httpClient   *http.Client
 }
 
 // NewCPProvisioner creates a provisioner that delegates to the control plane.
@@ -39,11 +40,31 @@ func NewCPProvisioner() (*CPProvisioner, error) {
 		baseURL = "https://api.moleculesai.app"
 	}
 
+	// CP gates /cp/workspaces/* behind a bearer check (C1). Without the
+	// shared secret the CP returns 401 — or 404 if the routes refused
+	// to mount on its side. Tenant operators should set this on the
+	// tenant env to the same value as the CP's PROVISION_SHARED_SECRET.
+	sharedSecret := os.Getenv("MOLECULE_CP_SHARED_SECRET")
+	if sharedSecret == "" {
+		// Fall back to PROVISION_SHARED_SECRET so a single env-var name
+		// works on both sides of the wire.
+		sharedSecret = os.Getenv("PROVISION_SHARED_SECRET")
+	}
+
 	return &CPProvisioner{
-		baseURL:    baseURL,
-		orgID:      orgID,
-		httpClient: &http.Client{Timeout: 120 * time.Second},
+		baseURL:      baseURL,
+		orgID:        orgID,
+		sharedSecret: sharedSecret,
+		httpClient:   &http.Client{Timeout: 120 * time.Second},
 	}, nil
+}
+
+// authHeader sets Authorization: Bearer on the outbound request. No-op
+// when sharedSecret is empty so self-hosted / dev deployments still work.
+func (p *CPProvisioner) authHeader(req *http.Request) {
+	if p.sharedSecret != "" {
+		req.Header.Set("Authorization", "Bearer "+p.sharedSecret)
+	}
 }
 
 type cpProvisionRequest struct {
@@ -84,6 +105,7 @@ func (p *CPProvisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string,
 		return "", fmt.Errorf("cp provisioner: create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	p.authHeader(httpReq)
 
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
@@ -111,6 +133,7 @@ func (p *CPProvisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string,
 func (p *CPProvisioner) Stop(ctx context.Context, workspaceID string) error {
 	url := fmt.Sprintf("%s/cp/workspaces/%s?instance_id=%s", p.baseURL, workspaceID, workspaceID)
 	req, _ := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	p.authHeader(req)
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("cp provisioner: stop: %w", err)
@@ -123,6 +146,7 @@ func (p *CPProvisioner) Stop(ctx context.Context, workspaceID string) error {
 func (p *CPProvisioner) IsRunning(ctx context.Context, workspaceID string) (bool, error) {
 	url := fmt.Sprintf("%s/cp/workspaces/%s/status?instance_id=%s", p.baseURL, workspaceID, workspaceID)
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	p.authHeader(req)
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return false, err
