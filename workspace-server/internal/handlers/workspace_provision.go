@@ -545,6 +545,9 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 	if tokenErr != nil {
 		log.Printf("CPProvisioner: failed to issue token for %s: %v", workspaceID, tokenErr)
 	} else {
-		log.Printf("CPProvisioner: issued auth token for workspace %s (prefix: %s...)", workspaceID, token[:8])
+		// Don't log any prefix of the token. Earlier H1 regression showed
+		// this slice pattern (token[:8]) panics when a helper returns a
+		// short value. Length alone is enough to confirm a token issued.
+		log.Printf("CPProvisioner: issued auth token for workspace %s (len=%d)", workspaceID, len(token))
 	}
 }

@@ -63,7 +63,7 @@ jobs:
       # CLI (molecli) moved to standalone repo: github.com/Molecule-AI/molecule-cli
       - run: go vet ./...
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           working-directory: workspace-server
