@@ -93,6 +93,7 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 func AdminAuth(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
+		adminSecret := os.Getenv("ADMIN_TOKEN")
 
 		hasLive, err := wsauth.HasAnyLiveTokenGlobal(ctx, database)
 		if err != nil {
@@ -101,9 +102,17 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 		if !hasLive {
-			// Tier 1: fail-open on fresh install / pre-Phase-30 upgrade.
-			c.Next()
-			return
+			// Tier 1: fail-open is ONLY safe when ADMIN_TOKEN is unset
+			// (self-hosted dev, pre-Phase-30 upgrade). Hosted SaaS always
+			// sets ADMIN_TOKEN at provision time, and C4 (SaaS-launch
+			// blocker) showed that without this guard an attacker can
+			// pre-empt the first user by POSTing /org/import before any
+			// token gets minted. When ADMIN_TOKEN is set we fall through
+			// into the same bearer-check path Tier-2 uses below.
+			if adminSecret == "" {
+				c.Next()
+				return
+			}
 		}
 
 		// Bearer token is the ONLY accepted credential for admin routes.
@@ -115,7 +124,7 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 
 		// Tier 2 (#684 fix): dedicated ADMIN_TOKEN — workspace bearer tokens
 		// must not grant access to admin routes.
-		if adminSecret := os.Getenv("ADMIN_TOKEN"); adminSecret != "" {
+		if adminSecret != "" {
 			if subtle.ConstantTimeCompare([]byte(tok), []byte(adminSecret)) != 1 {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
 				return

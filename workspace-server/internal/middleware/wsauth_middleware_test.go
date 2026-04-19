@@ -1137,9 +1137,14 @@ func TestAdminAuth_684_AdminTokenNotSet_FallsBackToWorkspaceToken(t *testing.T) 
 }
 
 // TestAdminAuth_684_FailOpen_AdminTokenSet_NoGlobalTokens — even when
-// ADMIN_TOKEN is set, a fresh install (no tokens globally) must still
-// fail-open (tier-1 contract unchanged).
-func TestAdminAuth_684_FailOpen_AdminTokenSet_NoGlobalTokens(t *testing.T) {
+// Regression for SaaS-launch blocker C4: when ADMIN_TOKEN is set, a
+// fresh install (zero live workspace tokens) MUST fail closed. Hosted
+// SaaS tenants boot with ADMIN_TOKEN set but an empty tokens table —
+// without this guard, an anonymous caller can POST /org/import or
+// /workspaces before the first real user and pre-empt the instance.
+// Fail-open is only acceptable when ADMIN_TOKEN is also unset
+// (self-hosted dev with zero auth configured).
+func TestAdminAuth_C4_AdminTokenSet_FreshInstall_FailsClosed(t *testing.T) {
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
@@ -1159,11 +1164,12 @@ func TestAdminAuth_684_FailOpen_AdminTokenSet_NoGlobalTokens(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/admin/secrets", nil)
-	// No bearer — but fail-open should still pass.
+	// No bearer — ADMIN_TOKEN is set so the no-tokens tier-1 escape
+	// no longer applies; the request must be rejected.
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("#684 fail-open w/ ADMIN_TOKEN set (no global tokens): expected 200, got %d: %s",
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("C4 fresh-install w/ ADMIN_TOKEN set: expected 401, got %d: %s",
 			w.Code, w.Body.String())
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
