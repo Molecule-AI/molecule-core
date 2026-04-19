@@ -91,14 +91,21 @@ func (p *CPProvisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string,
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	// Cap body read at 64 KiB — the CP only ever returns small JSON
+	// responses; an unbounded read could be weaponized into log-flood
+	// DoS by a compromised upstream.
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	var result cpProvisionResponse
 	json.Unmarshal(respBody, &result)
 
 	if resp.StatusCode != http.StatusCreated {
+		// Prefer the structured {"error":"..."} field. Do NOT fall back
+		// to string(respBody) — our logs ingest errors, and an upstream
+		// misconfiguration that echoed the Authorization header or
+		// request body into the response would leak bearer tokens.
 		errMsg := result.Error
 		if errMsg == "" {
-			errMsg = string(respBody)
+			errMsg = fmt.Sprintf("<unstructured body, %d bytes>", len(respBody))
 		}
 		return "", fmt.Errorf("cp provisioner: provision failed (%d): %s", resp.StatusCode, errMsg)
 	}
