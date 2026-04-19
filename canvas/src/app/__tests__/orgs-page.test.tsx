@@ -249,3 +249,120 @@ describe("/orgs — fetch includes credentials + timeout signal", () => {
     expect(callArgs![1].signal).toBeInstanceOf(AbortSignal);
   });
 });
+
+// ── Polling ──────────────────────────────────────────────────────────────────
+// page.tsx line 83-88: if any org is `provisioning` OR `awaiting_payment`,
+// schedule a 5s refresh so the user sees the state flip live after Stripe
+// Checkout returns. Cleanup must clear the timer on unmount; otherwise a
+// fast-nav-away leaves the interval firing against the CP indefinitely.
+
+describe("/orgs — polling of in-flight orgs", () => {
+  it("schedules a 5s refetch when at least one org is provisioning", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockFetchSession.mockResolvedValue({ userId: "u-1" });
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          orgs: [
+            {
+              id: "o-1",
+              slug: "acme",
+              name: "Acme",
+              plan: "pro",
+              status: "provisioning",
+              created_at: "",
+              updated_at: "",
+            },
+          ],
+        })
+      );
+      // Second fetch (the poll refresh) returns a running org so we can
+      // observe the state flip — and to let the test stop re-scheduling.
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          orgs: [
+            {
+              id: "o-1",
+              slug: "acme",
+              name: "Acme",
+              plan: "pro",
+              status: "running",
+              created_at: "",
+              updated_at: "",
+            },
+          ],
+        })
+      );
+
+      render(<OrgsPage />);
+      // First fetch resolves
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+      // Advance past the 5s scheduled refresh
+      await vi.advanceTimersByTimeAsync(5_100);
+      // Second fetch is the poll refresh
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does NOT schedule a refetch when all orgs are running", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockFetchSession.mockResolvedValue({ userId: "u-1" });
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          orgs: [
+            {
+              id: "o-1",
+              slug: "acme",
+              name: "Acme",
+              plan: "pro",
+              status: "running",
+              created_at: "",
+              updated_at: "",
+            },
+          ],
+        })
+      );
+      render(<OrgsPage />);
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+      // Advance well past the 5s poll window — no second fetch must fire
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the poll timer on unmount — no fetch after unmount", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockFetchSession.mockResolvedValue({ userId: "u-1" });
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          orgs: [
+            {
+              id: "o-1",
+              slug: "acme",
+              name: "Acme",
+              plan: "pro",
+              status: "awaiting_payment",
+              created_at: "",
+              updated_at: "",
+            },
+          ],
+        })
+      );
+      const { unmount } = render(<OrgsPage />);
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+      // Tear down BEFORE the 5s timer fires
+      unmount();
+      await vi.advanceTimersByTimeAsync(10_000);
+      // Fetch count must stay at 1 — the cleanup cleared the timer
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
