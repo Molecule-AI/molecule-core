@@ -58,7 +58,7 @@ jobs:
         # Six prior PRs (#273, #319, #322, #341, #484, #486) all kept calling
         # `docker login` and tried to coerce credsStore — none worked.
         # The only reliable fix is to skip `docker login` entirely and write
-        # the auth string directly. `docker/build-push-action@v5` and the
+        # the auth string directly. `docker/build-push-action@v6` and the
         # daemon honor the `auths` map for push without needing login.
         shell: bash
         env:
@@ -83,12 +83,12 @@ jobs:
 
       - name: Set up QEMU
         # Apple-silicon runner building linux/amd64 images for x86 hosts.
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
         with:
           platforms: linux/amd64
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Compute tags
         id: tags
@@ -121,7 +121,7 @@ jobs:
           echo "ws_url=${WS_URL}" >> "$GITHUB_OUTPUT"
 
       - name: Build & push canvas image to GHCR
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ./canvas
           file: ./canvas/Dockerfile
