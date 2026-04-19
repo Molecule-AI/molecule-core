@@ -41,11 +41,16 @@ vi.mock("@/store/canvas", () => ({
   ),
 }));
 
-// Mock ConfirmDialog to just render buttons for testing
+// Mock ConfirmDialog — renders title + message + buttons so tests can assert
+// on dialog copy (singular/plural, retry prompts, etc.). Keeping the message
+// accessible in the DOM keeps copy-regression tests cheap. (QA recommendation
+// from pr-batch-bar-retry-survivor review, memo qa-batch-bar-retry-survivor-
+// approve-2026-04-19.)
 vi.mock("@/components/ConfirmDialog", () => ({
   ConfirmDialog: ({
     open,
     title,
+    message,
     onConfirm,
     onCancel,
   }: {
@@ -59,7 +64,8 @@ vi.mock("@/components/ConfirmDialog", () => ({
   }) =>
     open ? (
       <div data-testid="confirm-dialog">
-        <span>{title}</span>
+        <span data-testid="confirm-dialog-title">{title}</span>
+        <p data-testid="confirm-dialog-message">{message}</p>
         <button onClick={onConfirm}>confirm</button>
         <button onClick={onCancel}>cancel</button>
       </div>
@@ -189,9 +195,14 @@ describe("BatchActionBar — partial-failure retry survivorship", () => {
     // Dialog is closed after the prior execute() — re-open via click.
     fireEvent.click(screen.getByText("Delete All"));
 
-    // The confirm dialog mock renders the title (we don't have message in the
-    // mock), so we assert on the count badge — which is the user-facing signal.
+    // Count badge should show the survivor count.
     expect(screen.getByText("1 selected")).toBeTruthy();
+    // Dialog copy MUST be singular — plural(1) → "workspace" (not "workspaces").
+    // This is the primary user-facing signal that the retry is scoped to one item.
+    const msg = screen.getByTestId("confirm-dialog-message");
+    expect(msg.textContent).toBe(
+      "Permanently delete 1 workspace? This cannot be undone."
+    );
   });
 
   it("bar unmounts once a single-survivor selection is cleared (hasFailedBatch resets)", async () => {
