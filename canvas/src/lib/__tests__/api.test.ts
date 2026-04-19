@@ -309,3 +309,74 @@ describe("api – PLATFORM_URL default", () => {
     expect(url).toContain("localhost:8080");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 15s timeout via AbortSignal.timeout (regression for #982 /
+// fix/canvas-api-fetch-timeout). The signal prevents a hung backend from
+// leaving the UI spinning forever. These assertions pin the behaviour so
+// a future edit can't drop the signal without breaking tests.
+// ---------------------------------------------------------------------------
+
+describe("api – request timeout signal", () => {
+  it("GET passes an AbortSignal to fetch", async () => {
+    mockSuccess({});
+    await api.get("/workspaces");
+    const [, options] = mockFetch.mock.calls[0];
+    expect(options.signal).toBeDefined();
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("POST passes an AbortSignal to fetch", async () => {
+    mockSuccess({});
+    await api.post("/workspaces", { name: "x" });
+    const [, options] = mockFetch.mock.calls[0];
+    expect(options.signal).toBeDefined();
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("PATCH passes an AbortSignal to fetch", async () => {
+    mockSuccess({});
+    await api.patch("/workspaces/ws-1", { x: 0 });
+    const [, options] = mockFetch.mock.calls[0];
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("PUT passes an AbortSignal to fetch", async () => {
+    mockSuccess({});
+    await api.put("/canvas/viewport", { x: 0, y: 0, zoom: 1 });
+    const [, options] = mockFetch.mock.calls[0];
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("DELETE passes an AbortSignal to fetch", async () => {
+    mockSuccess({});
+    await api.del("/workspaces/ws-1");
+    const [, options] = mockFetch.mock.calls[0];
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("AbortError from timeout is propagated to the caller", async () => {
+    // Simulate the browser firing a TimeoutError when AbortSignal.timeout
+    // expires — the fetch promise rejects with a DOMException (name=TimeoutError).
+    const abortErr =
+      typeof DOMException === "function"
+        ? new DOMException("signal timed out", "TimeoutError")
+        : Object.assign(new Error("signal timed out"), { name: "TimeoutError" });
+    mockFetch.mockRejectedValueOnce(abortErr);
+
+    await expect(api.get("/slow")).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  it("each request installs its own signal (not a shared module-level controller)", async () => {
+    mockSuccess({});
+    mockSuccess({});
+    await api.get("/a");
+    await api.get("/b");
+    const sigA = mockFetch.mock.calls[0][1].signal;
+    const sigB = mockFetch.mock.calls[1][1].signal;
+    // AbortSignal.timeout() returns a fresh signal per call — they must
+    // not be the same reference, otherwise one slow request could cancel
+    // a subsequent fast request.
+    expect(sigA).not.toBe(sigB);
+  });
+});
