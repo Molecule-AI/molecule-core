@@ -32,12 +32,16 @@ env:
 
 jobs:
   promote:
-    runs-on: ubuntu-latest
+    # Self-hosted mac mini — GitHub-hosted minutes are currently quota-
+    # blocked. mac mini already has crane available via homebrew.
+    runs-on: [self-hosted, macos, arm64]
     steps:
-      - name: Install crane
+      - name: Ensure crane installed
         run: |
-          curl -fsSL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz \
-            | tar xz -C /usr/local/bin crane
+          if ! command -v crane >/dev/null 2>&1; then
+            brew install crane
+          fi
+          crane version
 
       - name: GHCR login
         run: |
