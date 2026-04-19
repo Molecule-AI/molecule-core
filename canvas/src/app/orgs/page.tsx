@@ -21,6 +21,7 @@ import { useEffect, useState } from "react";
 import { fetchSession, redirectToLogin, type Session } from "@/lib/auth";
 import { PLATFORM_URL } from "@/lib/api";
 import { formatCredits, pillTone, bannerKind } from "@/lib/credits";
+import { TermsGate } from "@/components/TermsGate";
 
 type OrgStatus = "awaiting_payment" | "provisioning" | "running" | "failed" | string;
 
@@ -162,14 +163,35 @@ function CheckoutBanner() {
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="mx-auto max-w-2xl px-6 pt-20 pb-12">
-        <h1 className="text-3xl font-bold text-white">Your organizations</h1>
-        <p className="mt-2 text-zinc-400">
-          Each org is an isolated Molecule workspace.
-        </p>
-        <div className="mt-8">{children}</div>
-      </div>
+      <TermsGate>
+        <div className="mx-auto max-w-2xl px-6 pt-20 pb-12">
+          <h1 className="text-3xl font-bold text-white">Your organizations</h1>
+          <p className="mt-2 text-zinc-400">
+            Each org is an isolated Molecule workspace.
+          </p>
+          <DataResidencyNotice />
+          <div className="mt-8">{children}</div>
+        </div>
+      </TermsGate>
     </main>
+  );
+}
+
+// DataResidencyNotice surfaces where workspace data lives so EU-based
+// signups can make an informed choice (GDPR Art. 13 disclosure
+// requirement). Plain text, no icon — the goal is clarity, not
+// decoration. A future EU region selector can replace this with a
+// region dropdown.
+function DataResidencyNotice() {
+  return (
+    <p className="mt-3 rounded border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-400">
+      Workspaces run in AWS us-east-2 (Ohio, United States). EU region support is on the roadmap — reach out to
+      {" "}
+      <a href="mailto:support@moleculesai.app" className="underline">
+        support@moleculesai.app
+      </a>
+      {" "}if you need data residency in another region today.
+    </p>
   );
 }
 
