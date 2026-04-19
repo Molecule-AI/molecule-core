@@ -77,7 +77,7 @@ opencode sends this tool call to the Molecule MCP endpoint. The platform routes 
 `list_peers` returns the full set of workspace names and roles visible to your workspace. This is intentional: provisioned agents need to know their peers to delegate effectively. Be aware that any opencode agent with a valid `MOLECULE_MCP_TOKEN` can enumerate your org topology.
 
 ### SAFE-T1201 — tool surface audit pending
-The full `@molecule-ai/mcp-server` npm package exposes additional tools beyond those listed above. These are pending a SAFE-T1201 security audit (tracked in #747 follow-on) and **should not be exposed to external agents in production** until that audit completes.
+The full `@molecule-ai/mcp-server` npm package exposes additional tools beyond those listed above. These are pending a SAFE-T1201 security audit (tracked in #747 follow-on) and **must not be exposed to external agents in production** until that audit completes.
 
 ### Token scoping
 Issue tokens with the minimum required scopes (`mcp:read`, `mcp:delegate`). Rotate tokens regularly. Revoke via `DELETE /workspaces/:id/tokens/:token_id`.
