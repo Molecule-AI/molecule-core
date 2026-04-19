@@ -129,7 +129,7 @@ export function MemoryTab({ workspaceId }: Props) {
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-xs font-medium text-zinc-200">Awareness dashboard</div>
-            <p className="text-[10px] text-zinc-500">
+            <p className="text-[10px] text-zinc-400">
               Embedded view for the local Awareness memory UI. The current workspace id is appended to the URL for workspace-scoped routing or future filtering.
             </p>
           </div>
@@ -160,7 +160,7 @@ export function MemoryTab({ workspaceId }: Props) {
               />
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-900/40 p-4 text-xs text-zinc-500">
+            <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-900/40 p-4 text-xs text-zinc-400">
               Set <code className="font-mono text-zinc-300">NEXT_PUBLIC_AWARENESS_URL</code> to embed the Awareness dashboard here.
             </div>
           )
@@ -168,7 +168,7 @@ export function MemoryTab({ workspaceId }: Props) {
           <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-3 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs text-zinc-200">Awareness dashboard is collapsed</p>
-              <p className="text-[10px] text-zinc-500 truncate">
+              <p className="text-[10px] text-zinc-400 truncate">
                 Workspace context stays linked through <span className="font-mono text-zinc-400">{workspaceId}</span>.
               </p>
             </div>
@@ -183,15 +183,15 @@ export function MemoryTab({ workspaceId }: Props) {
 
         <div className="grid gap-2 rounded-xl border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-[10px] text-zinc-400 sm:grid-cols-3">
           <div className="flex items-center justify-between gap-2">
-            <span className="uppercase tracking-[0.18em] text-zinc-500">Status</span>
+            <span className="uppercase tracking-[0.18em] text-zinc-400">Status</span>
             <span className="font-medium text-emerald-300">Connected</span>
           </div>
           <div className="flex items-center justify-between gap-2">
-            <span className="uppercase tracking-[0.18em] text-zinc-500">Mode</span>
+            <span className="uppercase tracking-[0.18em] text-zinc-400">Mode</span>
             <span className="font-medium text-zinc-200">{awarenessStatus}</span>
           </div>
           <div className="flex items-center justify-between gap-2 min-w-0">
-            <span className="uppercase tracking-[0.18em] text-zinc-500">Workspace</span>
+            <span className="uppercase tracking-[0.18em] text-zinc-400">Workspace</span>
             <span className="font-mono text-zinc-300 truncate">{workspaceId}</span>
           </div>
         </div>
@@ -201,7 +201,7 @@ export function MemoryTab({ workspaceId }: Props) {
         <div className="flex items-center justify-between">
           <div>
             <div className="text-xs font-medium text-zinc-200">Workspace KV memory</div>
-            <p className="text-[10px] text-zinc-500">
+            <p className="text-[10px] text-zinc-400">
               Native platform key-value memory for workspace <span className="font-mono text-zinc-400">{workspaceId}</span>.
             </p>
           </div>
@@ -287,11 +287,11 @@ export function MemoryTab({ workspaceId }: Props) {
                     <span className="text-xs font-mono text-blue-400">{entry.key}</span>
                     <div className="flex items-center gap-2">
                       {entry.expires_at && (
-                        <span className="text-[9px] text-zinc-500">
+                        <span className="text-[10px] text-zinc-400">
                           TTL {new Date(entry.expires_at).toLocaleString()}
                         </span>
                       )}
-                      <span className="text-[10px] text-zinc-500">
+                      <span className="text-[10px] text-zinc-400">
                         {expanded === entry.key ? "▼" : "▶"}
                       </span>
                     </div>
@@ -303,7 +303,7 @@ export function MemoryTab({ workspaceId }: Props) {
                         {JSON.stringify(entry.value, null, 2)}
                       </pre>
                       <div className="flex items-center justify-between">
-                        <span className="text-[9px] text-zinc-500">
+                        <span className="text-[10px] text-zinc-400">
                           Updated: {new Date(entry.updated_at).toLocaleString()}
                         </span>
                         <button
@@ -323,7 +323,7 @@ export function MemoryTab({ workspaceId }: Props) {
           <div className="rounded-xl border border-zinc-800 bg-zinc-950/30 px-4 py-3 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs text-zinc-200">Advanced workspace memory is hidden</p>
-              <p className="text-[10px] text-zinc-500 truncate">
+              <p className="text-[10px] text-zinc-400 truncate">
                 KV entries remain available if you need the raw platform store.
               </p>
             </div>

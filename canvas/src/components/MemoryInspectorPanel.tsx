@@ -286,7 +286,7 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
 
       {/* Toolbar */}
       <div className="px-4 py-2.5 border-b border-zinc-800/40 flex items-center justify-between shrink-0">
-        <span className="text-[11px] text-zinc-500">
+        <span className="text-[11px] text-zinc-400">
           {debouncedQuery
             ? `${entries.length} result${entries.length !== 1 ? "s" : ""}`
             : entries.length === 1
@@ -326,7 +326,7 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
               <p className="text-sm font-medium text-zinc-400">
                 No memories match your search
               </p>
-              <p className="text-[11px] text-zinc-600 max-w-[200px] leading-relaxed">
+              <p className="text-[11px] text-zinc-400 max-w-[200px] leading-relaxed">
                 Try a different query or{" "}
                 <button
                   onClick={() => {
@@ -345,7 +345,7 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
               <span className="text-4xl text-zinc-700" aria-hidden="true">◇</span>
               <p className="text-sm font-medium text-zinc-400">No memory entries yet</p>
-              <p className="text-[11px] text-zinc-600 max-w-[200px] leading-relaxed">
+              <p className="text-[11px] text-zinc-400 max-w-[200px] leading-relaxed">
                 Memory entries will appear here when the workspace writes to its KV
                 store.
               </p>
@@ -440,14 +440,14 @@ function MemoryEntryRow({
         <span className="text-[10px] font-mono text-blue-400 truncate flex-1 min-w-0">
           {entry.key}
         </span>
-        <span className="text-[9px] text-zinc-600 shrink-0 font-mono">
+        <span className="text-[10px] text-zinc-400 shrink-0 font-mono">
           v{entry.version}
         </span>
         {/* Similarity score badge — only rendered when backend provides a score */}
         {entry.similarity_score != null && (
           <span
             className={[
-              "text-[9px] shrink-0 font-mono tabular-nums",
+              "text-[10px] shrink-0 font-mono tabular-nums",
               entry.similarity_score >= 0.8
                 ? "text-blue-500"
                 : entry.similarity_score >= 0.5
@@ -460,10 +460,10 @@ function MemoryEntryRow({
             {entry.similarity_score < 0.5 ? "~" : ""}{Math.round(entry.similarity_score * 100)}%
           </span>
         )}
-        <span className="text-[9px] text-zinc-600 shrink-0">
+        <span className="text-[10px] text-zinc-400 shrink-0">
           {formatRelativeTime(entry.updated_at)}
         </span>
-        <span className="text-[9px] text-zinc-500 shrink-0" aria-hidden="true">
+        <span className="text-[10px] text-zinc-400 shrink-0" aria-hidden="true">
           {isExpanded ? "▼" : "▶"}
         </span>
       </button>
@@ -477,7 +477,7 @@ function MemoryEntryRow({
           className="border-t border-zinc-800/50 px-3 pb-3 pt-2 space-y-2"
         >
           {entry.expires_at && (
-            <p className="text-[9px] text-zinc-500">
+            <p className="text-[10px] text-zinc-400">
               Expires: {new Date(entry.expires_at).toLocaleString()}
             </p>
           )}
@@ -521,7 +521,7 @@ function MemoryEntryRow({
                 {JSON.stringify(entry.value, null, 2)}
               </pre>
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[9px] text-zinc-600">
+                <span className="text-[10px] text-zinc-400">
                   Updated: {new Date(entry.updated_at).toLocaleString()}
                 </span>
                 <div className="flex items-center gap-1.5 shrink-0">

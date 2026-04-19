@@ -158,7 +158,7 @@ export function SidePanel() {
             </h2>
             <div className="flex items-center gap-2 mt-0.5">
               {node.data.role && (
-                <span className="text-[10px] text-zinc-500 truncate">
+                <span className="text-[10px] text-zinc-400 truncate">
                   {node.data.role}
                 </span>
               )}
@@ -286,7 +286,7 @@ export function SidePanel() {
 
       {/* Footer — workspace ID */}
       <div className="px-5 py-2 border-t border-zinc-800/40 bg-zinc-900/20">
-        <span className="text-[9px] font-mono text-zinc-500 select-all">
+        <span className="text-[10px] text-zinc-400 select-all">
           {selectedNodeId}
         </span>
       </div>
@@ -302,8 +302,8 @@ function MetaPill({ label, value, tone = "zinc" }: { label: string; value: strin
   }[tone];
 
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[9px] ${toneClasses}`}>
-      <span className="uppercase tracking-[0.18em] text-[8px] opacity-70">{label}</span>
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] ${toneClasses}`}>
+      <span className="uppercase tracking-[0.18em] text-[10px] opacity-70">{label}</span>
       <span className="font-medium">{value}</span>
     </span>
   );

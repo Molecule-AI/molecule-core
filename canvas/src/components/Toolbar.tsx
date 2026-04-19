@@ -141,7 +141,7 @@ export function Toolbar() {
       <div className="pl-3 border-l border-zinc-800/60">
         <span className="text-[10px] text-zinc-500">
           {counts.roots} workspace{counts.roots !== 1 ? "s" : ""}
-          {counts.children > 0 && <span className="text-zinc-600"> + {counts.children} sub</span>}
+          {counts.children > 0 && <span className="text-zinc-400"> + {counts.children} sub</span>}
         </span>
       </div>
 
@@ -258,7 +258,7 @@ export function Toolbar() {
           <path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
         <span className="text-[10px] text-zinc-500">Search</span>
-        <kbd className="text-[8px] text-zinc-600 bg-zinc-900/60 px-1 py-0.5 rounded border border-zinc-700/30">⌘K</kbd>
+        <kbd className="text-[10px] text-zinc-400 bg-zinc-900/60 px-1 py-0.5 rounded border border-zinc-700/30">⌘K</kbd>
       </button>
 
       {/* Quick help */}
@@ -282,7 +282,7 @@ export function Toolbar() {
               <span className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-400">Quick start</span>
               <button
                 onClick={() => setHelpOpen(false)}
-                className="text-[10px] text-zinc-600 hover:text-zinc-300 transition-colors"
+                className="text-[10px] text-zinc-400 hover:text-zinc-300 transition-colors"
               >
                 Close
               </button>
@@ -352,10 +352,10 @@ function WsStatusPill({ status }: { status: "connected" | "connecting" | "discon
 function HelpRow({ shortcut, text }: { shortcut: string; text: string }) {
   return (
     <div className="flex items-start gap-3 rounded-lg border border-zinc-800/70 bg-zinc-900/45 px-3 py-2">
-      <span className="shrink-0 rounded-md border border-zinc-700/60 bg-zinc-950/70 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.18em] text-zinc-400">
+      <span className="shrink-0 rounded-md border border-zinc-700/60 bg-zinc-950/70 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-zinc-400">
         {shortcut}
       </span>
-      <p className="text-[11px] leading-relaxed text-zinc-500">{text}</p>
+      <p className="text-[11px] leading-relaxed text-zinc-400">{text}</p>
     </div>
   );
 }
