@@ -88,22 +88,27 @@ jobs:
           output: sarif-results/${{ matrix.language }}
 
       - name: Parse SARIF + fail on findings
-        # The analyze step emits one SARIF per run into the output
-        # directory. jq counts the rule results; any non-zero count
-        # fails the job. This gives us "did CodeQL find anything"
-        # as a blocking signal without needing GHAS.
+        # The analyze step writes <database>.sarif into the output
+        # directory. The database name uses the short language id
+        # (e.g. "javascript-typescript" → javascript.sarif,
+        # "go" → go.sarif) so we glob rather than hardcoding.
+        # jq counts rule results; any non-zero count fails the job.
+        # This gives us "did CodeQL find anything" as a blocking
+        # signal without needing GHAS.
         #
         # security-extended includes some noisy rules; if false
         # positives become a problem, extend the jq filter to drop
         # specific rule ids rather than suppressing wholesale.
         run: |
           set -eu
-          sarif="sarif-results/${{ matrix.language }}/${{ matrix.language }}.sarif"
-          if [ ! -f "$sarif" ]; then
-            echo "::error::SARIF output not found at $sarif"
-            ls -la sarif-results/ || true
+          dir="sarif-results/${{ matrix.language }}"
+          sarif=$(ls "$dir"/*.sarif 2>/dev/null | head -1 || true)
+          if [ -z "$sarif" ] || [ ! -f "$sarif" ]; then
+            echo "::error::No SARIF file found under $dir"
+            ls -la "$dir" 2>/dev/null || true
             exit 1
           fi
+          echo "Parsing $sarif"
           count=$(jq '[.runs[].results[]] | length' "$sarif")
           echo "CodeQL findings for ${{ matrix.language }}: $count"
           if [ "$count" -gt 0 ]; then
