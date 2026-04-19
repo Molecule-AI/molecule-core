@@ -8,6 +8,12 @@ import { getTenantSlug } from "./tenant";
 export const PLATFORM_URL =
   process.env.NEXT_PUBLIC_PLATFORM_URL ?? "http://localhost:8080";
 
+// 15s is long enough for slow CP queries but short enough that a
+// hung backend doesn't leave the UI spinning forever. The abort
+// propagates through AbortController so React components can observe
+// the error and render a retry affordance.
+const DEFAULT_TIMEOUT_MS = 15_000;
+
 async function request<T>(
   method: string,
   path: string,
@@ -28,6 +34,7 @@ async function request<T>(
     headers,
     body: body ? JSON.stringify(body) : undefined,
     credentials: "include",
+    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
   });
   if (!res.ok) {
     const text = await res.text();
