@@ -37,6 +37,14 @@ jobs:
     runs-on: [self-hosted, macos, arm64]
     steps:
       - name: Ensure crane installed
+        # HOMEBREW_NO_INSTALL_CLEANUP + HOMEBREW_NO_AUTO_UPDATE stop
+        # brew from touching unrelated symlinks in /opt/homebrew owned
+        # by other users on this shared runner — cleanup was exiting
+        # non-zero even though crane itself installed successfully.
+        env:
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_ENV_HINTS: "1"
         run: |
           if ! command -v crane >/dev/null 2>&1; then
             brew install crane
