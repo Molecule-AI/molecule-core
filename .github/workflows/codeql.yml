@@ -1,0 +1,73 @@
+name: CodeQL
+
+# Security scanning on every push + PR. Moved off the GitHub-hosted
+# default runners to our mac mini self-hosted runner so it doesn't
+# eat into the Actions minute quota on the private-repo plan — the
+# default setup was silently bill-gating and turning every PR check
+# red.
+#
+# Switching from "default" to "advanced" code scanning also requires
+# a one-time flip in the repo UI:
+#   Settings → Code security and analysis → Code scanning
+#     → "Set up" dropdown → Advanced
+#   (or: if default is already enabled, click "Switch to advanced"
+#    inside the same panel so GitHub stops queueing the hosted runs).
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+  schedule:
+    # Weekly run to pick up findings in code that hasn't been touched.
+    - cron: '30 1 * * 0'
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: [self-hosted, macos, arm64]
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [go, javascript-typescript, python]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout sibling plugin repo
+        # Same reasoning as publish-workspace-server-image.yml — the Go
+        # module's replace directive needs the plugin source to resolve
+        # so CodeQL's "go build" phase can succeed.
+        if: matrix.language == 'go'
+        uses: actions/checkout@v4
+        with:
+          repository: Molecule-AI/molecule-ai-plugin-github-app-auth
+          path: molecule-ai-plugin-github-app-auth
+          token: ${{ secrets.PLUGIN_REPO_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Security-extended widens the ruleset past the default
+          # "security-and-quality" to include the full set of security
+          # queries Molecule cares about for a public SaaS surface.
+          queries: security-extended
+
+      # Auto-build for Go / TS / Python is fast enough that we skip
+      # manual build steps; the init action picks the right strategy.
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
