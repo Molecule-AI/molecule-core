@@ -1,14 +1,19 @@
 name: canary-verify
 
 # Runs the canary smoke suite against the staging canary tenant fleet
-# after a new workspace-server image lands on :latest. On failure,
-# alerts via a GitHub Actions summary — follow-up PR will add:
-#   - :staging-<sha> intermediate tag published BY publish workflow
-#   - retag :staging-<sha> → :latest ONLY when this workflow is green
-#   - Telegram/Slack notifier on red
-# For now this exists as the test gate itself so we can catch
-# auto-update breakage before it reaches the prod tenant fleet
-# (which auto-pulls :latest every 5 min).
+# after a new :staging-<sha> image lands in GHCR. On green, promotes
+# :staging-<sha> → :latest so the prod tenant fleet's 5-minute
+# auto-updater picks up the verified digest. On red, :latest stays
+# on the prior known-good digest and prod is untouched.
+#
+# Dependencies:
+#   - publish-workspace-server-image.yml publishes :staging-<sha>
+#     (NOT :latest) on main merge
+#   - canary tenants are configured to pull :staging-<sha> as their
+#     tenant image (set TENANT_IMAGE=ghcr.io/…:staging-<sha> on the
+#     canary provisioner code path OR rotate via an admin endpoint)
+#   - Repo secrets CANARY_TENANT_URLS / CANARY_ADMIN_TOKENS /
+#     CANARY_CP_SHARED_SECRET are populated
 
 on:
   workflow_run:
@@ -18,18 +23,29 @@ on:
 
 permissions:
   contents: read
+  packages: write
   actions: read
+
+env:
+  IMAGE_NAME: ghcr.io/molecule-ai/platform
+  TENANT_IMAGE_NAME: ghcr.io/molecule-ai/platform-tenant
 
 jobs:
   canary-smoke:
     # Skip when the upstream workflow failed — no image to test against.
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.compute.outputs.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Wait for canary tenants to pick up new image
+      - name: Compute sha
+        id: compute
+        run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for canary tenants to pick up :staging-<sha>
         # Tenant auto-updater runs every 5 min. Sleep 6 min to give every
         # canary time to pull + restart. Cheaper than polling.
         run: sleep 360
@@ -48,9 +64,50 @@ jobs:
           {
             echo "## Canary smoke FAILED"
             echo
-            echo "The staging canary tenant fleet failed its post-deploy smoke suite."
-            echo "The :latest tag on ghcr.io/molecule-ai/platform should be rolled back"
-            echo "to the prior known-good digest until this is resolved."
+            echo "Canary tenants rejected image \`staging-${{ steps.compute.outputs.sha }}\`."
+            echo ":latest stays pinned to the prior good digest — prod is untouched."
             echo
-            echo "See job log above for the specific failed assertions."
+            echo "Fix forward and merge again, or investigate the specific failed"
+            echo "assertions in the canary-smoke step log above."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  promote-to-latest:
+    # On green, retag :staging-<sha> → :latest for BOTH images.
+    # crane is a lightweight registry client (no Docker daemon needed on
+    # the runner) that can retag remotely with a single API call each.
+    needs: canary-smoke
+    if: ${{ needs.canary-smoke.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install crane
+        run: |
+          curl -fsSL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz | \
+            tar xz -C /usr/local/bin crane
+
+      - name: GHCR login
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            crane auth login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Retag platform :staging-<sha> → :latest
+        run: |
+          crane tag \
+            "${IMAGE_NAME}:staging-${{ needs.canary-smoke.outputs.sha }}" \
+            latest
+
+      - name: Retag tenant :staging-<sha> → :latest
+        run: |
+          crane tag \
+            "${TENANT_IMAGE_NAME}:staging-${{ needs.canary-smoke.outputs.sha }}" \
+            latest
+
+      - name: Summary
+        run: |
+          {
+            echo "## Canary verified — :latest promoted"
+            echo
+            echo "- \`${IMAGE_NAME}:staging-${{ needs.canary-smoke.outputs.sha }}\` → \`${IMAGE_NAME}:latest\`"
+            echo "- \`${TENANT_IMAGE_NAME}:staging-${{ needs.canary-smoke.outputs.sha }}\` → \`${TENANT_IMAGE_NAME}:latest\`"
+            echo
+            echo "Prod tenant fleet will pick up the new digest on its next 5-min auto-update cycle."
           } >> "$GITHUB_STEP_SUMMARY"
