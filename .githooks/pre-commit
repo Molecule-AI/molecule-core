@@ -106,7 +106,7 @@ if [ -n "$ALL_STAGED" ]; then
       continue
     fi
     DIFF=$(git diff --cached "$f" 2>/dev/null | grep '^+' | grep -v '^+++' || true)
-    if echo "$DIFF" | grep -qE 'sk-ant-|sk-proj-|ghp_|gho_|AKIA[A-Z0-9]' 2>/dev/null; then
+    if echo "$DIFF" | grep -qE 'sk-ant-|sk-proj-|ghp_|gho_|AKIA[A-Z0-9]|mol_pk_|cfut_' 2>/dev/null; then
       echo "❌ POSSIBLE SECRET in $f — do not commit API keys or tokens"
       ERRORS=$((ERRORS + 1))
     fi
