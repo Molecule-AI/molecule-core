@@ -444,6 +444,18 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 	delete(ws, "last_sample_error") // internal error details
 	delete(ws, "workspace_dir")     // host path disclosure
 
+	// #817: expose last_outbound_at so orchestrators can detect silent
+	// workspaces. Non-sensitive — just a timestamp of the most recent
+	// outbound A2A. Null if the workspace has never sent anything.
+	var lastOutbound sql.NullTime
+	if err := db.DB.QueryRowContext(c.Request.Context(),
+		`SELECT last_outbound_at FROM workspaces WHERE id = $1`, id,
+	).Scan(&lastOutbound); err == nil && lastOutbound.Valid {
+		ws["last_outbound_at"] = lastOutbound.Time
+	} else {
+		ws["last_outbound_at"] = nil
+	}
+
 	c.JSON(http.StatusOK, ws)
 }
 
