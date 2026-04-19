@@ -118,22 +118,56 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   clearSelection: () => set({ selectedNodeIds: new Set<string>() }),
   batchRestart: async () => {
     const ids = Array.from(get().selectedNodeIds);
-    await Promise.allSettled(ids.map((id) => api.post(`/workspaces/${id}/restart`)));
-    for (const id of ids) {
-      get().updateNodeData(id, { needsRestart: false });
+    const results = await Promise.allSettled(
+      ids.map((id) => api.post(`/workspaces/${id}/restart`))
+    );
+    const failed: string[] = [];
+    results.forEach((r, i) => {
+      if (r.status === "fulfilled") {
+        get().updateNodeData(ids[i], { needsRestart: false });
+      } else {
+        failed.push(ids[i]);
+      }
+    });
+    // Keep failed IDs selected so the user can retry; drop the successful ones.
+    set({ selectedNodeIds: new Set(failed) });
+    if (failed.length > 0) {
+      throw new Error(`${failed.length}/${ids.length} restart(s) failed`);
     }
   },
   batchPause: async () => {
     const ids = Array.from(get().selectedNodeIds);
-    await Promise.allSettled(ids.map((id) => api.post(`/workspaces/${id}/pause`)));
+    const results = await Promise.allSettled(
+      ids.map((id) => api.post(`/workspaces/${id}/pause`))
+    );
+    const failed: string[] = [];
+    results.forEach((r, i) => {
+      if (r.status !== "fulfilled") failed.push(ids[i]);
+    });
+    set({ selectedNodeIds: new Set(failed) });
+    if (failed.length > 0) {
+      throw new Error(`${failed.length}/${ids.length} pause(s) failed`);
+    }
   },
   batchDelete: async () => {
     const ids = Array.from(get().selectedNodeIds);
-    await Promise.allSettled(ids.map((id) => api.del(`/workspaces/${id}`)));
-    for (const id of ids) {
-      get().removeNode(id);
+    const results = await Promise.allSettled(
+      ids.map((id) => api.del(`/workspaces/${id}`))
+    );
+    const failed: string[] = [];
+    results.forEach((r, i) => {
+      if (r.status === "fulfilled") {
+        get().removeNode(ids[i]);
+      } else {
+        failed.push(ids[i]);
+      }
+    });
+    // Keep failed IDs selected so the user can retry; the successful ones
+    // were already removed from `nodes` above.
+    set({ selectedNodeIds: new Set(failed) });
+    if (failed.length > 0) {
+      throw new Error(`${failed.length}/${ids.length} delete(s) failed`);
     }
-    set({ selectedNodeIds: new Set<string>() });
   },
   wsStatus: "connecting",
   setWsStatus: (status) => set({ wsStatus: status }),

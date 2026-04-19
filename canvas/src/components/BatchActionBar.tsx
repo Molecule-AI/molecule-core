@@ -21,10 +21,11 @@ export function BatchActionBar() {
   const count = selectedNodeIds.size;
   if (count < 2) return null;
 
+  // L22 guarantees count >= 2, so "workspaces" is always plural here.
   const confirmMessages: Record<NonNullable<BatchAction>, string> = {
-    restart: `Restart ${count} workspace${count !== 1 ? "s" : ""}? Each will briefly go offline while it restarts.`,
-    pause:   `Pause ${count} workspace${count !== 1 ? "s" : ""}? Their containers will be stopped.`,
-    delete:  `Permanently delete ${count} workspace${count !== 1 ? "s" : ""}? This cannot be undone.`,
+    restart: `Restart ${count} workspaces? Each will briefly go offline while it restarts.`,
+    pause:   `Pause ${count} workspaces? Their containers will be stopped.`,
+    delete:  `Permanently delete ${count} workspaces? This cannot be undone.`,
   };
 
   const confirmLabels: Record<NonNullable<BatchAction>, string> = {
@@ -40,10 +41,15 @@ export function BatchActionBar() {
       if (pending === "restart") await batchRestart();
       if (pending === "pause")   await batchPause();
       if (pending === "delete")  await batchDelete();
-      showToast(`${pending.charAt(0).toUpperCase() + pending.slice(1)} applied to ${count} workspace${count !== 1 ? "s" : ""}`, "success");
+      // Reaching here means every store call fulfilled (the store now throws
+      // on any partial failure), so `count` is the actual success count.
+      showToast(`${pending.charAt(0).toUpperCase() + pending.slice(1)} applied to ${count} workspaces`, "success");
       clearSelection();
-    } catch {
-      showToast(`Batch ${pending} failed`, "error");
+    } catch (e) {
+      const msg = e instanceof Error && e.message ? e.message : `Batch ${pending} failed`;
+      showToast(msg, "error");
+      // Leave the failed IDs selected (the store preserved them) so the user
+      // can retry without re-selecting. Do NOT call clearSelection() here.
     } finally {
       setBusy(false);
       setPending(null);
