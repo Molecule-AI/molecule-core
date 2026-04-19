@@ -42,9 +42,14 @@ func (h *ConfigHandler) Get(c *gin.Context) {
 func (h *ConfigHandler) Patch(c *gin.Context) {
 	workspaceID := c.Param("id")
 
+	// 256 KiB cap: Postgres jsonb comfortably handles this and real
+	// configs are <10 KiB. The cap blocks naive memory-exhaustion DoS
+	// — a caller streaming a gigabyte of JSON would OOM the instance.
+	const maxConfigBody = 256 << 10
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxConfigBody)
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read body"})
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "body too large or unreadable"})
 		return
 	}
 
