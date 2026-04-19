@@ -1,17 +1,26 @@
 name: CodeQL
 
-# Security scanning on every push + PR. Moved off the GitHub-hosted
-# default runners to our mac mini self-hosted runner so it doesn't
-# eat into the Actions minute quota on the private-repo plan — the
-# default setup was silently bill-gating and turning every PR check
-# red.
+# Security scanning on every push + PR. Runs on the mac mini
+# self-hosted runner (GitHub-hosted minutes are quota-blocked) and
+# deliberately DOES NOT upload results to GitHub's Code Scanning API
+# — that API requires GitHub Advanced Security, a paid add-on on
+# private repos ($49/active-committer/mo).
 #
-# Switching from "default" to "advanced" code scanning also requires
-# a one-time flip in the repo UI:
-#   Settings → Code security and analysis → Code scanning
-#     → "Set up" dropdown → Advanced
-#   (or: if default is already enabled, click "Switch to advanced"
-#    inside the same panel so GitHub stops queueing the hosted runs).
+# Instead we keep the SARIF locally, parse it for any rule-tier
+# error/warning result, and fail the job if there are findings. The
+# SARIF file is uploaded as a workflow artifact so reviewers can
+# download it and open in the VS Code SARIF viewer or similar.
+#
+# Trade-offs vs. GHAS-enabled scanning:
+#   - No Security-tab aggregation of historical alerts
+#   - No inline PR annotations (findings land in the job log)
+#   - No dismiss/triage workflow — every finding re-fails every run
+#     until the code is fixed
+#   - Free + works on private repos
+#
+# When GHAS is eventually enabled, flip `upload: never` → `always`
+# and drop the local SARIF-parse step. See git history of this file
+# for the original upload-based version.
 
 on:
   push:
@@ -25,7 +34,7 @@ on:
 permissions:
   actions: read
   contents: read
-  security-events: write
+  # No security-events: write — we're not uploading to GHAS.
 
 jobs:
   analyze:
@@ -68,6 +77,48 @@ jobs:
         uses: github/codeql-action/autobuild@v3
 
       - name: Perform CodeQL Analysis
+        id: analyze
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ matrix.language }}"
+          # upload: never → do not POST SARIF to GitHub's Code Scanning
+          # API. That call 403s on private repos without GHAS. output
+          # tells the action where to write the SARIF locally.
+          upload: never
+          output: sarif-results/${{ matrix.language }}
+
+      - name: Parse SARIF + fail on findings
+        # The analyze step emits one SARIF per run into the output
+        # directory. jq counts the rule results; any non-zero count
+        # fails the job. This gives us "did CodeQL find anything"
+        # as a blocking signal without needing GHAS.
+        #
+        # security-extended includes some noisy rules; if false
+        # positives become a problem, extend the jq filter to drop
+        # specific rule ids rather than suppressing wholesale.
+        run: |
+          set -eu
+          sarif="sarif-results/${{ matrix.language }}/${{ matrix.language }}.sarif"
+          if [ ! -f "$sarif" ]; then
+            echo "::error::SARIF output not found at $sarif"
+            ls -la sarif-results/ || true
+            exit 1
+          fi
+          count=$(jq '[.runs[].results[]] | length' "$sarif")
+          echo "CodeQL findings for ${{ matrix.language }}: $count"
+          if [ "$count" -gt 0 ]; then
+            echo "::error::CodeQL found $count issues. Details below; full SARIF in the artifact."
+            jq -r '.runs[].results[] | "  - \(.ruleId // "?"): \(.message.text // "(no message)") @ \(.locations[0].physicalLocation.artifactLocation.uri // "?"):\(.locations[0].physicalLocation.region.startLine // "?")"' "$sarif"
+            exit 1
+          fi
+
+      - name: Upload SARIF artifact
+        # Keep the SARIF around even on success so triagers can diff
+        # across runs. 14-day retention — longer than the default 3
+        # but short enough not to bloat the actions quota.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-sarif-${{ matrix.language }}
+          path: sarif-results/${{ matrix.language }}/
+          retention-days: 14
