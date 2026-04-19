@@ -34,7 +34,9 @@ jobs:
   canary-smoke:
     # Skip when the upstream workflow failed — no image to test against.
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
+    # Self-hosted mac mini — GitHub-hosted minutes are quota-blocked on
+    # this org (same reason publish/promote-latest moved earlier).
+    runs-on: [self-hosted, macos, arm64]
     outputs:
       sha: ${{ steps.compute.outputs.sha }}
     steps:
@@ -77,12 +79,21 @@ jobs:
     # the runner) that can retag remotely with a single API call each.
     needs: canary-smoke
     if: ${{ needs.canary-smoke.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macos, arm64]
     steps:
-      - name: Install crane
+      - name: Ensure crane installed
+        # Matches the install pattern in promote-latest.yml — brew
+        # cleanup exits non-zero on the shared runner's /opt/homebrew
+        # symlinks, so skip it.
+        env:
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_ENV_HINTS: "1"
         run: |
-          curl -fsSL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz | \
-            tar xz -C /usr/local/bin crane
+          if ! command -v crane >/dev/null 2>&1; then
+            brew install crane
+          fi
+          crane version
 
       - name: GHCR login
         run: |
