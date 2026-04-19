@@ -106,7 +106,11 @@ func (d *DiscordAdapter) SendMessage(ctx context.Context, config map[string]inte
 // Returns nil, nil for PING payloads — the handler layer must respond with `{"type":1}` to pass
 // Discord's endpoint verification. Returns an InboundMessage for APPLICATION_COMMAND payloads.
 func (d *DiscordAdapter) ParseWebhook(c *gin.Context, _ map[string]interface{}) (*InboundMessage, error) {
-	body, err := io.ReadAll(c.Request.Body)
+	// Cap incoming webhook bodies at 1 MiB. Discord's Interactions API
+	// payloads are well under 10 KiB in practice; the cap is a DoS
+	// guard, not a functional limit.
+	const maxDiscordWebhook = 1 << 20
+	body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxDiscordWebhook))
 	if err != nil {
 		return nil, fmt.Errorf("discord: read body: %w", err)
 	}
