@@ -433,6 +433,101 @@ func TestMCPHandler_CommitMemory_GlobalScope_Blocked(t *testing.T) {
 	}
 }
 
+// TestMCPHandler_CommitMemory_SecretInContent_IsRedactedBeforeInsert verifies
+// the SAFE-T1201 (#838) fix on the MCP bridge path. PR #881 closed the HTTP
+// handler but missed this one — an agent tool-call carrying plain-text
+// credentials must have them scrubbed before the INSERT reaches the DB.
+//
+// The test asserts via the sqlmock `WithArgs` matcher that the content column
+// binds the REDACTED form, not the raw input. sqlmock verifies the exact arg
+// values, so a regression (removing the redactSecrets call) would fail with
+// "argument mismatch" rather than silently persisting the secret.
+func TestMCPHandler_CommitMemory_SecretInContent_IsRedactedBeforeInsert(t *testing.T) {
+	h, mock := newMCPHandler(t)
+
+	// Content with three distinct secret patterns covered by redactSecrets:
+	//   - env-var assignment (ANTHROPIC_API_KEY=)
+	//   - Bearer token
+	//   - sk-… prefixed key
+	rawContent := "key=ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxx auth=Bearer ghp_yyyyyyyyyyyyy note=sk-proj-zzzzzzzzzzzzzzzzzzzz"
+
+	// Derive what redactSecrets will produce so the sqlmock arg match is
+	// exact. This keeps the test brittle-on-purpose: if redactSecrets's
+	// output shape changes, this test must be re-derived, which surfaces
+	// the change during review.
+	expected, changed := redactSecrets("ws-1", rawContent)
+	if !changed {
+		t.Fatalf("precondition failed — redactSecrets must change the test content; got unchanged %q", expected)
+	}
+	if bytes.Contains([]byte(expected), []byte("sk-ant-xxxxxxxxxxxxxxxx")) {
+		t.Fatalf("precondition failed — redacted content still contains raw secret: %s", expected)
+	}
+
+	mock.ExpectExec("INSERT INTO agent_memories").
+		WithArgs(sqlmock.AnyArg(), "ws-1", expected, "LOCAL", "ws-1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	w := mcpPost(t, h, "ws-1", map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      99,
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name": "commit_memory",
+			"arguments": map[string]interface{}{
+				"content": rawContent,
+				"scope":   "LOCAL",
+			},
+		},
+	})
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp mcpResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Error != nil {
+		t.Fatalf("unexpected JSON-RPC error: %+v", resp.Error)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock mismatch — content was NOT redacted before insert: %v", err)
+	}
+}
+
+// TestMCPHandler_CommitMemory_CleanContent_PassesThrough confirms that the
+// redactor is a no-op on content with no credentials — a regression where
+// redactSecrets corrupted benign content would be a user-visible bug.
+func TestMCPHandler_CommitMemory_CleanContent_PassesThrough(t *testing.T) {
+	h, mock := newMCPHandler(t)
+
+	cleanContent := "the quick brown fox jumps over the lazy dog — no secrets here"
+
+	// Bind the exact string — no wildcards — so that any transformation
+	// (whitespace, case, truncation) would fail the arg match.
+	mock.ExpectExec("INSERT INTO agent_memories").
+		WithArgs(sqlmock.AnyArg(), "ws-1", cleanContent, "TEAM", "ws-1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	w := mcpPost(t, h, "ws-1", map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      100,
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name": "commit_memory",
+			"arguments": map[string]interface{}{
+				"content": cleanContent,
+				"scope":   "TEAM",
+			},
+		},
+	})
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("clean content should pass through unchanged: %v", err)
+	}
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // tools/call — recall_memory
 // ─────────────────────────────────────────────────────────────────────────────
