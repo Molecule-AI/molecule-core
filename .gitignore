@@ -120,3 +120,6 @@ backups/
 /org-templates/
 /plugins/
 /workspace-configs-templates/
+# Cloned by publish-workspace-server-image.yml so the Dockerfile's
+# replace-directive path resolves. Lives in its own repo.
+/molecule-ai-plugin-github-app-auth/
