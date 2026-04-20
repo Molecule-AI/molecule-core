@@ -1,0 +1,16 @@
+name: SDK-Dev
+role: >-
+  SDK developer. Implements features for molecule-sdk-python,
+  molecule-mcp-server, molecule-cli. Maintains SDK tests and docs.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: sdk-lead
+files_dir: sdk-dev
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 900
+schedules:
+  - name: Pick up work (every 15 min)
+    cron_expr: "*/15 * * * *"
+    enabled: true
+    prompt_file: schedules/pick-up-work.md

@@ -1,0 +1,16 @@
+name: Release Manager
+role: >-
+  Owns staging-to-main promotion, versioning, changelogs. Runs canary
+  deployments, validates staging health, promotes when gates pass.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: dev-lead
+files_dir: release-manager
+plugins: [molecule-hitl, molecule-skill-code-review, molecule-freeze-scope]
+idle_interval_seconds: 900
+schedules:
+  - name: Release cycle (every 30 min)
+    cron_expr: "*/30 * * * *"
+    enabled: true
+    prompt_file: schedules/release-cycle.md

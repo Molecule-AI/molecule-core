@@ -1,0 +1,19 @@
+name: Core Platform Lead
+role: >-
+  Core Platform team lead. Owns molecule-core (the monorepo). Has
+  triage+merge authority for all molecule-core PRs. Reviews PRs,
+  manages issues, dispatches work to Core-BE, Core-FE, Core-QA,
+  Core-Security, Core-UIUX, Core-DevOps, Core-OffSec. Enforces
+  staging-first workflow for molecule-core.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: dev-lead
+files_dir: core-lead
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 900
+schedules:
+  - name: Orchestrator pulse (every 5 min)
+    cron_expr: "*/5 * * * *"
+    enabled: true
+    prompt_file: schedules/orchestrator-pulse.md

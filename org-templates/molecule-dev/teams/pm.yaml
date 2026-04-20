@@ -1,0 +1,26 @@
+name: PM
+role: Project Manager - coordinates Research, Dev, and Marketing teams
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+files_dir: pm
+workspace_dir: ${WORKSPACE_DIR}
+canvas: {x: 400, y: 50}
+plugins: [molecule-workflow-triage, molecule-workflow-retro]
+channels:
+  - type: telegram
+    config:
+      bot_token: ${TELEGRAM_BOT_TOKEN}
+      chat_id: ${TELEGRAM_CHAT_ID}
+    enabled: true
+idle_interval_seconds: 900
+schedules:
+  - name: Orchestrator pulse
+    cron_expr: "1,6,11,16,21,26,31,36,41,46,51,56 * * * *"
+    enabled: true
+    prompt_file: schedules/orchestrator-pulse.md
+children:
+  - !include research.yaml
+  - !include dev.yaml
+  - !include marketing.yaml
+initial_prompt_file: initial-prompt.md

@@ -1,0 +1,22 @@
+name: Core-OffSec
+role: >-
+  Offensive security engineer. Adversarial testing: penetration testing,
+  supply-chain CVE hunts, prompt injection probes, container escapes.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: core-lead
+files_dir: core-offsec
+plugins:
+  - molecule-skill-code-review
+  - molecule-skill-cross-vendor-review
+  - molecule-security-scan
+  - molecule-hitl
+  - molecule-compliance
+  - molecule-audit
+idle_interval_seconds: 900
+schedules:
+  - name: Security scan (every 30 min)
+    cron_expr: "*/30 * * * *"
+    enabled: true
+    prompt_file: schedules/security-scan.md

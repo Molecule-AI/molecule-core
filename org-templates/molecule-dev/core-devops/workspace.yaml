@@ -1,0 +1,22 @@
+name: Core-DevOps
+role: >-
+  DevOps engineer for molecule-core. Owns container build pipeline,
+  Dockerfiles, docker-compose, GitHub Actions CI, coverage thresholds.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: core-lead
+files_dir: core-devops
+plugins: [molecule-hitl, molecule-skill-code-review, molecule-freeze-scope]
+channels:
+  - type: telegram
+    config:
+      bot_token: ${TELEGRAM_BOT_TOKEN}
+      chat_id: ${TELEGRAM_CHAT_ID}
+    enabled: true
+idle_interval_seconds: 900
+schedules:
+  - name: Pick up work (every 15 min)
+    cron_expr: "*/15 * * * *"
+    enabled: true
+    prompt_file: schedules/pick-up-work.md

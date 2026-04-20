@@ -117,7 +117,8 @@ backups/
 
 # Cloned-via-manifest dirs — populated locally by scripts/clone-manifest.sh,
 # tracked in their own standalone repos. Never commit to core.
-/org-templates/
+/org-templates/*
+!/org-templates/molecule-dev/
 /plugins/
 /workspace-configs-templates/
 # Cloned by publish-workspace-server-image.yml so the Dockerfile's

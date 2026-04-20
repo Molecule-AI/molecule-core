@@ -1,0 +1,24 @@
+name: Research Lead
+role: Market analysis and technical research. Leads Tech Researcher, Competitive Intel, Market Analyst.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+files_dir: research-lead
+plugins: [browser-automation]
+channels:
+  - type: telegram
+    config:
+      bot_token: ${TELEGRAM_BOT_TOKEN}
+      chat_id: ${TELEGRAM_CHAT_ID}
+    enabled: true
+idle_interval_seconds: 900
+schedules:
+  - name: Orchestrator pulse
+    cron_expr: "4,9,14,19,24,29,34,39,44,49,54,59 * * * *"
+    enabled: true
+    prompt_file: schedules/orchestrator-pulse.md
+children:
+  - !include ../market-analyst/workspace.yaml
+  - !include ../technical-researcher/workspace.yaml
+  - !include ../competitive-intelligence/workspace.yaml
+initial_prompt_file: initial-prompt.md
