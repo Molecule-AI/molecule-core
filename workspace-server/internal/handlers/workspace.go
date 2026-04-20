@@ -803,6 +803,14 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 		pq.Array(allIDs)); err != nil {
 		log.Printf("Delete token revocation error for %s: %v", id, err)
 	}
+	// #1027: cascade-disable all schedules for the deleted workspaces so
+	// the scheduler never fires a cron into a removed container.
+	if _, err := db.DB.ExecContext(ctx,
+		`UPDATE workspace_schedules SET enabled = false, updated_at = now()
+		 WHERE workspace_id = ANY($1::uuid[]) AND enabled = true`,
+		pq.Array(allIDs)); err != nil {
+		log.Printf("Delete schedule disable error for %s: %v", id, err)
+	}
 
 	// Now stop containers + remove volumes for all descendants (any depth).
 	// Any concurrent heartbeat / registration / liveness-triggered restart
