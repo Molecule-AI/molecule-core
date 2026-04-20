@@ -66,6 +66,14 @@ interface CanvasState {
   isDescendant: (ancestorId: string, nodeId: string) => boolean;
   openContextMenu: (menu: ContextMenuState) => void;
   closeContextMenu: () => void;
+  // Pending delete confirmation — lives in the store (not inside ContextMenu's
+  // local state) so the confirm dialog survives ContextMenu unmounting. The
+  // ContextMenu's portal-rendered dialog used to race with its outside-click
+  // handler: clicking Confirm registered as "outside", closed the menu, and
+  // unmounted the dialog before its onClick fired. Hoisting the state fixes
+  // that — see fix/context-menu-delete-race.
+  pendingDelete: { id: string; name: string } | null;
+  setPendingDelete: (v: { id: string; name: string } | null) => void;
   searchOpen: boolean;
   setSearchOpen: (open: boolean) => void;
   viewport: { x: number; y: number; zoom: number };
@@ -158,6 +166,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   selectNode: (id) => set({ selectedNodeId: id }),
   openContextMenu: (menu) => set({ contextMenu: menu }),
   closeContextMenu: () => set({ contextMenu: null }),
+  pendingDelete: null,
+  setPendingDelete: (v) => set({ pendingDelete: v }),
   searchOpen: false,
   setSearchOpen: (open) => set({ searchOpen: open }),
   agentMessages: {},
