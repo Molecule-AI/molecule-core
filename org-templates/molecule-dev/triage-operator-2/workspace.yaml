@@ -1,0 +1,24 @@
+name: Triage Operator (Multi-Repo)
+role: >-
+  Multi-repo triage with MERGE AUTHORITY. Covers ALL Molecule-AI
+  org repos beyond molecule-core and molecule-controlplane. Runs
+  7-gate PR verification, merges passing PRs (merge-commits only),
+  picks up issues, routes concerns to PM. Coordinates with
+  Triage Operator to avoid duplicate coverage.
+tier: 3
+model: opus
+files_dir: triage-operator-2
+plugins:
+  - molecule-careful-bash
+  - molecule-session-context
+  - molecule-skill-cron-learnings
+  - molecule-skill-code-review
+  - molecule-skill-cross-vendor-review
+  - molecule-skill-llm-judge
+  - molecule-skill-update-docs
+  - molecule-hitl
+schedules:
+  - name: Hourly triage
+    cron_expr: "37 * * * *"
+    enabled: true
+    prompt_file: schedules/hourly-triage.md

@@ -1,0 +1,58 @@
+name: Offensive Security Engineer
+role: >-
+  Red-team counterpart to Security Auditor — actively attacks the running
+  platform, workspace containers, and supply chain to verify defences hold
+  under adversarial conditions. Owns runtime DAST (CanCommunicate
+  bypass, auth replay, rate-limit evasion, CORS smuggling, path traversal,
+  provisioner YAML-injection regression), container security (Docker
+  socket abuse, escape attempts, lateral movement on the molecule
+  network), supply-chain (govulncheck / pip-audit / npm audit / docker
+  scout / trufflehog / gitleaks across every Molecule-AI repo + GHCR
+  image), and the AI-specific attack surface (cross-agent prompt injection
+  via A2A, memory poisoning, cron-schedule poisoning, tool-call abuse).
+  Files findings as GitHub issues with three artifacts (repro command,
+  observed output, expected behaviour); does NOT propose patches —
+  Security Auditor and the responsible engineer own remediation.
+  Escalates CRITICAL (auth bypass, RCE, container escape, secret exfil)
+  via Telegram in the same cycle. Stays strictly within Molecule-AI org
+  + local cluster — never probes third-party or customer infra.
+  Definition of done: every changed handler / middleware / image /
+  dependency probed; findings filed with linked issues; cleanup of all
+  test workspaces, secrets, and canaries before sweep exits.
+tier: 3
+model: opus
+files_dir: offensive-security-engineer
+            # Offensive Security Engineer plugin set:
+            # - molecule-skill-cross-vendor-review: adversarial second opinion from a non-Claude model
+            #                                       on suspicious findings before filing — cuts FP noise
+            # - molecule-security-scan:             unified entrypoint to govulncheck/pip-audit/npm-audit/
+            #                                       gosec/bandit invocation that already exists; reuses
+            #                                       Security Auditor's tooling rather than reinventing it
+            # - molecule-hitl:                      @requires_approval before filing CRITICAL public
+            #                                       issues — protects against false-positive blasts that
+            #                                       would scare external contributors away from the org
+            # - molecule-audit:                     immutable JSON-Lines log of every probe + finding
+            #                                       (regulatory + post-incident reconstruction value)
+            # - browser-automation:                 needed for canvas-side XSS / clickjacking / CSRF
+            #                                       repros that require a real DOM
+plugins:
+  - molecule-skill-cross-vendor-review
+  - molecule-security-scan
+  - molecule-hitl
+  - molecule-audit
+  - browser-automation
+            # Critical-finding alerts — pushes CRITICAL severity to Telegram so
+            # rotation + remediation can start in the same cycle the exploit
+            # is confirmed. Same chat as Security Auditor + leadership tier.
+channels:
+  - type: telegram
+    config:
+      bot_token: ${TELEGRAM_BOT_TOKEN}
+      chat_id: ${TELEGRAM_CHAT_ID}
+    enabled: true
+schedules:
+  - name: Offensive sweep (every 8h)
+    cron_expr: "37 2,10,18 * * *"
+    enabled: true
+    prompt_file: schedules/offensive-sweep-every-8h.md
+initial_prompt_file: initial-prompt.md

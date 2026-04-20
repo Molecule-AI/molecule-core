@@ -1,0 +1,17 @@
+name: Backend Engineer (Runtime)
+role: >-
+  Owns the workspace runtime layer — the Python code inside each
+  container. A2A server, executors, heartbeat, preflight, memory,
+  MCP tools. Manages molecule-ai-workspace-runtime, workspace
+  template adapters, and plugin Python hooks.
+tier: 3
+model: opus
+files_dir: backend-engineer-2
+plugins: [molecule-hitl, molecule-skill-code-review, molecule-security-scan, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 600
+schedules:
+  - name: Hourly pick up work
+    cron_expr: "52 * * * *"
+    enabled: true
+    prompt_file: schedules/hourly-pick-up-work.md
+idle_prompt_file: idle-prompt.md

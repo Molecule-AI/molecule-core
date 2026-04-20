@@ -1,0 +1,17 @@
+name: Backend Engineer (Proxy & Runtime)
+role: >-
+  Owns molecule-tenant-proxy and molecule-ai-workspace-runtime.
+  Tenant proxy: reverse-proxy routing, TLS termination, per-tenant
+  rate limiting, WebSocket upgrade handling. Workspace runtime:
+  container lifecycle, adapter layer, health reporting, graceful
+  shutdown. Manages Docker image builds and runtime config injection.
+tier: 3
+model: opus
+files_dir: backend-engineer-3
+plugins: [molecule-hitl, molecule-skill-code-review, molecule-security-scan, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 600
+schedules:
+  - name: Hourly pick up work
+    cron_expr: "48 * * * *"
+    enabled: true
+    prompt_file: schedules/hourly-pick-up-work.md
