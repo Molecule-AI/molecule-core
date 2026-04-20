@@ -28,6 +28,8 @@ async function request<T>(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const slug = getTenantSlug();
   if (slug) headers["X-Molecule-Org-Slug"] = slug;
+  const adminToken = process.env.NEXT_PUBLIC_ADMIN_TOKEN;
+  if (adminToken) headers["Authorization"] = `Bearer ${adminToken}`;
 
   const res = await fetch(`${PLATFORM_URL}${path}`, {
     method,

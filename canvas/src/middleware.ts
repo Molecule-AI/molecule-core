@@ -30,7 +30,7 @@ export function buildCsp(nonce: string, isDev: boolean): string {
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' blob: data:",
       "font-src 'self'",
-      "connect-src 'self' ws: wss:",
+      "connect-src *",
       "worker-src 'self' blob:",
     ].join("; ") + ";";
   }
@@ -68,7 +68,7 @@ export function middleware(request: NextRequest) {
   // Buffer.from(uuid).toString('base64') gives a URL-safe-ish base64 string
   // that is unique per request and safe to embed in the CSP header value.
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
-  const isDev = process.env.NODE_ENV === "development";
+  const isDev = process.env.NODE_ENV === "development" || process.env.CSP_DEV_MODE === "1";
   const csp = buildCsp(nonce, isDev);
 
   // Forward the nonce to Server Components via a request header so the root
