@@ -169,29 +169,44 @@ func (p *CPProvisioner) Stop(ctx context.Context, workspaceID string) error {
 
 // IsRunning checks workspace EC2 instance state via the control plane.
 //
-// Contract:
-//   - transport error → (false, error)
-//   - non-2xx HTTP response → (false, error). Previously swallowed;
-//     a CP 500 would return (false, nil) and the sweeper couldn't
-//     distinguish "workspace stopped" from "CP broken".
+// Contract (matches the Docker Provisioner.IsRunning contract —
+// critical for a2a_proxy's alive-on-transient-error path):
+//
+//   - transport error           → (true, error)
+//   - non-2xx HTTP response     → (true, error)
+//   - JSON decode failure       → (true, error)
 //   - 2xx with state!="running" → (false, nil)
 //   - 2xx with state=="running" → (true, nil)
+//
+// Why "true on error": a2a_proxy inspects (running, err) and only
+// triggers the restart cascade when running==false. Returning false
+// on a transient CP outage would cause every brief CP blip to
+// stampede every workspace into a restart storm. Returning true
+// with the error preserves the signal for logging while keeping the
+// workspace on the alive path.
+//
+// healthsweep.go takes the mirror stance: `if err != nil { continue }`,
+// so it skips uncertain results and never marks a workspace offline
+// on transport error regardless of the running bool.
+//
+// Both callers are happy with (true, err); callers that need the
+// previous (false, err) shape must inspect err themselves.
 func (p *CPProvisioner) IsRunning(ctx context.Context, workspaceID string) (bool, error) {
 	url := fmt.Sprintf("%s/cp/workspaces/%s/status?instance_id=%s", p.baseURL, workspaceID, workspaceID)
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	p.authHeaders(req)
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
-		return false, fmt.Errorf("cp provisioner: status: %w", err)
+		return true, fmt.Errorf("cp provisioner: status: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		// Don't leak the body — upstream errors may echo headers.
-		return false, fmt.Errorf("cp provisioner: status: unexpected %d", resp.StatusCode)
+		return true, fmt.Errorf("cp provisioner: status: unexpected %d", resp.StatusCode)
 	}
 	var result struct{ State string `json:"state"` }
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return false, fmt.Errorf("cp provisioner: status decode: %w", err)
+		return true, fmt.Errorf("cp provisioner: status decode: %w", err)
 	}
 	return result.State == "running", nil
 }
