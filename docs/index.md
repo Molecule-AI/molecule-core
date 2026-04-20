@@ -65,3 +65,8 @@ features:
 - [Workspace Runtime](/agent-runtime/workspace-runtime)
 - [Canvas UI](/frontend/canvas)
 - [Platform API](/api-protocol/platform-api)
+
+## Blog
+
+- [Deploy AI Agents on Fly.io — or Any Cloud — with One Config Change](/blog/deploy-anywhere) *(2026-04-17)*
+- [Give Your AI Agent a Real Browser: MCP + Chrome DevTools](/blog/browser-automation-ai-agents-mcp) *(2026-04-20)*
