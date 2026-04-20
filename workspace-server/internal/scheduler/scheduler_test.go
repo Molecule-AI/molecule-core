@@ -276,6 +276,12 @@ func TestFireSchedule_ComputeNextRunError(t *testing.T) {
 	mock.ExpectQuery(`SELECT COALESCE`).
 		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(0))
 
+	// #795 consecutive_empty_runs reset — successProxy returns {"ok":true}
+	// which is non-empty, so the counter is reset to 0.
+	mock.ExpectExec(`UPDATE workspace_schedules`).
+		WithArgs(sched.ID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
 	// UPDATE must fire — COALESCE($2, next_run_at) keeps existing value when $2 is nil.
 	// AnyArg for $2 because it will be nil (ComputeNextRun failed).
 	mock.ExpectExec(`UPDATE workspace_schedules`).
@@ -525,13 +531,19 @@ func TestFireSchedule_NormalSuccess_AdvancesNextRunAt(t *testing.T) {
 	mock.ExpectQuery(`SELECT COALESCE`).
 		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(0))
 
-	// 2. Normal UPDATE after successful proxy call.
+	// 2. #795 consecutive_empty_runs reset — successProxy returns {"ok":true}
+	//    which is non-empty, so the counter is reset to 0.
+	mock.ExpectExec(`UPDATE workspace_schedules`).
+		WithArgs(sched.ID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// 3. Normal UPDATE after successful proxy call.
 	//    Args: $1=sched.ID, $2=nextRunPtr (computed time), $3=lastStatus, $4=lastError
 	mock.ExpectExec(`UPDATE workspace_schedules`).
 		WithArgs(sched.ID, sqlmock.AnyArg(), "ok", "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	// 3. activity_logs INSERT
+	// 4. activity_logs INSERT
 	mock.ExpectExec(`INSERT INTO activity_logs`).
 		WithArgs(sched.WorkspaceID, sqlmock.AnyArg(), sqlmock.AnyArg(), "ok", "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -551,6 +563,10 @@ func TestFireSchedule_NormalSuccess_AdvancesNextRunAt(t *testing.T) {
 //
 // This is the third leg of the #1029 invariant: fire, panic, AND skip must
 // all advance next_run_at.
+//
+// We call recordSkipped directly rather than going through fireSchedule
+// because #969 added a deferral loop (poll every 10s for up to 2 min) that
+// makes end-to-end testing via fireSchedule impractical with sqlmock.
 func TestRecordSkipped_AdvancesNextRunAt(t *testing.T) {
 	mock := setupTestDB(t)
 
@@ -563,23 +579,19 @@ func TestRecordSkipped_AdvancesNextRunAt(t *testing.T) {
 		Prompt:      "skipped work",
 	}
 
-	// 1. active_tasks check → workspace busy (triggers skip path)
-	mock.ExpectQuery(`SELECT COALESCE`).
-		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(2))
-
-	// 2. recordSkipped UPDATE — must include next_run_at ($2) and reason ($3).
+	// 1. recordSkipped UPDATE — must include next_run_at ($2) and reason ($3).
 	mock.ExpectExec(`UPDATE workspace_schedules`).
 		WithArgs(sched.ID, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	// 3. activity_logs INSERT for the skip event
+	// 2. activity_logs INSERT for the skip event
 	mock.ExpectExec(`INSERT INTO activity_logs`).
 		WithArgs(sched.WorkspaceID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s := New(&successProxy{}, nil)
-	// Call fireSchedule — the active_tasks=2 causes it to call recordSkipped internally.
-	s.fireSchedule(context.Background(), sched)
+	// Call recordSkipped directly — simulates the skip path when workspace is busy.
+	s.recordSkipped(context.Background(), sched, 2)
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet DB expectations: %v\n"+
