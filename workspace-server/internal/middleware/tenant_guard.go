@@ -72,6 +72,16 @@ func TenantGuardWithOrgID(configuredOrgID string) gin.HandlerFunc {
 		// doesn't need to attach org identity here. Bypassing the guard
 		// avoids blocking the proxy with a 404 that would then look
 		// like the CP is down.
+		//
+		// SECURITY NOTE: this pass-through is only safe because:
+		//   (a) cp_proxy enforces its own explicit path allowlist
+		//       (see router/cp_proxy.go cpProxyAllowedPrefixes) so
+		//       traversal to admin-surface endpoints is blocked.
+		//   (b) tenant SG has no :8080 inbound; only the Cloudflare
+		//       tunnel reaches the platform. A future SG change that
+		//       opens :8080 to the VPC would also open this path to
+		//       unauthenticated /cp/* probing — tighten cp_proxy's
+		//       allowlist OR remove this bypass if that happens.
 		if strings.HasPrefix(c.Request.URL.Path, "/cp/") {
 			c.Next()
 			return
