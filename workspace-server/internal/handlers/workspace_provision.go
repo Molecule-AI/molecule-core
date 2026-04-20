@@ -187,6 +187,36 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 	// which transitions status to 'online' and broadcasts WORKSPACE_ONLINE
 }
 
+// seedInitialMemories inserts a list of MemorySeed entries into agent_memories
+// for the given workspace. Called during workspace creation and org import to
+// pre-populate memories from config/template. Non-fatal: each insert is
+// attempted independently and failures are logged. Issue #1050.
+func seedInitialMemories(ctx context.Context, workspaceID string, memories []models.MemorySeed, awarenessNamespace string) {
+	if len(memories) == 0 {
+		return
+	}
+	for _, mem := range memories {
+		scope := strings.ToUpper(mem.Scope)
+		if scope == "" {
+			scope = "LOCAL"
+		}
+		if scope != "LOCAL" && scope != "TEAM" && scope != "GLOBAL" {
+			log.Printf("seedInitialMemories: skipping memory for %s — invalid scope %q", workspaceID, scope)
+			continue
+		}
+		if mem.Content == "" {
+			continue
+		}
+		if _, err := db.DB.ExecContext(ctx, `
+			INSERT INTO agent_memories (workspace_id, content, scope, namespace)
+			VALUES ($1, $2, $3, $4)
+		`, workspaceID, mem.Content, scope, awarenessNamespace); err != nil {
+			log.Printf("seedInitialMemories: failed to insert memory for %s (scope=%s): %v", workspaceID, scope, err)
+		}
+	}
+	log.Printf("seedInitialMemories: seeded %d memories for workspace %s", len(memories), workspaceID)
+}
+
 func workspaceAwarenessNamespace(workspaceID string) string {
 	return fmt.Sprintf("workspace:%s", workspaceID)
 }
@@ -439,12 +469,12 @@ func (h *WorkspaceHandler) ensureDefaultConfig(workspaceID string, payload model
 	// Model always at top level — config.py reads raw["model"] for all runtimes.
 	configYAML += fmt.Sprintf("model: %s\n", quoteModel)
 
-	// Add required_env based on runtime — preflight checks these are set via secrets API.
+	// Add runtime_config. required_env is intentionally omitted — the
+	// platform injects secrets at container-start time via the secrets API,
+	// and preflight already validates that the env vars are present before
+	// the agent loop starts.  Hardcoding token names here caused #1028
+	// (expired CLAUDE_CODE_OAUTH_TOKEN baked into config.yaml).
 	switch runtime {
-	case "claude-code":
-		configYAML += "runtime_config:\n  required_env:\n    - CLAUDE_CODE_OAUTH_TOKEN\n  timeout: 0\n"
-	case "codex":
-		configYAML += "runtime_config:\n  required_env:\n    - OPENAI_API_KEY\n  timeout: 0\n"
 	case "langgraph", "deepagents":
 		// These runtimes read API keys from env directly, no runtime_config needed.
 	default:

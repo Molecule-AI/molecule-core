@@ -53,7 +53,14 @@ set -euo pipefail
 PLATFORM_URL="${PLATFORM_URL:-http://platform:8080}"
 CONFIGS_DIR="${CONFIGS_DIR:-/configs}"
 TOKEN_FILE="${CONFIGS_DIR}/.auth_token"
-ENDPOINT="${PLATFORM_URL}/admin/github-installation-token"
+# #1068: use workspace-scoped path (WorkspaceAuth) instead of admin path
+# (AdminAuth rejects workspace bearer tokens since PR #729).
+WORKSPACE_ID="${WORKSPACE_ID:-}"
+if [ -n "$WORKSPACE_ID" ]; then
+    ENDPOINT="${PLATFORM_URL}/workspaces/${WORKSPACE_ID}/github-installation-token"
+else
+    ENDPOINT="${PLATFORM_URL}/admin/github-installation-token"
+fi
 
 # _fetch_token — internal helper; also callable directly from cron.
 # Outputs the raw token string on success; exits non-zero on failure.

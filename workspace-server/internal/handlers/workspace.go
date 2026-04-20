@@ -209,6 +209,10 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		log.Printf("Create: canvas layout insert failed for %s (workspace will appear at 0,0): %v", id, err)
 	}
 
+	// Seed initial memories from the create payload (issue #1050).
+	// Non-fatal: failures are logged but don't block workspace creation.
+	seedInitialMemories(ctx, id, payload.InitialMemories, awarenessNamespace)
+
 	// Broadcast provisioning event
 	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, map[string]interface{}{
 		"name": payload.Name,
@@ -802,6 +806,12 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 		 WHERE workspace_id = ANY($1::uuid[]) AND revoked_at IS NULL`,
 		pq.Array(allIDs)); err != nil {
 		log.Printf("Delete token revocation error for %s: %v", id, err)
+	}
+	// Disable schedules for removed workspaces (#1027)
+	if _, err := db.DB.ExecContext(ctx,
+		`UPDATE workspace_schedules SET enabled = false WHERE workspace_id = ANY($1::uuid[])`,
+		pq.Array(allIDs)); err != nil {
+		log.Printf("Delete schedule disable error for %s: %v", id, err)
 	}
 
 	// Now stop containers + remove volumes for all descendants (any depth).

@@ -20,7 +20,8 @@ import (
 type CPProvisioner struct {
 	baseURL      string
 	orgID        string
-	sharedSecret string // bearer passed to CP's /cp/workspaces/* gate
+	sharedSecret string // Authorization: Bearer — platform-wide gate
+	adminToken   string // X-Molecule-Admin-Token — per-tenant identity (controlplane #118/#130)
 	httpClient   *http.Client
 }
 
@@ -40,30 +41,47 @@ func NewCPProvisioner() (*CPProvisioner, error) {
 		baseURL = "https://api.moleculesai.app"
 	}
 
-	// CP gates /cp/workspaces/* behind a bearer check (C1). Without the
-	// shared secret the CP returns 401 — or 404 if the routes refused
-	// to mount on its side. Tenant operators should set this on the
-	// tenant env to the same value as the CP's PROVISION_SHARED_SECRET.
+	// CP gates /cp/workspaces/* behind two credentials now:
+	//   1. Shared secret (Authorization: Bearer) — gates the route at
+	//      the router level, proves the caller is a tenant platform.
+	//   2. Admin token (X-Molecule-Admin-Token) — proves WHICH tenant.
+	//      Introduced in controlplane #118/#130 to prevent cross-tenant
+	//      provisioning when the shared secret leaks from one tenant.
 	sharedSecret := os.Getenv("MOLECULE_CP_SHARED_SECRET")
 	if sharedSecret == "" {
 		// Fall back to PROVISION_SHARED_SECRET so a single env-var name
 		// works on both sides of the wire.
 		sharedSecret = os.Getenv("PROVISION_SHARED_SECRET")
 	}
+	// ADMIN_TOKEN is injected into the tenant container at provision
+	// time by the control plane (see provisioner/ec2.go Secrets Manager
+	// bootstrap path). Without it, post-#118 CP rejects every
+	// /cp/workspaces/* call with 401.
+	adminToken := os.Getenv("ADMIN_TOKEN")
 
 	return &CPProvisioner{
 		baseURL:      baseURL,
 		orgID:        orgID,
 		sharedSecret: sharedSecret,
+		adminToken:   adminToken,
 		httpClient:   &http.Client{Timeout: 120 * time.Second},
 	}, nil
 }
 
-// authHeader sets Authorization: Bearer on the outbound request. No-op
-// when sharedSecret is empty so self-hosted / dev deployments still work.
-func (p *CPProvisioner) authHeader(req *http.Request) {
+// authHeaders sets both auth headers on the outbound request:
+//   - Authorization: Bearer <shared secret> — platform gate
+//   - X-Molecule-Admin-Token: <per-tenant token> — identity gate
+//
+// Either is a no-op when its value is empty so self-hosted / dev
+// deployments without a real CP still work (those don't hit a CP that
+// enforces either gate). In prod both are set by the controlplane
+// bootstrap, so both headers land on every outbound call.
+func (p *CPProvisioner) authHeaders(req *http.Request) {
 	if p.sharedSecret != "" {
 		req.Header.Set("Authorization", "Bearer "+p.sharedSecret)
+	}
+	if p.adminToken != "" {
+		req.Header.Set("X-Molecule-Admin-Token", p.adminToken)
 	}
 }
 
@@ -105,7 +123,7 @@ func (p *CPProvisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string,
 		return "", fmt.Errorf("cp provisioner: create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	p.authHeader(httpReq)
+	p.authHeaders(httpReq)
 
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
@@ -140,7 +158,7 @@ func (p *CPProvisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string,
 func (p *CPProvisioner) Stop(ctx context.Context, workspaceID string) error {
 	url := fmt.Sprintf("%s/cp/workspaces/%s?instance_id=%s", p.baseURL, workspaceID, workspaceID)
 	req, _ := http.NewRequestWithContext(ctx, "DELETE", url, nil)
-	p.authHeader(req)
+	p.authHeaders(req)
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("cp provisioner: stop: %w", err)
@@ -153,7 +171,7 @@ func (p *CPProvisioner) Stop(ctx context.Context, workspaceID string) error {
 func (p *CPProvisioner) IsRunning(ctx context.Context, workspaceID string) (bool, error) {
 	url := fmt.Sprintf("%s/cp/workspaces/%s/status?instance_id=%s", p.baseURL, workspaceID, workspaceID)
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
-	p.authHeader(req)
+	p.authHeaders(req)
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return false, err
