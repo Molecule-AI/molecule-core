@@ -39,26 +39,49 @@ func TestNewCPProvisioner_FallsBackToProvisionSharedSecret(t *testing.T) {
 	}
 }
 
-// TestAuthHeader_NoopWhenSecretEmpty — the self-hosted path that
-// doesn't gate /cp/workspaces/* must not add a stray Authorization
-// header (bearer-like content would be surprising to non-bearer
-// intermediaries).
-func TestAuthHeader_NoopWhenSecretEmpty(t *testing.T) {
-	p := &CPProvisioner{sharedSecret: ""}
+// TestAuthHeaders_NoopWhenBothEmpty — the self-hosted path that
+// doesn't gate /cp/workspaces/* must not add stray auth headers
+// (bearer-like content would surprise non-bearer intermediaries).
+func TestAuthHeaders_NoopWhenBothEmpty(t *testing.T) {
+	p := &CPProvisioner{sharedSecret: "", adminToken: ""}
 	req := httptest.NewRequest("GET", "http://x/", nil)
-	p.authHeader(req)
+	p.authHeaders(req)
 	if got := req.Header.Get("Authorization"); got != "" {
 		t.Errorf("Authorization set to %q with empty secret; want unset", got)
 	}
+	if got := req.Header.Get("X-Molecule-Admin-Token"); got != "" {
+		t.Errorf("X-Molecule-Admin-Token set to %q with empty token; want unset", got)
+	}
 }
 
-// TestAuthHeader_SetsBearerWhenSecretSet — happy path.
-func TestAuthHeader_SetsBearerWhenSecretSet(t *testing.T) {
-	p := &CPProvisioner{sharedSecret: "the-secret"}
+// TestAuthHeaders_SetsBothWhenBothProvided — happy path for SaaS
+// tenants. Both the platform-wide shared secret and the per-tenant
+// admin_token land on every outbound call.
+func TestAuthHeaders_SetsBothWhenBothProvided(t *testing.T) {
+	p := &CPProvisioner{sharedSecret: "the-secret", adminToken: "tok-abc"}
 	req := httptest.NewRequest("GET", "http://x/", nil)
-	p.authHeader(req)
+	p.authHeaders(req)
 	if got := req.Header.Get("Authorization"); got != "Bearer the-secret" {
 		t.Errorf("Authorization = %q, want %q", got, "Bearer the-secret")
+	}
+	if got := req.Header.Get("X-Molecule-Admin-Token"); got != "tok-abc" {
+		t.Errorf("X-Molecule-Admin-Token = %q, want tok-abc", got)
+	}
+}
+
+// TestAuthHeaders_OnlyAdminTokenWhenSecretEmpty — in the transition
+// window where the tenant has admin_token but PROVISION_SHARED_SECRET
+// isn't set, still send the admin token. CP middleware decides whether
+// the shared secret is required.
+func TestAuthHeaders_OnlyAdminTokenWhenSecretEmpty(t *testing.T) {
+	p := &CPProvisioner{sharedSecret: "", adminToken: "tok-abc"}
+	req := httptest.NewRequest("GET", "http://x/", nil)
+	p.authHeaders(req)
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("Authorization = %q, want unset", got)
+	}
+	if got := req.Header.Get("X-Molecule-Admin-Token"); got != "tok-abc" {
+		t.Errorf("X-Molecule-Admin-Token = %q, want tok-abc", got)
 	}
 }
 
