@@ -385,6 +385,14 @@ func (h *WorkspaceHandler) resolveAgentURL(ctx context.Context, workspaceID stri
 	if strings.HasPrefix(agentURL, "http://127.0.0.1:") && h.provisioner != nil && platformInDocker {
 		agentURL = provisioner.InternalURL(workspaceID)
 	}
+	// SSRF defence: reject private/metadata URLs before making outbound call.
+	if err := isSafeURL(agentURL); err != nil {
+		log.Printf("ProxyA2A: unsafe URL for workspace %s: %v", workspaceID, err)
+		return "", &proxyA2AError{
+			Status:   http.StatusBadGateway,
+			Response: gin.H{"error": "workspace URL is not publicly routable"},
+		}
+	}
 	return agentURL, nil
 }
 
