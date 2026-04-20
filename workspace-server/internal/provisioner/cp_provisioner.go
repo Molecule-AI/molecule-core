@@ -168,17 +168,31 @@ func (p *CPProvisioner) Stop(ctx context.Context, workspaceID string) error {
 }
 
 // IsRunning checks workspace EC2 instance state via the control plane.
+//
+// Contract:
+//   - transport error → (false, error)
+//   - non-2xx HTTP response → (false, error). Previously swallowed;
+//     a CP 500 would return (false, nil) and the sweeper couldn't
+//     distinguish "workspace stopped" from "CP broken".
+//   - 2xx with state!="running" → (false, nil)
+//   - 2xx with state=="running" → (true, nil)
 func (p *CPProvisioner) IsRunning(ctx context.Context, workspaceID string) (bool, error) {
 	url := fmt.Sprintf("%s/cp/workspaces/%s/status?instance_id=%s", p.baseURL, workspaceID, workspaceID)
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	p.authHeaders(req)
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("cp provisioner: status: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// Don't leak the body — upstream errors may echo headers.
+		return false, fmt.Errorf("cp provisioner: status: unexpected %d", resp.StatusCode)
+	}
 	var result struct{ State string `json:"state"` }
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false, fmt.Errorf("cp provisioner: status decode: %w", err)
+	}
 	return result.State == "running", nil
 }
 
