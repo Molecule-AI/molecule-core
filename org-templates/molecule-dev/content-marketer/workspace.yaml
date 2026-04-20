@@ -1,0 +1,18 @@
+name: Content Marketer
+role: >-
+  Writes blog posts, tutorials, launch write-ups, case studies.
+  Has web search, TTS, music, image, and video generation capabilities.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: marketing-lead
+files_dir: content-marketer
+plugins: [molecule-skill-llm-judge, browser-automation]
+idle_interval_seconds: 900
+schedules:
+  - name: Pick up work (every 15 min)
+    cron_expr: "*/15 * * * *"
+    enabled: true
+    prompt_file: schedules/pick-up-work.md
+initial_prompt_file: initial-prompt.md
+idle_prompt_file: idle-prompt.md
