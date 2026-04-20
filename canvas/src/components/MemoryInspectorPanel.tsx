@@ -6,26 +6,24 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface MemoryEntry {
-  key: string;
-  value: unknown;
-  version: number;
-  /** Omitted by the API when there is no TTL (Go omitempty) */
-  expires_at?: string;
-  updated_at: string;
+/** Memory entry returned by GET /workspaces/:id/memories */
+export interface MemoryEntry {
+  id: string;
+  workspace_id: string;
+  content: string;
+  scope: "LOCAL" | "TEAM" | "GLOBAL";
+  namespace: string;
+  created_at: string;
   /**
    * Semantic similarity score (0–1). Only present when the API is queried
-   * with ?q=<query> and the pgvector backend has been deployed (issue #776).
+   * with ?q=<query> and the pgvector backend has been deployed.
    * Absent on plain list fetches — renders gracefully without a badge.
    */
   similarity_score?: number;
 }
 
-interface WriteResult {
-  status: string;
-  key: string;
-  version: number;
-}
+type Scope = "LOCAL" | "TEAM" | "GLOBAL";
+const SCOPES: Scope[] = ["LOCAL", "TEAM", "GLOBAL"];
 
 interface Props {
   workspaceId: string;
@@ -34,16 +32,10 @@ interface Props {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * Sanitise a memory key for use in an HTML id attribute.
- * HTML IDs must not contain whitespace; many non-alphanumeric characters also
- * cause selector or ARIA failures. Replace every non-alphanumeric character
- * with a hyphen, collapse consecutive hyphens, then strip leading/trailing ones.
+ * Sanitise a memory id for use in an HTML id attribute.
  */
-function sanitizeId(key: string): string {
-  return key
-    .replace(/[^a-zA-Z0-9]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+function sanitizeId(id: string): string {
+  return id.replace(/[^a-zA-Z0-9]/g, "-");
 }
 
 function formatRelativeTime(iso: string): string {
@@ -54,7 +46,7 @@ function formatRelativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-// ── Skeleton rows — shown during re-fetches when entries already exist ────────
+// ── Skeleton rows ──────────────────────────────────────────────────────────────
 
 function MemorySkeletonRows() {
   return (
@@ -79,20 +71,16 @@ function MemorySkeletonRows() {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function MemoryInspectorPanel({ workspaceId }: Props) {
+  const [activeScope, setActiveScope] = useState<Scope>("LOCAL");
+  const [activeNamespace, setActiveNamespace] = useState("");
   const [entries, setEntries] = useState<MemoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // ── Search state ────────────────────────────────────────────────────────────
-  /** Raw input value — updated on every keystroke. */
+  // ── Search state (debounced) ────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
-  /**
-   * Debounced value — drives the API fetch.
-   * Lags searchQuery by 300 ms to avoid hammering the endpoint on every key.
-   */
   const [debouncedQuery, setDebouncedQuery] = useState("");
 
-  // 300 ms debounce: cancel previous timer whenever searchQuery changes.
   useEffect(() => {
     const timer = setTimeout(
       () => setDebouncedQuery(searchQuery.trim()),
@@ -101,14 +89,8 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // ── Expand/edit/delete state (keyed by entry.key — primitives, no new objects)
-
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
-  const [editingKey, setEditingKey] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState("");
-  const [editError, setEditError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [pendingDeleteKey, setPendingDeleteKey] = useState<string | null>(null);
+  // ── Delete state ─────────────────────────────────────────────────────────────
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
@@ -116,12 +98,15 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const url = debouncedQuery
-        ? `/workspaces/${workspaceId}/memory?q=${encodeURIComponent(debouncedQuery)}`
-        : `/workspaces/${workspaceId}/memory`;
+      const params = new URLSearchParams();
+      params.set("scope", activeScope);
+      if (debouncedQuery) params.set("q", debouncedQuery);
+      if (activeNamespace) params.set("namespace", activeNamespace);
+
+      const url = `/workspaces/${workspaceId}/memories?${params.toString()}`;
       const data = await api.get<MemoryEntry[]>(url);
+
       // When a semantic query is active, sort by similarity_score descending.
-      // Entries without a score (older backend) fall to the end gracefully.
       const sorted = debouncedQuery
         ? [...data].sort(
             (a, b) => (b.similarity_score ?? 0) - (a.similarity_score ?? 0)
@@ -129,123 +114,70 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
         : data;
       setEntries(sorted);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load memory entries");
+      setError(e instanceof Error ? e.message : "Failed to load memories");
       setEntries([]);
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, debouncedQuery]);
+  }, [workspaceId, activeScope, debouncedQuery, activeNamespace]);
 
   useEffect(() => {
     loadEntries();
   }, [loadEntries]);
 
-  // ── Edit handlers ───────────────────────────────────────────────────────────
-
-  const startEdit = useCallback((entry: MemoryEntry) => {
-    setEditingKey(entry.key);
-    setEditValue(JSON.stringify(entry.value, null, 2));
-    setEditError(null);
-  }, []);
-
-  const cancelEdit = useCallback(() => {
-    setEditingKey(null);
-    setEditValue("");
-    setEditError(null);
-  }, []);
-
-  const saveEdit = useCallback(
-    async (entry: MemoryEntry) => {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(editValue);
-      } catch {
-        setEditError("Invalid JSON — fix the syntax before saving");
-        return;
-      }
-
-      setSaving(true);
-      setEditError(null);
-
-      // Optimistic update — capture rollback snapshot before mutating
-      const snapshot = entries;
-      setEntries((prev) =>
-        prev.map((e) =>
-          e.key === entry.key
-            ? {
-                ...e,
-                value: parsed,
-                version: e.version + 1,
-                updated_at: new Date().toISOString(),
-              }
-            : e
-        )
-      );
-      setEditingKey(null);
-      setEditValue("");
-
-      try {
-        await api.post<WriteResult>(`/workspaces/${workspaceId}/memory`, {
-          key: entry.key,
-          value: parsed,
-          if_match_version: entry.version,
-        });
-      } catch (e) {
-        // Roll back optimistic update on any error
-        setEntries(snapshot);
-        setEditingKey(entry.key);
-        setEditValue(JSON.stringify(entry.value, null, 2));
-        const msg = e instanceof Error ? e.message : "Save failed";
-        if (msg.includes("409") || msg.toLowerCase().includes("mismatch")) {
-          setEditError(
-            "Version conflict — entry changed elsewhere. Reload to see latest."
-          );
-        } else {
-          setEditError(msg);
-        }
-      } finally {
-        setSaving(false);
-      }
-    },
-    [entries, editValue, workspaceId]
-  );
-
   // ── Delete handlers ─────────────────────────────────────────────────────────
 
   const confirmDelete = useCallback(async () => {
-    if (!pendingDeleteKey) return;
-    const key = pendingDeleteKey;
-    setPendingDeleteKey(null);
+    if (!pendingDeleteId) return;
+    const id = pendingDeleteId;
+    setPendingDeleteId(null);
 
     // Optimistic removal
-    setEntries((prev) => prev.filter((e) => e.key !== key));
-    if (expandedKey === key) setExpandedKey(null);
+    setEntries((prev) => prev.filter((e) => e.id !== id));
 
     try {
-      await api.del(
-        `/workspaces/${workspaceId}/memory/${encodeURIComponent(key)}`
-      );
+      await api.del(`/workspaces/${workspaceId}/memories/${encodeURIComponent(id)}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Delete failed — reloading...");
       await loadEntries();
     }
-  }, [pendingDeleteKey, expandedKey, workspaceId, loadEntries]);
+  }, [pendingDeleteId, workspaceId, loadEntries]);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
-  // Full-screen loader — only on the very first fetch (no entries cached yet).
   if (loading && entries.length === 0 && !error) {
     return (
       <div className="flex items-center justify-center h-32">
-        <span className="text-xs text-zinc-500">Loading memory…</span>
+        <span className="text-xs text-zinc-500">Loading memories…</span>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col h-full">
-      {/* Search bar */}
+      {/* Scope tabs */}
       <div className="px-4 pt-3 pb-2 border-b border-zinc-800/40 shrink-0">
+        <div className="flex items-center gap-1">
+          {SCOPES.map((scope) => (
+            <button
+              key={scope}
+              onClick={() => setActiveScope(scope)}
+              aria-pressed={activeScope === scope}
+              className={[
+                "px-3 py-1 text-[11px] rounded transition-colors",
+                activeScope === scope
+                  ? "bg-blue-600 text-white"
+                  : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200",
+              ].join(" ")}
+            >
+              {scope}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Search bar + namespace filter */}
+      <div className="px-4 pt-3 pb-2 border-b border-zinc-800/40 shrink-0 space-y-2">
         <div className="relative flex items-center">
           {/* Magnifying glass icon */}
           <svg
@@ -264,15 +196,13 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Semantic search…"
-            aria-label="Search memory entries"
+            aria-label="Search memories"
             className="w-full bg-zinc-900 border border-zinc-700/60 focus:border-blue-500/60 rounded-lg pl-8 pr-7 py-1.5 text-[11px] text-zinc-200 placeholder-zinc-600 focus:outline-none transition-colors"
           />
-          {/* Clear button — only shown when there is a query */}
           {searchQuery && (
             <button
               onClick={() => {
                 setSearchQuery("");
-                // Skip the debounce delay for clear — reset immediately
                 setDebouncedQuery("");
               }}
               aria-label="Clear search"
@@ -282,6 +212,22 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
             </button>
           )}
         </div>
+
+        {/* Namespace filter */}
+        <div className="flex items-center gap-2">
+          <label htmlFor="namespace-filter" className="text-[10px] text-zinc-500 shrink-0">
+            Namespace:
+          </label>
+          <input
+            id="namespace-filter"
+            type="text"
+            value={activeNamespace}
+            onChange={(e) => setActiveNamespace(e.target.value)}
+            placeholder="all namespaces"
+            aria-label="Filter by namespace"
+            className="flex-1 bg-zinc-900 border border-zinc-700/60 focus:border-blue-500/60 rounded px-2 py-1 text-[11px] text-zinc-200 placeholder-zinc-600 focus:outline-none transition-colors min-w-0"
+          />
+        </div>
       </div>
 
       {/* Toolbar */}
@@ -290,13 +236,13 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
           {debouncedQuery
             ? `${entries.length} result${entries.length !== 1 ? "s" : ""}`
             : entries.length === 1
-            ? "1 entry"
-            : `${entries.length} entries`}
+            ? "1 memory"
+            : `${entries.length} memories`}
         </span>
         <button
           onClick={loadEntries}
           className="px-2 py-1 text-[11px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded transition-colors"
-          aria-label="Refresh memory entries"
+          aria-label="Refresh memories"
         >
           ↻ Refresh
         </button>
@@ -316,11 +262,9 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
         {loading ? (
-          /* Skeleton rows — visible during search-transition re-fetches */
           <MemorySkeletonRows />
         ) : entries.length === 0 ? (
           debouncedQuery ? (
-            /* Search-specific empty state */
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
               <span className="text-4xl text-zinc-700" aria-hidden="true">◇</span>
               <p className="text-sm font-medium text-zinc-400">
@@ -341,56 +285,40 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
               </p>
             </div>
           ) : (
-            /* Default empty state */
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
               <span className="text-4xl text-zinc-700" aria-hidden="true">◇</span>
-              <p className="text-sm font-medium text-zinc-400">No memory entries yet</p>
+              <p className="text-sm font-medium text-zinc-400">No {activeScope} memories</p>
               <p className="text-[11px] text-zinc-600 max-w-[200px] leading-relaxed">
-                Memory entries will appear here when the workspace writes to its KV
-                store.
+                {activeScope === "LOCAL"
+                  ? "This workspace has not written any local memories yet."
+                  : activeScope === "TEAM"
+                  ? "No team memories shared with this workspace yet."
+                  : "No global memories exist yet."}
               </p>
             </div>
           )
         ) : (
           <div className="space-y-1.5">
-            {entries.map((entry) => {
-              const isExpanded = expandedKey === entry.key;
-              const isEditing = editingKey === entry.key;
-              return (
-                <MemoryEntryRow
-                  key={entry.key}
-                  entry={entry}
-                  isExpanded={isExpanded}
-                  isEditing={isEditing}
-                  editValue={editValue}
-                  editError={editError}
-                  saving={saving}
-                  onToggle={() => {
-                    const next = isExpanded ? null : entry.key;
-                    setExpandedKey(next);
-                    if (!next && isEditing) cancelEdit();
-                  }}
-                  onEditValueChange={setEditValue}
-                  onStartEdit={() => startEdit(entry)}
-                  onSave={() => saveEdit(entry)}
-                  onCancelEdit={cancelEdit}
-                  onDelete={() => setPendingDeleteKey(entry.key)}
-                />
-              );
-            })}
+            {entries.map((entry) => (
+              <MemoryEntryRow
+                key={entry.id}
+                entry={entry}
+                onDelete={() => setPendingDeleteId(entry.id)}
+              />
+            ))}
           </div>
         )}
       </div>
 
       {/* Delete confirmation dialog */}
       <ConfirmDialog
-        open={pendingDeleteKey !== null}
-        title="Delete memory entry"
-        message={`Delete key "${pendingDeleteKey}"? This cannot be undone.`}
+        open={pendingDeleteId !== null}
+        title="Delete memory"
+        message={`Delete this ${activeScope} memory? This cannot be undone.`}
         confirmLabel="Delete"
         confirmVariant="danger"
         onConfirm={confirmDelete}
-        onCancel={() => setPendingDeleteKey(null)}
+        onCancel={() => setPendingDeleteId(null)}
       />
     </div>
   );
@@ -400,155 +328,97 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
 
 interface MemoryEntryRowProps {
   entry: MemoryEntry;
-  isExpanded: boolean;
-  isEditing: boolean;
-  editValue: string;
-  editError: string | null;
-  saving: boolean;
-  onToggle: () => void;
-  onEditValueChange: (v: string) => void;
-  onStartEdit: () => void;
-  onSave: () => void;
-  onCancelEdit: () => void;
   onDelete: () => void;
 }
 
-function MemoryEntryRow({
-  entry,
-  isExpanded,
-  isEditing,
-  editValue,
-  editError,
-  saving,
-  onToggle,
-  onEditValueChange,
-  onStartEdit,
-  onSave,
-  onCancelEdit,
-  onDelete,
-}: MemoryEntryRowProps) {
-  const bodyId = `mem-body-${sanitizeId(entry.key)}`;
+function MemoryEntryRow({ entry, onDelete }: MemoryEntryRowProps) {
+  const [expanded, setExpanded] = useState(false);
+  const bodyId = `mem-body-${sanitizeId(entry.id)}`;
+
   return (
     <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/50 overflow-hidden">
-      {/* Header row — click to expand/collapse */}
+      {/* Header row */}
       <button
         className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-zinc-800/30 transition-colors"
-        onClick={onToggle}
-        aria-expanded={isExpanded}
+        onClick={() => setExpanded((prev) => !prev)}
+        aria-expanded={expanded}
         aria-controls={bodyId}
       >
-        <span className="text-[10px] font-mono text-blue-400 truncate flex-1 min-w-0">
-          {entry.key}
+        {/* Scope badge */}
+        <span
+          className={[
+            "text-[9px] shrink-0 font-mono px-1 py-0.5 rounded",
+            entry.scope === "LOCAL"
+              ? "bg-zinc-700 text-zinc-400"
+              : entry.scope === "TEAM"
+              ? "bg-blue-950 text-blue-400"
+              : "bg-violet-950 text-violet-400",
+          ].join(" ")}
+          title={`Scope: ${entry.scope}`}
+        >
+          {entry.scope[0]}
         </span>
-        <span className="text-[9px] text-zinc-600 shrink-0 font-mono">
-          v{entry.version}
+
+        {/* Namespace tag */}
+        <span className="text-[9px] shrink-0 font-mono text-zinc-500 truncate max-w-[80px]" title={entry.namespace}>
+          {entry.namespace}
         </span>
-        {/* Similarity score badge — only rendered when backend provides a score */}
+
+        {/* Content preview */}
+        <span className="flex-1 min-w-0 text-[10px] font-mono text-zinc-300 truncate text-left">
+          {entry.content.length > 60 ? entry.content.slice(0, 60) + "…" : entry.content}
+        </span>
+
+        {/* Similarity badge */}
         {entry.similarity_score != null && (
           <span
             className={[
               "text-[9px] shrink-0 font-mono tabular-nums",
               entry.similarity_score >= 0.8
                 ? "text-blue-500"
-                : entry.similarity_score >= 0.5
-                ? "text-zinc-400"
-                : "text-zinc-400 italic",
+                : "text-zinc-400",
             ].join(" ")}
             title={`Similarity: ${(entry.similarity_score * 100).toFixed(1)}%`}
             data-testid="similarity-badge"
           >
-            {entry.similarity_score < 0.5 ? "~" : ""}{Math.round(entry.similarity_score * 100)}%
+            {Math.round(entry.similarity_score * 100)}%
           </span>
         )}
+
         <span className="text-[9px] text-zinc-600 shrink-0">
-          {formatRelativeTime(entry.updated_at)}
+          {formatRelativeTime(entry.created_at)}
         </span>
         <span className="text-[9px] text-zinc-500 shrink-0" aria-hidden="true">
-          {isExpanded ? "▼" : "▶"}
+          {expanded ? "▼" : "▶"}
         </span>
       </button>
 
       {/* Expanded body */}
-      {isExpanded && (
+      {expanded && (
         <div
           id={bodyId}
           role="region"
-          aria-label={`Details for ${entry.key}`}
+          aria-label="Memory details"
           className="border-t border-zinc-800/50 px-3 pb-3 pt-2 space-y-2"
         >
-          {entry.expires_at && (
-            <p className="text-[9px] text-zinc-500">
-              Expires: {new Date(entry.expires_at).toLocaleString()}
-            </p>
-          )}
-
-          {isEditing ? (
-            /* Edit mode */
-            <div className="space-y-2">
-              <textarea
-                value={editValue}
-                onChange={(e) => onEditValueChange(e.target.value)}
-                rows={6}
-                aria-label="Edit memory value"
-                className="w-full bg-zinc-950 border border-zinc-700 focus:border-blue-500 rounded px-2 py-1.5 text-[11px] font-mono text-zinc-100 focus:outline-none resize-none transition-colors"
-              />
-              {editError && (
-                <p role="alert" aria-live="assertive" className="text-[10px] text-red-400">
-                  {editError}
-                </p>
-              )}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={onSave}
-                  disabled={saving}
-                  className="px-3 py-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-xs rounded text-white transition-colors"
-                >
-                  {saving ? "Saving…" : "Save"}
-                </button>
-                <button
-                  onClick={onCancelEdit}
-                  disabled={saving}
-                  className="px-3 py-1 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-xs rounded text-zinc-300 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            /* Read mode */
-            <div className="space-y-2">
-              <pre className="text-[10px] font-mono text-zinc-300 bg-zinc-950 rounded p-2 overflow-x-auto max-h-48 whitespace-pre-wrap break-all">
-                {JSON.stringify(entry.value, null, 2)}
-              </pre>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[9px] text-zinc-600">
-                  Updated: {new Date(entry.updated_at).toLocaleString()}
-                </span>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onStartEdit();
-                    }}
-                    aria-label={`Edit ${entry.key}`}
-                    className="text-[10px] px-2 py-0.5 bg-zinc-700 hover:bg-zinc-600 rounded text-zinc-300 transition-colors"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDelete();
-                    }}
-                    aria-label={`Delete ${entry.key}`}
-                    className="text-[10px] px-2 py-0.5 bg-red-950/40 hover:bg-red-900/50 border border-red-900/30 rounded text-red-400 transition-colors"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          <pre className="text-[10px] font-mono text-zinc-300 bg-zinc-950 rounded p-2 overflow-x-auto max-h-48 whitespace-pre-wrap break-all">
+            {entry.content}
+          </pre>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[9px] text-zinc-600">
+              Created: {new Date(entry.created_at).toLocaleString()}
+            </span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              aria-label="Delete memory"
+              className="text-[10px] px-2 py-0.5 bg-red-950/40 hover:bg-red-900/50 border border-red-900/30 rounded text-red-400 transition-colors shrink-0"
+            >
+              Delete
+            </button>
+          </div>
         </div>
       )}
     </div>
