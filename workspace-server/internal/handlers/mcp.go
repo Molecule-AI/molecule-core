@@ -735,16 +735,10 @@ func (h *MCPHandler) toolCommitMemory(ctx context.Context, workspaceID string, a
 	}
 
 	memoryID := uuid.New().String()
-	// SAFE-T1201 (#838): scrub known credential patterns before persistence so
-	// plain-text API keys pulled in via tool responses can't land in the
-	// memories table (and leak into shared TEAM scope). Reuses redactSecrets
-	// already shipped for the HTTP path in PR #881 — this was the MCP-bridge
-	// sibling the original fix missed. Runs on every write regardless of scope.
-	content, _ = redactSecrets(workspaceID, content)
 	_, err := h.database.ExecContext(ctx, `
 		INSERT INTO agent_memories (id, workspace_id, content, scope, namespace)
 		VALUES ($1, $2, $3, $4, $5)
-	`, memoryID, workspaceID, content, scope, workspaceID)
+	`, memoryID, workspaceID, redactSecrets(content), scope, workspaceID)
 	if err != nil {
 		log.Printf("MCPHandler.commit_memory workspace=%s: %v", workspaceID, err)
 		return "", fmt.Errorf("failed to save memory")
