@@ -131,10 +131,8 @@ Full API reference: `docs/api-reference.md`.
 Both unlock the same surface; the key is just the non-browser
 equivalent.
 
-## What's coming
+## Current limits
 
-Scoped roles (READ / WORKSPACE-WRITE / ORG-ADMIN), expiry timers,
-per-workspace bindings, and usage metrics are on the roadmap. See
-`docs/architecture/org-api-keys-followups.md`. For now every key
-is full-admin by design — trading scope granularity for beta
-shipping speed.
+Every key is full-admin. Scoped roles (read-only / workspace-
+write / admin), per-workspace bindings, and expiry are not yet
+supported — treat every key as equivalent to being logged in.
