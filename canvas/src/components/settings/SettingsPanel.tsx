@@ -7,6 +7,7 @@ import { useSecretsStore } from '@/stores/secrets-store';
 import { useKeyboardShortcut } from '@/hooks/use-keyboard-shortcut';
 import { SecretsTab } from './SecretsTab';
 import { TokensTab } from './TokensTab';
+import { OrgTokensTab } from './OrgTokensTab';
 import { UnsavedChangesGuard } from './UnsavedChangesGuard';
 
 /** Module-level ref so TopBar's SettingsButton can receive focus back on close. */
@@ -110,7 +111,10 @@ export function SettingsPanel({ workspaceId }: SettingsPanelProps) {
                   Secrets
                 </Tabs.Trigger>
                 <Tabs.Trigger value="tokens" className="settings-panel__tab">
-                  API Tokens
+                  Workspace Tokens
+                </Tabs.Trigger>
+                <Tabs.Trigger value="org-tokens" className="settings-panel__tab">
+                  Org API Keys
                 </Tabs.Trigger>
               </Tabs.List>
 
@@ -120,6 +124,10 @@ export function SettingsPanel({ workspaceId }: SettingsPanelProps) {
 
               <Tabs.Content value="tokens" className="settings-panel__content">
                 <TokensTab workspaceId={workspaceId} />
+              </Tabs.Content>
+
+              <Tabs.Content value="org-tokens" className="settings-panel__content">
+                <OrgTokensTab />
               </Tabs.Content>
             </Tabs.Root>
 

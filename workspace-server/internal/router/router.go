@@ -470,6 +470,20 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// #686: GET /org/templates exposes the org template catalogue (names, roles,
 	// configured system prompts). AdminAuth-gate to match /org/import.
 	r.GET("/org/templates", middleware.AdminAuth(db.DB), orgh.ListTemplates)
+
+	// Organization-scoped API tokens — user-facing replacement for
+	// ADMIN_TOKEN. Same AdminAuth gate: you need ADMIN_TOKEN, a
+	// session cookie, OR an existing org token to mint more. That's
+	// bootstrap-friendly (first token from ADMIN_TOKEN or canvas
+	// session) and self-sustaining afterwards (tokens mint tokens).
+	{
+		orgTokenHandler := handlers.NewOrgTokenHandler()
+		orgTokenAdmin := r.Group("", middleware.AdminAuth(db.DB))
+		orgTokenAdmin.GET("/org/tokens", orgTokenHandler.List)
+		orgTokenAdmin.POST("/org/tokens", orgTokenHandler.Create)
+		orgTokenAdmin.DELETE("/org/tokens/:id", orgTokenHandler.Revoke)
+	}
+
 	// /org/import can create arbitrary workspaces from an uploaded YAML — it
 	// must be an admin-gated route. The handler also path-sanitizes
 	// `dir`/`template`/`files_dir` via resolveInsideRoot, but defence-in-
