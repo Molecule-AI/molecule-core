@@ -1,0 +1,16 @@
+name: CP-QA
+role: >-
+  QA for controlplane team. Integration tests, load tests, regression
+  suites for molecule-controlplane and molecule-tenant-proxy.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: cp-lead
+files_dir: cp-qa
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 900
+schedules:
+  - name: QA review (every 15 min)
+    cron_expr: "*/15 * * * *"
+    enabled: true
+    prompt_file: schedules/qa-review.md

@@ -1,0 +1,22 @@
+name: Infra-SRE
+role: >-
+  Site reliability engineer. Monitors service health, alerting, incident
+  response, status page, cloud deployments (Railway, Vercel, EC2, Cloudflare).
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: infra-lead
+files_dir: infra-sre
+plugins: [molecule-hitl, molecule-skill-code-review, molecule-freeze-scope]
+channels:
+  - type: telegram
+    config:
+      bot_token: ${TELEGRAM_BOT_TOKEN}
+      chat_id: ${TELEGRAM_CHAT_ID}
+    enabled: true
+idle_interval_seconds: 900
+schedules:
+  - name: Pick up work (every 15 min)
+    cron_expr: "*/15 * * * *"
+    enabled: true
+    prompt_file: schedules/pick-up-work.md
