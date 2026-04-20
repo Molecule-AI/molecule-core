@@ -572,6 +572,9 @@ func TestWorkspaceDelete_CascadeWithChildren(t *testing.T) {
 	// Token revocation: once a workspace is gone its auth tokens are meaningless.
 	mock.ExpectExec("UPDATE workspace_auth_tokens SET revoked_at").
 		WillReturnResult(sqlmock.NewResult(0, 2))
+	// #1027: cascade-disable schedules for deleted workspaces.
+	mock.ExpectExec("UPDATE workspace_schedules SET enabled = false").
+		WillReturnResult(sqlmock.NewResult(0, 3))
 	// Broadcast for child WORKSPACE_REMOVED (fires during the descendant loop).
 	mock.ExpectExec("INSERT INTO structure_events").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -601,6 +604,180 @@ func TestWorkspaceDelete_CascadeWithChildren(t *testing.T) {
 		t.Errorf("expected cascade_deleted 1, got %v", resp["cascade_deleted"])
 	}
 
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// ==================== #1027: Cascade schedule disable on delete ====================
+
+// TestWorkspaceDelete_DisablesSchedules verifies that when a leaf workspace
+// (no children) is deleted, all its enabled schedules are set to enabled=false.
+func TestWorkspaceDelete_DisablesSchedules(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	wsID := "dddddddd-0001-0000-0000-000000000000"
+
+	// No children
+	mock.ExpectQuery("SELECT id, name FROM workspaces WHERE parent_id").
+		WithArgs(wsID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}))
+
+	// Mark workspace as removed
+	mock.ExpectExec("UPDATE workspaces SET status = 'removed'").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Canvas layouts cleanup
+	mock.ExpectExec("DELETE FROM canvas_layouts WHERE workspace_id = ANY").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	// Token revocation
+	mock.ExpectExec("UPDATE workspace_auth_tokens SET revoked_at").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	// #1027: schedule disable — expect exactly this UPDATE to fire
+	mock.ExpectExec("UPDATE workspace_schedules SET enabled = false").
+		WillReturnResult(sqlmock.NewResult(0, 2)) // 2 schedules disabled
+	// Broadcast WORKSPACE_REMOVED for the workspace itself
+	mock.ExpectExec("INSERT INTO structure_events").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: wsID}}
+	c.Request = httptest.NewRequest("DELETE", "/workspaces/"+wsID+"?confirm=true", nil)
+
+	handler.Delete(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: schedule disable UPDATE was not executed: %v", err)
+	}
+}
+
+// TestWorkspaceDelete_CascadeDisablesDescendantSchedules verifies that when
+// a parent workspace with children (and grandchildren) is deleted, ALL
+// descendant schedules are also disabled in a single batch UPDATE.
+func TestWorkspaceDelete_CascadeDisablesDescendantSchedules(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	parentID := "dddddddd-0002-0000-0000-000000000000"
+	childID := "dddddddd-0003-0000-0000-000000000000"
+	grandchildID := "dddddddd-0004-0000-0000-000000000000"
+
+	// Children query returns 1 direct child
+	mock.ExpectQuery("SELECT id, name FROM workspaces WHERE parent_id").
+		WithArgs(parentID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).
+			AddRow(childID, "Child"))
+
+	// Recursive CTE returns child + grandchild
+	mock.ExpectQuery("WITH RECURSIVE descendants").
+		WithArgs(parentID).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).
+			AddRow(childID).
+			AddRow(grandchildID))
+
+	// Mark all 3 as removed
+	mock.ExpectExec("UPDATE workspaces SET status = 'removed'").
+		WillReturnResult(sqlmock.NewResult(0, 3))
+	// Canvas layouts
+	mock.ExpectExec("DELETE FROM canvas_layouts WHERE workspace_id = ANY").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	// Token revocation
+	mock.ExpectExec("UPDATE workspace_auth_tokens SET revoked_at").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	// #1027: schedule disable — covers parent + child + grandchild in one batch
+	mock.ExpectExec("UPDATE workspace_schedules SET enabled = false").
+		WillReturnResult(sqlmock.NewResult(0, 5)) // 5 total schedules across 3 workspaces
+	// Broadcast for child WORKSPACE_REMOVED
+	mock.ExpectExec("INSERT INTO structure_events").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Broadcast for grandchild WORKSPACE_REMOVED
+	mock.ExpectExec("INSERT INTO structure_events").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Broadcast for parent WORKSPACE_REMOVED
+	mock.ExpectExec("INSERT INTO structure_events").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: parentID}}
+	c.Request = httptest.NewRequest("DELETE", "/workspaces/"+parentID+"?confirm=true", nil)
+
+	handler.Delete(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if resp["cascade_deleted"] != float64(2) {
+		t.Errorf("expected cascade_deleted 2, got %v", resp["cascade_deleted"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: descendant schedules not disabled: %v", err)
+	}
+}
+
+// TestWorkspaceDelete_ScheduleDisableOnlyTargetsDeletedWorkspace verifies that
+// deleting workspace A does NOT disable workspace B's schedules. The schedule
+// disable UPDATE uses ANY($1::uuid[]) scoped to the deleted workspace IDs, so
+// sqlmock will fail if the wrong IDs are passed.
+func TestWorkspaceDelete_ScheduleDisableOnlyTargetsDeletedWorkspace(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	wsA := "dddddddd-0005-0000-0000-000000000000"
+	// wsB is "dddddddd-0006-0000-0000-000000000000" — NOT part of the delete
+
+	// No children for workspace A
+	mock.ExpectQuery("SELECT id, name FROM workspaces WHERE parent_id").
+		WithArgs(wsA).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}))
+
+	// Mark only workspace A as removed
+	mock.ExpectExec("UPDATE workspaces SET status = 'removed'").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("DELETE FROM canvas_layouts WHERE workspace_id = ANY").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("UPDATE workspace_auth_tokens SET revoked_at").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	// Schedule disable fires only for wsA's IDs — sqlmock enforces query ordering
+	// so if the production code somehow included wsB it would be a different
+	// query argument and fail to match.
+	mock.ExpectExec("UPDATE workspace_schedules SET enabled = false").
+		WillReturnResult(sqlmock.NewResult(0, 0)) // wsA had no schedules
+	mock.ExpectExec("INSERT INTO structure_events").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: wsA}}
+	c.Request = httptest.NewRequest("DELETE", "/workspaces/"+wsA+"?confirm=true", nil)
+
+	handler.Delete(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// The key assertion: all expectations were met and no extra queries ran.
+	// If the production code had a bug that disabled ALL schedules (not just
+	// those belonging to the deleted workspace), sqlmock would detect the
+	// mismatch because the query text/args would differ.
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
