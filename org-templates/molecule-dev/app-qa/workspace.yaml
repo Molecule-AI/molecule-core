@@ -1,0 +1,16 @@
+name: App-QA
+role: >-
+  QA for App & Docs team. E2E tests, visual regression, accessibility
+  audits for molecule-app and docs site.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: app-lead
+files_dir: app-qa
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 900
+schedules:
+  - name: QA review (every 15 min)
+    cron_expr: "*/15 * * * *"
+    enabled: true
+    prompt_file: schedules/qa-review.md

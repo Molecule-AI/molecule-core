@@ -1,0 +1,16 @@
+name: Fullstack (floater)
+role: >-
+  Floater engineer. Works on cross-cutting issues spanning multiple repos
+  or teams. Bridges backend + frontend. Overflow capacity for any team.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: dev-lead
+files_dir: fullstack-engineer
+plugins: [molecule-hitl, molecule-skill-code-review, molecule-security-scan, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 900
+schedules:
+  - name: Pick up work (every 15 min)
+    cron_expr: "*/15 * * * *"
+    enabled: true
+    prompt_file: schedules/pick-up-work.md

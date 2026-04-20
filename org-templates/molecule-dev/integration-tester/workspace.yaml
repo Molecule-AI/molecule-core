@@ -1,0 +1,16 @@
+name: Integration Tester
+role: >-
+  Runs cross-repo E2E integration tests. Validates changes across
+  molecule-core, controlplane, tenant-proxy, app, and runtime work together.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: dev-lead
+files_dir: integration-tester
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 900
+schedules:
+  - name: E2E test (every 30 min)
+    cron_expr: "*/30 * * * *"
+    enabled: true
+    prompt_file: schedules/e2e-test.md

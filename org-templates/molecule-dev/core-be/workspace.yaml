@@ -1,0 +1,17 @@
+name: Core-BE
+role: >-
+  Backend engineer for molecule-core. Owns the Go/Gin platform layer:
+  REST handlers, WebSocket hub, workspace provisioner, and A2A proxy.
+  Manages Postgres schema, migrations, Redis pub/sub, heartbeat TTLs.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: core-lead
+files_dir: core-be
+plugins: [molecule-hitl, molecule-skill-code-review, molecule-security-scan, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 900
+schedules:
+  - name: Pick up work (every 15 min)
+    cron_expr: "*/15 * * * *"
+    enabled: true
+    prompt_file: schedules/pick-up-work.md

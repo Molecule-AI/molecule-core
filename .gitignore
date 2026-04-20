@@ -119,7 +119,10 @@ backups/
 # tracked in their own standalone repos. Never commit to core.
 # org-templates live in Molecule-AI/molecule-ai-org-template-* repos.
 # plugins live in Molecule-AI/molecule-ai-plugin-* repos.
-/org-templates/
+# Exception: molecule-dev is checked in so it doubles as the internal-team
+# seed template (not fetched via clone-manifest).
+/org-templates/*
+!/org-templates/molecule-dev/
 /plugins/
 /workspace-configs-templates/
 # Cloned by publish-workspace-server-image.yml so the Dockerfile's

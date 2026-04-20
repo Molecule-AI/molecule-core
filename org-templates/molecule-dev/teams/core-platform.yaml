@@ -1,0 +1,24 @@
+name: Core Platform Lead
+role: >-
+  Core Platform team lead. Owns molecule-core. Triage+merge authority.
+  Leads Core-BE, Core-FE, Core-QA, Core-Security, Core-UIUX, Core-DevOps, Core-OffSec.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: dev-lead
+files_dir: core-lead
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 900
+schedules:
+  - name: Orchestrator pulse (every 5 min)
+    cron_expr: "*/5 * * * *"
+    enabled: true
+    prompt_file: schedules/orchestrator-pulse.md
+children:
+  - !include ../core-be/workspace.yaml
+  - !include ../core-fe/workspace.yaml
+  - !include ../core-qa/workspace.yaml
+  - !include ../core-security/workspace.yaml
+  - !include ../core-uiux/workspace.yaml
+  - !include ../core-devops/workspace.yaml
+  - !include ../core-offsec/workspace.yaml
