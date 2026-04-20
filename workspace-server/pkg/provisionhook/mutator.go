@@ -47,6 +47,8 @@ package provisionhook
 import (
 	"context"
 	"fmt"
+	"log"
+	"reflect"
 	"sync"
 	"time"
 )
@@ -146,6 +148,13 @@ func (r *Registry) Names() []string {
 // GET /admin/github-installation-token endpoint so long-running
 // workspaces can refresh their GITHUB_TOKEN without a container restart.
 //
+// Uses both direct type assertion AND reflection fallback. The reflection
+// path handles the case where the plugin was compiled against a different
+// copy of the provisionhook package (Go module boundary issue #960) —
+// the method signatures match but the interface types don't, so the
+// direct assertion fails. The reflection adapter wraps the method call
+// so the rest of the platform sees a normal TokenProvider.
+//
 // A nil registry returns nil (no provider configured).
 func (r *Registry) FirstTokenProvider() TokenProvider {
 	if r == nil {
@@ -154,7 +163,12 @@ func (r *Registry) FirstTokenProvider() TokenProvider {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, m := range r.mutators {
+		// Direct type assertion (same module boundary)
 		if tp, ok := m.(TokenProvider); ok {
+			return tp
+		}
+		// Reflection fallback (cross-module boundary #960)
+		if tp := reflectTokenProvider(m); tp != nil {
 			return tp
 		}
 	}
@@ -183,4 +197,54 @@ func (r *Registry) Run(ctx context.Context, workspaceID string, env map[string]s
 		}
 	}
 	return nil
+}
+
+// reflectTokenProvider uses reflection to check if a mutator has a Token()
+// method matching the TokenProvider signature. Returns a wrapper that calls
+// the method via reflection, or nil if the method doesn't exist or has the
+// wrong signature. This handles the Go module boundary case (#960) where
+// the plugin satisfies TokenProvider structurally but the type assertion
+// fails because the interface comes from a different package path.
+func reflectTokenProvider(m EnvMutator) TokenProvider {
+	v := reflect.ValueOf(m)
+	t := v.Type()
+	log.Printf("provisionhook: reflect check on %q (type=%s, kind=%s, numMethod=%d)", m.Name(), t, t.Kind(), t.NumMethod())
+	for i := 0; i < t.NumMethod(); i++ {
+		mt := t.Method(i)
+		log.Printf("  method[%d]: %s %s", i, mt.Name, mt.Type)
+	}
+	method := v.MethodByName("Token")
+	if !method.IsValid() {
+		log.Printf("provisionhook: no Token method on %q", m.Name())
+		return nil
+	}
+	// Verify signature: func(context.Context) (string, time.Time, error)
+	mt := method.Type()
+	if mt.NumIn() != 1 || mt.NumOut() != 3 {
+		return nil
+	}
+	if mt.In(0) != reflect.TypeOf((*context.Context)(nil)).Elem() {
+		return nil
+	}
+	if mt.Out(0).Kind() != reflect.String || mt.Out(2).String() != "error" {
+		return nil
+	}
+	log.Printf("provisionhook: found Token() via reflection on %q (cross-module boundary fallback)", m.Name())
+	return &reflectTokenAdapter{method: method}
+}
+
+// reflectTokenAdapter wraps a reflected Token() method as a TokenProvider.
+type reflectTokenAdapter struct {
+	method reflect.Value
+}
+
+func (a *reflectTokenAdapter) Token(ctx context.Context) (string, time.Time, error) {
+	results := a.method.Call([]reflect.Value{reflect.ValueOf(ctx)})
+	token := results[0].String()
+	expiresAt := results[1].Interface().(time.Time)
+	var err error
+	if !results[2].IsNil() {
+		err = results[2].Interface().(error)
+	}
+	return token, expiresAt, err
 }
