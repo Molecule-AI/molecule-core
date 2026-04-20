@@ -74,10 +74,13 @@ func NewOrgHandler(wh *WorkspaceHandler, b *events.Broadcaster, p *provisioner.P
 
 // OrgTemplate is the YAML structure for an org hierarchy.
 type OrgTemplate struct {
-	Name        string            `yaml:"name" json:"name"`
-	Description string            `yaml:"description" json:"description"`
-	Defaults    OrgDefaults       `yaml:"defaults" json:"defaults"`
-	Workspaces  []OrgWorkspace    `yaml:"workspaces" json:"workspaces"`
+	Name           string              `yaml:"name" json:"name"`
+	Description    string              `yaml:"description" json:"description"`
+	Defaults       OrgDefaults         `yaml:"defaults" json:"defaults"`
+	Workspaces     []OrgWorkspace      `yaml:"workspaces" json:"workspaces"`
+	// GlobalMemories is a list of org-wide memories seeded as GLOBAL scope
+	// on the first root workspace (PM) during org import. Issue #1050.
+	GlobalMemories []models.MemorySeed `yaml:"global_memories" json:"global_memories"`
 }
 
 type OrgDefaults struct {
@@ -106,6 +109,9 @@ type OrgDefaults struct {
 	// Rendered into each workspace's config.yaml so agent prompts can read it
 	// generically (no hardcoded role names in prompts). See issue #51.
 	CategoryRouting map[string][]string `yaml:"category_routing" json:"category_routing"`
+	// InitialMemories are default memories seeded into every workspace at
+	// creation time unless the workspace overrides them. Issue #1050.
+	InitialMemories []models.MemorySeed `yaml:"initial_memories" json:"initial_memories"`
 }
 
 type OrgSchedule struct {
@@ -170,6 +176,9 @@ type OrgWorkspace struct {
 	// (empty list drops the category entirely); new keys are added. See
 	// mergeCategoryRouting.
 	CategoryRouting map[string][]string `yaml:"category_routing" json:"category_routing"`
+	// InitialMemories are memories seeded into this workspace at creation
+	// time. If empty, defaults.initial_memories are used. Issue #1050.
+	InitialMemories []models.MemorySeed `yaml:"initial_memories" json:"initial_memories"`
 	Schedules       []OrgSchedule       `yaml:"schedules" json:"schedules"`
 	Channels        []OrgChannel        `yaml:"channels" json:"channels"`
 	External        bool                `yaml:"external" json:"external"`
@@ -290,6 +299,22 @@ func (h *OrgHandler) Import(c *gin.Context) {
 		}
 	}
 
+	// Seed org-wide global_memories on the first root workspace (issue #1050).
+	// These are GLOBAL scope memories visible to all workspaces in the org.
+	if len(tmpl.GlobalMemories) > 0 && len(results) > 0 {
+		rootID, _ := results[0]["id"].(string)
+		if rootID != "" {
+			rootNS := workspaceAwarenessNamespace(rootID)
+			// Force scope to GLOBAL regardless of what the YAML says.
+			globalSeeds := make([]models.MemorySeed, len(tmpl.GlobalMemories))
+			for i, gm := range tmpl.GlobalMemories {
+				globalSeeds[i] = models.MemorySeed{Content: gm.Content, Scope: "GLOBAL"}
+			}
+			seedInitialMemories(context.Background(), rootID, globalSeeds, rootNS)
+			log.Printf("Org import: seeded %d global memories on root workspace %s", len(globalSeeds), rootID)
+		}
+	}
+
 	// Hot-reload channel manager once after all channels are inserted
 	// (instead of per-workspace, avoiding N redundant DB queries + diffs).
 	if h.channelMgr != nil {
@@ -407,6 +432,15 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, map[string]interface{}{
 		"name": ws.Name, "tier": tier,
 	})
+
+	// Seed initial memories from workspace config or defaults (issue #1050).
+	// Per-workspace initial_memories override defaults; if workspace has none,
+	// fall back to defaults.initial_memories.
+	wsMemories := ws.InitialMemories
+	if len(wsMemories) == 0 {
+		wsMemories = defaults.InitialMemories
+	}
+	seedInitialMemories(ctx, id, wsMemories, awarenessNS)
 
 	// Handle external workspaces
 	if ws.External {

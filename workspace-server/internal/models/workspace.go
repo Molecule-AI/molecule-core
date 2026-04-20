@@ -57,6 +57,14 @@ type UpdateCardPayload struct {
 	AgentCard   json.RawMessage `json:"agent_card" binding:"required"`
 }
 
+// MemorySeed represents an initial memory to seed into a workspace at creation time.
+// Used by both the POST /workspaces API and org template import to pre-populate
+// agent memories from config (issue #1050).
+type MemorySeed struct {
+	Content string `json:"content" yaml:"content"`
+	Scope   string `json:"scope" yaml:"scope"` // LOCAL, TEAM, GLOBAL
+}
+
 type CreateWorkspacePayload struct {
 	Name     string  `json:"name" binding:"required"`
 	Role     string  `json:"role"`
@@ -80,6 +88,10 @@ type CreateWorkspacePayload struct {
 		X float64 `json:"x"`
 		Y float64 `json:"y"`
 	} `json:"canvas"`
+	// InitialMemories is an optional list of memories to seed into the
+	// workspace immediately after creation. Each entry is inserted into
+	// agent_memories with the workspace's awareness namespace. Issue #1050.
+	InitialMemories []MemorySeed `json:"initial_memories"`
 }
 
 type CheckAccessPayload struct {
