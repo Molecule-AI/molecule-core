@@ -247,11 +247,10 @@ func TestEnsureDefaultConfig_ClaudeCode(t *testing.T) {
 	if !contains(content, "runtime_config:") {
 		t.Errorf("config.yaml should have runtime_config section for claude-code, got:\n%s", content)
 	}
-	if !contains(content, "required_env:") {
-		t.Errorf("config.yaml should have required_env for claude-code, got:\n%s", content)
-	}
-	if !contains(content, "CLAUDE_CODE_OAUTH_TOKEN") {
-		t.Errorf("config.yaml should require CLAUDE_CODE_OAUTH_TOKEN, got:\n%s", content)
+	// required_env is no longer hardcoded — tokens are injected at runtime
+	// via the secrets API (#1028).
+	if contains(content, "CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Errorf("config.yaml should NOT hardcode CLAUDE_CODE_OAUTH_TOKEN (fix #1028), got:\n%s", content)
 	}
 	// Should NOT have .auth-token file
 	if _, ok := files[".auth-token"]; ok {
