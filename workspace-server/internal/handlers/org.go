@@ -28,7 +28,12 @@ import (
 // OrgHandler manages org template import/export.
 // workspaceCreatePacingMs is the brief delay between sibling workspace creations
 // during org import. Prevents overwhelming Docker when creating many containers.
-const workspaceCreatePacingMs = 50
+const workspaceCreatePacingMs = 2000
+
+// provisionConcurrency limits how many Docker containers can be provisioned
+// simultaneously during org import. Without this, importing 39+ workspaces
+// fires 39 goroutines that all hit Docker at once, causing timeouts (#1084).
+const provisionConcurrency = 3
 
 // orgImportScheduleSQL is the upsert executed for every schedule during
 // org/import. Extracted to a const so TestImport_OrgScheduleSQLShape can
@@ -291,9 +296,12 @@ func (h *OrgHandler) Import(c *gin.Context) {
 	results := []map[string]interface{}{}
 	var createErr error
 
+	// Semaphore limits concurrent Docker provisioning (#1084).
+	provisionSem := make(chan struct{}, provisionConcurrency)
+
 	// Recursively create workspaces
 	for _, ws := range tmpl.Workspaces {
-		if err := h.createWorkspaceTree(ws, nil, tmpl.Defaults, orgBaseDir, &results); err != nil {
+		if err := h.createWorkspaceTree(ws, nil, tmpl.Defaults, orgBaseDir, &results, provisionSem); err != nil {
 			createErr = err
 			break
 		}
@@ -346,7 +354,8 @@ func (h *OrgHandler) Import(c *gin.Context) {
 }
 
 // createWorkspaceTree recursively creates a workspace and its children.
-func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defaults OrgDefaults, orgBaseDir string, results *[]map[string]interface{}) error {
+// provisionSem limits concurrent Docker container creation (#1084).
+func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defaults OrgDefaults, orgBaseDir string, results *[]map[string]interface{}, provisionSem chan struct{}) error {
 	// Apply defaults
 	runtime := ws.Runtime
 	if runtime == "" {
@@ -652,7 +661,12 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 			}
 		}
 
-		go h.workspace.provisionWorkspace(id, templatePath, configFiles, payload)
+		// #1084: limit concurrent Docker provisioning via semaphore.
+		provisionSem <- struct{}{} // acquire
+		go func(wID, tPath string, cFiles map[string][]byte, p models.CreateWorkspacePayload) {
+			defer func() { <-provisionSem }() // release
+			h.workspace.provisionWorkspace(wID, tPath, cFiles, p)
+		}(id, templatePath, configFiles, payload)
 	}
 
 	// Insert schedules if defined. Resolve each schedule's prompt body from
@@ -792,7 +806,7 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 	// creating many containers in sequence; container provisioning runs in
 	// goroutines so the main createWorkspaceTree returns quickly.
 	for _, child := range ws.Children {
-		if err := h.createWorkspaceTree(child, &id, defaults, orgBaseDir, results); err != nil {
+		if err := h.createWorkspaceTree(child, &id, defaults, orgBaseDir, results, provisionSem); err != nil {
 			return err
 		}
 		time.Sleep(workspaceCreatePacingMs * time.Millisecond)
