@@ -187,6 +187,36 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 	// which transitions status to 'online' and broadcasts WORKSPACE_ONLINE
 }
 
+// seedInitialMemories inserts a list of MemorySeed entries into agent_memories
+// for the given workspace. Called during workspace creation and org import to
+// pre-populate memories from config/template. Non-fatal: each insert is
+// attempted independently and failures are logged. Issue #1050.
+func seedInitialMemories(ctx context.Context, workspaceID string, memories []models.MemorySeed, awarenessNamespace string) {
+	if len(memories) == 0 {
+		return
+	}
+	for _, mem := range memories {
+		scope := strings.ToUpper(mem.Scope)
+		if scope == "" {
+			scope = "LOCAL"
+		}
+		if scope != "LOCAL" && scope != "TEAM" && scope != "GLOBAL" {
+			log.Printf("seedInitialMemories: skipping memory for %s — invalid scope %q", workspaceID, scope)
+			continue
+		}
+		if mem.Content == "" {
+			continue
+		}
+		if _, err := db.DB.ExecContext(ctx, `
+			INSERT INTO agent_memories (workspace_id, content, scope, namespace)
+			VALUES ($1, $2, $3, $4)
+		`, workspaceID, mem.Content, scope, awarenessNamespace); err != nil {
+			log.Printf("seedInitialMemories: failed to insert memory for %s (scope=%s): %v", workspaceID, scope, err)
+		}
+	}
+	log.Printf("seedInitialMemories: seeded %d memories for workspace %s", len(memories), workspaceID)
+}
+
 func workspaceAwarenessNamespace(workspaceID string) string {
 	return fmt.Sprintf("workspace:%s", workspaceID)
 }
