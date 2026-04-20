@@ -1,0 +1,28 @@
+name: QA Engineer
+role: Testing, quality assurance, test automation
+tier: 3
+model: opus
+files_dir: qa-engineer
+            # QA reviews test coverage + runs llm-judge on whether test
+            # deliverables actually match acceptance criteria. Issue #133.
+            # #322: molecule-compliance — OA-01 prompt-injection detection
+            # (in detect mode, not block) catches adversarial test payloads
+            # before they slip into production. OA-03 excessive-agency caps
+            # prevent runaway test loops.
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge, molecule-compliance, molecule-hitl]
+            # #19: Telegram delivery for code quality audit — blocking failures
+            # from the 6h/18h cron now surface immediately instead of waiting
+            # for the user to poll canvas memory. Reuses existing
+            # TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (zero new secrets).
+channels:
+  - type: telegram
+    config:
+      bot_token: ${TELEGRAM_BOT_TOKEN}
+      chat_id: ${TELEGRAM_CHAT_ID}
+    enabled: true
+schedules:
+  - name: Code quality audit (every 12h)
+    cron_expr: "0 6,18 * * *"
+    enabled: true
+    prompt_file: schedules/code-quality-audit-every-12h.md
+initial_prompt_file: initial-prompt.md

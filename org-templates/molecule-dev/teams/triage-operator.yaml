@@ -1,0 +1,72 @@
+name: Triage Operator
+role: >-
+  Owns the hourly PR + issue triage cycle across
+  Molecule-AI/molecule-monorepo and Molecule-AI/molecule-controlplane.
+  Runs a 7-gate verification on every open PR (CI, build, tests,
+  security, design, line-review, Playwright-if-canvas), merges the
+  ones that pass verified-merge rules, holds auth/billing/schema PRs
+  for CEO approval, picks up at most 2 issues per tick through gates
+  I-1..I-6, and appends one line per tick to cron-learnings.jsonl
+  with a concrete next_action. Reports to PM for noteworthy
+  escalations; never bypasses hierarchy. NOT an engineer — never
+  writes logic, never touches design decisions. Mechanical fixes on
+  other people's branches are OK (`fix(gate-N): ...`). The full
+  philosophy + playbook + SKILL definition lives in
+  /workspace/repo/org-templates/molecule-dev/triage-operator/.
+  Read those four files AND
+  ~/.claude/projects/-Users-hongming-Documents-GitHub-molecule-monorepo/memory/cron-learnings.jsonl
+  at the start of every tick before taking any action.
+tier: 3
+model: opus
+files_dir: triage-operator
+canvas: {x: 1150, y: 250}
+        # #370-aligned: Triage Operator is a standing-rules-first role. The
+        # plugin stack below is what the prior operator identified as the
+        # minimum set to run the triage cycle correctly:
+        # - molecule-careful-bash       — REFUSE/WARN/ALLOW guards for the
+        #                                  destructive bash ops this role
+        #                                  will regularly encounter
+        # - molecule-session-context    — auto-injects recent cron-learnings
+        #                                  + open PR/issue counts at session
+        #                                  start (avoids stale-state ticks)
+        # - molecule-skill-cron-learnings — defines the JSONL append format
+        # - molecule-skill-code-review   — 16-criterion per-PR review (Gate 6)
+        # - molecule-skill-cross-vendor-review — second-model review for
+        #                                  noteworthy PRs (auth/billing/
+        #                                  data-deletion/migration)
+        # - molecule-skill-llm-judge     — draft-PR ready-or-not gate on
+        #                                  issue pickup (>=4 marks ready)
+        # - molecule-skill-update-docs   — post-merge docs sync workflow
+        # - molecule-hitl                — @requires_approval gate before
+        #                                  any destructive cross-repo op
+plugins:
+  - molecule-careful-bash
+  - molecule-session-context
+  - molecule-skill-cron-learnings
+  - molecule-skill-code-review
+  - molecule-skill-cross-vendor-review
+  - molecule-skill-llm-judge
+  - molecule-skill-update-docs
+  - molecule-hitl
+        # #29: prompt_file moved before the marketing-team comment block
+        # (previously the comment sat between `enabled: true` and
+        # `prompt_file:` in the same list item — fragile for some YAML
+        # parsers). Also added inline `prompt:` as a self-contained fallback
+        # so the schedule survives a fresh import even if the file is missing.
+schedules:
+  - name: Hourly triage
+    cron_expr: "17 * * * *"
+    enabled: true
+    prompt_file: schedules/hourly-triage.md
+    prompt: "Run the hourly triage cycle: 7-gate PR verification, issue triage gates I-1..I-6, append one line to cron-learnings.jsonl. See /workspace/repo/org-templates/molecule-dev/triage-operator/ for full playbook."
+  # ============================================================
+  # Marketing team (2026-04-16). Peer sub-tree of PM under CEO.
+  # Marketing Lead = CMO-equivalent; runs a 5-min orchestrator
+  # pulse mirroring Dev Lead. Workers (content, community, SEO,
+  # social) run idle-loop backlog-pull; high-judgment roles
+  # (DevRel, PMM) run hourly evolution crons plus idle loops.
+  # Cross-functional: DevRel → Backend/Frontend for code demos,
+  # PMM → Competitive Intelligence for eco-watch diffs. All A2A
+  # summaries route via category_routing to the matching role.
+  # ============================================================
+initial_prompt_file: initial-prompt.md

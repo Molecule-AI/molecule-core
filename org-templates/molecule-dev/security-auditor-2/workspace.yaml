@@ -1,0 +1,28 @@
+name: Security Auditor (Multi-Repo)
+role: >-
+  Multi-repo security audit coverage. Rotates across ALL Molecule-AI
+  org repos beyond molecule-core. Runs SAST, secrets scanning,
+  dependency audits, and DAST probes. Files issues for HIGH+ findings.
+  Coordinates with Security Auditor (molecule-core) to avoid overlap.
+tier: 3
+model: opus
+files_dir: security-auditor-2
+plugins:
+  - molecule-skill-code-review
+  - molecule-skill-cross-vendor-review
+  - molecule-skill-llm-judge
+  - molecule-security-scan
+  - molecule-hitl
+  - molecule-compliance
+  - molecule-audit
+channels:
+  - type: telegram
+    config:
+      bot_token: ${TELEGRAM_BOT_TOKEN}
+      chat_id: ${TELEGRAM_CHAT_ID}
+    enabled: true
+schedules:
+  - name: Security audit (every 30 min)
+    cron_expr: "*/30 * * * *"
+    enabled: true
+    prompt_file: schedules/security-audit.md
