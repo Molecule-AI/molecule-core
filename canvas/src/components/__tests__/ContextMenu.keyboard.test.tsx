@@ -45,6 +45,7 @@ const mockStore = {
   selectNode: vi.fn(),
   setPanelTab: vi.fn(),
   nestNode: vi.fn(),
+  setPendingDelete: vi.fn(),
   nodes: [] as Array<{ id: string; data: { parentId: string | null } }>,
 };
 
@@ -207,6 +208,25 @@ describe("ContextMenu — keyboard accessibility", () => {
     const items = screen.getAllByRole("menuitem");
     const zoomItem = items.find((el) => el.textContent?.includes("Zoom to Team"))!;
     fireEvent.click(zoomItem);
+    expect(closeContextMenu).toHaveBeenCalled();
+  });
+
+  // Regression: the old flow kept ConfirmDialog inside ContextMenu's local
+  // state and rendered it via a portal. The portal-rendered Confirm button
+  // counted as "outside" by the menu's outside-click handler, closing the
+  // menu mid-click and making Delete appear to do nothing. The fix hoists
+  // the dialog state to the canvas store via `setPendingDelete` AND closes
+  // the context menu on click, so the dialog is owned by a component that
+  // outlives the menu.
+  it("clicking 'Delete' hoists state to the store and closes the menu", () => {
+    render(<ContextMenu />);
+    const items = screen.getAllByRole("menuitem");
+    const deleteItem = items.find((el) => el.textContent?.includes("Delete"))!;
+    fireEvent.click(deleteItem);
+    expect(mockStore.setPendingDelete).toHaveBeenCalledWith({
+      id: "ws-1",
+      name: "Alpha Workspace",
+    });
     expect(closeContextMenu).toHaveBeenCalled();
   });
 });
