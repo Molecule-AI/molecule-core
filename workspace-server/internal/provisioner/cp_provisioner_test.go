@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestNewCPProvisioner_RequiresOrgID — self-hosted deployments don't
@@ -169,5 +170,179 @@ func TestStart_NoStructuredErrorFallsBackToSize(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "<unstructured body") {
 		t.Errorf("expected byte-count fallback, got %q", err.Error())
+	}
+}
+
+// TestStart_TransportFailureSurfaces — the CP isn't reachable at all
+// (DNS fails, TCP refused, TLS handshake error). Start must return an
+// error tagged with enough context to find the failed call in logs
+// without leaking credentials.
+func TestStart_TransportFailureSurfaces(t *testing.T) {
+	// Port 1 is reserved by IANA; connect attempts fail immediately.
+	p := &CPProvisioner{
+		baseURL:    "http://127.0.0.1:1",
+		orgID:      "org-1",
+		httpClient: &http.Client{Timeout: 500 * time.Millisecond},
+	}
+	_, err := p.Start(context.Background(), WorkspaceConfig{WorkspaceID: "ws-1", Runtime: "py"})
+	if err == nil {
+		t.Fatal("expected transport error, got nil")
+	}
+	if !strings.Contains(err.Error(), "cp provisioner: send") {
+		t.Errorf("error should be tagged cp provisioner: send, got %q", err.Error())
+	}
+}
+
+// TestStop_SendsBothAuthHeaders — verify #118/#130 compliance on the
+// teardown path. Any call to /cp/workspaces/:id must carry both the
+// platform-wide shared secret AND the per-tenant admin token, or the
+// CP will 401.
+func TestStop_SendsBothAuthHeaders(t *testing.T) {
+	var sawBearer, sawAdminToken, sawMethod, sawPath string
+	var sawInstance string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawBearer = r.Header.Get("Authorization")
+		sawAdminToken = r.Header.Get("X-Molecule-Admin-Token")
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		sawInstance = r.URL.Query().Get("instance_id")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	p := &CPProvisioner{
+		baseURL:      srv.URL,
+		orgID:        "org-1",
+		sharedSecret: "s3cret",
+		adminToken:   "tok-xyz",
+		httpClient:   srv.Client(),
+	}
+	if err := p.Stop(context.Background(), "ws-1"); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if sawMethod != "DELETE" {
+		t.Errorf("method = %q, want DELETE", sawMethod)
+	}
+	if sawPath != "/cp/workspaces/ws-1" {
+		t.Errorf("path = %q, want /cp/workspaces/ws-1", sawPath)
+	}
+	if sawInstance != "ws-1" {
+		t.Errorf("instance_id query = %q, want ws-1", sawInstance)
+	}
+	if sawBearer != "Bearer s3cret" {
+		t.Errorf("bearer = %q, want Bearer s3cret", sawBearer)
+	}
+	if sawAdminToken != "tok-xyz" {
+		t.Errorf("admin token = %q, want tok-xyz", sawAdminToken)
+	}
+}
+
+// TestStop_TransportErrorSurfaces — same treatment as Start. If the
+// teardown call hits a dead CP, the error must surface so the caller
+// knows the workspace might still be running and needs retry.
+func TestStop_TransportErrorSurfaces(t *testing.T) {
+	p := &CPProvisioner{
+		baseURL:    "http://127.0.0.1:1",
+		orgID:      "org-1",
+		httpClient: &http.Client{Timeout: 500 * time.Millisecond},
+	}
+	err := p.Stop(context.Background(), "ws-1")
+	if err == nil {
+		t.Fatal("expected transport error, got nil")
+	}
+	if !strings.Contains(err.Error(), "cp provisioner: stop") {
+		t.Errorf("error should be tagged, got %q", err.Error())
+	}
+}
+
+// TestIsRunning_ParsesStateField — CP returns the EC2 state, we expose
+// a bool ("running"/"pending"/"terminated" → true only for "running").
+func TestIsRunning_ParsesStateField(t *testing.T) {
+	cases := map[string]bool{
+		"running":    true,
+		"pending":    false,
+		"stopping":   false,
+		"terminated": false,
+	}
+	for state, want := range cases {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/cp/workspaces/ws-1/status" {
+				t.Errorf("path = %q", r.URL.Path)
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, `{"state":"`+state+`"}`)
+		}))
+		p := &CPProvisioner{
+			baseURL:    srv.URL,
+			orgID:      "org-1",
+			sharedSecret: "s3cret",
+			adminToken:   "tok-xyz",
+			httpClient: srv.Client(),
+		}
+		got, err := p.IsRunning(context.Background(), "ws-1")
+		srv.Close()
+		if err != nil {
+			t.Errorf("state=%s: IsRunning error %v", state, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("state=%s: got %v, want %v", state, got, want)
+		}
+	}
+}
+
+// TestIsRunning_SendsBothAuthHeaders — parity with Stop. Status reads
+// require the same per-tenant auth because they leak public_ip +
+// private_ip to the caller.
+func TestIsRunning_SendsBothAuthHeaders(t *testing.T) {
+	var sawBearer, sawAdminToken string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawBearer = r.Header.Get("Authorization")
+		sawAdminToken = r.Header.Get("X-Molecule-Admin-Token")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"state":"running"}`)
+	}))
+	defer srv.Close()
+
+	p := &CPProvisioner{
+		baseURL:      srv.URL,
+		orgID:        "org-1",
+		sharedSecret: "s3cret",
+		adminToken:   "tok-xyz",
+		httpClient:   srv.Client(),
+	}
+	_, _ = p.IsRunning(context.Background(), "ws-1")
+	if sawBearer != "Bearer s3cret" {
+		t.Errorf("bearer = %q, want Bearer s3cret", sawBearer)
+	}
+	if sawAdminToken != "tok-xyz" {
+		t.Errorf("admin token = %q, want tok-xyz", sawAdminToken)
+	}
+}
+
+// TestIsRunning_TransportErrorReturnsFalse — when the CP is
+// unreachable, IsRunning must not claim the workspace is running
+// (that'd mislead the sweeper into leaving a dead row in place).
+func TestIsRunning_TransportErrorReturnsFalse(t *testing.T) {
+	p := &CPProvisioner{
+		baseURL:    "http://127.0.0.1:1",
+		orgID:      "org-1",
+		httpClient: &http.Client{Timeout: 500 * time.Millisecond},
+	}
+	got, err := p.IsRunning(context.Background(), "ws-1")
+	if err == nil {
+		t.Errorf("expected transport error, got nil (got=%v)", got)
+	}
+	if got {
+		t.Errorf("transport failure must not report running=true")
+	}
+}
+
+// TestClose_Noop — explicit contract: Close has no side effects and
+// no error. Exists for the Provisioner interface; compliance guard.
+func TestClose_Noop(t *testing.T) {
+	p := &CPProvisioner{}
+	if err := p.Close(); err != nil {
+		t.Errorf("Close should return nil, got %v", err)
 	}
 }
