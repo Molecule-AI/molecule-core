@@ -32,6 +32,8 @@ import { Toolbar } from "./Toolbar";
 import { ConfirmDialog } from "./ConfirmDialog";
 // Phase 20 components
 import { SettingsPanel, DeleteConfirmDialog } from "./settings";
+// Phase 20.3 batch operations
+import { BatchActionBar } from "./BatchActionBar";
 import { ProvisioningTimeout } from "./ProvisioningTimeout";
 
 const nodeTypes = {
@@ -133,7 +135,9 @@ function CanvasInner() {
 
   const onPaneClick = useCallback(() => {
     selectNode(null);
-    useCanvasStore.getState().closeContextMenu();
+    const state = useCanvasStore.getState();
+    state.closeContextMenu();
+    state.clearSelection();
   }, [selectNode]);
 
   // Team zoom-in: double-click a team node to zoom to its children
@@ -192,6 +196,8 @@ function CanvasInner() {
         const state = useCanvasStore.getState();
         if (state.contextMenu) {
           state.closeContextMenu();
+        } else if (state.selectedNodeIds.size > 0) {
+          state.clearSelection();
         } else if (state.selectedNodeId) {
           state.selectNode(null);
         }
@@ -336,6 +342,7 @@ function CanvasInner() {
       <Toaster />
       <ProvisioningTimeout />
       {!selectedNodeId && <CreateWorkspaceButton />}
+      <BatchActionBar />
 
       {/* Confirmation dialog for structure changes */}
       <ConfirmDialog
