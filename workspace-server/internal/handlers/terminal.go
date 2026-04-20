@@ -97,7 +97,6 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 		log.Printf("Terminal WebSocket upgrade error: %v", err)
 		return
 	}
-	defer conn.Close()
 
 	// No hard session deadline — terminal stays open as long as there is activity.
 	// The idle timeout (terminalSessionTimeout) resets on each keystroke in the
@@ -108,6 +107,7 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 	// ContainerExecCreate succeeds even if the binary doesn't exist — the error
 	// only surfaces at attach/start time, so we must retry at the attach level.
 	var resp types.HijackedResponse
+	var execErr error
 	for _, shell := range []string{"/bin/bash", "/bin/sh"} {
 		execCfg := container.ExecOptions{
 			Cmd:          []string{shell},
@@ -118,20 +118,21 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 		}
 		execID, createErr := h.docker.ContainerExecCreate(ctx, containerName, execCfg)
 		if createErr != nil {
-			err = createErr
+			execErr = createErr
 			continue
 		}
-		resp, err = h.docker.ContainerExecAttach(ctx, execID.ID, container.ExecAttachOptions{Tty: true})
-		if err == nil {
+		resp, execErr = h.docker.ContainerExecAttach(ctx, execID.ID, container.ExecAttachOptions{Tty: true})
+		if execErr == nil {
+			defer resp.Close()
 			break
 		}
 	}
-	if err != nil {
-		log.Printf("Terminal exec error: %v", err)
+	if execErr != nil {
+		log.Printf("Terminal exec error: %v", execErr)
 		conn.WriteMessage(websocket.TextMessage, []byte("Error: failed to create shell session\r\n"))
+		conn.Close()
 		return
 	}
-	defer resp.Close()
 
 	// Bridge: container stdout → WebSocket
 	done := make(chan struct{})

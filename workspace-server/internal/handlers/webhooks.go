@@ -33,6 +33,15 @@ func NewWebhookHandlerWithWorkspace(workspaces *WorkspaceHandler) *WebhookHandle
 	}
 }
 
+// shortSHA returns the first n characters of a commit SHA, or the
+// full value if it's shorter than n. Safe for empty strings.
+func shortSHA(sha string) string {
+	if len(sha) < 7 {
+		return sha
+	}
+	return sha[:7]
+}
+
 // GitHub handles POST /webhooks/github/:id
 // It verifies X-Hub-Signature-256, maps supported events to A2A message/send,
 // then forwards through the same proxy flow used by /workspaces/:id/a2a.
@@ -266,7 +275,7 @@ func buildGitHubA2APayload(eventType, deliveryID string, rawBody []byte) (string
 			payload.WorkflowRun.RunNumber,
 			payload.WorkflowRun.Conclusion,
 			payload.WorkflowRun.HeadBranch,
-			payload.WorkflowRun.HeadSHA[:min(7, len(payload.WorkflowRun.HeadSHA))],
+			shortSHA(payload.WorkflowRun.HeadSHA),
 			payload.Sender.Login,
 			payload.WorkflowRun.Event,
 			payload.Repository.FullName,
