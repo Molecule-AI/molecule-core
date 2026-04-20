@@ -3,11 +3,13 @@ package middleware
 import (
 	"crypto/subtle"
 	"database/sql"
+	"errors"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/orgtoken"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
 	"github.com/gin-gonic/gin"
 )
@@ -151,7 +153,30 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Tier 2 (#684 fix): dedicated ADMIN_TOKEN — workspace bearer tokens
+		// Tier 2a: org-scoped API tokens (user-minted via canvas UI).
+		// Precedes the ADMIN_TOKEN check because these are the
+		// tokens users actually manage — named, revocable, audited.
+		// ADMIN_TOKEN is the bootstrap/break-glass credential that
+		// still works but is NOT visible through the UI. Both grant
+		// the same access surface (full org admin); the tier split
+		// is about provenance + rotation, not privilege.
+		//
+		// Validate() runs ONE indexed lookup (token_hash partial
+		// index with revoked_at IS NULL) + an async last_used_at
+		// bump. Cost per request: one SELECT + one UPDATE, both
+		// hitting the same narrow partial index.
+		if id, err := orgtoken.Validate(ctx, database, tok); err == nil {
+			c.Set("org_token_id", id)
+			c.Next()
+			return
+		} else if !errors.Is(err, orgtoken.ErrInvalidToken) {
+			// DB error — fail closed and log. Don't expose DB text.
+			log.Printf("wsauth: AdminAuth: orgtoken.Validate: %v", err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "auth check failed"})
+			return
+		}
+
+		// Tier 2b (#684 fix): dedicated ADMIN_TOKEN — workspace bearer tokens
 		// must not grant access to admin routes.
 		if adminSecret != "" {
 			if subtle.ConstantTimeCompare([]byte(tok), []byte(adminSecret)) != 1 {
