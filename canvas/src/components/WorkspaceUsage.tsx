@@ -78,17 +78,17 @@ export function WorkspaceUsage({ workspaceId }: WorkspaceUsageProps) {
           <>
             <StatRow
               label="Input tokens"
-              value={`${metrics.input_tokens.toLocaleString()} tokens`}
+              value={`${(metrics.input_tokens ?? 0).toLocaleString()} tokens`}
               testId="usage-input-tokens"
             />
             <StatRow
               label="Output tokens"
-              value={`${metrics.output_tokens.toLocaleString()} tokens`}
+              value={`${(metrics.output_tokens ?? 0).toLocaleString()} tokens`}
               testId="usage-output-tokens"
             />
             <StatRow
               label="Estimated cost"
-              value={`$${parseFloat(metrics.estimated_cost_usd).toFixed(6)}`}
+              value={`$${parseFloat(metrics.estimated_cost_usd ?? "0").toFixed(6)}`}
               testId="usage-estimated-cost"
             />
           </>

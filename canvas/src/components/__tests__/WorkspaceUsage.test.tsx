@@ -84,6 +84,20 @@ describe("WorkspaceUsage", () => {
     });
   });
 
+  it("does not crash when token/cost fields are missing", async () => {
+    // Regression: Details tab crashed with
+    // "Cannot read properties of undefined (reading 'toLocaleString')"
+    // when a workspace stuck in provisioning returned partial metrics.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue({} as any);
+    render(<WorkspaceUsage workspaceId="ws-1" />);
+    await waitFor(() => {
+      expect(screen.getByTestId("usage-input-tokens").textContent).toContain("0");
+      expect(screen.getByTestId("usage-output-tokens").textContent).toContain("0");
+      expect(screen.getByTestId("usage-estimated-cost").textContent).toBe("Estimated cost$0.000000");
+    });
+  });
+
   it("displays estimated cost formatted as $X.XXXXXX after load", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockGet.mockResolvedValue(METRICS_RESPONSE as any);
