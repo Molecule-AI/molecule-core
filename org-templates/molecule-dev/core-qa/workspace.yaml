@@ -1,0 +1,17 @@
+name: Core-QA
+role: >-
+  QA engineer for molecule-core. Owns testing, quality assurance, and
+  test automation. Writes integration tests, regression suites. Reviews
+  PRs for test coverage gaps.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: core-lead
+files_dir: core-qa
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 900
+schedules:
+  - name: QA review (every 15 min)
+    cron_expr: "*/15 * * * *"
+    enabled: true
+    prompt_file: schedules/qa-review.md

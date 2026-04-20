@@ -1,0 +1,23 @@
+name: CP-Security
+role: >-
+  Security auditor for controlplane team. Audits molecule-controlplane
+  and molecule-tenant-proxy. SAST/DAST, PR security review.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: cp-lead
+files_dir: cp-security
+plugins:
+  - molecule-skill-code-review
+  - molecule-skill-cross-vendor-review
+  - molecule-skill-llm-judge
+  - molecule-security-scan
+  - molecule-hitl
+  - molecule-compliance
+  - molecule-audit
+idle_interval_seconds: 900
+schedules:
+  - name: Security scan (every 30 min)
+    cron_expr: "*/30 * * * *"
+    enabled: true
+    prompt_file: schedules/security-scan.md

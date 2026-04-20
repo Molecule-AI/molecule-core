@@ -1,0 +1,21 @@
+# Credentials — never commit. Use .env.example as the template.
+.env
+.env.local
+.env.*.local
+.env.*
+!.env.example
+!.env.sample
+
+# Private keys + certs
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Secret directories
+.secrets/
+
+# Workspace auth tokens
+.auth-token
+.auth_token

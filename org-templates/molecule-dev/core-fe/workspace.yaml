@@ -1,0 +1,17 @@
+name: Core-FE
+role: >-
+  Frontend engineer for molecule-core. Owns the Next.js canvas layer:
+  workspace nodes, edge wiring, Zustand store, dark zinc design system.
+  Enforces TypeScript strictness and accessibility standards.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: core-lead
+files_dir: core-fe
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge]
+idle_interval_seconds: 900
+schedules:
+  - name: Pick up work (every 15 min)
+    cron_expr: "*/15 * * * *"
+    enabled: true
+    prompt_file: schedules/pick-up-work.md

@@ -1,0 +1,20 @@
+name: Controlplane Lead
+role: >-
+  Controlplane team lead. Owns molecule-controlplane + molecule-tenant-proxy.
+  Triage+merge authority. Leads CP-BE, CP-QA, CP-Security.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: dev-lead
+files_dir: cp-lead
+plugins: [molecule-hitl, molecule-skill-code-review, molecule-security-scan, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 900
+schedules:
+  - name: Orchestrator pulse (every 5 min)
+    cron_expr: "*/5 * * * *"
+    enabled: true
+    prompt_file: schedules/orchestrator-pulse.md
+children:
+  - !include ../cp-be/workspace.yaml
+  - !include ../cp-qa/workspace.yaml
+  - !include ../cp-security/workspace.yaml

@@ -1,0 +1,18 @@
+name: DevRel Engineer
+role: >-
+  Developer-facing voice of Molecule AI. Code samples, runnable tutorials,
+  talk-track. Has web search, TTS, image, video generation capabilities.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: marketing-lead
+files_dir: devrel-engineer
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge, browser-automation]
+idle_interval_seconds: 900
+schedules:
+  - name: Pick up work (every 15 min)
+    cron_expr: "*/15 * * * *"
+    enabled: true
+    prompt_file: schedules/pick-up-work.md
+initial_prompt_file: initial-prompt.md
+idle_prompt_file: idle-prompt.md

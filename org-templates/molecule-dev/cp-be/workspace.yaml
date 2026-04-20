@@ -1,0 +1,17 @@
+name: CP-BE
+role: >-
+  Backend engineer for controlplane team. Owns molecule-tenant-proxy
+  and assists on molecule-controlplane. Reverse-proxy routing, TLS,
+  rate limiting, WebSocket upgrade handling.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: cp-lead
+files_dir: cp-be
+plugins: [molecule-hitl, molecule-skill-code-review, molecule-security-scan, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 900
+schedules:
+  - name: Pick up work (every 15 min)
+    cron_expr: "*/15 * * * *"
+    enabled: true
+    prompt_file: schedules/pick-up-work.md
