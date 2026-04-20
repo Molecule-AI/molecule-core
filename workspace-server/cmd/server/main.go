@@ -191,6 +191,15 @@ func main() {
 		})
 	}
 
+	// Provision-timeout sweep — flips workspaces that have been stuck in
+	// status='provisioning' past the timeout window to 'failed' and emits
+	// WORKSPACE_PROVISION_TIMEOUT. Without this the UI banner is cosmetic
+	// and the state is incoherent (e.g. user sees "Retry" after 15min but
+	// backend still thinks provisioning is in progress).
+	go supervised.RunWithRecover(ctx, "provision-timeout-sweep", func(c context.Context) {
+		registry.StartProvisioningTimeoutSweep(c, broadcaster, registry.DefaultProvisionSweepInterval)
+	})
+
 	// Cron Scheduler — fires A2A messages to workspaces on user-defined schedules
 	cronSched := scheduler.New(wh, broadcaster)
 	go supervised.RunWithRecover(ctx, "scheduler", cronSched.Start)
