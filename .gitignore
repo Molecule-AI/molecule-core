@@ -117,6 +117,8 @@ backups/
 
 # Cloned-via-manifest dirs — populated locally by scripts/clone-manifest.sh,
 # tracked in their own standalone repos. Never commit to core.
+# org-templates live in Molecule-AI/molecule-ai-org-template-* repos.
+# plugins live in Molecule-AI/molecule-ai-plugin-* repos.
 /org-templates/
 /plugins/
 /workspace-configs-templates/
