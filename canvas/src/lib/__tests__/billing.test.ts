@@ -70,7 +70,7 @@ describe("startCheckout", () => {
     expect(body.cancel_url).toContain("checkout=cancel");
   });
 
-  it("throws with the body text on non-2xx so the UI can surface it", async () => {
+  it("throws with status code on non-2xx; body is logged not surfaced", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: false,
       status: 402,
@@ -78,8 +78,11 @@ describe("startCheckout", () => {
       json: async () => ({}),
     });
 
+    // Status code must appear so callers know what happened.
     await expect(startCheckout("starter", "acme")).rejects.toThrow(/402/);
-    await expect(startCheckout("starter", "acme")).rejects.toThrow(/payment required/);
+    // Body text must NOT appear — it may contain Stripe API detail.
+    await expect(startCheckout("starter", "acme")).rejects.toThrow(/checkout failed/);
+    await expect(startCheckout("starter", "acme")).rejects.not.toThrow(/payment required/);
   });
 
   it("sends users to /orgs on success, back to current page on cancel", async () => {

@@ -105,6 +105,61 @@ type putAllowlistRequest struct {
 	EnabledBy string   `json:"enabled_by"` // workspace ID of the admin performing the change
 }
 
+// requireCallerOwnsOrg returns the caller's org workspace ID from the
+// request context, or "" if the caller is not an org-token holder.
+// Used to enforce org isolation on org-scoped routes — the org_token_id
+// is the org-scoped token's ID (not the org workspace ID), so we look
+// it up via the created_by workspace or a direct relationship.
+//
+// Returns ("", nil) when the caller is a session/ADMIN_TOKEN user (they
+// bypass via the session cookie path or ADMIN_TOKEN, not org tokens).
+func requireCallerOwnsOrg(c *gin.Context) (string, error) {
+	tokenID, ok := c.Get("org_token_id")
+	if !ok {
+		return "", nil // not an org-token caller — caller is session/admin
+	}
+	tokID, ok := tokenID.(string)
+	if !ok || tokID == "" {
+		return "", nil
+	}
+	// Look up the org workspace that owns this token.
+	// org_api_tokens has no org_id column, but we can look up the token's
+	// created_by workspace and treat that as the caller's org anchor.
+	var createdBy string
+	err := db.DB.QueryRowContext(c.Request.Context(),
+		`SELECT created_by FROM org_api_tokens WHERE id = $1`, tokID,
+	).Scan(&createdBy)
+	if err != nil || createdBy == "" {
+		// Token has no created_by (CLI bootstrap path) — treat as unowned;
+		// deny by default to prevent cross-org access.
+		return "", fmt.Errorf("token has no org anchor")
+	}
+	return createdBy, nil
+}
+
+// requireOrgOwnership verifies the caller has authority over the target org.
+// Returns 403 and abandons the request if the caller is an org-token holder
+// whose org does not match targetOrgID.
+func requireOrgOwnership(c *gin.Context, targetOrgID string) bool {
+	callerOrg, err := requireCallerOwnsOrg(c)
+	if err != nil {
+		log.Printf("allowlist: requireOrgOwnership: %v", err)
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "org access denied"})
+		return false
+	}
+	// callerOrg "" means session/admin user — they have full access (no
+	// org token → full platform admin via session/ADMIN_TOKEN path).
+	if callerOrg == "" {
+		return true
+	}
+	if callerOrg != targetOrgID {
+		log.Printf("allowlist: org-token org %s tried to access org %s (denied)", callerOrg, targetOrgID)
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "org access denied"})
+		return false
+	}
+	return true
+}
+
 // GetAllowlist handles GET /orgs/:id/plugins/allowlist.
 //
 // Returns the current allowlist for the org workspace identified by :id.
@@ -125,6 +180,13 @@ func (h *OrgPluginAllowlistHandler) GetAllowlist(c *gin.Context) {
 	}
 	if !exists {
 		c.JSON(http.StatusNotFound, gin.H{"error": "org not found"})
+		return
+	}
+
+	// IDOR fix (#112, HIGH): org-token holders must only access their own org.
+	// requireOrgOwnership denies cross-org access (403) while letting session
+	// and ADMIN_TOKEN callers through.
+	if !requireOrgOwnership(c, orgID) {
 		return
 	}
 
@@ -207,6 +269,11 @@ func (h *OrgPluginAllowlistHandler) PutAllowlist(c *gin.Context) {
 	}
 	if !exists {
 		c.JSON(http.StatusNotFound, gin.H{"error": "org not found"})
+		return
+	}
+
+	// IDOR fix (#112, HIGH): same as GetAllowlist — require org ownership.
+	if !requireOrgOwnership(c, orgID) {
 		return
 	}
 
