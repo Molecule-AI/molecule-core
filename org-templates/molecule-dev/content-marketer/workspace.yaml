@@ -1,0 +1,20 @@
+name: Content Marketer
+role: >-
+  Writes the blog posts, tutorials, launch write-ups,
+  and case studies that drive organic traffic and
+  credibility. Partners with DevRel on technical
+  narratives and SEO Analyst on keyword briefs. Never
+  invents benchmarks — only quotes merged PR measurements
+  or labels a number as design intent.
+tier: 2
+files_dir: content-marketer
+canvas: {x: 1300, y: 250}
+plugins: [molecule-skill-llm-judge]
+idle_interval_seconds: 600
+schedules:
+  - name: Hourly topic queue refresh
+    cron_expr: "41 * * * *"
+    enabled: true
+    prompt_file: schedules/hourly-topic-queue-refresh.md
+initial_prompt_file: initial-prompt.md
+idle_prompt_file: idle-prompt.md

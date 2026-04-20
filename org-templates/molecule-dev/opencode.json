@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "molecule": {
+      "type": "remote",
+      "url": "${MOLECULE_MCP_URL}/workspaces/${WORKSPACE_ID}/mcp",
+      "headers": { "Authorization": "Bearer ${MOLECULE_MCP_TOKEN}" },
+      "description": "Molecule AI A2A orchestration — delegate_task, list_peers, check_task_status"
+    }
+  }
+}

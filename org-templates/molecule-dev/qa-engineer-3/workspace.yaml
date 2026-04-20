@@ -1,0 +1,14 @@
+name: QA Engineer (App & Docs)
+role: >-
+  QA coverage for molecule-app (Next.js SaaS) and the docs site.
+  Playwright E2E tests, component tests, accessibility audits,
+  link integrity checks.
+tier: 3
+model: opus
+files_dir: qa-engineer-3
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge, molecule-compliance]
+schedules:
+  - name: Hourly pick up work
+    cron_expr: "3 * * * *"
+    enabled: true
+    prompt_file: schedules/hourly-pick-up-work.md
