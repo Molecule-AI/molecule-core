@@ -67,6 +67,15 @@ func TenantGuardWithOrgID(configuredOrgID string) gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		// /cp/* is reverse-proxied to the control plane. The CP has its
+		// own auth (WorkOS session cookie + admin bearer) so the tenant
+		// doesn't need to attach org identity here. Bypassing the guard
+		// avoids blocking the proxy with a 404 that would then look
+		// like the CP is down.
+		if strings.HasPrefix(c.Request.URL.Path, "/cp/") {
+			c.Next()
+			return
+		}
 		// Primary: explicit X-Molecule-Org-Id header (direct access path,
 		// e.g. from molecli or internal tooling that sets it directly).
 		if c.GetHeader(tenantOrgIDHeader) == configuredOrgID {
