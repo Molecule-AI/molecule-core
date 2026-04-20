@@ -841,6 +841,36 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 		"cascade_deleted": len(descendantIDs),
 	})
 
+	// Hard purge: cascade delete all FK data and remove the DB row entirely (#1087)
+	if c.Query("purge") == "true" {
+		purgeIDs := pq.Array(allIDs)
+		// Order matters: delete from leaf tables first, then workspace row
+		for _, table := range []string{
+			"agent_memories", "activity_logs", "workspace_secrets",
+			"workspace_channels", "workspace_config", "workspace_memory",
+			"workspace_token_usage", "approval_requests", "audit_events",
+			"workflow_checkpoints", "workspace_artifacts", "agents",
+			"workspace_auth_tokens", "workspace_schedules", "canvas_layouts",
+		} {
+			if _, err := db.DB.ExecContext(ctx,
+				fmt.Sprintf("DELETE FROM %s WHERE workspace_id = ANY($1::uuid[])", table),
+				purgeIDs); err != nil {
+				log.Printf("Purge %s error for %v: %v", table, allIDs, err)
+			}
+		}
+		// Null out parent_id / forwarded_to references
+		db.DB.ExecContext(ctx, "UPDATE workspaces SET parent_id = NULL WHERE parent_id = ANY($1::uuid[])", purgeIDs)
+		db.DB.ExecContext(ctx, "UPDATE workspaces SET forwarded_to = NULL WHERE forwarded_to = ANY($1::uuid[])", purgeIDs)
+		// Hard delete the workspace row
+		if _, err := db.DB.ExecContext(ctx, "DELETE FROM workspaces WHERE id = ANY($1::uuid[])", purgeIDs); err != nil {
+			log.Printf("Purge workspace row error for %v: %v", allIDs, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "purge failed: " + err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "purged", "cascade_deleted": len(descendantIDs)})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{"status": "removed", "cascade_deleted": len(descendantIDs)})
 }
 
