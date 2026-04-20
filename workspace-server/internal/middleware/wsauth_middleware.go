@@ -188,6 +188,12 @@ func CanvasOrBearer(database *sql.DB) gin.HandlerFunc {
 		// expired token + a matching Origin would otherwise bypass auth.
 		// Empty bearer → skip to Origin path (canvas never sends one).
 		if tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization")); tok != "" {
+			// Admin token accepted for canvas dashboard
+			adminSecret := os.Getenv("ADMIN_TOKEN")
+			if adminSecret != "" && subtle.ConstantTimeCompare([]byte(tok), []byte(adminSecret)) == 1 {
+				c.Next()
+				return
+			}
 			if err := wsauth.ValidateAnyToken(ctx, database, tok); err != nil {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
 				return
