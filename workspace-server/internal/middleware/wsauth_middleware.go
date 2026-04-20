@@ -123,6 +123,27 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 			}
 		}
 
+		// SaaS-canvas path: when the request carries a WorkOS session
+		// cookie AND the CP confirms it's valid, accept without a
+		// bearer. This is how the tenant's Next.js canvas UI
+		// authenticates — the browser has a session cookie scoped
+		// to .moleculesai.app, and we verify it upstream against
+		// /cp/auth/me (short-cached; see verifiedCPSession).
+		//
+		// Only runs when CP_UPSTREAM_URL is set (prod SaaS); self-
+		// hosted / dev deploys without a CP fall through to the
+		// bearer-only path unchanged.
+		if cookieHeader := c.GetHeader("Cookie"); cookieHeader != "" {
+			if ok, _ := verifiedCPSession(cookieHeader); ok {
+				c.Next()
+				return
+			}
+			// Cookie presented but invalid: fall through to the
+			// bearer-check path, which will 401. We do NOT abort
+			// here so molecli / CLI users with both a cookie and
+			// a stale cookie + valid bearer still pass.
+		}
+
 		// Bearer token is the ONLY accepted credential for admin routes.
 		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
 		if tok == "" {
