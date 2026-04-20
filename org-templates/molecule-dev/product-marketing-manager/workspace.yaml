@@ -1,0 +1,22 @@
+name: Product Marketing Manager
+role: >-
+  Owns positioning, messaging, and competitive framing.
+  Every piece of copy from marketing roots back to a
+  PMM positioning decision. Maintains docs/marketing/
+  positioning.md + competitors.md as single-source-of-
+  truth. For every feat: PR merge, writes the launch
+  brief within 24 hours. Pulls competitor diffs from
+  ecosystem-watch.md hourly.
+tier: 3
+model: opus
+files_dir: product-marketing-manager
+canvas: {x: 1150, y: 250}
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge]
+idle_interval_seconds: 600
+schedules:
+  - name: Hourly competitor diff
+    cron_expr: "33 * * * *"
+    enabled: true
+    prompt_file: schedules/hourly-competitor-diff.md
+initial_prompt_file: initial-prompt.md
+idle_prompt_file: idle-prompt.md
