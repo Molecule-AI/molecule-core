@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"fmt"
+	"log"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -39,6 +41,11 @@ func missingRequiredEnv(configFiles map[string][]byte, envVars map[string]string
 	}
 	var schema requiredEnvSchema
 	if err := yaml.Unmarshal(raw, &schema); err != nil {
+		// Safe default: the in-container preflight is the source of truth
+		// for config.yaml shape, so we don't block the provision here. But
+		// log at WARN so operators can notice a template with malformed
+		// YAML — otherwise a silently-skipped preflight is invisible.
+		log.Printf("Preflight: WARN — config.yaml unparseable, skipping required_env check: %v", err)
 		return nil
 	}
 	if len(schema.RuntimeConfig.RequiredEnv) == 0 {
@@ -64,7 +71,7 @@ func formatMissingEnvError(missing []string) string {
 		)
 	}
 	return fmt.Sprintf(
-		"missing required env vars %q — add them under Config → Env Vars (or as Global secrets) and retry",
-		missing,
+		"missing required env vars %s — add them under Config → Env Vars (or as Global secrets) and retry",
+		strings.Join(missing, ", "),
 	)
 }
