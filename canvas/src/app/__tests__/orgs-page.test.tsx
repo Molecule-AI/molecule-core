@@ -36,6 +36,12 @@ vi.mock("@/lib/api", () => ({
   PLATFORM_URL: "https://cp.test",
 }));
 
+// Mock TermsGate to a pass-through so it doesn't make network calls that
+// consume the mockFetch queue. OrgsPage wraps its content in TermsGate.
+vi.mock("@/components/TermsGate", () => ({
+  TermsGate: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch as unknown as typeof fetch;
 
@@ -80,7 +86,16 @@ function setLocation(href: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Reset mock return values so each test starts fresh.
+  // The mock functions (vi.fn) persist across tests; only their
+  // per-call behavior is reset here.
+  mockFetchSession.mockReset();
+  mockFetch.mockReset();
   setLocation("https://moleculesai.app/orgs");
+});
+
+afterEach(() => {
+  cleanup();
 });
 
 afterEach(() => {
@@ -91,34 +106,52 @@ afterEach(() => {
 
 describe("/orgs — auth guard", () => {
   it("redirects to login when session is null", async () => {
-    mockFetchSession.mockResolvedValueOnce(null);
-    render(<OrgsPage />);
-    await waitFor(() => expect(mockRedirectToLogin).toHaveBeenCalled());
-    // Must not attempt to fetch /cp/orgs before auth is established
-    expect(mockFetch).not.toHaveBeenCalledWith(
-      expect.stringContaining("/cp/orgs"),
-      expect.anything()
-    );
+    vi.useRealTimers();
+    try {
+      mockFetchSession.mockResolvedValueOnce(null);
+      render(<OrgsPage />);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(mockRedirectToLogin).toHaveBeenCalled();
+      // Must not attempt to fetch /cp/orgs before auth is established
+      expect(mockFetch).not.toHaveBeenCalledWith(
+        expect.stringContaining("/cp/orgs"),
+        expect.anything()
+      );
+    } finally {
+      vi.useFakeTimers();
+    }
   });
 });
 
 describe("/orgs — error state", () => {
   it("shows error + Retry button when /cp/orgs fails", async () => {
-    mockFetchSession.mockResolvedValueOnce({ userId: "u-1" });
-    mockFetch.mockResolvedValueOnce(notOk(500, "db down"));
-    render(<OrgsPage />);
-    await waitFor(() => expect(screen.getByText(/Error:/)).toBeTruthy());
-    expect(screen.getByRole("button", { name: /retry/i })).toBeTruthy();
+    vi.useRealTimers();
+    try {
+      mockFetchSession.mockResolvedValue({ userId: "u-1" });
+      mockFetch.mockResolvedValueOnce(notOk(500, "db down"));
+      render(<OrgsPage />);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(screen.getByText(/Error:/)).toBeTruthy();
+      expect(screen.getByRole("button", { name: /retry/i })).toBeTruthy();
+    } finally {
+      vi.useFakeTimers();
+    }
   });
 });
 
 describe("/orgs — empty list", () => {
   it("renders EmptyState with CreateOrgForm when user has zero orgs", async () => {
-    mockFetchSession.mockResolvedValueOnce({ userId: "u-1" });
-    mockFetch.mockResolvedValueOnce(okJson({ orgs: [] }));
-    render(<OrgsPage />);
-    await waitFor(() => expect(screen.getByText(/don't have any organizations/i)).toBeTruthy());
-    expect(screen.getByRole("button", { name: /create organization/i })).toBeTruthy();
+    vi.useRealTimers();
+    try {
+      mockFetchSession.mockResolvedValue({ userId: "u-1" });
+      mockFetch.mockResolvedValueOnce(okJson({ orgs: [] }));
+      render(<OrgsPage />);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(screen.getByText(/don't have any organizations/i)).toBeTruthy();
+      expect(screen.getByRole("button", { name: /create organization/i })).toBeTruthy();
+    } finally {
+      vi.useFakeTimers();
+    }
   });
 });
 
@@ -126,127 +159,160 @@ describe("/orgs — CTAs by status", () => {
   const session = { userId: "u-1" };
 
   it("running → Open link targets {slug}.moleculesai.app", async () => {
-    mockFetchSession.mockResolvedValueOnce(session);
-    mockFetch.mockResolvedValueOnce(
-      okJson({
-        orgs: [
-          {
-            id: "o-1",
-            slug: "acme",
-            name: "Acme",
-            plan: "pro",
-            status: "running",
-            created_at: "",
-            updated_at: "",
-          },
-        ],
-      })
-    );
-    render(<OrgsPage />);
-    const link = (await screen.findByRole("link", { name: /open/i })) as HTMLAnchorElement;
-    expect(link.href).toBe("https://acme.moleculesai.app/");
+    vi.useRealTimers();
+    try {
+      mockFetchSession.mockResolvedValue(session);
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          orgs: [
+            {
+              id: "o-1",
+              slug: "acme",
+              name: "Acme",
+              plan: "pro",
+              status: "running",
+              created_at: "",
+              updated_at: "",
+            },
+          ],
+        })
+      );
+      render(<OrgsPage />);
+      await new Promise((r) => setTimeout(r, 50));
+      const link = screen.getByRole("link", { name: /open/i }) as HTMLAnchorElement;
+      expect(link.href).toBe("https://acme.moleculesai.app/");
+    } finally {
+      vi.useFakeTimers();
+    }
   });
 
   it("awaiting_payment → Complete payment link to /pricing?org=<slug>", async () => {
-    mockFetchSession.mockResolvedValueOnce(session);
-    mockFetch.mockResolvedValueOnce(
-      okJson({
-        orgs: [
-          {
-            id: "o-2",
-            slug: "beta-co",
-            name: "Beta",
-            plan: "",
-            status: "awaiting_payment",
-            created_at: "",
-            updated_at: "",
-          },
-        ],
-      })
-    );
-    render(<OrgsPage />);
-    const link = (await screen.findByRole("link", {
-      name: /complete payment/i,
-    })) as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe("/pricing?org=beta-co");
+    vi.useRealTimers();
+    try {
+      mockFetchSession.mockResolvedValue(session);
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          orgs: [
+            {
+              id: "o-2",
+              slug: "beta-co",
+              name: "Beta",
+              plan: "",
+              status: "awaiting_payment",
+              created_at: "",
+              updated_at: "",
+            },
+          ],
+        })
+      );
+      render(<OrgsPage />);
+      await new Promise((r) => setTimeout(r, 50));
+      const link = screen.getByRole("link", {
+        name: /complete payment/i,
+      }) as HTMLAnchorElement;
+      expect(link.getAttribute("href")).toBe("/pricing?org=beta-co");
+    } finally {
+      vi.useFakeTimers();
+    }
   });
 
   it("failed → mailto support link", async () => {
-    mockFetchSession.mockResolvedValueOnce(session);
-    mockFetch.mockResolvedValueOnce(
-      okJson({
-        orgs: [
-          {
-            id: "o-3",
-            slug: "boom",
-            name: "Boom",
-            plan: "",
-            status: "failed",
-            created_at: "",
-            updated_at: "",
-          },
-        ],
-      })
-    );
-    render(<OrgsPage />);
-    const link = (await screen.findByRole("link", {
-      name: /contact support/i,
-    })) as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe("mailto:support@moleculesai.app");
+    vi.useRealTimers();
+    try {
+      mockFetchSession.mockResolvedValue(session);
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          orgs: [
+            {
+              id: "o-3",
+              slug: "boom",
+              name: "Boom",
+              plan: "",
+              status: "failed",
+              created_at: "",
+              updated_at: "",
+            },
+          ],
+        })
+      );
+      render(<OrgsPage />);
+      await new Promise((r) => setTimeout(r, 50));
+      const link = screen.getByRole("link", {
+        name: /contact support/i,
+      }) as HTMLAnchorElement;
+      expect(link.getAttribute("href")).toBe("mailto:support@moleculesai.app");
+    } finally {
+      vi.useFakeTimers();
+    }
   });
 });
 
 describe("/orgs — post-checkout banner", () => {
   it("renders CheckoutBanner when ?checkout=success and scrubs the URL", async () => {
-    setLocation("https://moleculesai.app/orgs?checkout=success");
-    const replaceState = vi.spyOn(window.history, "replaceState");
-    mockFetchSession.mockResolvedValueOnce({ userId: "u-1" });
-    mockFetch.mockResolvedValueOnce(
-      okJson({
-        orgs: [
-          {
-            id: "o-1",
-            slug: "acme",
-            name: "Acme",
-            plan: "pro",
-            status: "running",
-            created_at: "",
-            updated_at: "",
-          },
-        ],
-      })
-    );
-    render(<OrgsPage />);
-    expect(await screen.findByText(/Payment confirmed/i)).toBeTruthy();
-    // URL must be rewritten to drop the ?checkout flag so reload doesn't re-show the banner
-    expect(replaceState).toHaveBeenCalled();
-    const callArgs = replaceState.mock.calls[0];
-    expect(callArgs[2]).toBe("/orgs");
+    vi.useRealTimers();
+    try {
+      setLocation("https://moleculesai.app/orgs?checkout=success");
+      const replaceState = vi.spyOn(window.history, "replaceState");
+      mockFetchSession.mockResolvedValue({ userId: "u-1" });
+      mockFetch.mockResolvedValueOnce(
+        okJson({
+          orgs: [
+            {
+              id: "o-1",
+              slug: "acme",
+              name: "Acme",
+              plan: "pro",
+              status: "running",
+              created_at: "",
+              updated_at: "",
+            },
+          ],
+        })
+      );
+      render(<OrgsPage />);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(screen.getByText(/Payment confirmed/i)).toBeTruthy();
+      // URL must be rewritten to drop the ?checkout flag so reload doesn't re-show the banner
+      expect(replaceState).toHaveBeenCalled();
+      const callArgs = replaceState.mock.calls[0];
+      expect(callArgs[2]).toBe("/orgs");
+    } finally {
+      vi.useFakeTimers();
+    }
   });
 
   it("does NOT render CheckoutBanner without ?checkout=success", async () => {
-    mockFetchSession.mockResolvedValueOnce({ userId: "u-1" });
-    mockFetch.mockResolvedValueOnce(okJson({ orgs: [] }));
-    render(<OrgsPage />);
-    await waitFor(() =>
-      expect(screen.getByText(/don't have any organizations/i)).toBeTruthy()
-    );
-    expect(screen.queryByText(/Payment confirmed/i)).toBeNull();
+    vi.useRealTimers();
+    try {
+      mockFetchSession.mockResolvedValue({ userId: "u-1" });
+      mockFetch.mockResolvedValueOnce(okJson({ orgs: [] }));
+      render(<OrgsPage />);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(screen.getByText(/don't have any organizations/i)).toBeTruthy();
+      expect(screen.queryByText(/Payment confirmed/i)).toBeNull();
+    } finally {
+      vi.useFakeTimers();
+    }
   });
 });
 
 describe("/orgs — fetch includes credentials + timeout signal", () => {
   it("/cp/orgs fetch is called with credentials:include and an AbortSignal", async () => {
-    mockFetchSession.mockResolvedValueOnce({ userId: "u-1" });
-    mockFetch.mockResolvedValueOnce(okJson({ orgs: [] }));
-    render(<OrgsPage />);
-    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
-    const callArgs = mockFetch.mock.calls.find((c) =>
-      String(c[0]).includes("/cp/orgs")
-    );
-    expect(callArgs).toBeDefined();
-    expect(callArgs![1]).toMatchObject({ credentials: "include" });
-    expect(callArgs![1].signal).toBeInstanceOf(AbortSignal);
+    vi.useRealTimers();
+    try {
+      mockFetchSession.mockResolvedValue({ userId: "u-1" });
+      mockFetch.mockResolvedValueOnce(okJson({ orgs: [] }));
+      render(<OrgsPage />);
+      await new Promise((r) => setTimeout(r, 50));
+      const callArgs = mockFetch.mock.calls.find((c) =>
+        String(c[0]).includes("/cp/orgs")
+      );
+      expect(callArgs).toBeDefined();
+      expect(callArgs![1]).toMatchObject({ credentials: "include" });
+      expect(callArgs![1].signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      vi.useFakeTimers();
+    }
   });
 });
 
@@ -261,6 +327,8 @@ describe("/orgs — polling of in-flight orgs", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       mockFetchSession.mockResolvedValue({ userId: "u-1" });
+      // First /cp/orgs returns provisioning orgs so a poll is scheduled.
+      // Second returns running orgs to observe the state flip stop re-scheduling.
       mockFetch.mockResolvedValueOnce(
         okJson({
           orgs: [
@@ -276,8 +344,6 @@ describe("/orgs — polling of in-flight orgs", () => {
           ],
         })
       );
-      // Second fetch (the poll refresh) returns a running org so we can
-      // observe the state flip — and to let the test stop re-scheduling.
       mockFetch.mockResolvedValueOnce(
         okJson({
           orgs: [
@@ -295,12 +361,10 @@ describe("/orgs — polling of in-flight orgs", () => {
       );
 
       render(<OrgsPage />);
-      // First fetch resolves
-      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
-      // Advance past the 5s scheduled refresh
+      // Auto-advancing time fires the 5s poll while we await
       await vi.advanceTimersByTimeAsync(5_100);
-      // Second fetch is the poll refresh
-      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+      // First /cp/orgs + second poll /cp/orgs
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }
@@ -326,9 +390,9 @@ describe("/orgs — polling of in-flight orgs", () => {
         })
       );
       render(<OrgsPage />);
-      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
-      // Advance well past the 5s poll window — no second fetch must fire
+      // Auto-advancing time — no poll fires (stillMoving = false)
       await vi.advanceTimersByTimeAsync(10_000);
+      // Only the initial /cp/orgs
       expect(mockFetch).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
@@ -355,11 +419,15 @@ describe("/orgs — polling of in-flight orgs", () => {
         })
       );
       const { unmount } = render(<OrgsPage />);
-      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
-      // Tear down BEFORE the 5s timer fires
+      // With shouldAdvanceTime, effects are deferred — flush microtasks first
+      // so the effect runs and schedules the 5s poll before we unmount.
+      await vi.advanceTimersByTimeAsync(0);
+      // Now the effect has run (scheduling the poll) but not the poll itself
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      // Tear down — cleanup must clear the 5s timer
       unmount();
+      // Advance timers — the cleanup cleared the 5s timer, so no poll fires
       await vi.advanceTimersByTimeAsync(10_000);
-      // Fetch count must stay at 1 — the cleanup cleared the timer
       expect(mockFetch).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
