@@ -598,3 +598,4 @@ func TestRecordSkipped_AdvancesNextRunAt(t *testing.T) {
 			"recordSkipped must advance next_run_at when workspace is busy (#1029)", err)
 	}
 }
+// trigger CI
