@@ -1,0 +1,185 @@
+// Package orgtoken — organization-scoped API tokens.
+//
+// These are full-admin bearer tokens for the tenant platform. One
+// token authorizes every admin-gated endpoint on the tenant (all
+// workspaces, all org settings, all bundles + templates, all
+// secrets). Designed for beta integrations and CLI usage where
+// session cookies aren't available.
+//
+// Mirrors internal/wsauth for plaintext/hash handling + UI display
+// format so tooling that understands one format works for the other.
+// Intentionally does NOT bind to a workspace — the whole point is
+// org-wide scope.
+//
+// Forward path (post-beta): split into roles (admin, editor, reader)
+// + per-workspace scoping. For now every token is full-admin and
+// the only authorization is "does it match a live row".
+package orgtoken
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"time"
+)
+
+const (
+	// 256 bits of entropy, base64url encoded. Same as wsauth so
+	// prefix-based log correlation uses the same leading character
+	// set.
+	tokenPayloadBytes = 32
+	// First 8 chars shown in UI for revoke/audit UX. Reveals nothing
+	// crackable on its own (6 bits × 8 = 48 bits of prefix space —
+	// good enough to disambiguate, nowhere near guessable).
+	tokenPrefixLen = 8
+)
+
+// ErrInvalidToken is returned when a presented bearer doesn't match
+// a live row. Callers map to HTTP 401 and must NOT distinguish
+// "bad bytes" from "revoked" — that would be an enumeration signal
+// on which tokens were ever minted.
+var ErrInvalidToken = errors.New("invalid or revoked org api token")
+
+// Token is the admin-UI shape. Plaintext is NEVER part of this —
+// the only place plaintext exists is the return value of Issue.
+type Token struct {
+	ID         string     `json:"id"`
+	Prefix     string     `json:"prefix"`
+	Name       string     `json:"name,omitempty"`
+	CreatedBy  string     `json:"created_by,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+}
+
+// Issue mints a fresh token and persists sha256(plaintext) + prefix.
+// Returns (plaintext, id, error). Plaintext is returned to the
+// caller once and must be handed to the user verbatim — we cannot
+// recover it from the database.
+//
+// name and createdBy are both optional (nullable columns). Typical
+// use: name = "zapier integration", createdBy = current session
+// user_id.
+func Issue(ctx context.Context, db *sql.DB, name, createdBy string) (plaintext, id string, err error) {
+	buf := make([]byte, tokenPayloadBytes)
+	if _, err := rand.Read(buf); err != nil {
+		return "", "", fmt.Errorf("orgtoken: generate: %w", err)
+	}
+	plaintext = base64.RawURLEncoding.EncodeToString(buf)
+	hash := sha256.Sum256([]byte(plaintext))
+	prefix := plaintext[:tokenPrefixLen]
+
+	err = db.QueryRowContext(ctx, `
+		INSERT INTO org_api_tokens (token_hash, prefix, name, created_by)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id
+	`, hash[:], prefix, nullIfEmpty(name), nullIfEmpty(createdBy)).Scan(&id)
+	if err != nil {
+		return "", "", fmt.Errorf("orgtoken: persist: %w", err)
+	}
+	return plaintext, id, nil
+}
+
+// Validate looks up a presented bearer, returns ErrInvalidToken on
+// any mismatch (bad bytes, revoked, deleted). On success, updates
+// last_used_at best-effort (the hot path — failure to update doesn't
+// fail the request) and returns the token id for audit logging.
+func Validate(ctx context.Context, db *sql.DB, plaintext string) (string, error) {
+	if plaintext == "" {
+		return "", ErrInvalidToken
+	}
+	hash := sha256.Sum256([]byte(plaintext))
+	var id string
+	err := db.QueryRowContext(ctx, `
+		SELECT id FROM org_api_tokens
+		WHERE token_hash = $1 AND revoked_at IS NULL
+	`, hash[:]).Scan(&id)
+	if err != nil {
+		// Collapse all failure shapes into ErrInvalidToken so the
+		// caller can't accidentally leak "row exists but revoked" vs
+		// "row never existed" via response shape.
+		return "", ErrInvalidToken
+	}
+	// Best-effort last_used_at bump. Failure here is acceptable — the
+	// request is already authenticated; we don't want a transient DB
+	// blip to flip a 200 into a 500.
+	_, _ = db.ExecContext(ctx,
+		`UPDATE org_api_tokens SET last_used_at = now() WHERE id = $1`, id)
+	return id, nil
+}
+
+// List returns live (non-revoked) tokens newest-first. Safe to
+// expose to the admin UI — no hash, no plaintext, only prefix.
+func List(ctx context.Context, db *sql.DB) ([]Token, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, prefix, COALESCE(name,''), COALESCE(created_by,''),
+		       created_at, last_used_at
+		FROM org_api_tokens
+		WHERE revoked_at IS NULL
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("orgtoken: list: %w", err)
+	}
+	defer rows.Close()
+
+	out := []Token{}
+	for rows.Next() {
+		var t Token
+		var lastUsed sql.NullTime
+		if err := rows.Scan(&t.ID, &t.Prefix, &t.Name, &t.CreatedBy,
+			&t.CreatedAt, &lastUsed); err != nil {
+			return nil, fmt.Errorf("orgtoken: scan: %w", err)
+		}
+		if lastUsed.Valid {
+			v := lastUsed.Time
+			t.LastUsedAt = &v
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// Revoke flips revoked_at on the row with id. Idempotent — revoking
+// an already-revoked token returns (false, nil). Returns (true, nil)
+// when a row transitioned from live → revoked; (false, nil) when
+// already revoked or absent. The caller maps (false, nil) to 404 so
+// ops tooling can distinguish "already dealt with" from "silently
+// worked".
+func Revoke(ctx context.Context, db *sql.DB, id string) (bool, error) {
+	res, err := db.ExecContext(ctx, `
+		UPDATE org_api_tokens
+		SET revoked_at = now()
+		WHERE id = $1 AND revoked_at IS NULL
+	`, id)
+	if err != nil {
+		return false, fmt.Errorf("orgtoken: revoke: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// HasAnyLive returns true when at least one non-revoked token
+// exists. Used by the middleware to decide whether to check the
+// org-token tier at all — skipping a DB round-trip per request when
+// nobody has minted any yet.
+func HasAnyLive(ctx context.Context, db *sql.DB) (bool, error) {
+	var ok bool
+	err := db.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM org_api_tokens WHERE revoked_at IS NULL)
+	`).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("orgtoken: has-any-live: %w", err)
+	}
+	return ok, nil
+}
+
+func nullIfEmpty(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
