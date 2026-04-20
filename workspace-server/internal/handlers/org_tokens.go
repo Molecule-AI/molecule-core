@@ -112,27 +112,37 @@ func (h *OrgTokenHandler) Revoke(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"revoked": id})
 }
 
+// Provenance labels used in the org_api_tokens.created_by column
+// and in mint/revoke audit logs. Kept as constants so the labels
+// are greppable across services (log pipelines, audit queries).
+const (
+	actorOrgTokenPrefix = "org-token:" // appended: 8-char plaintext prefix from the UI
+	actorSession        = "session"    // WorkOS-session-verified call
+	actorAdminToken     = "admin-token" // bootstrap ADMIN_TOKEN env
+)
+
 // orgTokenActor derives a short provenance string for audit.
 //
 //   - If the request was authed via another org token, return
-//     "org-token:<short>" so revoke audits show which token minted
-//     the new one.
+//     "org-token:<prefix>" where prefix is the 8-char plaintext
+//     prefix shown in the UI — correlates audit rows directly with
+//     the revoke button a user sees.
 //   - If authed via session cookie (AdminAuth's session tier), the
-//     middleware doesn't set anything on c for us — return "session"
-//     as a generic label. When we grow a session-user-id capture
-//     upgrade this to return the real WorkOS user_id.
+//     middleware doesn't stash a WorkOS user_id today — return
+//     "session" as a generic label. Follow-up (see
+//     docs/architecture/org-api-keys-followups.md #6) captures the
+//     user_id through the session tier for full attribution.
 //   - Else (ADMIN_TOKEN / bootstrap), return "admin-token".
 func orgTokenActor(c *gin.Context) string {
-	if v, ok := c.Get("org_token_id"); ok {
-		if s, ok := v.(string); ok && len(s) >= 8 {
-			return "org-token:" + s[:8]
+	if v, ok := c.Get("org_token_prefix"); ok {
+		if s, ok := v.(string); ok && s != "" {
+			return actorOrgTokenPrefix + s
 		}
 	}
 	// Session-tier auth doesn't stash an identity in the gin context
-	// today. Until it does, treat session requests as "session". A
-	// follow-up issue captures WorkOS user_id here.
+	// today. Until it does, treat session requests as "session".
 	if c.GetHeader("Cookie") != "" {
-		return "session"
+		return actorSession
 	}
-	return "admin-token"
+	return actorAdminToken
 }

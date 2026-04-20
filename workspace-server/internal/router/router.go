@@ -476,11 +476,20 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// session cookie, OR an existing org token to mint more. That's
 	// bootstrap-friendly (first token from ADMIN_TOKEN or canvas
 	// session) and self-sustaining afterwards (tokens mint tokens).
+	//
+	// The mint endpoint gets an extra per-IP rate limiter — a
+	// compromised session or leaked bearer could otherwise mint
+	// thousands of tokens per second, making forensic cleanup
+	// painful. 10 mints per hour per IP is ample for real usage;
+	// legitimate bursts fit in the ceiling and abuse bounces off.
+	// List + Delete don't need the extra limit (they can't be used
+	// to generate new secret material).
 	{
 		orgTokenHandler := handlers.NewOrgTokenHandler()
 		orgTokenAdmin := r.Group("", middleware.AdminAuth(db.DB))
 		orgTokenAdmin.GET("/org/tokens", orgTokenHandler.List)
-		orgTokenAdmin.POST("/org/tokens", orgTokenHandler.Create)
+		orgTokenMintLimiter := middleware.NewRateLimiter(10, time.Hour, context.Background())
+		orgTokenAdmin.POST("/org/tokens", orgTokenMintLimiter.Middleware(), orgTokenHandler.Create)
 		orgTokenAdmin.DELETE("/org/tokens/:id", orgTokenHandler.Revoke)
 	}
 
