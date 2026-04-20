@@ -48,9 +48,44 @@ jobs:
         run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Wait for canary tenants to pick up :staging-<sha>
-        # Tenant auto-updater runs every 5 min. Sleep 6 min to give every
-        # canary time to pull + restart. Cheaper than polling.
-        run: sleep 360
+        # Poll canary health endpoints every 30s for up to 7 min instead
+        # of a fixed 6-min sleep. Exits as soon as ALL canaries report the
+        # new SHA, freeing the self-hosted runner slot sooner (~2-3 min
+        # typical vs 6 min fixed). Falls back to proceeding after 7 min
+        # even if not all canaries responded — the smoke suite will catch
+        # any that didn't update.
+        env:
+          CANARY_TENANT_URLS: ${{ secrets.CANARY_TENANT_URLS }}
+          EXPECTED_SHA: ${{ steps.compute.outputs.sha }}
+        run: |
+          if [ -z "$CANARY_TENANT_URLS" ]; then
+            echo "No canary URLs configured — falling back to 60s wait"
+            sleep 60
+            exit 0
+          fi
+          IFS=',' read -ra URLS <<< "$CANARY_TENANT_URLS"
+          MAX_WAIT=420  # 7 minutes
+          INTERVAL=30
+          ELAPSED=0
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            ALL_READY=true
+            for url in "${URLS[@]}"; do
+              HEALTH=$(curl -s --max-time 5 "${url}/health" 2>/dev/null || echo "{}")
+              SHA=$(echo "$HEALTH" | grep -o "\"sha\":\"[^\"]*\"" | head -1 | cut -d'"' -f4)
+              if [ "$SHA" != "$EXPECTED_SHA" ]; then
+                ALL_READY=false
+                break
+              fi
+            done
+            if $ALL_READY; then
+              echo "All canaries running staging-${EXPECTED_SHA} after ${ELAPSED}s"
+              exit 0
+            fi
+            echo "Waiting for canaries... (${ELAPSED}s / ${MAX_WAIT}s)"
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+          echo "Timeout after ${MAX_WAIT}s — proceeding anyway (smoke suite will validate)"
 
       - name: Run canary smoke suite
         env:
