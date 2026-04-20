@@ -117,8 +117,8 @@ func TestFormatMissingEnvError_Single(t *testing.T) {
 }
 
 func TestFormatMissingEnvError_Multiple(t *testing.T) {
-	msg := formatMissingEnvError([]string{"A", "B"})
-	if !strings.Contains(msg, "A") || !strings.Contains(msg, "B") {
-		t.Errorf("message should name both vars: %q", msg)
+	msg := formatMissingEnvError([]string{"FOO", "BAR"})
+	if !strings.Contains(msg, "FOO, BAR") {
+		t.Errorf("multi-var message should join with ', ' — got %q", msg)
 	}
 }
