@@ -230,4 +230,38 @@ describe("BatchActionBar — partial-failure retry survivorship", () => {
     // the bar by mistake.
     expect(container.innerHTML).toBe("");
   });
+
+  it("hasFailedBatch resets after a successful retry (success clears before clearSelection)", async () => {
+    // Setup: partial-fail with 1 survivor → hasFailedBatch=true.
+    mockSelectedNodeIds = new Set(["ws-ok", "ws-fail"]);
+    mockBatchDelete.mockImplementationOnce(() =>
+      Promise.reject(new Error("1/2 delete(s) failed"))
+    );
+    const { rerender, container } = render(<BatchActionBar />);
+    fireEvent.click(screen.getByText("Delete All"));
+    fireEvent.click(screen.getByText("confirm"));
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Survivor remains → bar still mounted, hasFailedBatch=true.
+    mockSelectedNodeIds = new Set(["ws-fail"]);
+    rerender(<BatchActionBar />);
+    expect(screen.getByText("1 selected")).toBeTruthy();
+
+    // Successful retry: resolve without error → hasFailedBatch clears
+    // before clearSelection() is called. The survivor is then removed
+    // (deleted), leaving count=0.
+    mockBatchDelete.mockImplementationOnce(() => Promise.resolve());
+    fireEvent.click(screen.getByText("Delete All"));
+    fireEvent.click(screen.getByText("confirm"));
+    await new Promise((r) => setTimeout(r, 0));
+
+    // After success + deletion: 0 remaining, hasFailedBatch=false.
+    // Clearing selection must unmount the bar. If hasFailedBatch had NOT
+    // been cleared, the bar would re-mount as a single-node toolbar
+    // (because it would still be in the survivor state from the prior
+    // catch block).
+    mockSelectedNodeIds = new Set<string>();
+    rerender(<BatchActionBar />);
+    expect(container.innerHTML).toBe("");
+  });
 });
