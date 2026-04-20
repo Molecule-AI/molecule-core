@@ -9,7 +9,7 @@ import { api } from "@/lib/api";
 
 interface BudgetData {
   budget_limit: number | null;
-  budget_used: number;
+  budget_used?: number; // optional — provisioning-stuck workspaces return partial shapes
   budget_remaining: number | null;
 }
 
