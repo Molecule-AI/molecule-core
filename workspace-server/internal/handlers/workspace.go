@@ -209,6 +209,10 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		log.Printf("Create: canvas layout insert failed for %s (workspace will appear at 0,0): %v", id, err)
 	}
 
+	// Seed initial memories from the create payload (issue #1050).
+	// Non-fatal: failures are logged but don't block workspace creation.
+	seedInitialMemories(ctx, id, payload.InitialMemories, awarenessNamespace)
+
 	// Broadcast provisioning event
 	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, map[string]interface{}{
 		"name": payload.Name,
