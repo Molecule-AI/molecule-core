@@ -439,12 +439,12 @@ func (h *WorkspaceHandler) ensureDefaultConfig(workspaceID string, payload model
 	// Model always at top level — config.py reads raw["model"] for all runtimes.
 	configYAML += fmt.Sprintf("model: %s\n", quoteModel)
 
-	// Add required_env based on runtime — preflight checks these are set via secrets API.
+	// Add runtime_config. required_env is intentionally omitted — the
+	// platform injects secrets at container-start time via the secrets API,
+	// and preflight already validates that the env vars are present before
+	// the agent loop starts.  Hardcoding token names here caused #1028
+	// (expired CLAUDE_CODE_OAUTH_TOKEN baked into config.yaml).
 	switch runtime {
-	case "claude-code":
-		configYAML += "runtime_config:\n  required_env:\n    - CLAUDE_CODE_OAUTH_TOKEN\n  timeout: 0\n"
-	case "codex":
-		configYAML += "runtime_config:\n  required_env:\n    - OPENAI_API_KEY\n  timeout: 0\n"
 	case "langgraph", "deepagents":
 		// These runtimes read API keys from env directly, no runtime_config needed.
 	default:
