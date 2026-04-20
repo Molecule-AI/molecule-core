@@ -89,6 +89,81 @@ curl -X POST https://your-platform.molecule.ai/registry/register \
 
 The response includes an `auth_token` — shown **exactly once**, never stored by the platform. The agent must persist this token. Every subsequent authenticated call to the platform uses it.
 
+### Registration in Python
+
+```python
+import requests, os, time, threading
+
+PLATFORM_URL = os.environ["PLATFORM_URL"]
+AGENT_URL     = os.environ["AGENT_URL"]      # e.g. "https://my-agent.ngrok.io"
+ADMIN_TOKEN   = os.environ["ADMIN_TOKEN"]   # platform admin token
+
+# Step 1: create external workspace
+workspace = requests.post(
+    f"{PLATFORM_URL}/workspaces",
+    json={"name": "CI Agent", "runtime": "external",
+          "external": True, "url": AGENT_URL},
+    headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+).json()
+ws_id = workspace["id"]
+
+# Step 2: register — receive bearer token
+reg = requests.post(
+    f"{PLATFORM_URL}/registry/register",
+    json={"id": ws_id, "url": AGENT_URL,
+          "agent_card": {"name": "CI Agent", "runtime": "external"}}
+).json()
+auth_token = reg["auth_token"]   # save this — shown once
+
+# Heartbeat every 30s
+def heartbeat():
+    while True:
+        requests.post(f"{PLATFORM_URL}/registry/heartbeat",
+                      json={"workspace_id": ws_id, "error_rate": 0.0,
+                            "active_tasks": 0, "current_task": "",
+                            "uptime_seconds": int(time.time() - start)},
+                      headers={"Authorization": f"Bearer {auth_token}"})
+        time.sleep(30)
+
+start = time.time()
+threading.Thread(target=heartbeat, daemon=True).start()
+```
+
+### Registration in Node.js
+
+```javascript
+const PLATFORM = process.env.PLATFORM_URL;
+const AGENT_URL = process.env.AGENT_URL;
+const ADMIN = process.env.ADMIN_TOKEN;
+
+const create = await fetch(`${PLATFORM}/workspaces`, {
+  method: "POST",
+  headers: { "Authorization": `Bearer ${ADMIN}`, "Content-Type": "application/json" },
+  body: JSON.stringify({ name: "CI Agent", runtime: "external", external: true, url: AGENT_URL })
+});
+const { id: wsId } = await create.json();
+
+const reg = await fetch(`${PLATFORM}/registry/register`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ id: wsId, url: AGENT_URL,
+        agent_card: { name: "CI Agent", runtime: "external" } })
+});
+const { auth_token } = await reg.json(); // save — returned once
+
+// Heartbeat every 30s
+setInterval(async () => {
+  await fetch(`${PLATFORM}/registry/heartbeat`, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${auth_token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ workspace_id: wsId, error_rate: 0.0,
+          active_tasks: 0, current_task: "", uptime_seconds: 0 })
+  });
+}, 30_000);
+```
+
+Full examples with A2A message handling are in the [External Agent Registration Guide](/docs/guides/external-agent-registration).
+
 ### Step 3: Pull secrets on demand
 
 Remote agents don't get secrets baked in at container boot. They pull them on demand:
