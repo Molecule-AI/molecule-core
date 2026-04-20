@@ -36,6 +36,12 @@ const (
 	// crackable on its own (6 bits × 8 = 48 bits of prefix space —
 	// good enough to disambiguate, nowhere near guessable).
 	tokenPrefixLen = 8
+
+	// listMax caps the number of rows List returns. Realistic org-
+	// admin UIs show on the order of 10. 500 is enough headroom that
+	// no legitimate flow hits it, low enough that a mint-storm can't
+	// force a big allocation on every list render.
+	listMax = 500
 )
 
 // ErrInvalidToken is returned when a presented bearer doesn't match
@@ -86,33 +92,42 @@ func Issue(ctx context.Context, db *sql.DB, name, createdBy string) (plaintext, 
 // Validate looks up a presented bearer, returns ErrInvalidToken on
 // any mismatch (bad bytes, revoked, deleted). On success, updates
 // last_used_at best-effort (the hot path — failure to update doesn't
-// fail the request) and returns the token id for audit logging.
-func Validate(ctx context.Context, db *sql.DB, plaintext string) (string, error) {
+// fail the request) and returns the token id + display prefix for
+// audit logging.
+//
+// Returning the prefix alongside the id lets callers produce audit
+// strings that match what users see in the UI (the plaintext prefix,
+// not the UUID). Keeps the "who did what" trail visually
+// correlatable to the revoke button in the token list.
+func Validate(ctx context.Context, db *sql.DB, plaintext string) (id, prefix string, err error) {
 	if plaintext == "" {
-		return "", ErrInvalidToken
+		return "", "", ErrInvalidToken
 	}
 	hash := sha256.Sum256([]byte(plaintext))
-	var id string
-	err := db.QueryRowContext(ctx, `
-		SELECT id FROM org_api_tokens
+	queryErr := db.QueryRowContext(ctx, `
+		SELECT id, prefix FROM org_api_tokens
 		WHERE token_hash = $1 AND revoked_at IS NULL
-	`, hash[:]).Scan(&id)
-	if err != nil {
+	`, hash[:]).Scan(&id, &prefix)
+	if queryErr != nil {
 		// Collapse all failure shapes into ErrInvalidToken so the
 		// caller can't accidentally leak "row exists but revoked" vs
 		// "row never existed" via response shape.
-		return "", ErrInvalidToken
+		return "", "", ErrInvalidToken
 	}
 	// Best-effort last_used_at bump. Failure here is acceptable — the
 	// request is already authenticated; we don't want a transient DB
 	// blip to flip a 200 into a 500.
 	_, _ = db.ExecContext(ctx,
 		`UPDATE org_api_tokens SET last_used_at = now() WHERE id = $1`, id)
-	return id, nil
+	return id, prefix, nil
 }
 
 // List returns live (non-revoked) tokens newest-first. Safe to
 // expose to the admin UI — no hash, no plaintext, only prefix.
+//
+// Capped at listMax rows. A UI page with more than that is a
+// symptom of abuse or a bug — the hard cap prevents one runaway
+// minting loop from O(N) pageloads in the admin UI.
 func List(ctx context.Context, db *sql.DB) ([]Token, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, prefix, COALESCE(name,''), COALESCE(created_by,''),
@@ -120,7 +135,8 @@ func List(ctx context.Context, db *sql.DB) ([]Token, error) {
 		FROM org_api_tokens
 		WHERE revoked_at IS NULL
 		ORDER BY created_at DESC
-	`)
+		LIMIT $1
+	`, listMax)
 	if err != nil {
 		return nil, fmt.Errorf("orgtoken: list: %w", err)
 	}
