@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -204,5 +205,149 @@ func TestGitHubWebhook_ValidPRReviewComment_Forwards(t *testing.T) {
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Event-driven cron trigger tests
+// ---------------------------------------------------------------------------
+
+func TestGitHubWebhook_IssuesOpened_TriggersCrons(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWebhookHandler(broadcaster)
+
+	secret := "test-secret"
+	t.Setenv("GITHUB_WEBHOOK_SECRET", secret)
+
+	body := []byte(`{
+		"action": "opened",
+		"repository": {"full_name": "Molecule-AI/molecule-core"},
+		"sender": {"login": "alice"},
+		"issue": {"number": 42, "title": "New feature request", "html_url": "https://github.com/Molecule-AI/molecule-core/issues/42"}
+	}`)
+
+	// Expect the UPDATE that sets next_run_at = now() on pick-up-work schedules.
+	mock.ExpectExec("UPDATE workspace_schedules").
+		WillReturnResult(sqlmock.NewResult(0, 3))
+
+	w, c := newWebhookTestContext(t, "", body)
+	c.Request.Header.Set("X-GitHub-Event", "issues")
+	c.Request.Header.Set("X-Hub-Signature-256", githubSignature(secret, body))
+
+	handler.GitHub(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify response includes trigger metadata.
+	respBody := w.Body.String()
+	if !strings.Contains(respBody, `"triggered"`) {
+		t.Fatalf("expected 'triggered' in response, got: %s", respBody)
+	}
+	if !strings.Contains(respBody, `"schedules_affected"`) {
+		t.Fatalf("expected 'schedules_affected' in response, got: %s", respBody)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestGitHubWebhook_IssuesClosed_Ignored(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWebhookHandler(broadcaster)
+
+	secret := "test-secret"
+	t.Setenv("GITHUB_WEBHOOK_SECRET", secret)
+
+	body := []byte(`{
+		"action": "closed",
+		"repository": {"full_name": "Molecule-AI/molecule-core"},
+		"sender": {"login": "alice"},
+		"issue": {"number": 42, "title": "Old issue", "html_url": "https://github.com/Molecule-AI/molecule-core/issues/42"}
+	}`)
+
+	w, c := newWebhookTestContext(t, "", body)
+	c.Request.Header.Set("X-GitHub-Event", "issues")
+	c.Request.Header.Set("X-Hub-Signature-256", githubSignature(secret, body))
+
+	handler.GitHub(c)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected status 202, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGitHubWebhook_PRReviewSubmitted_TriggersCrons(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWebhookHandler(broadcaster)
+
+	secret := "test-secret"
+	t.Setenv("GITHUB_WEBHOOK_SECRET", secret)
+
+	body := []byte(`{
+		"action": "submitted",
+		"repository": {"full_name": "Molecule-AI/molecule-core"},
+		"sender": {"login": "bob"},
+		"review": {"state": "changes_requested", "html_url": "https://github.com/Molecule-AI/molecule-core/pull/7#pullrequestreview-1"},
+		"pull_request": {"number": 7, "title": "Fix scheduler bug", "html_url": "https://github.com/Molecule-AI/molecule-core/pull/7"}
+	}`)
+
+	// Expect the UPDATE that sets next_run_at = now() on review schedules.
+	mock.ExpectExec("UPDATE workspace_schedules").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+
+	w, c := newWebhookTestContext(t, "", body)
+	c.Request.Header.Set("X-GitHub-Event", "pull_request_review")
+	c.Request.Header.Set("X-Hub-Signature-256", githubSignature(secret, body))
+
+	handler.GitHub(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	respBody := w.Body.String()
+	if !strings.Contains(respBody, `"triggered"`) {
+		t.Fatalf("expected 'triggered' in response, got: %s", respBody)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestGitHubWebhook_PRReviewDismissed_Ignored(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWebhookHandler(broadcaster)
+
+	secret := "test-secret"
+	t.Setenv("GITHUB_WEBHOOK_SECRET", secret)
+
+	body := []byte(`{
+		"action": "dismissed",
+		"repository": {"full_name": "Molecule-AI/molecule-core"},
+		"sender": {"login": "bob"},
+		"review": {"state": "dismissed", "html_url": "https://github.com/Molecule-AI/molecule-core/pull/7#pullrequestreview-1"},
+		"pull_request": {"number": 7, "title": "Fix scheduler bug", "html_url": "https://github.com/Molecule-AI/molecule-core/pull/7"}
+	}`)
+
+	w, c := newWebhookTestContext(t, "", body)
+	c.Request.Header.Set("X-GitHub-Event", "pull_request_review")
+	c.Request.Header.Set("X-Hub-Signature-256", githubSignature(secret, body))
+
+	handler.GitHub(c)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected status 202, got %d: %s", w.Code, w.Body.String())
 	}
 }

@@ -14,10 +14,12 @@ Provides:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import re
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -390,3 +392,156 @@ def sanitize_agent_error(
     else:
         tag = "unknown"
     return f"Agent error ({tag}) — see workspace logs for details."
+
+
+# ========================================================================
+# Auto-push hook — push unpushed commits and open PR after task completion
+# ========================================================================
+
+# Git/gh wrappers at /usr/local/bin have GH_TOKEN baked in.
+_GIT = "/usr/local/bin/git"
+_GH = "/usr/local/bin/gh"
+_PROTECTED_BRANCHES = frozenset({"staging", "main", "master"})
+
+
+def _run_git(args: list[str], cwd: str, timeout: int = 30) -> subprocess.CompletedProcess:
+    """Run a git/gh command with bounded timeout. Never raises on failure."""
+    return subprocess.run(
+        args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _auto_push_and_pr_sync(cwd: str) -> None:
+    """Synchronous implementation of the auto-push hook.
+
+    1. Check if we're in a git repo with unpushed commits on a feature branch.
+    2. Push the branch.
+    3. Open a PR against staging if one doesn't already exist.
+
+    Designed to be called from a background thread — never raises, logs all
+    errors. Uses the git/gh wrappers at /usr/local/bin/ which have GH_TOKEN
+    baked in.
+    """
+    try:
+        # --- Guard: is this a git repo? ---
+        probe = _run_git([_GIT, "rev-parse", "--is-inside-work-tree"], cwd)
+        if probe.returncode != 0:
+            return
+
+        # --- Guard: get current branch ---
+        branch_result = _run_git(
+            [_GIT, "rev-parse", "--abbrev-ref", "HEAD"], cwd
+        )
+        if branch_result.returncode != 0:
+            return
+        branch = branch_result.stdout.strip()
+        if not branch or branch in _PROTECTED_BRANCHES or branch == "HEAD":
+            return
+
+        # --- Guard: any unpushed commits? ---
+        log_result = _run_git(
+            [_GIT, "log", "origin/staging..HEAD", "--oneline"], cwd
+        )
+        if log_result.returncode != 0 or not log_result.stdout.strip():
+            # No unpushed commits (or origin/staging doesn't exist).
+            return
+
+        unpushed_lines = log_result.stdout.strip().splitlines()
+        logger.info(
+            "auto-push: %d unpushed commit(s) on branch '%s', pushing...",
+            len(unpushed_lines),
+            branch,
+        )
+
+        # --- Push ---
+        push_result = _run_git(
+            [_GIT, "push", "origin", branch], cwd, timeout=60
+        )
+        if push_result.returncode != 0:
+            logger.warning(
+                "auto-push: git push failed (exit %d): %s",
+                push_result.returncode,
+                (push_result.stderr or push_result.stdout)[:500],
+            )
+            return
+
+        logger.info("auto-push: pushed branch '%s' successfully", branch)
+
+        # --- Check if PR already exists ---
+        pr_list = _run_git(
+            [_GH, "pr", "list", "--head", branch, "--json", "number"], cwd
+        )
+        if pr_list.returncode != 0:
+            logger.warning(
+                "auto-push: gh pr list failed (exit %d): %s",
+                pr_list.returncode,
+                (pr_list.stderr or pr_list.stdout)[:500],
+            )
+            return
+
+        existing_prs = json.loads(pr_list.stdout.strip() or "[]")
+        if existing_prs:
+            logger.info(
+                "auto-push: PR already exists for branch '%s' (#%s), skipping create",
+                branch,
+                existing_prs[0].get("number", "?"),
+            )
+            return
+
+        # --- Get first commit message for PR title ---
+        first_commit = _run_git(
+            [_GIT, "log", "origin/staging..HEAD", "--reverse",
+             "--format=%s", "-1"],
+            cwd,
+        )
+        pr_title = first_commit.stdout.strip() if first_commit.returncode == 0 else branch
+        # Truncate to 256 chars (GitHub limit)
+        if len(pr_title) > 256:
+            pr_title = pr_title[:253] + "..."
+
+        # --- Create PR ---
+        pr_create = _run_git(
+            [
+                _GH, "pr", "create",
+                "--base", "staging",
+                "--title", pr_title,
+                "--body", "Auto-created by workspace agent",
+            ],
+            cwd,
+            timeout=60,
+        )
+        if pr_create.returncode != 0:
+            logger.warning(
+                "auto-push: gh pr create failed (exit %d): %s",
+                pr_create.returncode,
+                (pr_create.stderr or pr_create.stdout)[:500],
+            )
+        else:
+            pr_url = pr_create.stdout.strip()
+            logger.info("auto-push: created PR %s", pr_url)
+
+    except subprocess.TimeoutExpired:
+        logger.warning("auto-push: command timed out, skipping")
+    except Exception:
+        logger.exception("auto-push: unexpected error (non-fatal)")
+
+
+async def auto_push_hook(cwd: str | None = None) -> None:
+    """Post-execution hook: push unpushed commits and open a PR.
+
+    Runs the git/gh subprocess work in a background thread via
+    asyncio.to_thread so it never blocks the agent's event loop.
+    Catches all exceptions — the agent must never crash due to this hook.
+    """
+    if cwd is None:
+        cwd = WORKSPACE_MOUNT
+    if not os.path.isdir(cwd):
+        return
+    try:
+        await asyncio.to_thread(_auto_push_and_pr_sync, cwd)
+    except Exception:
+        logger.exception("auto_push_hook: failed (non-fatal)")
