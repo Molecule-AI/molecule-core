@@ -171,7 +171,7 @@ export function BudgetSection({ workspaceId }: Props) {
           <div className="flex items-baseline justify-between" data-testid="budget-stats-row">
             <span className="text-xs text-zinc-400">Credits used</span>
             <span className="text-xs font-mono text-zinc-300">
-              <span data-testid="budget-used-value">{budget.budget_used.toLocaleString()}</span>
+              <span data-testid="budget-used-value">{(budget.budget_used ?? 0).toLocaleString()}</span>
               <span className="text-zinc-500 mx-1">/</span>
               <span data-testid="budget-limit-value">
                 {budget.budget_limit != null
