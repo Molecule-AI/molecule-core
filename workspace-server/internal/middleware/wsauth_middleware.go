@@ -45,6 +45,14 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 
 		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
 		if tok != "" {
+			// Admin token fallback — lets the canvas dashboard read workspace
+			// activity, traces, delegations with a single admin credential.
+			adminSecret := os.Getenv("ADMIN_TOKEN")
+			if adminSecret != "" && subtle.ConstantTimeCompare([]byte(tok), []byte(adminSecret)) == 1 {
+				c.Next()
+				return
+			}
+			// Per-workspace token
 			if err := wsauth.ValidateToken(ctx, database, workspaceID, tok); err != nil {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid workspace auth token"})
 				return
