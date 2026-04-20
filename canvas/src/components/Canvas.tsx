@@ -30,6 +30,8 @@ import { SearchDialog } from "./SearchDialog";
 import { Toaster } from "./Toaster";
 import { Toolbar } from "./Toolbar";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { api } from "@/lib/api";
+import { showToast } from "./Toaster";
 // Phase 20 components
 import { SettingsPanel, DeleteConfirmDialog } from "./settings";
 // Phase 20.3 batch operations
@@ -96,6 +98,24 @@ function CanvasInner() {
 
   // Confirmation dialog state for structure changes
   const [pendingNest, setPendingNest] = useState<{ nodeId: string; targetId: string | null; nodeName: string; targetName: string } | null>(null);
+  // Delete-confirmation lives in the store so the dialog survives ContextMenu
+  // unmounting — the prior local-in-ContextMenu state raced with the menu's
+  // outside-click handler (the portal-rendered Confirm button counted as
+  // "outside" and closed the menu, killing the dialog mid-click).
+  const pendingDelete = useCanvasStore((s) => s.pendingDelete);
+  const setPendingDelete = useCanvasStore((s) => s.setPendingDelete);
+  const removeNode = useCanvasStore((s) => s.removeNode);
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDelete) return;
+    const { id } = pendingDelete;
+    setPendingDelete(null);
+    try {
+      await api.del(`/workspaces/${id}?confirm=true`);
+      removeNode(id);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Delete failed", "error");
+    }
+  }, [pendingDelete, setPendingDelete, removeNode]);
 
   const onNodeDragStop: OnNodeDrag<Node<WorkspaceNodeData>> = useCallback(
     (_event, node) => {
@@ -356,6 +376,17 @@ function CanvasInner() {
         confirmLabel={pendingNest?.targetId ? "Nest" : "Extract"}
         onConfirm={confirmNest}
         onCancel={cancelNest}
+      />
+
+      {/* Confirmation dialog for workspace delete — driven by store */}
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="Delete Workspace"
+        message={`Permanently delete "${pendingDelete?.name}"? This will stop the container and remove all configuration. This action cannot be undone.`}
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
       />
 
       {/* Settings Panel — global secrets management drawer */}
