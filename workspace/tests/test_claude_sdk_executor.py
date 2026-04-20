@@ -479,7 +479,8 @@ def test_build_system_prompt_combines_base_and_a2a_via_fixture():
     """Direct test bypassing the execute() path."""
     e = _make_executor()
     with patch("claude_sdk_executor.get_system_prompt", return_value="BASE"), \
-         patch("claude_sdk_executor.get_a2a_instructions", return_value="A2A"):
+         patch("claude_sdk_executor.get_a2a_instructions", return_value="A2A"), \
+         patch("claude_sdk_executor.get_hma_instructions", return_value=""):
         out = e._build_system_prompt()
     assert out == "BASE\n\nA2A"
 
@@ -487,15 +488,29 @@ def test_build_system_prompt_combines_base_and_a2a_via_fixture():
 def test_build_system_prompt_base_only():
     e = _make_executor()
     with patch("claude_sdk_executor.get_system_prompt", return_value="BASE"), \
-         patch("claude_sdk_executor.get_a2a_instructions", return_value=""):
+         patch("claude_sdk_executor.get_a2a_instructions", return_value=""), \
+         patch("claude_sdk_executor.get_hma_instructions", return_value=""):
         assert e._build_system_prompt() == "BASE"
 
 
 def test_build_system_prompt_a2a_only():
     e = _make_executor()
     with patch("claude_sdk_executor.get_system_prompt", return_value=None), \
-         patch("claude_sdk_executor.get_a2a_instructions", return_value="A2A"):
+         patch("claude_sdk_executor.get_a2a_instructions", return_value="A2A"), \
+         patch("claude_sdk_executor.get_hma_instructions", return_value=""):
         assert e._build_system_prompt() == "A2A"
+
+
+def test_build_system_prompt_includes_hma():
+    """HMA instructions are appended when present."""
+    e = _make_executor()
+    with patch("claude_sdk_executor.get_system_prompt", return_value="BASE"), \
+         patch("claude_sdk_executor.get_a2a_instructions", return_value="A2A"), \
+         patch("claude_sdk_executor.get_hma_instructions", return_value="## Hierarchical Memory"):
+        out = e._build_system_prompt()
+    assert "BASE" in out
+    assert "A2A" in out
+    assert "## Hierarchical Memory" in out
 
 
 def test_prepare_prompt_no_delegation_returns_unchanged():
