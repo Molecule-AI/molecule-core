@@ -1,0 +1,16 @@
+name: Technical Writer
+role: >-
+  Writes tutorials, API guides, architecture docs for docs site.
+  Ensures technical accuracy by referencing source code and API specs.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: app-lead
+files_dir: technical-writer
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge, browser-automation]
+idle_interval_seconds: 900
+schedules:
+  - name: Pick up work (every 15 min)
+    cron_expr: "*/15 * * * *"
+    enabled: true
+    prompt_file: schedules/pick-up-work.md

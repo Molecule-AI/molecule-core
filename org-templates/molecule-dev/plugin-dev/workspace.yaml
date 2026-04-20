@@ -1,0 +1,16 @@
+name: Plugin-Dev
+role: >-
+  Plugin developer. Implements and maintains Molecule AI plugins (~21 repos).
+  Ensures compatibility with platform plugin pipeline.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: sdk-lead
+files_dir: plugin-dev
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 900
+schedules:
+  - name: Pick up work (every 15 min)
+    cron_expr: "*/15 * * * *"
+    enabled: true
+    prompt_file: schedules/pick-up-work.md

@@ -1,0 +1,16 @@
+name: Infra-Runtime-BE
+role: >-
+  Runtime backend engineer. Owns molecule-ai-workspace-runtime: container
+  lifecycle, adapter layer, health reporting, graceful shutdown, Docker images.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: infra-lead
+files_dir: infra-runtime-be
+plugins: [molecule-hitl, molecule-skill-code-review, molecule-security-scan, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 900
+schedules:
+  - name: Pick up work (every 15 min)
+    cron_expr: "*/15 * * * *"
+    enabled: true
+    prompt_file: schedules/pick-up-work.md

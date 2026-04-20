@@ -1,0 +1,33 @@
+name: Dev Lead
+role: >-
+  Engineering planning and team coordination. Leads Core Platform,
+  Controlplane, App & Docs, Infra, SDK sub-teams, plus Release Manager,
+  Integration Tester, and Fullstack (floater).
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+files_dir: dev-lead
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge]
+canvas: {x: 650, y: 250}
+channels:
+  - type: telegram
+    config:
+      bot_token: ${TELEGRAM_BOT_TOKEN}
+      chat_id: ${TELEGRAM_CHAT_ID}
+    enabled: true
+idle_interval_seconds: 900
+schedules:
+  - name: Orchestrator pulse
+    cron_expr: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
+    enabled: true
+    prompt_file: schedules/orchestrator-pulse.md
+children:
+  - !include core-platform.yaml
+  - !include controlplane.yaml
+  - !include app-docs.yaml
+  - !include infra.yaml
+  - !include sdk.yaml
+  - !include ../release-manager/workspace.yaml
+  - !include ../integration-tester/workspace.yaml
+  - !include ../fullstack-engineer/workspace.yaml
+initial_prompt_file: initial-prompt.md

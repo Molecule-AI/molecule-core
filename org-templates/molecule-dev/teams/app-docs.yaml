@@ -1,0 +1,21 @@
+name: App & Docs Lead
+role: >-
+  App & Docs team lead. Owns molecule-app + docs site. Triage+merge authority.
+  Leads App-FE, App-QA, Doc Specialist, Technical Writer.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: dev-lead
+files_dir: app-lead
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge]
+idle_interval_seconds: 900
+schedules:
+  - name: Orchestrator pulse (every 5 min)
+    cron_expr: "*/5 * * * *"
+    enabled: true
+    prompt_file: schedules/orchestrator-pulse.md
+children:
+  - !include ../app-fe/workspace.yaml
+  - !include ../app-qa/workspace.yaml
+  - !include documentation-specialist.yaml
+  - !include ../technical-writer/workspace.yaml

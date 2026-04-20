@@ -1,0 +1,19 @@
+name: Infra Lead
+role: >-
+  Infrastructure team lead. Owns molecule-ai-workspace-runtime, molecule-ai-status,
+  molecule-ci, Molecule-AI/internal. Leads Infra-SRE, Infra-Runtime-BE.
+tier: 3
+runtime: claude-code
+model: MiniMax-M2.7
+parent: dev-lead
+files_dir: infra-lead
+plugins: [molecule-hitl, molecule-skill-code-review, molecule-freeze-scope]
+idle_interval_seconds: 900
+schedules:
+  - name: Orchestrator pulse (every 5 min)
+    cron_expr: "*/5 * * * *"
+    enabled: true
+    prompt_file: schedules/orchestrator-pulse.md
+children:
+  - !include ../infra-sre/workspace.yaml
+  - !include ../infra-runtime-be/workspace.yaml
