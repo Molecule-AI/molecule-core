@@ -146,22 +146,13 @@ DELETE /org/tokens/:id           revoke; idempotent (404 on already-revoked)
 
 All three behind `AdminAuth`. See `internal/handlers/org_tokens.go`.
 
-## Follow-up roadmap
+## Known limitations
 
-See `docs/architecture/org-api-keys-followups.md` for the full
-list; headline items:
-
-1. **Role scoping**: split into ADMIN / EDITOR / READER tiers. Then
-   WORKSPACE-SPECIFIC tokens ("this key can only touch workspace
-   X"). Aligns with the AWS IAM-style direction the product wants.
-2. **Expiry**: optional `expires_at`, enforced in the hot-path
-   query. Lets users mint short-lived tokens for specific jobs.
-3. **Usage metrics**: counter + last-request metadata
-   (path/ip/user-agent) for the UI so users can see what a token
-   is actually doing.
-4. **Rotation hooks**: webhook-on-revoke so integrations know to
-   re-mint.
-5. **Capture WorkOS user_id in `created_by`** when minted via session
-   (currently just records "session"). Requires propagating session
-   identity from the CP's tenant-member check through
-   `session_auth.go`.
+- Every token is full-org admin. Role scoping (admin / editor /
+  reader) and per-workspace binding are planned but not shipped
+  today.
+- No expiry / TTL. Tokens live until explicitly revoked.
+- Tokens minted via canvas session are audited as
+  `created_by: "session"` without the WorkOS user_id. A specific
+  user's mint activity can't be attributed from the table alone
+  until the session identity is captured.
