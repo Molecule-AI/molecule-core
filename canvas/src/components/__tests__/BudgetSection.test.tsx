@@ -154,6 +154,16 @@ describe("BudgetSection — stats row", () => {
     await renderLoaded(budgetResponse({ budget_remaining: null }));
     expect(screen.queryByTestId("budget-remaining")).toBeNull();
   });
+
+  it("does not crash when budget_used is missing from the response", async () => {
+    // Backend for a provisioning-stuck workspace may return a partial
+    // shape. Regression: previously this threw
+    // "Cannot read properties of undefined (reading 'toLocaleString')"
+    // and crashed the whole Details tab.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await renderLoaded({ budget_limit: 1000, budget_remaining: null } as any);
+    expect(screen.getByTestId("budget-used-value").textContent).toBe("0");
+  });
 });
 
 // ── Progress bar ──────────────────────────────────────────────────────────────
