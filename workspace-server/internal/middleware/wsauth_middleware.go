@@ -45,6 +45,14 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 
 		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
 		if tok != "" {
+			// Admin token fallback — lets the canvas dashboard read workspace
+			// activity, traces, delegations with a single admin credential.
+			adminSecret := os.Getenv("ADMIN_TOKEN")
+			if adminSecret != "" && subtle.ConstantTimeCompare([]byte(tok), []byte(adminSecret)) == 1 {
+				c.Next()
+				return
+			}
+			// Per-workspace token
 			if err := wsauth.ValidateToken(ctx, database, workspaceID, tok); err != nil {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid workspace auth token"})
 				return
@@ -180,6 +188,12 @@ func CanvasOrBearer(database *sql.DB) gin.HandlerFunc {
 		// expired token + a matching Origin would otherwise bypass auth.
 		// Empty bearer → skip to Origin path (canvas never sends one).
 		if tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization")); tok != "" {
+			// Admin token accepted for canvas dashboard
+			adminSecret := os.Getenv("ADMIN_TOKEN")
+			if adminSecret != "" && subtle.ConstantTimeCompare([]byte(tok), []byte(adminSecret)) == 1 {
+				c.Next()
+				return
+			}
 			if err := wsauth.ValidateAnyToken(ctx, database, tok); err != nil {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
 				return
