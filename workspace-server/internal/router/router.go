@@ -519,6 +519,22 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	sh := handlers.NewSocketHandler(hub)
 	r.GET("/ws", sh.HandleConnect)
 
+	// Control-plane reverse proxy — forwards /cp/* to the SaaS CP.
+	// Canvas's browser bundle fetches /cp/auth/me, /cp/orgs, etc. on
+	// SAME ORIGIN (the tenant's <slug>.moleculesai.app). Those paths
+	// aren't mounted on the tenant platform; without this proxy they
+	// 404 and login breaks. When CP_UPSTREAM_URL is empty (self-
+	// hosted / local dev where no CP exists), we skip the mount so
+	// Gin's default 404 surfaces cleanly instead of proxying to a
+	// placeholder.
+	//
+	// Mounted via NoRoute-style group BEFORE the canvas NoRoute so
+	// /cp/* wins over the UI fallback.
+	if cpURL := os.Getenv("CP_UPSTREAM_URL"); cpURL != "" {
+		cpProxy := newCPProxy(cpURL)
+		r.Any("/cp/*path", cpProxy)
+	}
+
 	// Canvas reverse proxy — when running as a combined tenant image
 	// (Dockerfile.tenant), the Next.js canvas server runs on :3000 inside
 	// the same container. Any route not matched by the API handlers above

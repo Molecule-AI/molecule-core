@@ -111,21 +111,19 @@ jobs:
             ${{ env.TENANT_IMAGE_NAME }}:staging-${{ steps.tags.outputs.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # Bake the SaaS control-plane URL into the canvas bundle.
-          # Canvas's browser-side code uses PLATFORM_URL for every
-          # /cp/* call (auth, orgs, billing, terms). Leaving this empty
-          # made PLATFORM_URL fall back to http://localhost:8080 in the
-          # built bundle — which fails from the user's browser because
-          # localhost resolves to their own machine, not the tenant
-          # instance. Baking the CP origin here fixes browser-side auth
-          # for every tenant.
+          # Canvas uses same-origin fetches. The tenant Go platform
+          # reverse-proxies /cp/* to the SaaS CP via its CP_UPSTREAM_URL
+          # env; the tenant's /canvas/viewport, /approvals/pending,
+          # /org/templates etc. live on the tenant platform itself.
+          # Both legs share one origin (the tenant subdomain) so
+          # PLATFORM_URL="" forces canvas to fetch paths as relative,
+          # which land same-origin.
           #
-          # Self-hosted / private-label deployments override this by
-          # rebuilding the image with a different NEXT_PUBLIC_PLATFORM_URL
-          # build-arg (e.g. https://api.their-domain.com). Same pattern
-          # molecule-app uses with NEXT_PUBLIC_CP_ORIGIN.
+          # Self-hosted / private-label deployments override this at
+          # build time with a specific backend (e.g. local dev:
+          # NEXT_PUBLIC_PLATFORM_URL=http://localhost:8080).
           build-args: |
-            NEXT_PUBLIC_PLATFORM_URL=https://api.moleculesai.app
+            NEXT_PUBLIC_PLATFORM_URL=
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
