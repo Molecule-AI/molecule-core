@@ -8,8 +8,12 @@ WORKDIR /app
 # Plugin source for replace directive in go.mod
 COPY molecule-ai-plugin-github-app-auth/ /plugin/
 COPY workspace-server/go.mod workspace-server/go.sum ./
-# Add replace directive for Docker builds (plugin is COPYed to /plugin above)
+# Add replace directives for Docker builds:
+# 1. Platform → plugin (plugin source at /plugin/)
+# 2. Plugin → platform (plugin's go.mod has a relative replace that doesn't
+#    work in Docker; fix it to point at /app where the platform source lives)
 RUN echo 'replace github.com/Molecule-AI/molecule-ai-plugin-github-app-auth => /plugin' >> go.mod
+RUN sed -i 's|replace github.com/Molecule-AI/molecule-monorepo/platform => .*|replace github.com/Molecule-AI/molecule-monorepo/platform => /app|' /plugin/go.mod
 RUN go mod download
 COPY workspace-server/ .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /platform ./cmd/server

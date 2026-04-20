@@ -43,12 +43,17 @@
 package handlers
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/pkg/provisionhook"
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // GitHubTokenHandler serves GET /admin/github-installation-token.
@@ -86,7 +91,17 @@ func (h *GitHubTokenHandler) GetInstallationToken(c *gin.Context) {
 
 	provider := h.registry.FirstTokenProvider()
 	if provider == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "no token provider registered"})
+		// #960/#1101: Plugin's TokenProvider interface fails due to Go module
+		// boundary. Fall back to direct App token generation using env vars.
+		// TODO: refactor into a platform-level CredentialRefreshHook (#1101)
+		log.Printf("[github] no TokenProvider in registry — using env-based fallback")
+		token, expiresAt, err := generateAppInstallationToken()
+		if err != nil {
+			log.Printf("[github] fallback token generation failed: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "token refresh failed"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"token": token, "expires_at": expiresAt})
 		return
 	}
 
@@ -112,4 +127,52 @@ func (h *GitHubTokenHandler) GetInstallationToken(c *gin.Context) {
 		"token":      token,
 		"expires_at": expiresAt.UTC().Format(time.RFC3339),
 	})
+}
+
+// generateAppInstallationToken generates a GitHub App installation token
+// directly from env vars. Temporary fallback for #960 (Go module boundary
+// prevents plugin TokenProvider from matching). Tracked for refactor in #1101.
+func generateAppInstallationToken() (string, time.Time, error) {
+	appID, _ := strconv.ParseInt(os.Getenv("GITHUB_APP_ID"), 10, 64)
+	installID, _ := strconv.ParseInt(os.Getenv("GITHUB_APP_INSTALLATION_ID"), 10, 64)
+	keyFile := os.Getenv("GITHUB_APP_PRIVATE_KEY_FILE")
+	if appID == 0 || installID == 0 || keyFile == "" {
+		return "", time.Time{}, fmt.Errorf("GITHUB_APP_ID/INSTALLATION_ID/PRIVATE_KEY_FILE required")
+	}
+	keyPEM, err := os.ReadFile(keyFile)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("read key: %w", err)
+	}
+	rsaKey, err := jwt.ParseRSAPrivateKeyFromPEM(keyPEM)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("parse key: %w", err)
+	}
+	now := time.Now()
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"iat": now.Add(-60 * time.Second).Unix(),
+		"exp": now.Add(10 * time.Minute).Unix(),
+		"iss": appID,
+	}).SignedString(rsaKey)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("sign JWT: %w", err)
+	}
+	req, _ := http.NewRequest("POST", fmt.Sprintf("https://api.github.com/app/installations/%d/access_tokens", installID), nil)
+	req.Header.Set("Authorization", "Bearer "+signed)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Token     string    `json:"token"`
+		ExpiresAt time.Time `json:"expires_at"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", time.Time{}, err
+	}
+	if result.Token == "" {
+		return "", time.Time{}, fmt.Errorf("empty token (status %d)", resp.StatusCode)
+	}
+	return result.Token, result.ExpiresAt, nil
 }
