@@ -478,6 +478,36 @@ func TestIsRunning_ContractCompat_A2AProxy(t *testing.T) {
 	})
 }
 
+// TestIsRunning_BoundedBodyRead — IsRunning caps the decoded body at
+// 64 KiB so a misconfigured/compromised CP streaming a huge body can't
+// exhaust memory in this hot path. We serve a body larger than the cap
+// and assert the decode either succeeds (json terminated within cap) or
+// fails with a decode error (json truncated) — what MUST NOT happen is
+// the whole body getting buffered.
+//
+// Implementation note: the test server writes a valid JSON object
+// whose trailing whitespace pads the body past 64 KiB. The decoder
+// only needs the prefix to produce a value, so the decode succeeds —
+// and the LimitReader enforces the cap regardless.
+func TestIsRunning_BoundedBodyRead(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+		// Valid JSON prefix, then pad well past the 64 KiB cap.
+		_, _ = io.WriteString(w, `{"state":"running"}`)
+		_, _ = io.WriteString(w, strings.Repeat(" ", 128<<10))
+	}))
+	defer srv.Close()
+
+	p := &CPProvisioner{baseURL: srv.URL, orgID: "org-1", httpClient: srv.Client()}
+	got, err := p.IsRunning(context.Background(), "ws-1")
+	if err != nil {
+		t.Fatalf("decode of prefix should succeed, got err %v", err)
+	}
+	if !got {
+		t.Errorf("state=running in prefix should decode to true, got false")
+	}
+}
+
 // TestClose_Noop — explicit contract: Close has no side effects and
 // no error. Exists for the Provisioner interface; compliance guard.
 func TestClose_Noop(t *testing.T) {

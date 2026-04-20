@@ -205,7 +205,11 @@ func (p *CPProvisioner) IsRunning(ctx context.Context, workspaceID string) (bool
 		return true, fmt.Errorf("cp provisioner: status: unexpected %d", resp.StatusCode)
 	}
 	var result struct{ State string `json:"state"` }
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	// Cap body read at 64 KiB for parity with Start — a misconfigured
+	// or compromised CP streaming a huge body could otherwise exhaust
+	// memory in this hot path (called reactively per-request from
+	// a2a_proxy and periodically from healthsweep).
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&result); err != nil {
 		return true, fmt.Errorf("cp provisioner: status decode: %w", err)
 	}
 	return result.State == "running", nil
