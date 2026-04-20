@@ -942,15 +942,24 @@ func isPrivateOrMetadataIP(ip net.IP) bool {
 //  1. Docker-internal URL cache (set by provisioner; correct when platform is in Docker)
 //  2. Redis URL cache
 //  3. DB `url` column fallback, with 127.0.0.1→Docker bridge rewrite when in Docker
+//
+// SECURITY (F1083 / #1130): all three paths run the returned URL through
+// validateAgentURL to block SSRF targets (private IPs, loopback, cloud metadata).
 func mcpResolveURL(ctx context.Context, database *sql.DB, workspaceID string) (string, error) {
 	if platformInDocker {
 		if url, err := db.GetCachedInternalURL(ctx, workspaceID); err == nil && url != "" {
+			if err := validateAgentURL(url); err != nil {
+				return "", fmt.Errorf("workspace %s: forbidden URL from internal cache: %w", workspaceID, err)
+			}
 			return url, nil
 		}
 	}
 	if url, err := db.GetCachedURL(ctx, workspaceID); err == nil && url != "" {
 		if platformInDocker && strings.HasPrefix(url, "http://127.0.0.1:") {
 			return provisioner.InternalURL(workspaceID), nil
+		}
+		if err := validateAgentURL(url); err != nil {
+			return "", fmt.Errorf("workspace %s: forbidden URL from Redis cache: %w", workspaceID, err)
 		}
 		return url, nil
 	}
@@ -970,6 +979,9 @@ func mcpResolveURL(ctx context.Context, database *sql.DB, workspaceID string) (s
 	}
 	if platformInDocker && strings.HasPrefix(urlStr.String, "http://127.0.0.1:") {
 		return provisioner.InternalURL(workspaceID), nil
+	}
+	if err := validateAgentURL(urlStr.String); err != nil {
+		return "", fmt.Errorf("workspace %s: forbidden URL from DB: %w", workspaceID, err)
 	}
 	return urlStr.String, nil
 }
