@@ -54,7 +54,22 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 				c.Next()
 				return
 			}
-			// Per-workspace token
+			// Org-scoped API token — user-minted from canvas UI. Grants
+			// access to EVERY workspace in the org (that's the explicit
+			// product spec: one org key can touch each workspace). Same
+			// power surface as ADMIN_TOKEN but named, revocable, audited.
+			// Check before per-workspace token so an org-key presenter
+			// doesn't hit the narrower ValidateToken failure path.
+			if id, err := orgtoken.Validate(ctx, database, tok); err == nil {
+				c.Set("org_token_id", id)
+				c.Next()
+				return
+			} else if !errors.Is(err, orgtoken.ErrInvalidToken) {
+				log.Printf("wsauth: WorkspaceAuth: orgtoken.Validate: %v", err)
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "auth check failed"})
+				return
+			}
+			// Per-workspace token — narrowest scope, bound to this :id.
 			if err := wsauth.ValidateToken(ctx, database, workspaceID, tok); err != nil {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid workspace auth token"})
 				return
