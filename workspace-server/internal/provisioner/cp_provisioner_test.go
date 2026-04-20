@@ -338,6 +338,69 @@ func TestIsRunning_TransportErrorReturnsFalse(t *testing.T) {
 	}
 }
 
+// TestIsRunning_Non2xxSurfacesError — a CP 500/502/etc. must NOT
+// be silently treated as "workspace stopped". Previously the handler
+// would decode an empty body → State="" → return (false, nil) and
+// the sweeper would see the workspace as not-running. Now every
+// non-2xx is an error the caller can log + retry.
+func TestIsRunning_Non2xxSurfacesError(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+	}{
+		{"500 internal", 500},
+		{"502 bad gateway", 502},
+		{"503 unavailable", 503},
+		{"401 unauthorized", 401},
+		{"404 not found", 404},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, `{"state":"running"}`) // liar body — must not be trusted
+			}))
+			defer srv.Close()
+			p := &CPProvisioner{baseURL: srv.URL, orgID: "org-1", httpClient: srv.Client()}
+
+			got, err := p.IsRunning(context.Background(), "ws-1")
+			if err == nil {
+				t.Errorf("status %d: expected error, got nil", tc.status)
+			}
+			if got {
+				t.Errorf("status %d: must not report running=true on non-2xx", tc.status)
+			}
+			// Error must NOT echo the upstream body — CP 5xx bodies
+			// can contain echoed headers and we don't want logs to
+			// leak bearer tokens.
+			if err != nil && strings.Contains(err.Error(), "running") {
+				t.Errorf("status %d: error leaked upstream body: %q", tc.status, err.Error())
+			}
+		})
+	}
+}
+
+// TestIsRunning_MalformedJSONBodyReturnsError — 200 but invalid JSON
+// must surface an error rather than silently returning false. Prevents
+// a middleware glitch (HTML error page with 200) from looking like
+// "workspace stopped".
+func TestIsRunning_MalformedJSONBodyReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		_, _ = io.WriteString(w, "<html>maintenance mode</html>")
+	}))
+	defer srv.Close()
+	p := &CPProvisioner{baseURL: srv.URL, orgID: "org-1", httpClient: srv.Client()}
+
+	got, err := p.IsRunning(context.Background(), "ws-1")
+	if err == nil {
+		t.Errorf("malformed body: expected error, got nil (got=%v)", got)
+	}
+	if got {
+		t.Errorf("malformed body must not report running=true")
+	}
+}
+
 // TestClose_Noop — explicit contract: Close has no side effects and
 // no error. Exists for the Provisioner interface; compliance guard.
 func TestClose_Noop(t *testing.T) {
