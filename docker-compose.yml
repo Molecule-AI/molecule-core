@@ -183,11 +183,14 @@ services:
       args:
         NEXT_PUBLIC_PLATFORM_URL: ${NEXT_PUBLIC_PLATFORM_URL:-http://localhost:${PLATFORM_PUBLISH_PORT:-8080}}
         NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:${PLATFORM_PUBLISH_PORT:-8080}/ws}
+        NEXT_PUBLIC_ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     depends_on:
       platform:
         condition: service_healthy
     environment:
       PORT: "${CANVAS_PORT:-3000}"
+      # Local dev — relaxes CSP to allow cross-port fetches (canvas:3000 → platform:8080).
+      CSP_DEV_MODE: "${CSP_DEV_MODE:-1}"
       # NOTE: NEXT_PUBLIC_* are baked into the JS bundle at `next build` time —
       # these runtime values are ignored by the standalone output. They're kept
       # here for documentation / override during `docker compose build`.
