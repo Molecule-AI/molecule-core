@@ -320,10 +320,15 @@ func TestIsRunning_SendsBothAuthHeaders(t *testing.T) {
 	}
 }
 
-// TestIsRunning_TransportErrorReturnsFalse — when the CP is
-// unreachable, IsRunning must not claim the workspace is running
-// (that'd mislead the sweeper into leaving a dead row in place).
-func TestIsRunning_TransportErrorReturnsFalse(t *testing.T) {
+// TestIsRunning_TransportErrorReturnsTrue — when the CP is
+// unreachable, IsRunning must return (true, err) — matching the
+// Docker provisioner contract so a2a_proxy stays on the alive path
+// during a transient CP outage. Returning false here would trigger
+// restart cascades on every brief CP blip.
+//
+// The sweeper (healthsweep.go) inspects err independently and skips
+// on any error, so (true, err) is equally safe for that caller.
+func TestIsRunning_TransportErrorReturnsTrue(t *testing.T) {
 	p := &CPProvisioner{
 		baseURL:    "http://127.0.0.1:1",
 		orgID:      "org-1",
@@ -333,8 +338,8 @@ func TestIsRunning_TransportErrorReturnsFalse(t *testing.T) {
 	if err == nil {
 		t.Errorf("expected transport error, got nil (got=%v)", got)
 	}
-	if got {
-		t.Errorf("transport failure must not report running=true")
+	if !got {
+		t.Errorf("transport failure must report running=true so a2a_proxy stays on the alive path (matches Docker provisioner contract); got false")
 	}
 }
 
@@ -367,8 +372,8 @@ func TestIsRunning_Non2xxSurfacesError(t *testing.T) {
 			if err == nil {
 				t.Errorf("status %d: expected error, got nil", tc.status)
 			}
-			if got {
-				t.Errorf("status %d: must not report running=true on non-2xx", tc.status)
+			if !got {
+				t.Errorf("status %d: must report running=true on non-2xx so a2a_proxy stays on alive path; got false", tc.status)
 			}
 			// Error must NOT echo the upstream body — CP 5xx bodies
 			// can contain echoed headers and we don't want logs to
@@ -396,9 +401,81 @@ func TestIsRunning_MalformedJSONBodyReturnsError(t *testing.T) {
 	if err == nil {
 		t.Errorf("malformed body: expected error, got nil (got=%v)", got)
 	}
-	if got {
-		t.Errorf("malformed body must not report running=true")
+	if !got {
+		t.Errorf("malformed body must report running=true so a2a_proxy stays on alive path; got false")
 	}
+}
+
+// TestIsRunning_ContractCompat_A2AProxy — codifies the critical
+// invariant that a2a_proxy.go line ~534 depends on: during CP
+// transient errors, the handler must inspect `running`, see true,
+// and skip the restart cascade. If this contract drifts (e.g., a
+// future refactor returns false on error), every brief CP outage
+// cascades into a workspace restart storm.
+//
+// This is a regression guard, not a functional test — it asserts
+// the documented contract values rather than simulating the whole
+// a2a_proxy flow.
+func TestIsRunning_ContractCompat_A2AProxy(t *testing.T) {
+	// Simulate every error path and assert running==true for each.
+	t.Run("transport error", func(t *testing.T) {
+		p := &CPProvisioner{
+			baseURL: "http://127.0.0.1:1", orgID: "org-1",
+			httpClient: &http.Client{Timeout: 500 * time.Millisecond},
+		}
+		running, err := p.IsRunning(context.Background(), "ws-1")
+		if err == nil || !running {
+			t.Errorf("want (true, err); got (%v, %v)", running, err)
+		}
+	})
+	t.Run("CP 500 response", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(500)
+		}))
+		defer srv.Close()
+		p := &CPProvisioner{baseURL: srv.URL, orgID: "org-1", httpClient: srv.Client()}
+		running, err := p.IsRunning(context.Background(), "ws-1")
+		if err == nil || !running {
+			t.Errorf("want (true, err); got (%v, %v)", running, err)
+		}
+	})
+	t.Run("malformed 200 body", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(200)
+			_, _ = io.WriteString(w, "garbage")
+		}))
+		defer srv.Close()
+		p := &CPProvisioner{baseURL: srv.URL, orgID: "org-1", httpClient: srv.Client()}
+		running, err := p.IsRunning(context.Background(), "ws-1")
+		if err == nil || !running {
+			t.Errorf("want (true, err); got (%v, %v)", running, err)
+		}
+	})
+	// And the non-error paths must still report the truth.
+	t.Run("2xx stopped → false nil", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(200)
+			_, _ = io.WriteString(w, `{"state":"stopped"}`)
+		}))
+		defer srv.Close()
+		p := &CPProvisioner{baseURL: srv.URL, orgID: "org-1", httpClient: srv.Client()}
+		running, err := p.IsRunning(context.Background(), "ws-1")
+		if err != nil || running {
+			t.Errorf("want (false, nil); got (%v, %v)", running, err)
+		}
+	})
+	t.Run("2xx running → true nil", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(200)
+			_, _ = io.WriteString(w, `{"state":"running"}`)
+		}))
+		defer srv.Close()
+		p := &CPProvisioner{baseURL: srv.URL, orgID: "org-1", httpClient: srv.Client()}
+		running, err := p.IsRunning(context.Background(), "ws-1")
+		if err != nil || !running {
+			t.Errorf("want (true, nil); got (%v, %v)", running, err)
+		}
+	})
 }
 
 // TestClose_Noop — explicit contract: Close has no side effects and
