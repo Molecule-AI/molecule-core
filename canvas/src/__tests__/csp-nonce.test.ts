@@ -58,6 +58,21 @@ describe("buildCsp — production", () => {
     expect(connectSrc).toContain("wss:");
   });
 
+  it("adds NEXT_PUBLIC_PLATFORM_URL origin to connect-src (CP cross-origin fetches)", () => {
+    // Canvas calls fetch(PLATFORM_URL + "/cp/auth/me") etc. from the
+    // browser. The browser blocks cross-origin fetches that aren't in
+    // connect-src, even with CORS headers set server-side. Whitelisting
+    // the origin is what makes fresh login + session refresh work on
+    // tenant subdomains after they were broken pre-2026-04-20 by a CSP
+    // that only allowed 'self' and wss:.
+    process.env.NEXT_PUBLIC_PLATFORM_URL = "https://api.example.com";
+    const built = buildCsp(TEST_NONCE, false);
+    const connectSrc = built.match(/connect-src[^;]*/)?.[0] ?? "";
+    expect(connectSrc).toContain("https://api.example.com");
+    expect(connectSrc).toContain("wss://api.example.com");
+    delete process.env.NEXT_PUBLIC_PLATFORM_URL;
+  });
+
   it("does NOT include bare ws: in connect-src (prod uses wss only)", () => {
     const connectSrc = csp.match(/connect-src[^;]*/)?.[0] ?? "";
     // ws: (without 's') is insecure — should not be in production policy
@@ -95,9 +110,13 @@ describe("buildCsp — development", () => {
     expect(scriptSrc()).toContain("'unsafe-eval'");
   });
 
-  it("allows ws: in connect-src (HMR WebSocket uses plain ws://)", () => {
+  it("permits ws:// in connect-src (HMR WebSocket uses plain ws://)", () => {
     const connectSrc = csp.match(/connect-src[^;]*/)?.[0] ?? "";
-    expect(connectSrc).toContain("ws:");
+    // Dev uses `connect-src *` (fully permissive) which subsumes ws:.
+    // Accept either the literal `ws:` scheme wildcard OR the blanket
+    // `*` since both let HMR through. Prod tests still enforce `ws:`
+    // is NOT present.
+    expect(connectSrc).toMatch(/\bws:|\*/);
   });
 });
 
