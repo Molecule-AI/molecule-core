@@ -1,5 +1,14 @@
 # Phase 30 Demo Spec — Remote Workspaces & Cross-Network Federation
 > For: DevRel + Marketing | Status: DRAFT | Phase 30 GA target
+>
+> **Issue:** attaches to [`Molecule-AI/internal#2`](https://github.com/Molecule-AI/internal/issues/2)
+> — `devrel: remote agent fleet demo for Phase 30`
+>
+> **Technical reference:** [`docs/guides/external-agent-registration.md`](https://github.com/Molecule-AI/molecule-core/blob/main/docs/guides/external-agent-registration.md)
+> — full endpoint reference used throughout this spec.
+>
+> **Social launch plan:** `marketing/social/phase30-launch-plan.md` (PMM-owned) — Section 5 TTS script
+> is the authoritative source for `phase30-video-vo.mp3`.
 
 ---
 
@@ -162,6 +171,74 @@ python3 run.py
 
 ---
 
+## 3b. Visual Assets Required (from PMM social launch plan)
+
+These assets are produced by the design team. The screencast and guide reference them at the moments noted.
+
+### ASSET 1 — Canvas screenshot: REMOTE badge visible alongside Docker agents
+
+**Description:** Screenshot of the Molecule AI canvas showing a mixed fleet: one Docker-provisioned workspace (e.g. "pm-agent", standard runtime pill) and one remote workspace (e.g. "researcher", purple REMOTE badge) visible simultaneously. Both should show status "online".
+
+**When it's used:** Moment 4 of the screencast — the payoff shot. Also used as the hero image in the `docs/guides/remote-workspaces.md` guide.
+
+**Capture instructions:**
+1. Spin up a Docker workspace on the platform (use the `claude-code-default` template)
+2. Spin up a remote workspace (see Section 2 — run `python3 run.py` on laptop with ngrok)
+3. Arrange both nodes visible on canvas at the same time
+4. Screenshot at ~1440px wide; include the side panel closed so the canvas is unobstructed
+5. Crop to show the org topology clearly; do not crop out the REMOTE badge on the researcher node
+
+**File:** `marketing/assets/phase30-canvas-remote-badge.png`
+
+---
+
+### ASSET 2 — Fleet diagram: AWS / GCP / on-prem → A2A proxy → single canvas
+
+**Description:** Clean infrastructure diagram showing three remote agent nodes (AWS, GCP, on-premises datacenter) each running an agent on their own infrastructure. Each agent connects via HTTPS to the Molecule AI platform's A2A proxy. The platform connects via WebSocket to a single canvas browser. All agents appear as workspaces on the same canvas, side by side.
+
+**Style:** Molecule AI brand — dark background (#0A0E1A or similar), consistent iconography, thin connector lines, no heavy borders. Same visual language as the architecture diagrams in `docs/architecture/architecture.md`.
+
+**Include labels:**
+- Each agent node: runtime label (e.g. "Claude Code / laptop", "LangGraph / AWS EC2", "CrewAI / on-prem")
+- A2A proxy: `POST /workspaces/:id/a2a` (label on the connector)
+- WebSocket fanout: labeled `WS fanout` between platform and canvas
+- Canvas: single browser icon with "One canvas. All agents."
+
+**When it's used:** Guide hero image (`docs/guides/remote-workspaces.md`), Phase 30 blog post hero, social card.
+
+**File:** `marketing/assets/phase30-fleet-diagram.png`
+
+---
+
+### ASSET 3 (Optional) — 10-second GIF: registration → canvas → A2A message flow
+
+**Description:** Short looping animated GIF showing the end-to-end flow in real time:
+1. Terminal: `python3 run.py` starts, logs scroll
+2. Canvas: researcher node fades in under PM with REMOTE badge
+3. Canvas chat: PM types a task, hits send
+4. Terminal: A2A JSON-RPC `message/send` received, response returned
+5. Canvas: researcher's reply appears in PM chat
+
+**Duration:** ~10 seconds, looping. No audio. Time labels optional.
+
+**When it's used:** Social media embed (X, LinkedIn), landing page. Lower priority than ASSET 1 and 2.
+
+**Capture instructions:** Record with `byzanz-record` or similar on Linux; ScreenFlow or LICEcap on macOS. Export as GIF at 10fps, max 2 MB.
+
+**File:** `marketing/assets/phase30-registration-flow.gif`
+
+---
+
+### Asset summary table
+
+| Asset | File | Priority | Used in |
+|---|---|---|---|
+| Canvas screenshot (REMOTE badge) | `marketing/assets/phase30-canvas-remote-badge.png` | **Required** | Screencast Moment 4, guide hero |
+| Fleet diagram (AWS/GCP/on-prem) | `marketing/assets/phase30-fleet-diagram.png` | **Required** | Guide hero, blog post, social card |
+| Registration flow GIF | `marketing/assets/phase30-registration-flow.gif` | Optional | Social embed |
+
+---
+
 ## 4. docs/guides/remote-workspaces.md — Draft Intro + Prerequisites
 
 ```markdown
@@ -316,12 +393,19 @@ The agent appears on the canvas with a **purple REMOTE badge** within seconds. F
 
 ---
 
-## 5. TTS Audio Script — 60-Second Phase 30 Announcement
+## 5. TTS Voiceover Script — Phase 30 Announcement
 
 **Output:** `marketing/audio/phase30-announce.mp3`
-**Duration target:** ~60 seconds
-**Voice:** Neutral professional (announcement style)
-**Script below — read verbatim:**
+**Output (social cut):** `marketing/audio/phase30-video-vo.mp3`
+**Duration:** ~22 seconds for announcement cut; ~30 seconds for video VO cut
+**Voice:** Neutral professional (en-US-AriaNeural via edge-tts)
+**Source:** `marketing/social/phase30-launch-plan.md` Section 5 (PMM-authored); this spec includes the same script for reference.
+
+> **Note:** If `marketing/social/phase30-launch-plan.md` is updated with a revised PMM script, this section should be updated to match. The authoritative source is the PMM's social launch plan.
+
+**Script — read verbatim:**
+
+---
 
 ---
 
