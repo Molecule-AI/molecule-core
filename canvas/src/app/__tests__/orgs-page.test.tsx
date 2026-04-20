@@ -15,7 +15,7 @@
  *   - Polling: provisioning orgs schedule a 5s refresh (fake timers)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, cleanup } from "@testing-library/react";
 
 // ── Hoisted mocks ────────────────────────────────────────────────────────────
 // vi.mock factories are hoisted above imports; any captured references must
