@@ -97,6 +97,8 @@ const mockStoreState = {
   isDescendant: vi.fn(() => false),
   restartWorkspace: vi.fn(),
   setPanelTab: vi.fn(),
+  selectedNodeIds: new Set<string>(),
+  toggleNodeSelection: vi.fn(),
 };
 
 vi.mock("@/store/canvas", () => ({
