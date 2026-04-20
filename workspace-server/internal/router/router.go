@@ -376,7 +376,13 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	// (dev / self-hosted without GITHUB_APP_ID).
 	{
 		ghTokH := handlers.NewGitHubTokenHandler(wh.TokenRegistry())
+		// #1068: moved from AdminAuth to allow any authenticated workspace to
+		// refresh its GitHub token. The credential helper in containers calls
+		// this endpoint with a workspace bearer token — AdminAuth (PR #729)
+		// rejects those, breaking token refresh after 60 min.
+		// Keep the old path as an alias for backward compat.
 		r.GET("/admin/github-installation-token", middleware.AdminAuth(db.DB), ghTokH.GetInstallationToken)
+		wsAuth.GET("/github-installation-token", ghTokH.GetInstallationToken)
 	}
 
 	// Terminal — shares Docker client with provisioner
