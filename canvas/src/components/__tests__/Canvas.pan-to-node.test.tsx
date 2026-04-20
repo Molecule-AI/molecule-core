@@ -79,6 +79,9 @@ const mockStoreState = {
   showA2AEdges: false,
   setShowA2AEdges: vi.fn(),
   setPanelTab: vi.fn(),
+  selectedNodeIds: new Set<string>(),
+  clearSelection: vi.fn(),
+  toggleNodeSelection: vi.fn(),
 };
 
 vi.mock("@/store/canvas", () => ({
@@ -113,6 +116,8 @@ vi.mock("../settings", () => ({
 }));
 vi.mock("../Toaster", () => ({ Toaster: () => null }));
 vi.mock("../WorkspaceNode", () => ({ WorkspaceNode: () => null }));
+vi.mock("../BatchActionBar", () => ({ BatchActionBar: () => null }));
+vi.mock("../ProvisioningTimeout", () => ({ ProvisioningTimeout: () => null }));
 
 import { Canvas } from "../Canvas";
 

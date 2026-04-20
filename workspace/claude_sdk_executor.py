@@ -50,6 +50,7 @@ from executor_helpers import (
     commit_memory,
     extract_message_text,
     get_a2a_instructions,
+    get_hma_instructions,
     get_mcp_server_path,
     get_system_prompt,
     read_delegation_results,
@@ -211,12 +212,12 @@ class ClaudeSDKExecutor(AgentExecutor):
         return CONFIG_MOUNT
 
     def _build_system_prompt(self) -> str | None:
-        """Compose system prompt from file + A2A delegation instructions."""
+        """Compose system prompt from file + A2A + HMA memory instructions."""
         base = get_system_prompt(self.config_path, fallback=self.system_prompt)
         a2a = get_a2a_instructions(mcp=True)
-        if base and a2a:
-            return f"{base}\n\n{a2a}"
-        return base or a2a
+        hma = get_hma_instructions()
+        parts = [p for p in (base, a2a, hma) if p]
+        return "\n\n".join(parts) if parts else None
 
     def _prepare_prompt(self, user_input: str) -> str:
         """Prepend delegation results that arrived while idle."""

@@ -92,6 +92,9 @@ func Export(ctx context.Context, workspaceID, configsDir string, dockerCli *clie
 				}
 			}
 		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("export sub-workspaces: %w", err)
+		}
 	}
 
 	return b, nil

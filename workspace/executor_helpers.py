@@ -290,6 +290,31 @@ def get_a2a_instructions(mcp: bool = True) -> str:
     return _A2A_INSTRUCTIONS_MCP if mcp else _A2A_INSTRUCTIONS_CLI
 
 
+_HMA_INSTRUCTIONS = """## Hierarchical Memory (HMA)
+You have persistent memory tools that survive across sessions and restarts:
+
+- **commit_memory(content, scope)**: Save important information.
+  - LOCAL: private to you only (default)
+  - TEAM: shared with your parent workspace and siblings (same team)
+  - GLOBAL: shared with the entire org (only root workspaces can write)
+
+- **recall_memory(query)**: Search your accessible memories. Returns LOCAL + TEAM + GLOBAL matches.
+
+**When to use memory:**
+- After making a decision or learning something non-obvious → commit_memory("decision X because Y", scope="TEAM")
+- Before starting work → recall_memory("what did the team decide about X")
+- When you discover org-wide knowledge (repo locations, API patterns, conventions) → commit_memory(fact, scope="GLOBAL") if you are a root workspace, or scope="TEAM" to share with your team
+- After completing a task → commit_memory("completed task X, PR #N opened", scope="TEAM") so your lead and teammates know
+
+**Memory is automatically recalled** at the start of each new session. Use it proactively during work to share context.
+"""
+
+
+def get_hma_instructions() -> str:
+    """Return HMA memory instructions for system-prompt injection."""
+    return _HMA_INSTRUCTIONS
+
+
 # ========================================================================
 # Misc text helpers
 # ========================================================================
