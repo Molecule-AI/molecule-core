@@ -114,6 +114,27 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 		return
 	}
 
+	// Preflight: refuse to launch when config.yaml declares required env vars
+	// that are not set. Without this, a missing CLAUDE_CODE_OAUTH_TOKEN (or
+	// similar) crashes the in-container preflight, the container never calls
+	// /registry/register, and the workspace sits in `provisioning` until a
+	// sweeper flips it or the user retries. Failing fast here gives the user
+	// an immediate, actionable error in the Events tab.
+	if missing := missingRequiredEnv(configFiles, envVars); len(missing) > 0 {
+		msg := formatMissingEnvError(missing)
+		log.Printf("Provisioner: %s (workspace=%s)", msg, workspaceID)
+		if _, dbErr := db.DB.ExecContext(ctx,
+			`UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
+			workspaceID, msg); dbErr != nil {
+			log.Printf("Provisioner: failed to mark workspace %s as failed: %v", workspaceID, dbErr)
+		}
+		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+			"error":   msg,
+			"missing": missing,
+		})
+		return
+	}
+
 	cfg := h.buildProvisionerConfig(workspaceID, templatePath, configFiles, payload, envVars, pluginsPath, awarenessNamespace)
 	cfg.ResetClaudeSession = resetClaudeSession // #12
 
