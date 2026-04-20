@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
 
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
 	"github.com/gin-gonic/gin"
 )
@@ -56,6 +58,16 @@ func (h *WebhookHandler) GitHub(c *gin.Context) {
 	}
 
 	eventType := c.GetHeader("X-GitHub-Event")
+
+	// Event-driven cron triggers: certain GitHub events fire matching
+	// schedules immediately instead of forwarding to a specific workspace.
+	if triggered, triggerErr := h.handleCronTriggerEvent(c, eventType, rawBody); triggered {
+		if triggerErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": triggerErr.Error()})
+		}
+		return
+	}
+
 	deliveryID := c.GetHeader("X-GitHub-Delivery")
 	payloadWorkspaceID, a2aPayload, buildErr := buildGitHubA2APayload(eventType, deliveryID, rawBody)
 	if buildErr != nil {
@@ -293,5 +305,133 @@ func newGitHubMessagePayload(text string, metadata map[string]interface{}) map[s
 			},
 			"metadata": metadata,
 		},
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Event-driven cron triggers
+//
+// Some GitHub events don't target a specific workspace — instead they should
+// wake up all engineer work crons immediately so the team reacts to new issues
+// or PR reviews without waiting for the next 30-minute timer tick.
+//
+// Supported events:
+//   - issues (action=opened)        → fires schedules with "pick-up-work" in name
+//   - pull_request_review (action=submitted) → fires schedules with "PR review"
+//                                               or "security review" in name
+//
+// Mechanism: UPDATE next_run_at = NOW() on matching enabled schedules. The
+// scheduler's 30-second poll loop picks them up on the next tick.
+// ---------------------------------------------------------------------------
+
+// githubIssuesEvent is the minimal subset of the GitHub "issues" webhook payload.
+type githubIssuesEvent struct {
+	Action     string           `json:"action"`
+	Repository githubRepository `json:"repository"`
+	Sender     githubSender     `json:"sender"`
+	Issue      struct {
+		Number  int    `json:"number"`
+		Title   string `json:"title"`
+		HTMLURL string `json:"html_url"`
+	} `json:"issue"`
+}
+
+// githubPullRequestReviewEvent is the minimal subset of the GitHub
+// "pull_request_review" webhook payload.
+type githubPullRequestReviewEvent struct {
+	Action     string           `json:"action"`
+	Repository githubRepository `json:"repository"`
+	Sender     githubSender     `json:"sender"`
+	Review     struct {
+		State   string `json:"state"` // approved, changes_requested, commented
+		HTMLURL string `json:"html_url"`
+	} `json:"review"`
+	PullRequest struct {
+		Number  int    `json:"number"`
+		Title   string `json:"title"`
+		HTMLURL string `json:"html_url"`
+	} `json:"pull_request"`
+}
+
+// handleCronTriggerEvent checks if the GitHub event is one that should trigger
+// schedules immediately. Returns (true, nil) if it handled the event and wrote
+// the HTTP response, (true, err) if it handled but errored, or (false, nil) if
+// the event is not a cron-trigger type and should fall through to A2A forwarding.
+func (h *WebhookHandler) handleCronTriggerEvent(c *gin.Context, eventType string, rawBody []byte) (bool, error) {
+	ctx := c.Request.Context()
+
+	switch eventType {
+	case "issues":
+		var payload githubIssuesEvent
+		if err := json.Unmarshal(rawBody, &payload); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid issues payload"})
+			return true, nil
+		}
+		if payload.Action != "opened" {
+			c.JSON(http.StatusAccepted, gin.H{"status": "ignored", "reason": "only issues action=opened triggers crons"})
+			return true, nil
+		}
+
+		// Fire all enabled schedules whose name contains "pick-up-work" (case-insensitive).
+		result, err := db.DB.ExecContext(ctx, `
+			UPDATE workspace_schedules
+			SET next_run_at = now(), updated_at = now()
+			WHERE enabled = true
+			  AND next_run_at IS NOT NULL
+			  AND LOWER(name) LIKE '%pick-up-work%'
+		`)
+		if err != nil {
+			log.Printf("Webhook: cron trigger (issues/opened) DB error: %v", err)
+			return true, fmt.Errorf("failed to trigger schedules: %w", err)
+		}
+		affected, _ := result.RowsAffected()
+		log.Printf("Webhook: issues/opened in %s #%d by %s — triggered %d pick-up-work schedule(s)",
+			payload.Repository.FullName, payload.Issue.Number, payload.Sender.Login, affected)
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":             "triggered",
+			"event":              "issues",
+			"action":             "opened",
+			"schedules_affected": affected,
+		})
+		return true, nil
+
+	case "pull_request_review":
+		var payload githubPullRequestReviewEvent
+		if err := json.Unmarshal(rawBody, &payload); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid pull_request_review payload"})
+			return true, nil
+		}
+		if payload.Action != "submitted" {
+			c.JSON(http.StatusAccepted, gin.H{"status": "ignored", "reason": "only pull_request_review action=submitted triggers crons"})
+			return true, nil
+		}
+
+		// Fire all enabled schedules whose name contains "PR review" or "security review" (case-insensitive).
+		result, err := db.DB.ExecContext(ctx, `
+			UPDATE workspace_schedules
+			SET next_run_at = now(), updated_at = now()
+			WHERE enabled = true
+			  AND next_run_at IS NOT NULL
+			  AND (LOWER(name) LIKE '%pr review%' OR LOWER(name) LIKE '%security review%')
+		`)
+		if err != nil {
+			log.Printf("Webhook: cron trigger (pull_request_review/submitted) DB error: %v", err)
+			return true, fmt.Errorf("failed to trigger schedules: %w", err)
+		}
+		affected, _ := result.RowsAffected()
+		log.Printf("Webhook: pull_request_review/submitted in %s PR #%d by %s (state=%s) — triggered %d review schedule(s)",
+			payload.Repository.FullName, payload.PullRequest.Number, payload.Sender.Login, payload.Review.State, affected)
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":             "triggered",
+			"event":              "pull_request_review",
+			"action":             "submitted",
+			"schedules_affected": affected,
+		})
+		return true, nil
+
+	default:
+		return false, nil
 	}
 }

@@ -45,6 +45,7 @@ from executor_helpers import (
     CONFIG_MOUNT,
     MEMORY_CONTENT_MAX_CHARS,
     WORKSPACE_MOUNT,
+    auto_push_hook,
     brief_summary,
     commit_memory,
     extract_message_text,
@@ -473,6 +474,8 @@ class ClaudeSDKExecutor(AgentExecutor):
             await commit_memory(
                 f"Conversation: {original_input[:MEMORY_CONTENT_MAX_CHARS]}"
             )
+            # Auto-push unpushed commits and open PR (non-blocking, best-effort).
+            await auto_push_hook()
 
         return response_text or _NO_RESPONSE_MSG
 
