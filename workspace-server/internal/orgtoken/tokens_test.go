@@ -72,26 +72,29 @@ func TestValidate_HappyPath(t *testing.T) {
 	plaintext := "known-plaintext-for-test"
 	hash := sha256.Sum256([]byte(plaintext))
 
-	mock.ExpectQuery(`SELECT id FROM org_api_tokens`).
+	mock.ExpectQuery(`SELECT id, prefix FROM org_api_tokens`).
 		WithArgs(hash[:]).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-live"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).AddRow("tok-live", "abcd1234"))
 	mock.ExpectExec(`UPDATE org_api_tokens SET last_used_at`).
 		WithArgs("tok-live").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	id, err := Validate(context.Background(), db, plaintext)
+	id, prefix, err := Validate(context.Background(), db, plaintext)
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
 	if id != "tok-live" {
 		t.Errorf("id = %q, want tok-live", id)
 	}
+	if prefix != "abcd1234" {
+		t.Errorf("prefix = %q, want abcd1234", prefix)
+	}
 }
 
 func TestValidate_EmptyPlaintextRejected(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
-	if _, err := Validate(context.Background(), db, ""); !errors.Is(err, ErrInvalidToken) {
+	if _, _, err := Validate(context.Background(), db, ""); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("empty plaintext should be ErrInvalidToken, got %v", err)
 	}
 }
@@ -103,11 +106,11 @@ func TestValidate_UnknownHashErrInvalid(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectQuery(`SELECT id FROM org_api_tokens`).
+	mock.ExpectQuery(`SELECT id, prefix FROM org_api_tokens`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnError(sql.ErrNoRows)
 
-	if _, err := Validate(context.Background(), db, "ghost"); !errors.Is(err, ErrInvalidToken) {
+	if _, _, err := Validate(context.Background(), db, "ghost"); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("unknown hash should be ErrInvalidToken, got %v", err)
 	}
 }
@@ -120,11 +123,11 @@ func TestValidate_RevokedTokenNotAccepted(t *testing.T) {
 	defer db.Close()
 	// Query has `AND revoked_at IS NULL` — sqlmock will return
 	// ErrNoRows because the revoked row is filtered out.
-	mock.ExpectQuery(`SELECT id FROM org_api_tokens`).
+	mock.ExpectQuery(`SELECT id, prefix FROM org_api_tokens`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnError(sql.ErrNoRows)
 
-	if _, err := Validate(context.Background(), db, "revoked-plaintext"); !errors.Is(err, ErrInvalidToken) {
+	if _, _, err := Validate(context.Background(), db, "revoked-plaintext"); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("revoked token should be ErrInvalidToken, got %v", err)
 	}
 }
@@ -139,6 +142,7 @@ func TestList_NewestFirst(t *testing.T) {
 	now := time.Now()
 	earlier := now.Add(-1 * time.Hour)
 	mock.ExpectQuery(`SELECT id, prefix.*FROM org_api_tokens.*ORDER BY created_at DESC`).
+		WithArgs(listMax).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "name", "created_by", "created_at", "last_used_at"}).
 			AddRow("t2", "abcd1234", "zapier", "user_01", now, now).
 			AddRow("t1", "efgh5678", "", "", earlier, nil))
