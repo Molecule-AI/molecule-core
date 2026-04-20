@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { api } from "@/lib/api";
 import { showToast } from "./Toaster";
-import { ConfirmDialog } from "./ConfirmDialog";
 import { statusDotClass } from "@/lib/design-tokens";
 
 interface MenuItem {
@@ -26,14 +25,9 @@ export function ContextMenu() {
   const nestNode = useCanvasStore((s) => s.nestNode);
   const contextNodeId = contextMenu?.nodeId ?? null;
   const hasChildren = useCanvasStore((s) => contextNodeId ? s.nodes.some((n) => n.data.parentId === contextNodeId) : false);
+  const setPendingDelete = useCanvasStore((s) => s.setPendingDelete);
   const ref = useRef<HTMLDivElement>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
-
-  // Clear orphaned dialog state when context menu closes
-  useEffect(() => {
-    if (!contextMenu) setDeleteConfirm(null);
-  }, [contextMenu]);
 
   // Auto-focus first enabled item when menu opens
   useEffect(() => {
@@ -167,21 +161,13 @@ export function ContextMenu() {
 
   const handleDelete = useCallback(() => {
     if (!contextMenu) return;
-    // Don't close context menu yet — keep it mounted so ConfirmDialog renders
-    setDeleteConfirm({ id: contextMenu.nodeId, name: contextMenu.nodeData.name });
-  }, [contextMenu]);
-
-  const confirmDelete = useCallback(async () => {
-    if (!deleteConfirm) return;
-    try {
-      await api.del(`/workspaces/${deleteConfirm.id}`);
-      removeNode(deleteConfirm.id);
-    } catch {
-      showToast("Delete failed", "error");
-    }
-    setDeleteConfirm(null);
+    // Hoist delete confirmation to the Canvas-level dialog (via store) so
+    // it survives ContextMenu unmount. Closing the menu here avoids the
+    // prior race where the portal dialog's Confirm click was treated as
+    // "outside" by the menu's outside-click handler.
+    setPendingDelete({ id: contextMenu.nodeId, name: contextMenu.nodeData.name });
     closeContextMenu();
-  }, [deleteConfirm, removeNode, closeContextMenu]);
+  }, [contextMenu, setPendingDelete, closeContextMenu]);
 
   const handleViewDetails = useCallback(() => {
     if (!contextMenu) return;
@@ -317,17 +303,6 @@ export function ContextMenu() {
           </button>
         );
       })}
-
-      {/* Delete confirmation dialog */}
-      <ConfirmDialog
-        open={!!deleteConfirm}
-        title="Delete Workspace"
-        message={`Permanently delete "${deleteConfirm?.name}"? This will stop the container and remove all configuration. This action cannot be undone.`}
-        confirmLabel="Delete"
-        confirmVariant="danger"
-        onConfirm={confirmDelete}
-        onCancel={() => { setDeleteConfirm(null); closeContextMenu(); }}
-      />
     </div>
   );
 }
