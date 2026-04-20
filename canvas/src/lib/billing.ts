@@ -120,8 +120,12 @@ export async function startCheckout(
     }),
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`checkout: ${res.status} ${text}`);
+    // Never embed res.text() in the thrown error — the response body
+    // may contain Stripe API error detail (e.g. invalid key, card decline
+    // message, raw Stripe envelope) that should not reach the client.
+    const detail = await res.text();
+    console.error(`[billing] checkout ${res.status}: ${detail}`);
+    throw new Error(`checkout failed (${res.status})`);
   }
   return res.json();
 }
@@ -141,8 +145,12 @@ export async function openBillingPortal(orgSlug: string): Promise<string> {
     body: JSON.stringify({ org_slug: orgSlug, return_url: returnUrl }),
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`portal: ${res.status} ${text}`);
+    // Never embed res.text() in the thrown error — the response body
+    // may contain Stripe API error detail (e.g. invalid key, card decline
+    // message, raw Stripe envelope) that should not reach the client.
+    const detail = await res.text();
+    console.error(`[billing] portal ${res.status}: ${detail}`);
+    throw new Error(`portal failed (${res.status})`);
   }
   const data = (await res.json()) as { url: string };
   return data.url;
