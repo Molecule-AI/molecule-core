@@ -1,6 +1,10 @@
 #!/bin/sh
 # Tenant entrypoint — starts both Go platform (API) and Canvas (UI).
 #
+# Container runs as non-root 'canvas' user (USER directive in Dockerfile.tenant).
+# Both processes start as non-root. SIGTERM propagates to child processes via the
+# shell's trap + wait -n pattern below.
+#
 # Go platform listens on :8080 (Fly health checks hit this port).
 # Canvas Node.js listens on :3000 (internal only).
 # The Go platform's fallback handler proxies non-API routes to :3000
