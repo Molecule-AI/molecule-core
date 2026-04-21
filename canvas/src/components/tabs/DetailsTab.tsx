@@ -58,8 +58,19 @@ export function DetailsTab({ workspaceId, data }: Props) {
   }, [workspaceId]);
 
   useEffect(() => {
+    // The /registry/:id/peers endpoint requires a workspace-scoped
+    // bearer token (validateDiscoveryCaller) which the canvas session
+    // doesn't hold. For a still-provisioning or failed workspace there
+    // are no peers to show anyway — skip the fetch so the Details tab
+    // doesn't flood devtools with 401 noise and so the empty Peers
+    // section renders cleanly.
+    if (data.status !== "online" && data.status !== "degraded") {
+      setPeers([]);
+      setPeersError(null);
+      return;
+    }
     loadPeers();
-  }, [loadPeers]);
+  }, [loadPeers, data.status]);
 
   const handleSave = async () => {
     setSaving(true);
