@@ -3,6 +3,7 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
@@ -28,10 +29,41 @@ type memoryExportEntry struct {
 	WorkspaceName string    `json:"workspace_name"`
 }
 
+// redactSecrets scans content for credential-like patterns and replaces them with
+// [REDACTED]. This prevents plain-text API keys, tokens, and passwords from
+// landing in the agent_memories table (fixes #838).
+//
+// The workspaceID parameter is reserved for future structured audit logging.
+//
+// Patterns matched (case-insensitive):
+//   - Generic credentials: key, secret, password, token, api_key, auth, bearer
+//   - Bearer/Token label patterns: Bearer <token>, Token <token>
+//   - ENV-style KEY=VALUE where the key looks like a credential name
+//   - JSON/ini-style "key": "value" with long values
+func redactSecrets(workspaceID string, content string) string {
+	// Generic credential word boundaries.
+	content = regexp.MustCompile(`(?i)\b(key|secret|password|token|api_?key|auth|bearer|credential|passphrase)\b[:=\s]*([a-zA-Z0-9_\-+=/]{8,})\b`).
+		ReplaceAllString(content, "$1=[REDACTED]")
+	// Bearer/Token label patterns.
+	content = regexp.MustCompile(`(?i)(bearer|token)\s+([a-zA-Z0-9_\-+=/]{16,})`).
+		ReplaceAllString(content, "$1 [REDACTED]")
+	// ENV-style KEY=VALUE pairs where the key looks like a credential name.
+	content = regexp.MustCompile(`(?i)\b([A-Z][A-Z0-9_]*(?:KEY|SECRET|PASSWORD|TOKEN|API|AUTH)[A-Z0-9_]*)=([^\s]{8,})`).
+		ReplaceAllString(content, "$1=[REDACTED]")
+	// JSON/ini-style "key": "value" with long values.
+	content = regexp.MustCompile(`(?i)"(key|secret|password|token|api_?key|auth|bearer)":\s*"([a-zA-Z0-9_\-+=/]{8,})"`).
+		ReplaceAllString(content, `"$1": "[REDACTED]"`)
+	return content
+}
+
 // Export handles GET /admin/memories/export
 // Returns all agent memories joined with workspace name so the dump is
 // human-readable and can be re-imported after workspaces are re-provisioned
 // (UUIDs change, names stay stable).
+//
+// SECURITY (F1084 / #1131): applies redactSecrets to each content field
+// before returning so that any credentials stored before SAFE-T1201 (#838)
+// was applied do not leak out via the admin export endpoint.
 func (h *AdminMemoriesHandler) Export(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -56,6 +88,10 @@ func (h *AdminMemoriesHandler) Export(c *gin.Context) {
 			log.Printf("admin/memories/export: scan error: %v", err)
 			continue
 		}
+		// F1084 / #1131: redact secrets before returning so pre-SAFE-T1201
+		// memories (stored before redactSecrets was mandatory) don't leak.
+		redacted, _ := redactSecrets(m.WorkspaceName, m.Content)
+		m.Content = redacted
 		memories = append(memories, m)
 	}
 	if err := rows.Err(); err != nil {
@@ -78,6 +114,10 @@ type memoryImportEntry struct {
 // Accepts a JSON array of memories (same format as export). Matches each
 // workspace by name (not UUID). Skips duplicates where workspace_id + content
 // + scope already exist. Returns counts of imported and skipped entries.
+//
+// SECURITY (F1085 / #1132): calls redactSecrets on each content field
+// before inserting so that secrets embedded in imported memories cannot
+// land unredacted in the agent_memories table (SAFE-T1201 / #838 parity).
 func (h *AdminMemoriesHandler) Import(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -104,11 +144,20 @@ func (h *AdminMemoriesHandler) Import(c *gin.Context) {
 			continue
 		}
 
-		// 2. Check for duplicate (same workspace + content + scope)
+		// F1085 / #1132: scrub credential patterns before persistence so that
+		// imported memories with secrets don't bypass SAFE-T1201 (#838).
+		// Must run BEFORE the dedup check so the redacted content is what
+		// gets stored — otherwise re-importing the same backup would produce
+		// a duplicate with different (original, unredacted) content.
+		content, _ := redactSecrets(workspaceID, entry.Content)
+
+		// 2. Check for duplicate (same workspace + content + scope) using
+		// the redacted content so that two backups with the same original
+		// secret (same placeholder output) are treated as duplicates.
 		var exists bool
 		err = db.DB.QueryRowContext(ctx,
 			`SELECT EXISTS(SELECT 1 FROM agent_memories WHERE workspace_id = $1 AND content = $2 AND scope = $3)`,
-			workspaceID, entry.Content, entry.Scope,
+			workspaceID, content, entry.Scope,
 		).Scan(&exists)
 		if err != nil {
 			log.Printf("admin/memories/import: duplicate check error for workspace %q: %v", entry.WorkspaceName, err)
@@ -129,12 +178,12 @@ func (h *AdminMemoriesHandler) Import(c *gin.Context) {
 		if entry.CreatedAt != "" {
 			_, err = db.DB.ExecContext(ctx,
 				`INSERT INTO agent_memories (workspace_id, content, scope, namespace, created_at) VALUES ($1, $2, $3, $4, $5)`,
-				workspaceID, entry.Content, entry.Scope, namespace, entry.CreatedAt,
+				workspaceID, content, entry.Scope, namespace, entry.CreatedAt,
 			)
 		} else {
 			_, err = db.DB.ExecContext(ctx,
 				`INSERT INTO agent_memories (workspace_id, content, scope, namespace) VALUES ($1, $2, $3, $4)`,
-				workspaceID, entry.Content, entry.Scope, namespace,
+				workspaceID, content, entry.Scope, namespace,
 			)
 		}
 		if err != nil {
