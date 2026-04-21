@@ -83,7 +83,14 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 			return fmt.Errorf("unsafe file path in archive: %s", name)
 		}
 		// Prepend destPath so relative paths land inside the volume mount.
-		archiveName := filepath.Join(destPath, name)
+		// Use the cleaned path to prevent traversal: if name = "../../../etc/passwd",
+		// clean = "../../etc/passwd" (platform-dependent), but either way the check
+		// above already rejected anything starting with "..". Defense-in-depth:
+		// also verify the result stays inside destPath.
+		archiveName := filepath.Join(destPath, clean)
+		if !strings.HasPrefix(archiveName, destPath) && archiveName != destPath {
+			return fmt.Errorf("path escapes destination: %s", name)
+		}
 
 		// Create parent directories in tar (deduplicated)
 		dir := filepath.Dir(archiveName)
