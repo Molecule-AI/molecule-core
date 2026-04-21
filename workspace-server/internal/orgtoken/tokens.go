@@ -94,34 +94,45 @@ func Issue(ctx context.Context, db *sql.DB, name, createdBy, orgID string) (plai
 // Validate looks up a presented bearer, returns ErrInvalidToken on
 // any mismatch (bad bytes, revoked, deleted). On success, updates
 // last_used_at best-effort (the hot path — failure to update doesn't
-// fail the request) and returns the token id + display prefix for
-// audit logging.
+// fail the request) and returns the token id + display prefix + org_id
+// for audit logging and org isolation.
 //
 // Returning the prefix alongside the id lets callers produce audit
 // strings that match what users see in the UI (the plaintext prefix,
 // not the UUID). Keeps the "who did what" trail visually
 // correlatable to the revoke button in the token list.
-func Validate(ctx context.Context, db *sql.DB, plaintext string) (id, prefix string, err error) {
+//
+// The org_id is the workspace UUID of the org that owns this token.
+// May be empty for pre-migration tokens minted before #1212. Callers
+// that need org isolation should use requireCallerOwnsOrg (which does
+// a second lookup) rather than trusting an empty org_id here — this
+// avoids a breaking change to the Validate interface while still
+// populating the Gin context for callers that don't need it.
+func Validate(ctx context.Context, db *sql.DB, plaintext string) (id, prefix, orgID string, err error) {
 	if plaintext == "" {
-		return "", "", ErrInvalidToken
+		return "", "", "", ErrInvalidToken
 	}
 	hash := sha256.Sum256([]byte(plaintext))
+	var orgIDNull sql.NullString
 	queryErr := db.QueryRowContext(ctx, `
-		SELECT id, prefix FROM org_api_tokens
+		SELECT id, prefix, org_id FROM org_api_tokens
 		WHERE token_hash = $1 AND revoked_at IS NULL
-	`, hash[:]).Scan(&id, &prefix)
+	`, hash[:]).Scan(&id, &prefix, &orgIDNull)
 	if queryErr != nil {
 		// Collapse all failure shapes into ErrInvalidToken so the
 		// caller can't accidentally leak "row exists but revoked" vs
 		// "row never existed" via response shape.
-		return "", "", ErrInvalidToken
+		return "", "", "", ErrInvalidToken
+	}
+	if orgIDNull.Valid {
+		orgID = orgIDNull.String
 	}
 	// Best-effort last_used_at bump. Failure here is acceptable — the
 	// request is already authenticated; we don't want a transient DB
 	// blip to flip a 200 into a 500.
 	_, _ = db.ExecContext(ctx,
 		`UPDATE org_api_tokens SET last_used_at = now() WHERE id = $1`, id)
-	return id, prefix, nil
+	return id, prefix, orgID, nil
 }
 
 // List returns live (non-revoked) tokens newest-first. Safe to

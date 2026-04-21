@@ -111,7 +111,7 @@ func (h *TranscriptHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "workspace unreachable"})
 		return
 	}
-	defer func() { _ = $1 }()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Cap at 1 MB so a giant transcript doesn't melt the canvas.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))

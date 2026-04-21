@@ -295,6 +295,13 @@ func (h *TemplatesHandler) ReadFile(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found (container offline, no template)"})
 		return
 	}
+	// validateRelPath is already called above (line 260) for the container path,
+	// but the fallback below uses filePath directly in filepath.Join without
+	// any sanitization. Re-validate before the host-side read to close the gap.
+	if err := validateRelPath(filePath); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
+		return
+	}
 	fullPath := filepath.Join(templateDir, filePath)
 	data, err := os.ReadFile(fullPath)
 	if err != nil {

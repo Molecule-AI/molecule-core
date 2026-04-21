@@ -127,9 +127,15 @@ func sweepStuckProvisioning(ctx context.Context, emitter ProvisionTimeoutEmitter
 			continue
 		}
 		log.Printf("Provision-timeout sweep: %s stuck in provisioning > %s — marked failed", id, timeout)
-		if emitErr := emitter.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_TIMEOUT", id, map[string]interface{}{
-			"error":         msg,
-			"timeout_secs":  timeoutSec,
+		// Emit as WORKSPACE_PROVISION_FAILED, not _TIMEOUT, because the
+		// canvas event handler only flips node state on the _FAILED case.
+		// A separate event type was considered but the UI reaction is
+		// identical either way — operators who need to distinguish can
+		// tell from the `source` payload field.
+		if emitErr := emitter.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", id, map[string]interface{}{
+			"error":        msg,
+			"timeout_secs": timeoutSec,
+			"source":       "provision_timeout_sweep",
 		}); emitErr != nil {
 			log.Printf("Provision-timeout sweep: broadcast failed for %s: %v", id, emitErr)
 		}
