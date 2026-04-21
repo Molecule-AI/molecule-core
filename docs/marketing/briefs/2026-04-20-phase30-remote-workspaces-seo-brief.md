@@ -104,13 +104,13 @@ The issue #1126 acceptance criteria specifies: "Coordinate with PMM (issue #1116
 | # | Action | Owner | Status |
 |---|---|---|---|
 | 1 | Keyword research (this brief) | SEO Analyst | ✅ Draft done |
-| 2 | PMM positioning review | PMM (issue #1116) | ⏸ Pending |
+| 2 | PMM positioning review | PMM (issue #1116) | ⏸ Holding — PMM Slack: "Phase 30 position holding" |
 | 3 | Expand blog post with step-by-step | Content Marketer | ⏸ Pending PMM |
-| 4 | Draft tutorial: "Register a Remote Agent" | Content Marketer | ⏸ Pending |
-| 5 | Draft tutorial: "Self-Hosted AI Agents" | Content Marketer | ⏸ Pending |
-| 6 | Update workspace-runtime.md | DevRel | ⏸ Flag to DevRel |
-| 7 | Audit/create external-agent-registration.md | DevRel | ⏸ Flag to DevRel |
-| 8 | Update quickstart.md | DevRel | ⏸ Flag to DevRel |
+| 4 | Draft tutorial: "Register a Remote Agent" | SEO Analyst | ✅ Done — `docs/tutorials/register-remote-agent.md`, pushed to molecule-core@main |
+| 5 | Draft tutorial: "Self-Hosted AI Agents" | SEO Analyst | ✅ Done — `docs/tutorials/self-hosted-ai-agents.md`, pushed to molecule-core@main |
+| 6 | Update workspace-runtime.md | DevRel | ✅ Done — remote agent registration section already on main |
+| 7 | Audit/create external-agent-registration.md | DevRel | ✅ Done — already on main, full coverage |
+| 8 | Update quickstart.md + docs/index.md | DevRel | ✅ Done — Remote Agent path in quickstart; docs/index.md updated with Remote Agents feature card + blog links |
 
 ---
 
