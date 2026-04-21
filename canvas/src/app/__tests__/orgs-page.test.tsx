@@ -131,13 +131,10 @@ describe("/orgs — error state", () => {
       Promise.reject(new Error("GET /cp/orgs: 500"))
     );
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
-    // After the setTimeout(0, fetchOrgs) fires and the mockFetch rejection
-    // propagates, React's setError schedules a state update. runAllTimersAsync
-    // flushes any pending effects or state updates that depend on microtask
-    // completion.
-    await vi.runAllTimersAsync();
-    expect(screen.getByText(/Error:/)).toBeTruthy();
+    // PR #1243 replaced waitFor polling with vi.advanceTimersByTimeAsync(50),
+    // which fires the timer but does not guarantee React render flush completes
+    // before the assertion runs. Restores waitFor for the error-state test.
+    await waitFor(() => expect(screen.getByText(/Error:/)).toBeTruthy());
     expect(screen.getByRole("button", { name: /retry/i })).toBeTruthy();
   });
 });
