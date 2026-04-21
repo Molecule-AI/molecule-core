@@ -125,10 +125,15 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 		template = findTemplateByName(h.configsDir, wsName)
 	}
 	if template != "" {
-		candidatePath := filepath.Join(h.configsDir, template)
-		if _, err := os.Stat(candidatePath); err == nil {
+		candidatePath, resolveErr := resolveInsideRoot(h.configsDir, template)
+		if resolveErr != nil {
+			log.Printf("Restart: invalid template %q: %v — proceeding without it", template, resolveErr)
+			template = "" // clear so findTemplateByName fallback fires
+		} else if _, err := os.Stat(candidatePath); err == nil {
 			templatePath = candidatePath
 			configLabel = template
+		} else {
+			log.Printf("Restart: template %q dir not found — proceeding without it", template)
 		}
 	}
 
