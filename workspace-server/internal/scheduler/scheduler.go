@@ -212,6 +212,11 @@ func (s *Scheduler) tick(ctx context.Context) {
 				if r := recover(); r != nil {
 					log.Printf("Scheduler: PANIC firing '%s' on workspace %s — recovered: %v",
 						s2.Name, s2.WorkspaceID, r)
+					// Always advance next_run_at even on panic so the schedule doesn't get
+					// stuck re-firing the same panicking schedule indefinitely (#1029).
+					if nextTime, err := ComputeNextRun(s2.CronExpr, s2.Timezone, time.Now()); err == nil {
+						db.DB.ExecContext(ctx, `UPDATE workspace_schedules SET next_run_at=$1, updated_at=now() WHERE id=$2`, nextTime, s2.ID)
+					}
 				}
 			}()
 			supervised.Heartbeat("scheduler")
@@ -237,7 +242,12 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Scheduler: panic recovered in fireSchedule for '%s' (%s): %v",
-				sched.Name, sched.ID, r)
+			sched.Name, sched.ID, r)
+			// Always advance next_run_at even on panic so the schedule doesn't get
+			// stuck re-firing the same panicking schedule indefinitely (#1029).
+			if nextTime, err := ComputeNextRun(sched.CronExpr, sched.Timezone, time.Now()); err == nil {
+				db.DB.ExecContext(ctx, `UPDATE workspace_schedules SET next_run_at=$1, updated_at=now() WHERE id=$2`, nextTime, sched.ID)
+			}
 		}
 	}()
 

@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420">
+  <defs>
+    <style>
+      .bg { fill: #0d1117; }
+      .box { fill: #161b22; stroke: #30363d; stroke-width: 1.5; rx: 8; }
+      .label { font-family: 'JetBrains Mono', 'Fira Code', monospace; fill: #c9d1d9; font-size: 13px; }
+      .label-sm { font-family: 'JetBrains Mono', 'Fira Code', monospace; fill: #8b949e; font-size: 11px; }
+      .title { font-family: system-ui, sans-serif; fill: #f0f6fc; font-size: 15px; font-weight: 600; }
+      .subtitle { font-family: system-ui, sans-serif; fill: #8b949e; font-size: 11px; }
+      .arrow { stroke: #58a6ff; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .arrow-label { font-family: system-ui, sans-serif; fill: #58a6ff; font-size: 11px; }
+      .tool-box { fill: #1c2128; stroke: #388bfd; stroke-width: 1.5; rx: 6; }
+      .mcp-badge { fill: #1f6feb; rx: 4; }
+      .cdp-badge { fill: #238636; rx: 4; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#58a6ff"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="420" class="bg"/>
+
+  <!-- Title -->
+  <text x="400" y="28" text-anchor="middle" class="title">AI Agent → MCP → CDP → Chrome</text>
+  <text x="400" y="44" text-anchor="middle" class="subtitle">Browser automation via the Model Context Protocol</text>
+
+  <!-- AI Agent box -->
+  <rect x="20" y="75" width="180" height="90" class="box"/>
+  <text x="110" y="103" text-anchor="middle" class="title" style="font-size:13px">AI Agent</text>
+  <text x="110" y="120" text-anchor="middle" class="label-sm">"Extract pricing</text>
+  <text x="110" y="134" text-anchor="middle" class="label-sm">from competitor.com"</text>
+  <text x="110" y="152" text-anchor="middle" class="subtitle">reasoning + planning</text>
+
+  <!-- Arrow 1: Agent → MCP Server -->
+  <line x1="200" y1="120" x2="290" y2="120" class="arrow"/>
+  <text x="245" y="112" text-anchor="middle" class="arrow-label">MCP invoke</text>
+  <text x="245" y="128" text-anchor="middle" class="label-sm">browser_navigate</text>
+
+  <!-- MCP Server box -->
+  <rect x="290" y="75" width="200" height="90" class="box"/>
+  <rect x="300" y="82" width="44" height="18" class="mcp-badge"/>
+  <text x="322" y="95" text-anchor="middle" fill="white" font-family="system-ui" font-size="10" font-weight="700">MCP</text>
+  <text x="390" y="95" text-anchor="middle" class="title" style="font-size:13px">MCP Server</text>
+  <text x="390" y="116" text-anchor="middle" class="label-sm">tool schema validation</text>
+  <text x="390" y="130" text-anchor="middle" class="label-sm">session management</text>
+  <text x="390" y="144" text-anchor="middle" class="label-sm">WebSocket lifecycle</text>
+  <text x="390" y="158" text-anchor="middle" class="label-sm">CDP command dispatch</text>
+
+  <!-- Arrow 2: MCP Server → CDP -->
+  <line x1="490" y1="120" x2="580" y2="120" class="arrow"/>
+  <text x="535" y="112" text-anchor="middle" class="arrow-label">CDP command</text>
+  <text x="535" y="128" text-anchor="middle" class="label-sm">Page.navigate</text>
+
+  <!-- CDP Engine box -->
+  <rect x="580" y="75" width="200" height="90" class="box"/>
+  <rect x="590" y="82" width="40" height="18" class="cdp-badge"/>
+  <text x="610" y="95" text-anchor="middle" fill="white" font-family="system-ui" font-size="10" font-weight="700">CDP</text>
+  <text x="680" y="95" text-anchor="middle" class="title" style="font-size:13px">Chrome DevTools</text>
+  <text x="680" y="116" text-anchor="middle" class="label-sm">WebSocket JSON-RPC 2.0</text>
+  <text x="680" y="130" text-anchor="middle" class="label-sm">Page / DOM / Runtime</text>
+  <text x="680" y="144" text-anchor="middle" class="label-sm">Input / Network domains</text>
+
+  <!-- Chrome Browser box -->
+  <rect x="240" y="220" width="320" height="80" class="tool-box"/>
+  <text x="400" y="248" text-anchor="middle" class="title" style="font-size:14px">🐙 Headless Chrome</text>
+  <text x="400" y="268" text-anchor="middle" class="label-sm">remote debugging port 9222</text>
+  <text x="400" y="283" text-anchor="middle" class="label-sm">persistent session: cookies, localStorage</text>
+
+  <!-- Vertical arrows: CDP → Chrome -->
+  <line x1="630" y1="165" x2="630" y2="210" class="arrow"/>
+  <line x1="630" y1="210" x2="560" y2="220" class="arrow" style="stroke-dasharray:4,2"/>
+  <line x1="400" y1="165" x2="400" y2="210" class="arrow"/>
+  <line x1="400" y1="210" x2="470" y2="220" class="arrow" style="stroke-dasharray:4,2"/>
+
+  <!-- Tool definitions row -->
+  <text x="400" y="335" text-anchor="middle" class="title" style="font-size:12px">MCP Tool Definitions → CDP Commands</text>
+
+  <rect x="60" y="350" width="140" height="50" rx="6" style="fill:#1c2128;stroke:#388bfd;stroke-width:1.5"/>
+  <text x="130" y="368" text-anchor="middle" fill="#58a6ff" font-family="monospace" font-size="10">browser_navigate</text>
+  <text x="130" y="382" text-anchor="middle" fill="#8b949e" font-family="monospace" font-size="9">→ Page.navigate</text>
+  <text x="130" y="395" text-anchor="middle" fill="#8b949e" font-family="monospace" font-size="9">→ Page.navigate</text>
+
+  <rect x="220" y="350" width="140" height="50" rx="6" style="fill:#1c2128;stroke:#388bfd;stroke-width:1.5"/>
+  <text x="290" y="368" text-anchor="middle" fill="#58a6ff" font-family="monospace" font-size="10">dom_query</text>
+  <text x="290" y="382" text-anchor="middle" fill="#8b949e" font-family="monospace" font-size="9">→ DOM.getDocument</text>
+  <text x="290" y="395" text-anchor="middle" fill="#8b949e" font-family="monospace" font-size="9">→ DOM.querySelector</text>
+
+  <rect x="380" y="350" width="140" height="50" rx="6" style="fill:#1c2128;stroke:#388bfd;stroke-width:1.5"/>
+  <text x="450" y="368" text-anchor="middle" fill="#58a6ff" font-family="monospace" font-size="10">page_screenshot</text>
+  <text x="450" y="382" text-anchor="middle" fill="#8b949e" font-family="monospace" font-size="9">→ Page.captureScreenshot</text>
+
+  <rect x="540" y="350" width="140" height="50" rx="6" style="fill:#1c2128;stroke:#388bfd;stroke-width:1.5"/>
+  <text x="610" y="368" text-anchor="middle" fill="#58a6ff" font-family="monospace" font-size="10">input_dispatch</text>
+  <text x="610" y="382" text-anchor="middle" fill="#8b949e" font-family="monospace" font-size="9">→ Input.dispatchKeyEvent</text>
+  <text x="610" y="395" text-anchor="middle" fill="#8b949e" font-family="monospace" font-size="9">→ Input.dispatchMouseEvent</text>
+
+  <!-- Footer -->
+  <text x="400" y="416" text-anchor="middle" class="subtitle">Molecule AI workspaces ship MCP browser tools built in — no custom server required</text>
+</svg>
