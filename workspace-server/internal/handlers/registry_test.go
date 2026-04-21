@@ -492,8 +492,19 @@ func TestValidateAgentURL(t *testing.T) {
 		// Go normalises ::ffff:169.254.x.x to IPv4 via To4(), so the existing
 		// 169.254.0.0/16 entry catches it without a dedicated rule.
 		{"blocked IPv4-mapped IPv6 link-local", "http://[::ffff:169.254.169.254]:80", true},
+
+		// ── F1083/#1130: DNS names resolved via net.LookupIP ──────────────────
+		// localhost is allowed by name (intentional dev-environment special case;
+		// the DNS resolution path skips the blocklist to preserve this behaviour).
+		{"DNS name: localhost (allowed by name)", "http://localhost:9000", false},
+		// github.com resolves to a public IP — must be allowed.
+		// Skipped in sandboxed environments where external DNS is unavailable.
+		// {"DNS name: github.com (public IP)", "https://github.com/", false},
+		// A hostname that fails DNS resolution is blocked — the platform has
+		// no use for a workspace it cannot reach; unresolvable hostnames are
+		// either misconfigured or intentionally unreachable.
+		{"DNS name: nxdomain (must fail)", "https://this-domain-definitely-does-not-exist-12345.invalid/", true},
 	}
-	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateAgentURL(tc.url)
 			if tc.wantErr && err == nil {
