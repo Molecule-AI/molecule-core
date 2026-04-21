@@ -275,6 +275,6 @@ Per-workspace bearer tokens and unified canvas fleet visibility are available no
 
 - [External Agent Registration Guide](/docs/guides/external-agent-registration) — full step-by-step with Python and Node.js examples
 - [Token Management API](/docs/guides/org-api-keys) — mint, list, and revoke per-workspace tokens
-- [Architecture: Remote Workspaces](/docs/architecture/remote-workspaces) — technical deep-dive on the auth model and network topology
+- [Architecture Overview](/docs/architecture/overview) — auth model and network topology for remote agents
 
 Your heterogeneous fleet is waiting. It all fits on one canvas now.
