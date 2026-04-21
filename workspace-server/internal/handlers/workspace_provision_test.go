@@ -1098,7 +1098,7 @@ func TestProvisionWorkspace_NoInternalErrorsInBroadcast(t *testing.T) {
 
 	broadcaster := &captureBroadcaster{}
 	handler := &WorkspaceHandler{
-		broadcaster:  broadcaster,
+		broadcaster:  (*events.Broadcaster)(broadcaster),
 		provisioner: &provisioner.Provisioner{},
 		cpProv:       &provisioner.CPProvisioner{},
 		platformURL:  "http://platform.test",
@@ -1147,7 +1147,7 @@ func TestProvisionWorkspaceCP_NoInternalErrorsInBroadcast(t *testing.T) {
 	broadcaster := &captureBroadcaster{}
 	registry := &mockEnvMutator{returnErr: errInternalDB}
 	handler := &WorkspaceHandler{
-		broadcaster:  broadcaster,
+		broadcaster:  (*events.Broadcaster)(broadcaster),
 		cpProv:       &provisioner.CPProvisioner{},
 		platformURL:  "http://platform.test",
 		envMutators:  registry,
