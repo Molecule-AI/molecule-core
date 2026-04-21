@@ -303,7 +303,7 @@ func (h *ActivityHandler) Report(c *gin.Context) {
 		Metadata     interface{} `json:"metadata"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 

@@ -76,14 +76,14 @@ func (h *WorkspaceHandler) TokenRegistry() *provisionhook.Registry {
 func (h *WorkspaceHandler) Create(c *gin.Context) {
 	var payload models.CreateWorkspacePayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace payload"})
 		return
 	}
 
 	// #685/#688: validate field lengths and reject injection characters before
 	// any DB or provisioner interaction.
 	if err := validateWorkspaceFields(payload.Name, payload.Role, payload.Model, payload.Runtime); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace fields"})
 		return
 	}
 
@@ -133,7 +133,7 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 	var workspaceDir interface{}
 	if payload.WorkspaceDir != "" {
 		if err := validateWorkspaceDir(payload.WorkspaceDir); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace directory"})
 			return
 		}
 		workspaceDir = payload.WorkspaceDir
@@ -145,7 +145,7 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		workspaceAccess = provisioner.WorkspaceAccessNone
 	}
 	if err := provisioner.ValidateWorkspaceAccess(workspaceAccess, payload.WorkspaceDir); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace access"})
 		return
 	}
 
@@ -411,7 +411,7 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 
 	// #687: reject non-UUID IDs before hitting the DB.
 	if err := validateWorkspaceID(id); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace ID"})
 		return
 	}
 
@@ -569,13 +569,13 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 
 	// #687: reject non-UUID IDs before hitting the DB.
 	if err := validateWorkspaceID(id); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace ID"})
 		return
 	}
 
 	var body map[string]interface{}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -591,7 +591,7 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 	if err := validateWorkspaceFields(
 		strField("name"), strField("role"), "" /*model not patchable*/, strField("runtime"),
 	); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace fields"})
 		return
 	}
 
@@ -644,7 +644,7 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 		if wsDir != nil {
 			if dirStr, isStr := wsDir.(string); isStr && dirStr != "" {
 				if err := validateWorkspaceDir(dirStr); err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace directory"})
 					return
 				}
 			}
@@ -707,7 +707,7 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 
 	// #687: reject non-UUID IDs before hitting the DB.
 	if err := validateWorkspaceID(id); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace ID"})
 		return
 	}
 
@@ -807,9 +807,11 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 		pq.Array(allIDs)); err != nil {
 		log.Printf("Delete token revocation error for %s: %v", id, err)
 	}
-	// Disable schedules for removed workspaces (#1027)
+// #1027: cascade-disable all schedules for the deleted workspaces so
+	// the scheduler never fires a cron into a removed container.
 	if _, err := db.DB.ExecContext(ctx,
-		`UPDATE workspace_schedules SET enabled = false WHERE workspace_id = ANY($1::uuid[])`,
+		`UPDATE workspace_schedules SET enabled = false, updated_at = now()
+		 WHERE workspace_id = ANY($1::uuid[]) AND enabled = true`,
 		pq.Array(allIDs)); err != nil {
 		log.Printf("Delete schedule disable error for %s: %v", id, err)
 	}
@@ -864,7 +866,7 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 		// Hard delete the workspace row
 		if _, err := db.DB.ExecContext(ctx, "DELETE FROM workspaces WHERE id = ANY($1::uuid[])", purgeIDs); err != nil {
 			log.Printf("Purge workspace row error for %v: %v", allIDs, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "purge failed: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "purge failed"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "purged", "cascade_deleted": len(descendantIDs)})

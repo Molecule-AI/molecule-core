@@ -302,7 +302,7 @@ func (h *DiscoveryHandler) CheckAccess(c *gin.Context) {
 		TargetID string `json:"target_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 

@@ -45,12 +45,14 @@ export function ConsoleModal({ workspaceId, workspaceName, open, onClose }: Prop
       })
       .catch((e) => {
         if (ignore) return;
-        // 501 = deployment without a control plane (local docker-compose);
-        // we render a friendlier message than "501 Not Implemented".
+        // 501 = deployment without a control plane (local docker-compose).
+        // 404 = EC2 instance has been terminated. Match with word-boundary
+        // regex so a status code appearing inside an unrelated number
+        // ("15012") doesn't false-match.
         const msg = e instanceof Error ? e.message : "Failed to load console output";
-        if (/501/.test(msg)) {
+        if (/\b501\b/.test(msg)) {
           setError("Console output is only available on cloud (SaaS) deployments.");
-        } else if (/404/.test(msg)) {
+        } else if (/\b404\b/.test(msg)) {
           setError("No EC2 instance found for this workspace — it may have been terminated.");
         } else {
           setError(msg);

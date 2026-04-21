@@ -45,7 +45,7 @@ func (h *PluginsHandler) Install(c *gin.Context) {
 
 	var req installRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -56,11 +56,9 @@ func (h *PluginsHandler) Install(c *gin.Context) {
 			c.JSON(he.Status, he.Body)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "plugin install failed"})
 		return
 	}
-	// On success, we own stagedDir cleanup. On error, resolveAndStage
-	// has already cleaned it up (and its returned result is nil).
 	defer os.RemoveAll(result.StagedDir)
 
 	// Org plugin allowlist gate (#591).
@@ -77,7 +75,7 @@ func (h *PluginsHandler) Install(c *gin.Context) {
 			c.JSON(he.Status, he.Body)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "plugin deliver failed"})
 		return
 	}
 
@@ -96,7 +94,7 @@ func (h *PluginsHandler) Uninstall(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	if err := validatePluginName(pluginName); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid plugin name"})
 		return
 	}
 
@@ -179,7 +177,7 @@ func (h *PluginsHandler) Download(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	if err := validatePluginName(pluginName); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid plugin name"})
 		return
 	}
 
@@ -223,7 +221,7 @@ func (h *PluginsHandler) Download(c *gin.Context) {
 			c.JSON(he.Status, he.Body)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "plugin download failed"})
 		return
 	}
 	defer os.RemoveAll(result.StagedDir)

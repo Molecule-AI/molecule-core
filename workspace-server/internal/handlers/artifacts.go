@@ -141,7 +141,7 @@ func (h *ArtifactsHandler) Create(c *gin.Context) {
 
 	var req createArtifactsRepoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -302,7 +302,7 @@ func (h *ArtifactsHandler) Fork(c *gin.Context) {
 
 	var req forkArtifactsRepoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -367,7 +367,7 @@ func (h *ArtifactsHandler) Token(c *gin.Context) {
 
 	var req artifactsTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
