@@ -1,0 +1,206 @@
+---
+title: "Give Your AI Agent Browser Superpowers: Chrome DevTools MCP Integration"
+date: "2026-04-20"
+slug: "chrome-devtools-mcp"
+description: "Chrome DevTools MCP brings AI agent browser control to Molecule AI. Every browser action is audit-attributed via org API keys. MCP browser automation with governance built in."
+tags: [Chrome, DevTools, MCP, browser-automation, AI-agents, governance, security]
+---
+
+# Give Your AI Agent Browser Superpowers: Chrome DevTools MCP Integration
+
+Every AI agent platform eventually gets asked the same question: "Can it interact with a web interface?" The answer is usually some variant of "sort of — give it your credentials and hope for the best." That's not a real answer. It's a trust fall.
+
+Chrome DevTools MCP changes this. It gives your AI agent a structured, governed interface to a real Chrome browser session — with full **MCP browser automation** capability and an audit trail that actually answers the question: which agent touched what, and what did it do?
+
+This post covers what Chrome DevTools MCP is, how Molecule AI's governance layer makes it enterprise-safe, and how to put it to work in your agent fleet.
+
+---
+
+## What is Chrome DevTools MCP?
+
+Chrome DevTools MCP is an integration between the MCP (Model Context Protocol) and Google Chrome's DevTools Protocol. MCP is a standardized interface layer that lets AI agents connect to external tools with consistent tooling, authentication, and telemetry. The DevTools Protocol is Chrome's native debugging interface — the same interface your browser's developer tools use to inspect pages, capture network traffic, and control the browser.
+
+When you connect an AI agent to Chrome DevTools via MCP, you get:
+
+- **Full CDP access** — navigate, click, type, screenshot, evaluate JavaScript, read network logs, intercept requests, read cookies and local storage
+- **MCP protocol layer** — structured JSON-RPC instead of raw CDP, consistent tool naming, type-safe parameters
+- **Molecule AI governance layer** — org API key attribution, audit logging, session scoping, instant revocation
+
+The third item is what separates this from "use Puppeteer with an API key." It's the difference between browser automation AI agents and browser automation AI agents with a compliance story.
+
+---
+
+## The Browser Problem: Trust Falls and Black Boxes
+
+When most teams give an AI agent browser access, the workflow looks like this:
+
+1. Agent receives a task ("find our competitors' pricing pages")
+2. Agent uses browser credentials to log into Chrome
+3. Agent navigates, reads, screenshots, and reports
+4. Nobody knows exactly what the agent did, which session it used, or whether credentials were exposed
+
+This is a trust fall, not a governance model. The agent *can* do the task. But you have no audit trail if something goes wrong. No way to revoke access if the agent's behavior becomes unexpected. No attribution if you need to trace a call back to a specific integration.
+
+The **MCP governance layer** in Molecule AI addresses all three:
+
+- Every browser action is logged with the org API key prefix that initiated it
+- Chrome sessions are token-scoped — Agent A's session is never Agent B's
+- Revocation is one API call — the key stops working, the session closes, no redeploy required
+
+---
+
+## How MCP Browser Automation Works in Molecule AI {#how-it-works}
+
+The integration uses Chrome's CDP over a WebSocket connection managed by the MCP server. Molecule AI's MCP server exposes a structured set of tools that map to CDP commands. Your agent calls these tools like any other MCP tool — the same interface whether you're automating Chrome, reading memory, or querying the platform API.
+
+Here's the sequence:
+
+1. **Workspace starts with a Chrome session attached** — the session is scoped to a specific Chrome profile or fresh browser context, isolated from other agents
+2. **Agent calls MCP tools** — `cdp_navigate`, `cdp_click`, `cdp_evaluate`, `cdp_screenshot`, and others are available as structured tools with type-safe parameters
+3. **Every call is audit-attributed** — the org API key prefix (e.g., `mole_a1b2`) is logged with the tool name, parameters, and result for every CDP call
+4. **Session is revocable at any time** — revoke the org API key and the agent loses Chrome access immediately
+
+### AI Agent Browser Control: What You Can Do {#browser-control-tools}
+
+**Navigation and interaction:**
+- `cdp_navigate` — navigate to any URL (supports `data:` and `about:` URLs via browser UI)
+- `cdp_click` — click a DOM element by selector
+- `cdp_type` — type text into a focused element
+- `cdp_hover` — hover over a DOM element
+- `cdp_scroll` — scroll an element or the page
+
+**Inspection and debugging:**
+- `cdp_screenshot` — capture a full-page or viewport screenshot
+- `cdp_evaluate` — execute JavaScript in the page context
+- `cdp_get_cookies` / `cdp_set_cookies` — read and write cookies for authenticated sessions
+- `cdp_get_local_storage` / `cdp_set_local_storage` — read and write localStorage
+
+**Network and performance:**
+- `cdp_get_requests` — capture and filter network requests (XHR, fetch, WS)
+- `cdp_block_urls` — block specific URL patterns to simulate adblocked environments
+- `cdp_set_throttle` — throttle network conditions (3G, LTE, offline)
+
+---
+
+## Browser Automation AI Agents: Use Cases That Actually Ship {#use-cases}
+
+The Chrome DevTools MCP integration is most useful in workflows where browser state is the source of truth — and where audit attribution matters.
+
+### Automated Lighthouse audits on every PR {#lighthouse-audits}
+
+A research agent runs a Lighthouse audit against every pull request in your repo. It navigates to the preview URL, captures the performance score, flags regressions below your threshold, and reports to the PM agent. Every audit run is logged with the org API key — your observability team can trace which agent ran which audit and when.
+
+### Visual regression detection {#visual-regression}
+
+An agent maintains a baseline set of screenshots for your key user flows. On every code change, it navigates to each flow, captures screenshots, and diffs against the baseline. Drift beyond your threshold opens a ticket automatically. The governance layer means your QA team can review the full history of which screenshots were captured, when, and by which agent.
+
+### Auth scraping {#auth-scraping}
+
+An agent reads authenticated browser state from an existing Chrome session — cookies, localStorage, session tokens — and uses that state to authenticate API calls that would otherwise require separate credential management. The session is scoped; the credentials never leave the browser context.
+
+---
+
+## MCP Governance Layer: Why It Matters {#governance-layer}
+
+The MCP protocol gives you tool connectivity. The governance layer is what makes it enterprise-ready.
+
+### Per-action audit logging {#audit-logging}
+
+Every CDP call your agent makes generates an audit log entry. The log includes:
+
+- **Org API key prefix** — which integration made the call (e.g., `mole_a1b2`)
+- **Tool name and parameters** — `cdp_navigate(url=https://...)`
+- **Result or error** — success, timeout, or CDP error code
+- **Timestamp and workspace ID** — for timeline reconstruction
+
+This is the audit trail your security team will ask for in the next compliance review. It exists because Molecule AI's MCP server generates it — not because you built a custom logging pipeline.
+
+### Token-scoped Chrome sessions {#token-scoped-sessions}
+
+Chrome sessions are isolated per org API key. When you create an org API key for a specific integration (`lighthouse-reporter`), that key's Chrome session is separate from every other key's session. No credential cross-contamination — Agent A cannot read Agent B's authenticated state because their sessions are isolated at the MCP tool layer.
+
+### Instant revocation without redeployment {#instant-revocation}
+
+If you need to revoke access — the integration is compromised, the agent behavior is unexpected, the contractor relationship ended — you revoke the org API key. The key stops working immediately. The Chrome session is closed. The agent loses browser access before the next heartbeat. No redeploy, no container restart, no waiting for DNS cache expiration.
+
+---
+
+## Setting Up Chrome DevTools MCP {#setup}
+
+Chrome DevTools MCP requires a Chrome instance running with the remote debugging port enabled, and a `chromedp` or equivalent CDP client connected through Molecule AI's MCP server.
+
+### Step 1: Enable Chrome remote debugging
+
+Start Chrome with the `--remote-debugging-port=9222` flag:
+
+```bash
+# macOS
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+  --remote-debugging-port=9222 \
+  --user-data-dir=/tmp/chrome-debug
+
+# Linux
+google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug
+```
+
+### Step 2: Configure Molecule AI
+
+In your workspace config, add the Chrome DevTools MCP server URL:
+
+```yaml
+# config.yaml
+mcpServers:
+  - name: chrome-devtools
+    url: "http://localhost:9222"  # CDP WebSocket endpoint
+    transport: cdp
+```
+
+### Step 3: Verify the connection
+
+Your agent can now call CDP tools. Test with a simple navigation — the audit log should show `cdp_navigate` and `cdp_screenshot` entries attributed to the workspace's org API key prefix.
+
+---
+
+## What the Security Review Looks Like {#security-review}
+
+When your security team asks "what does this integration actually do?", here's the answer:
+
+**What it can do:**
+- Navigate to any URL (with org API key attribution on every navigation)
+- Read and write browser state (cookies, localStorage, session tokens)
+- Screenshot pages and DOM elements
+- Execute JavaScript in the page context
+
+**What it can't do (by default):**
+- Access the host machine beyond the Chrome sandbox
+- Read files outside the browser context
+- Exfiltrate session tokens across session boundaries
+
+**What revocation looks like:**
+- Revoke org API key → immediate session close
+- No redeploy, no agent restart
+- Audit trail shows every action taken before revocation
+
+---
+
+## Browser Automation Governance: The Bigger Picture {#bigger-picture}
+
+Chrome DevTools MCP is one piece of Molecule AI's broader browser automation governance story. MCP is a general-purpose protocol — it connects agents to any tool that speaks CDP, stdio, or HTTP. The governance layer applies uniformly: every MCP call gets the same treatment — org API key attribution, audit logging, instant revocation.
+
+This means you can add new MCP integrations — databases, APIs, code execution environments — with the same governance posture. The MCP protocol is the connectivity layer. Molecule AI's MCP governance layer is the control plane.
+
+If you're evaluating AI agent platforms for browser automation governance, the question to ask is not "can it control a browser?" It's "can I audit every action, attribute every call, and revoke access in one step?" Chrome DevTools MCP with Molecule AI's MCP governance layer is the answer to that question.
+
+---
+
+## Get Started
+
+Chrome DevTools MCP is available on all Molecule AI deployments running Phase 30 or later.
+
+- [MCP Server Setup Guide](/docs/guides/mcp-server-setup) — configure MCP tools in your workspace
+- [Org API Keys: Audit Attribution Setup](/blog/org-scoped-api-keys) — set up org API keys with attribution
+- [A2A Protocol Reference](/docs/api-protocol/a2a-protocol) — how agents delegate browser tasks to each other
+
+---
+
+*Molecule AI is open source. Chrome DevTools MCP ships in `workspace-server/internal/handlers/mcp.go` on `main`.*
