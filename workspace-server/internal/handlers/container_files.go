@@ -192,12 +192,4 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 	case err := <-errCh:
 		return err
 	}
-	// Wait for the rm command to finish before removing the container
-	statusCh, errCh := h.docker.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
-	select {
-	case <-statusCh:
-		return nil
-	case err := <-errCh:
-		return err
-	}
 }
