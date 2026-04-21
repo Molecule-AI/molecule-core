@@ -75,9 +75,6 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 
 	createdDirs := map[string]bool{}
 	for name, content := range files {
-		// Block absolute paths and traversal attempts at the archive-write boundary.
-		// Files are written inside destPath (typically /configs); anything that escapes
-		// via ".." or an absolute name could reach other volumes or system paths.
 		// CWE-22: Clean first so e.g. "foo/../bar" becomes "bar" (detectable) rather
 		// than leaving ".." inside the path that only strings.Contains would catch.
 		clean := filepath.Clean(name)
