@@ -222,6 +222,61 @@ class AgentskillsAdaptor:
             ctx.logger.info("%s: stripped markers from %s", self.plugin_name, ctx.memory_filename)
 
 
+# ----------------------------------------------------------------------
+# Planned adaptor stubs — not yet implemented.
+#
+# Rule of three: promote a class here only after 3+ plugins ship the
+# same custom shape via their own adapters/<runtime>.py.
+# See https://github.com/Molecule-AI/molecule-monorepo/issues/TBD
+# ----------------------------------------------------------------------
+
+
+class MCPServerAdaptor:
+    """Placeholder -- not yet implemented. See https://github.com/Molecule-AI/molecule-monorepo/issues/TBD
+
+    Will install a plugin as an MCP (Model Context Protocol) server,
+    registering tools/resources with the workspace's MCP bridge.
+    """
+
+
+class DeepAgentsSubagentAdaptor:
+    """Placeholder -- not yet implemented. See https://github.com/Molecule-AI/molecule-monorepo/issues/TBD
+
+    Will register a DeepAgents sub-agent. Runtime-locked to the
+    deepagents runtime.
+    """
+
+
+class LangGraphSubgraphAdaptor:
+    """Placeholder -- not yet implemented. See https://github.com/Molecule-AI/molecule-monorepo/issues/TBD
+
+    Will install a LangGraph sub-graph into the workspace's agent
+    graph, enabling modular graph composition via plugins.
+    """
+
+
+class RAGPipelineAdaptor:
+    """Placeholder -- not yet implemented. See https://github.com/Molecule-AI/molecule-monorepo/issues/TBD
+
+    Will wire a retriever + index pipeline, enabling plugins to ship
+    pre-configured RAG capabilities (embeddings, vector store, chunker).
+    """
+
+
+class SwarmAdaptor:
+    """Placeholder -- not yet implemented. See https://github.com/Molecule-AI/molecule-monorepo/issues/TBD
+
+    Will bind an OpenAI-swarm or AutoGen-swarm agent topology,
+    enabling multi-agent orchestration patterns via plugins.
+    """
+
+
+class WebhookAdaptor:
+    """Placeholder -- not yet implemented. See https://github.com/Molecule-AI/molecule-monorepo/issues/TBD
+
+    Will register an event handler that fires on workspace lifecycle
+    events (start, stop, message, approval, etc.) via webhook callback.
+    """
 
 
 # ----------------------------------------------------------------------
