@@ -30,6 +30,7 @@ import { SearchDialog } from "./SearchDialog";
 import { Toaster } from "./Toaster";
 import { Toolbar } from "./Toolbar";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { DeleteCascadeConfirmDialog } from "./DeleteCascadeConfirmDialog";
 import { api } from "@/lib/api";
 import { showToast } from "./Toaster";
 // Phase 20 components
@@ -129,20 +130,23 @@ function CanvasInner() {
   const pendingDelete = useCanvasStore((s) => s.pendingDelete);
   const setPendingDelete = useCanvasStore((s) => s.setPendingDelete);
   const removeNode = useCanvasStore((s) => s.removeNode);
+  // Cascade guard: when deleting a workspace with children, the operator must
+  // tick "I understand the cascade" before Delete All becomes active.
+  const [cascadeConfirmChecked, setCascadeConfirmChecked] = useState(false);
   const confirmDelete = useCallback(async () => {
     if (!pendingDelete) return;
+    // If hasChildren and checkbox not ticked, do nothing — user must confirm
+    if (pendingDelete.hasChildren && !cascadeConfirmChecked) return;
     const { id } = pendingDelete;
     setPendingDelete(null);
+    setCascadeConfirmChecked(false);
     try {
       await api.del(`/workspaces/${id}?confirm=true`);
       removeNode(id);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Delete failed", "error");
     }
-  }, [pendingDelete, setPendingDelete, removeNode]);
-
-  // Cascade guard: include child count in the warning message when the workspace
-  // has children, so the user understands the blast radius before clicking Delete All.
+  }, [pendingDelete, cascadeConfirmChecked, setPendingDelete, removeNode]);
   const cascadeMessage = pendingDelete?.hasChildren
     ? `⚠️ Deleting "${pendingDelete.name}" will permanently delete all child workspaces and their data. This cannot be undone.`
     : null;
@@ -409,17 +413,31 @@ function CanvasInner() {
       />
 
       {/* Confirmation dialog for workspace delete — driven by store */}
-      <ConfirmDialog
-        open={!!pendingDelete}
-        title={pendingDelete?.hasChildren ? "Delete Workspace and Children" : "Delete Workspace"}
-        message={pendingDelete?.hasChildren
-          ? `⚠️ Deleting "${pendingDelete?.name}" will permanently delete all of its child workspaces and their data. This cannot be undone.`
-          : `Permanently delete "${pendingDelete?.name}"? This will stop the container and remove all configuration. This action cannot be undone.`}
-        confirmLabel={pendingDelete?.hasChildren ? "Delete All" : "Delete"}
-        confirmVariant="danger"
-        onConfirm={confirmDelete}
-        onCancel={() => setPendingDelete(null)}
-      />
+      {/* When the workspace has children, render an inline cascade guard instead
+          of the generic ConfirmDialog so we can show the child list and require
+          an explicit checkbox before Delete All activates. */}
+      {pendingDelete ? (
+        pendingDelete.hasChildren ? (
+          <DeleteCascadeConfirmDialog
+            name={pendingDelete.name}
+            children={pendingDelete.children}
+            checked={cascadeConfirmChecked}
+            onCheckedChange={setCascadeConfirmChecked}
+            onConfirm={confirmDelete}
+            onCancel={() => { setPendingDelete(null); setCascadeConfirmChecked(false); }}
+          />
+        ) : (
+          <ConfirmDialog
+            open={true}
+            title="Delete Workspace"
+            message={`Permanently delete "${pendingDelete.name}"? This will stop the container and remove all configuration. This action cannot be undone.`}
+            confirmLabel="Delete"
+            confirmVariant="danger"
+            onConfirm={confirmDelete}
+            onCancel={() => setPendingDelete(null)}
+          />
+        )
+      ) : null}
 
       {/* Settings Panel — global secrets management drawer */}
       <SettingsPanel workspaceId={settingsWorkspaceId} />
