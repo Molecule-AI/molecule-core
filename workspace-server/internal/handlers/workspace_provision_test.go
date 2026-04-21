@@ -570,7 +570,7 @@ func TestSeedInitialMemories_TruncatesOversizedContent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mock.ExpectExpectations()
+			mock.ExpectationsWereMet()
 			workspaceID := "ws-trunc-" + tt.name
 			content := strings.Repeat("X", tt.contentLen)
 			memories := []models.MemorySeed{{Content: content, Scope: "LOCAL"}}
@@ -624,7 +624,7 @@ func TestSeedInitialMemories_RedactsSecrets(t *testing.T) {
 // unrecognized scope value are silently skipped (not inserted).
 func TestSeedInitialMemories_InvalidScopeSkipped(t *testing.T) {
 	mock := setupTestDB(t)
-	mock.ExpectExpectations() // no DB calls expected for invalid scope
+	mock.ExpectationsWereMet() // no DB calls expected for invalid scope
 
 	memories := []models.MemorySeed{
 		{Content: "this should be skipped", Scope: "NOT_A_REAL_SCOPE"},
@@ -641,7 +641,7 @@ func TestSeedInitialMemories_InvalidScopeSkipped(t *testing.T) {
 // is handled without error (no DB calls).
 func TestSeedInitialMemories_EmptyMemoriesNil(t *testing.T) {
 	mock := setupTestDB(t)
-	mock.ExpectExpectations()
+	mock.ExpectationsWereMet()
 
 	seedInitialMemories(context.Background(), "ws-nil", nil, "test-ns")
 
