@@ -215,7 +215,9 @@ func (s *Scheduler) tick(ctx context.Context) {
 					// Always advance next_run_at even on panic so the schedule doesn't get
 					// stuck re-firing the same panicking schedule indefinitely (#1029).
 					if nextTime, err := ComputeNextRun(s2.CronExpr, s2.Timezone, time.Now()); err == nil {
-						db.DB.ExecContext(ctx, `UPDATE workspace_schedules SET next_run_at=$1, updated_at=now() WHERE id=$2`, nextTime, s2.ID)
+						// F1089: use context.Background() so the panic-recovery UPDATE is not
+						// silently skipped if the outer ctx was cancelled during the panic window.
+						db.DB.ExecContext(context.Background(), `UPDATE workspace_schedules SET next_run_at=$1, updated_at=now() WHERE id=$2`, nextTime, s2.ID)
 					}
 				}
 			}()
@@ -246,8 +248,10 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 			// Always advance next_run_at even on panic so the schedule doesn't get
 			// stuck re-firing the same panicking schedule indefinitely (#1029).
 			if nextTime, err := ComputeNextRun(sched.CronExpr, sched.Timezone, time.Now()); err == nil {
-				db.DB.ExecContext(ctx, `UPDATE workspace_schedules SET next_run_at=$1, updated_at=now() WHERE id=$2`, nextTime, sched.ID)
-			}
+				// F1089: use context.Background() so the panic-recovery UPDATE is not
+				// silently skipped if the outer ctx was cancelled during the panic window.
+				db.DB.ExecContext(context.Background(), `UPDATE workspace_schedules SET next_run_at=$1, updated_at=now() WHERE id=$2`, nextTime, sched.ID)
+				}
 		}
 	}()
 
