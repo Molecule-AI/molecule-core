@@ -61,14 +61,7 @@ func (h *TemplatesHandler) resolveTemplateDir(wsName string) string {
 	return ""
 }
 
-// validateRelPath checks that a relative path doesn't escape the target directory.
-func validateRelPath(relPath string) error {
-	clean := filepath.Clean(relPath)
-	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
-		return fmt.Errorf("path traversal blocked: %s", relPath)
-	}
-	return nil
-}
+// validateRelPath lives in ssrf.go.
 
 // List handles GET /templates
 func (h *TemplatesHandler) List(c *gin.Context) {
