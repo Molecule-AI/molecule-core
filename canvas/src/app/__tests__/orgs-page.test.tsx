@@ -85,6 +85,11 @@ function setLocation(href: string) {
 }
 
 beforeEach(() => {
+  // Always reset to real timers first. If a previous polling test failed
+  // before its finally-block ran, fake timers would still be active and
+  // vi.useFakeTimers() in the polling tests would be a no-op — causing
+  // setTimeout(0) to hang and the test to time out.
+  vi.useRealTimers();
   vi.clearAllMocks();
   // Reset mock return values so each test starts fresh.
   // The mock functions (vi.fn) persist across tests; only their
@@ -95,10 +100,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  cleanup();
-});
-
-afterEach(() => {
+  // Ensure fake timers are never left active after a test — even one that
+  // failed before reaching its own finally-block.
+  vi.useRealTimers();
   cleanup();
 });
 
