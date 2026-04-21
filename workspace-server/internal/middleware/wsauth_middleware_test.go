@@ -473,8 +473,8 @@ func TestAdminAuth_InvalidBearer_Returns401(t *testing.T) {
 // token (org_id="ws-org-1").
 // ────────────────────────────────────────────────────────────────────────────
 
-// orgTokenValidateQuery is matched for orgtoken.Validate().
-const orgTokenValidateQuery = "SELECT id, prefix, org_id::text FROM org_api_tokens"
+// orgTokenValidateQueryV1 is matched for orgtoken.Validate().
+const orgTokenValidateQueryV1 = "SELECT id, prefix, org_id::text FROM org_api_tokens"
 
 // orgTokenOrgIDQuery is matched for the org_id lookup added in the F1097 fix.
 const orgTokenOrgIDQuery = "SELECT org_id::text FROM org_api_tokens"
@@ -523,7 +523,7 @@ func TestAdminAuth_OrgToken_SetsOrgID(t *testing.T) {
 			// orgtoken.Validate: org token hash matches, returns id + prefix.
 			// Note: org tokens are checked BEFORE the workspace token path
 			// (ValidateAnyToken), so ValidateAnyToken is NOT called here.
-			mock.ExpectQuery(orgTokenValidateQuery).
+			mock.ExpectQuery(orgTokenValidateQueryV1).
 				WithArgs(orgTokenHash[:]).
 				WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
 					AddRow("tok-org-1", "tok-org-1", nil))
