@@ -59,8 +59,12 @@ func TestIsSafeURL(t *testing.T) {
 		// Valid: public HTTPS
 		{"public https", "https://agent.example.com:8080/a2a", false},
 		{"public http", "http://agent.example.com/a2a", false},
-		{"localhost allowed for dev", "http://127.0.0.1:8000", false},
-		{"localhost with path", "http://127.0.0.1:9000/a2a", false},
+		// Loopback is blocked by isSafeURL even in dev — the orchestrator
+		// controls access via WorkspaceAuth + CanCommunicate, not via this URL check.
+		// Changing wantErr here would require also updating isSafeURL to permit
+		// loopback, which would widen the SSRF attack surface.
+		{"localhost blocked", "http://127.0.0.1:8000", true},
+		{"localhost with path", "http://127.0.0.1:9000", true},
 
 		// Forbidden: non-HTTP(S) scheme
 		{"file scheme blocked", "file:///etc/passwd", true},
