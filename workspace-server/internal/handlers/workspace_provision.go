@@ -103,12 +103,16 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 	// never recovers. Failing fast here surfaces the cause to the operator.
 	if err := h.envMutators.Run(ctx, workspaceID, envVars); err != nil {
 		log.Printf("Provisioner: env mutator chain failed for %s: %v", workspaceID, err)
+		// F1086 / #1206: broadcast and db last_sample_error use generic messages —
+		// env mutator errors (missing tokens, vault paths, etc.) can include
+		// internal credential URIs and file paths that must not reach the caller.
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
 			"error": "plugin env mutator chain failed",
 		})
 		if _, dbErr := db.DB.ExecContext(ctx,
 			`UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
 			workspaceID, "plugin env mutator chain failed"); dbErr != nil {
+
 			log.Printf("Provisioner: failed to mark workspace %s as failed after mutator error: %v", workspaceID, dbErr)
 		}
 		return
@@ -175,11 +179,11 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 
 	url, err := h.provisioner.Start(ctx, cfg)
 	if err != nil {
-		// Persist the error text to last_sample_error so the canvas and
-		// GET /workspaces/:id expose something actionable — previously the
-		// provision failure was only logged + broadcast, leaving the DB
-		// row with an empty last_sample_error. Issue #117.
-		log.Printf("Provisioner: failed to start workspace %s: %v", workspaceID, err)
+		// F1086 / #1206: persist a generic message so the canvas and
+		// GET /workspaces/:id expose something actionable without leaking
+		// docker/error internals (image pull messages, volume paths, etc.).
+		errMsg := "workspace start failed"
+		log.Printf("Provisioner: %s for %s: %v", errMsg, workspaceID, err)
 		if _, dbErr := db.DB.ExecContext(ctx,
 			`UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
 			workspaceID, "workspace start failed"); dbErr != nil {
@@ -581,6 +585,8 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 	applyAgentGitIdentity(envVars, payload.Name)
 	if err := h.envMutators.Run(ctx, workspaceID, envVars); err != nil {
 		log.Printf("CPProvisioner: env mutator failed for %s: %v", workspaceID, err)
+		// F1086 / #1206: env mutator errors (missing tokens, vault paths) must not
+		// leak into last_sample_error — use generic message.
 		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
 				workspaceID, "plugin env mutator chain failed")
 		return
@@ -596,7 +602,10 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 
 	machineID, err := h.cpProv.Start(ctx, cfg)
 	if err != nil {
-		log.Printf("CPProvisioner: failed to start workspace %s: %v", workspaceID, err)
+		// F1086 / #1206: CP errors can include machine type, AMI IDs, VPC
+		// paths — use generic message for broadcast and last_sample_error.
+		errMsg := "workspace start failed"
+		log.Printf("CPProvisioner: %s for %s: %v", errMsg, workspaceID, err)
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
 			"error": "provisioning failed",
 		})

@@ -288,9 +288,18 @@ func verifyAuditChain(events []auditEventRow) *bool {
 			return &f
 		}
 		if !hmac.Equal([]byte(ev.HMAC), []byte(expected)) {
+			// Truncate for logging only after confirming the slice is safe.
+			storedPrefix := ev.HMAC
+			computedPrefix := expected
+			if len(storedPrefix) > 12 {
+				storedPrefix = storedPrefix[:12]
+			}
+			if len(computedPrefix) > 12 {
+				computedPrefix = computedPrefix[:12]
+			}
 			log.Printf(
 				"audit: HMAC mismatch at event %s (agent=%s): stored=%q computed=%q",
-				ev.ID, ev.AgentID, truncHMAC(ev.HMAC), truncHMAC(expected),
+				ev.ID, ev.AgentID, storedPrefix, computedPrefix,
 			)
 			f := false
 			return &f
@@ -347,15 +356,6 @@ func computeAuditHMAC(key []byte, ev *auditEventRow) (string, error) {
 	mac := hmac.New(sha256.New, key)
 	mac.Write(payload)
 	return hex.EncodeToString(mac.Sum(nil)), nil
-}
-
-// truncHMAC safely truncates an HMAC hex string to at most 12 characters for logging.
-// Avoids a panic when the stored HMAC is shorter than expected.
-func truncHMAC(s string) string {
-	if len(s) < 12 {
-		return s
-	}
-	return s[:12]
 }
 
 // nilOrString converts a *string to interface{} where nil → nil (JSON null).

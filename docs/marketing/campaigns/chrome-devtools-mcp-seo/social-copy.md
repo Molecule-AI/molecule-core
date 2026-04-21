@@ -1,7 +1,7 @@
 # Chrome DevTools MCP — Social Copy
 Campaign: chrome-devtools-mcp-seo | Blog PR: docs#49
-Publish day: TBD (Day 1, separate from fly-deploy-anywhere)
-Status: Draft — pending Marketing Lead approval
+Publish day: 2026-04-21 (Day 1)
+Status: ✓ APPROVED — Marketing Lead 2026-04-21
 
 ---
 
@@ -64,7 +64,7 @@ Molecule AI's MCP governance layer adds:
 ---
 
 ### Post 5 — CTA
-Chrome DevTools MCP ships today with Molecule AI Phase 30.
+Chrome DevTools MCP launched April 20 as part of Molecule AI Phase 30.
 
 If you're running AI agents that interact with web UIs — there's a governance story
 you need to have ready before your security team asks.
@@ -111,3 +111,4 @@ Chrome DevTools MCP is available now on all Molecule AI deployments.
 **Use case pairings:** X → Lighthouse / visual regression (developer pain), LinkedIn → governance / compliance (enterprise buyer concern)
 **Hashtags:** #MCP #AIAgents #AgenticAI #MoleculeAI
 **Coordination:** Do NOT post on same day as fly-deploy-anywhere. Suggested spacing: Chrome DevTools MCP Day 1, Fly Day 3–5.
+
