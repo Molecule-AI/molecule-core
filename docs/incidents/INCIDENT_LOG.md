@@ -5,7 +5,45 @@
 
 ---
 
-*Last updated: 2026-04-21T07:30Z by Core Platform Lead — QA Round 18 findings documented, PR status clarified*
+*Last updated: 2026-04-21T07:35Z by Core Platform Lead — F1100 confirmed, PR #1260 content verified via a66f889*
+
+---
+
+## F1100 — workspace_restart.go Path Traversal (RESOLVED)
+
+**Severity:** Medium
+**Finding ID:** F1100
+**Status:** Resolved — fix applied via `a66f889` (PR #1261) on both main and staging
+
+### Summary
+
+`workspace_restart.go:127-133` accepted `body.Template` (attacker-controlled) via raw `filepath.Join(h.configsDir, template)`, allowing path traversal (e.g. `../../../etc`) to escape `configsDir`. **My earlier triage of Issue #1043 (CodeQL CWE-22) missed this finding — it's a legitimate gap, not a false positive.**
+
+Authenticated callers could pass a crafted `body.Template` value to escape the configs directory.
+
+### Fix Applied
+
+PR #1260 (intended) was closed without merge. **Fix landed via PR #1261 (`a66f889`)** on both main and staging:
+
+```go
+// BEFORE (vulnerable):
+candidatePath := filepath.Join(h.configsDir, template)
+
+// AFTER (fixed):
+candidatePath, resolveErr := resolveInsideRoot(h.configsDir, template)
+if resolveErr != nil {
+    log.Printf("Restart: invalid template %q: %v — proceeding without it", template, resolveErr)
+    template = ""  // clear so findTemplateByName fallback fires
+}
+```
+
+On resolve error, template is cleared so `findTemplateByName` fallback still fires — existing restart behaviour preserved.
+
+### References
+
+- PR #1260: closed without merge — superseded by PR #1261
+- PR #1261 (`a66f889`): fix(security): CWE path-injection — resolveInsideRoot for Restart + ReadFile template paths — merged ✅
+- Closes: #1043
 
 ---
 
