@@ -66,10 +66,11 @@ type Token struct {
 // caller once and must be handed to the user verbatim — we cannot
 // recover it from the database.
 //
-// name and createdBy are both optional (nullable columns). Typical
-// use: name = "zapier integration", createdBy = current session
-// user_id.
-func Issue(ctx context.Context, db *sql.DB, name, createdBy string) (plaintext, id string, err error) {
+// name and orgID are optional. createdBy captures who minted the token
+// (WorkOS user_id or provenance string). orgID is the workspace UUID
+// of the org root and is used by requireCallerOwnsOrg to authorize
+// org-token holders against specific org workspaces.
+func Issue(ctx context.Context, db *sql.DB, name, createdBy string, orgID ...string) (plaintext, id string, err error) {
 	buf := make([]byte, tokenPayloadBytes)
 	if _, err := rand.Read(buf); err != nil {
 		return "", "", fmt.Errorf("orgtoken: generate: %w", err)
@@ -78,11 +79,16 @@ func Issue(ctx context.Context, db *sql.DB, name, createdBy string) (plaintext, 
 	hash := sha256.Sum256([]byte(plaintext))
 	prefix := plaintext[:tokenPrefixLen]
 
+	var orgIDArg interface{}
+	if len(orgID) > 0 && orgID[0] != "" {
+		orgIDArg = orgID[0]
+	}
+
 	err = db.QueryRowContext(ctx, `
-		INSERT INTO org_api_tokens (token_hash, prefix, name, created_by)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO org_api_tokens (token_hash, prefix, name, created_by, org_id)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id
-	`, hash[:], prefix, nullIfEmpty(name), nullIfEmpty(createdBy)).Scan(&id)
+	`, hash[:], prefix, nullIfEmpty(name), nullIfEmpty(createdBy), orgIDArg).Scan(&id)
 	if err != nil {
 		return "", "", fmt.Errorf("orgtoken: persist: %w", err)
 	}

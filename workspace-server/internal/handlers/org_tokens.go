@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"database/sql"
 	"log"
 	"net/http"
 
@@ -72,7 +74,11 @@ func (h *OrgTokenHandler) Create(c *gin.Context) {
 
 	createdBy := orgTokenActor(c)
 
-	plaintext, id, err := orgtoken.Issue(c.Request.Context(), db.DB, req.Name, createdBy)
+	// Resolve the caller's org workspace for org_id on the new token.
+	// This lets requireCallerOwnsOrg authorize the token against
+	// specific org workspaces later.
+	orgID := resolveCallerOrgID(c)
+	plaintext, id, err := orgtoken.Issue(c.Request.Context(), db.DB, req.Name, createdBy, orgID)
 	if err != nil {
 		log.Printf("orgtoken issue: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to mint token"})
@@ -120,6 +126,67 @@ const (
 	actorSession        = "session"    // WorkOS-session-verified call
 	actorAdminToken     = "admin-token" // bootstrap ADMIN_TOKEN env
 )
+
+// resolveCallerOrgID derives the org workspace ID for the current request.
+//
+// Tries in order:
+//   1. org_token_id → look up org_id from that token (another org-token
+//      authed this request; use its org).
+//   2. X-Molecule-Org-Id header (Fly replay / CF router; set on every
+//      request by the control plane router).
+//   3. workspace ID from path → resolve its parent_id chain to find
+//      the org root.
+//
+// Returns "" when no org context is available (CLI/ADMIN_TOKEN callers
+// minting tokens without an org context).
+func resolveCallerOrgID(c *gin.Context) string {
+	ctx := c.Request.Context()
+
+	// 1. From another org token (chained auth).
+	if tokID, ok := c.Get("org_token_id"); ok {
+		if id, ok := tokID.(string); ok && id != "" {
+			var orgID sql.NullString
+			if err := db.DB.QueryRowContext(ctx,
+				`SELECT org_id FROM org_api_tokens WHERE id = $1`,
+				id,
+			).Scan(&orgID); err == nil && orgID.Valid && orgID.String != "" {
+				return orgID.String
+			}
+		}
+	}
+
+	// 2. From control-plane router header (Fly replay / CF).
+	if orgHeader := c.GetHeader("X-Molecule-Org-Id"); orgHeader != "" {
+		return orgHeader
+	}
+
+	// 3. From workspace path parameter.
+	if wsID := c.Param("id"); wsID != "" {
+		orgID, _ := resolveOrgIDFromWorkspace(ctx, wsID)
+		return orgID
+	}
+
+	return ""
+}
+
+// resolveOrgIDFromWorkspace returns the org root workspace ID for wsID.
+// Walks the parent_id chain upward: if wsID has a parent_id, return the
+// parent; otherwise return wsID itself. Returns "" if the workspace is
+// not found.
+func resolveOrgIDFromWorkspace(ctx context.Context, workspaceID string) (string, error) {
+	var parentID sql.NullString
+	err := db.DB.QueryRowContext(ctx,
+		`SELECT parent_id FROM workspaces WHERE id = $1`,
+		workspaceID,
+	).Scan(&parentID)
+	if err != nil {
+		return "", err
+	}
+	if parentID.Valid && parentID.String != "" {
+		return parentID.String, nil
+	}
+	return workspaceID, nil
+}
 
 // orgTokenActor derives a short provenance string for audit.
 //
