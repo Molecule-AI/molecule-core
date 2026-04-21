@@ -937,4 +937,3 @@ func validateWorkspaceFields(name, role, model, runtime string) error {
 	}
 	return nil
 }
->>>>>>> b9bddf5 (fix(P0): CWE-22 path traversal in copyFilesToContainer + ContextMenu test)
