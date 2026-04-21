@@ -153,7 +153,7 @@ func (h *PluginsHandler) resolveAndStage(ctx context.Context, req installRequest
 	// traversal attempts yield 400 rather than a resolver-level 502.
 	if source.Scheme == "local" {
 		if err := validatePluginName(source.Spec); err != nil {
-			return nil, newHTTPErr(http.StatusBadRequest, gin.H{"error": "invalid local plugin name"})
+			return nil, newHTTPErr(http.StatusBadRequest, gin.H{"error": "invalid plugin name"})
 		}
 	}
 
@@ -205,7 +205,7 @@ func (h *PluginsHandler) resolveAndStage(ctx context.Context, req installRequest
 	if _, err := dirSize(stagedDir, limit); err != nil {
 		cleanup()
 		return nil, newHTTPErr(http.StatusRequestEntityTooLarge, gin.H{
-			"error":  "plugin directory exceeds size limit",
+			"error":  "staged plugin exceeds size limit",
 			"source": source.Raw(),
 		})
 	}

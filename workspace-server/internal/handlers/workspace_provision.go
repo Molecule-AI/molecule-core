@@ -582,7 +582,11 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 	if err := h.envMutators.Run(ctx, workspaceID, envVars); err != nil {
 		log.Printf("CPProvisioner: env mutator failed for %s: %v", workspaceID, err)
 		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
+<<<<<<< HEAD
 			workspaceID, "plugin env mutator chain failed")
+=======
+			workspaceID, "provisioning failed")
+>>>>>>> f9fff93 (fix(security): replace err.Error() leaks with prod-safe messages (#1206))
 		return
 	}
 
@@ -598,10 +602,10 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 	if err != nil {
 		log.Printf("CPProvisioner: failed to start workspace %s: %v", workspaceID, err)
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
-			"error": "workspace start failed",
+			"error": "provisioning failed",
 		})
 		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
-			workspaceID, "workspace start failed")
+			workspaceID, "provisioning failed")
 		return
 	}
 
