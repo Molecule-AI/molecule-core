@@ -177,7 +177,7 @@ async def _notify_channels(
     Errors in individual channels are logged but never re-raised so that a
     misconfigured Slack webhook cannot block the approval flow.
     """
-    platform_url = os.environ.get("PLATFORM_URL", "http://platform:8080")
+    platform_url = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
     workspace_id = os.environ.get("WORKSPACE_ID", "")
 
     for channel in cfg.channels:
