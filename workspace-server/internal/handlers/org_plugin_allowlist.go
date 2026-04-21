@@ -257,7 +257,7 @@ func (h *OrgPluginAllowlistHandler) PutAllowlist(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":       "invalid plugin name",
 				"plugin_name": name,
-				"detail":      err.Error(),
+				"detail":      "plugin name validation failed",
 			})
 			return
 		}
