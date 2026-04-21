@@ -409,6 +409,9 @@ def test_extract_history_non_list():
 async def test_set_current_task_updates_heartbeat():
     """set_current_task updates heartbeat fields."""
     heartbeat = MagicMock()
+    # Use a real int attribute so getattr(heartbeat, "active_tasks", 0) returns
+    # an int (not a MagicMock), and +1 produces the correct incremented value.
+    heartbeat.active_tasks = 0
     await set_current_task(heartbeat, "Doing work")
     assert heartbeat.current_task == "Doing work"
     assert heartbeat.active_tasks == 1
