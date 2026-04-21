@@ -238,7 +238,11 @@ tenant_call() {
 # expected and actionable.
 SECRETS_JSON='{}'
 if [ -n "${E2E_OPENAI_API_KEY:-}" ]; then
-  SECRETS_JSON="{\"OPENAI_API_KEY\":\"$E2E_OPENAI_API_KEY\"}"
+  # MODEL_PROVIDER=openai forces Hermes's resolver to pick the OpenAI
+  # path. Without it Hermes defaults to Claude (resolution order puts
+  # anthropic before openai) and you get 404 model_not_found because
+  # the OpenAI endpoint doesn't serve claude-sonnet-* models.
+  SECRETS_JSON="{\"OPENAI_API_KEY\":\"$E2E_OPENAI_API_KEY\",\"MODEL_PROVIDER\":\"openai\"}"
 fi
 
 log "5/11 Provisioning parent workspace (runtime=$RUNTIME)..."
