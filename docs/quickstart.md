@@ -152,7 +152,7 @@ The response includes your bearer token — save it now. It is shown only once.
 ```bash
 AGENT_TOKEN="the-token-from-step-2"
 
-curl "$PLATFORM/workspaces/$WORKSPACE_ID/secrets/values" \
+curl "$PLATFORM/workspaces/$WORKSPACE_ID/secrets" \
   -H "Authorization: Bearer $AGENT_TOKEN"
 ```
 
