@@ -81,21 +81,20 @@ func Export(ctx context.Context, workspaceID, configsDir string, dockerCli *clie
 	// Recursively export sub-workspaces
 	rows, err := db.DB.QueryContext(ctx,
 		`SELECT id FROM workspaces WHERE parent_id = $1 AND status != 'removed'`, workspaceID)
-	if err != nil {
-		return nil, fmt.Errorf("query sub-workspaces: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var childID string
-		if rows.Scan(&childID) == nil {
-			childBundle, err := Export(ctx, childID, configsDir, dockerCli)
-			if err == nil {
-				b.SubWorkspaces = append(b.SubWorkspaces, *childBundle)
+	if err == nil {
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var childID string
+			if rows.Scan(&childID) == nil {
+				childBundle, err := Export(ctx, childID, configsDir, dockerCli)
+				if err == nil {
+					b.SubWorkspaces = append(b.SubWorkspaces, *childBundle)
+				}
 			}
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("export sub-workspaces: %w", err)
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("export sub-workspaces: %w", err)
+		}
 	}
 
 	return b, nil
@@ -217,8 +216,8 @@ func (b *Bundle) loadFromConfigDir(dir string) {
 
 		// Walk all files in the skill directory
 		skillPath := filepath.Join(skillsDir, entry.Name())
-		filepath.WalkDir(skillPath, func(path string, d os.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
+		_ = filepath.Walk(skillPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
 				return nil
 			}
 			relPath, _ := filepath.Rel(skillPath, path)
