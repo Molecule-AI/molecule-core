@@ -229,10 +229,27 @@ tenant_call() {
 }
 
 # ─── 5. Provision parent workspace ─────────────────────────────────────
+# Runtimes like hermes crash at boot with "No provider API key found"
+# if nothing in the standard env-var list is set. Inject the API key
+# from E2E_OPENAI_API_KEY so the runtime can actually start — it's
+# per-workspace secret, so it's persisted as a workspace_secret and
+# materialized into the container env. Missing key falls through to
+# an empty secrets map; workspace will still fail but the error is
+# expected and actionable.
+SECRETS_JSON='{}'
+if [ -n "${E2E_OPENAI_API_KEY:-}" ]; then
+  # MODEL_PROVIDER is a full model slug in 'provider:model' format per
+  # workspace/config.py:258. Using just "openai" gets parsed as the
+  # model name → 404 model_not_found. Also set OPENAI_BASE_URL to
+  # OpenAI's own endpoint — default is openrouter.ai which would need
+  # a different key format.
+  SECRETS_JSON="{\"OPENAI_API_KEY\":\"$E2E_OPENAI_API_KEY\",\"OPENAI_BASE_URL\":\"https://api.openai.com/v1\",\"MODEL_PROVIDER\":\"openai:gpt-4o\"}"
+fi
+
 log "5/11 Provisioning parent workspace (runtime=$RUNTIME)..."
 PARENT_RESP=$(tenant_call POST /workspaces \
   -H "Content-Type: application/json" \
-  -d "{\"name\":\"E2E Parent\",\"runtime\":\"$RUNTIME\",\"tier\":2,\"model\":\"gpt-4o\"}")
+  -d "{\"name\":\"E2E Parent\",\"runtime\":\"$RUNTIME\",\"tier\":2,\"model\":\"gpt-4o\",\"secrets\":$SECRETS_JSON}")
 PARENT_ID=$(echo "$PARENT_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 log "    PARENT_ID=$PARENT_ID"
 
@@ -242,7 +259,7 @@ if [ "$MODE" = "full" ]; then
   log "6/11 Provisioning child workspace..."
   CHILD_RESP=$(tenant_call POST /workspaces \
     -H "Content-Type: application/json" \
-    -d "{\"name\":\"E2E Child\",\"runtime\":\"$RUNTIME\",\"tier\":2,\"model\":\"gpt-4o\",\"parent_id\":\"$PARENT_ID\"}")
+    -d "{\"name\":\"E2E Child\",\"runtime\":\"$RUNTIME\",\"tier\":2,\"model\":\"gpt-4o\",\"parent_id\":\"$PARENT_ID\",\"secrets\":$SECRETS_JSON}")
   CHILD_ID=$(echo "$CHILD_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
   log "    CHILD_ID=$CHILD_ID"
 else
@@ -359,8 +376,13 @@ print(json.dumps({
 }))
 ")
   set +e
+  # Raw curl (not tenant_call) because this call carries an extra
+  # X-Source-Workspace-Id header. Must still send X-Molecule-Org-Id
+  # or TenantGuard 404s — previously missing, caused section 10 to
+  # fail rc=22 despite everything upstream being correct (2026-04-21).
   DELEG_RESP=$(curl "${CURL_COMMON[@]}" -X POST "$TENANT_URL/workspaces/$CHILD_ID/a2a" \
     -H "Authorization: Bearer $EFFECTIVE_TENANT_TOKEN" \
+    -H "X-Molecule-Org-Id: $ORG_ID" \
     -H "X-Source-Workspace-Id: $PARENT_ID" \
     -H "Content-Type: application/json" \
     -d "$DELEG_PAYLOAD")

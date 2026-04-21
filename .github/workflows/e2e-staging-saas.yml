@@ -78,6 +78,10 @@ jobs:
       # retrieval + teardown. Configure in
       # Settings → Secrets and variables → Actions → Repository secrets.
       MOLECULE_ADMIN_TOKEN: ${{ secrets.MOLECULE_STAGING_ADMIN_TOKEN }}
+      # OpenAI key for workspace LLM calls (section 8 A2A). Without it,
+      # Hermes runtime crashes at boot with "No provider API key found".
+      # Configure at Settings → Secrets → Actions → MOLECULE_STAGING_OPENAI_KEY.
+      E2E_OPENAI_API_KEY: ${{ secrets.MOLECULE_STAGING_OPENAI_KEY }}
       E2E_RUNTIME: ${{ github.event.inputs.runtime || 'hermes' }}
       E2E_RUN_ID: "${{ github.run_id }}-${{ github.run_attempt }}"
       E2E_KEEP_ORG: ${{ github.event.inputs.keep_org && '1' || '0' }}
@@ -92,6 +96,14 @@ jobs:
             exit 2
           fi
           echo "Admin token present ✓"
+
+      - name: Verify OpenAI key present
+        run: |
+          if [ -z "$E2E_OPENAI_API_KEY" ]; then
+            echo "::error::MOLECULE_STAGING_OPENAI_KEY secret not set — workspaces will fail at boot with 'No provider API key found'"
+            exit 2
+          fi
+          echo "OpenAI key present ✓ (len=${#E2E_OPENAI_API_KEY})"
 
       - name: CP staging health preflight
         run: |
