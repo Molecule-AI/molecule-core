@@ -30,7 +30,7 @@ func (h *ApprovalsHandler) Create(c *gin.Context) {
 		Context map[string]interface{} `json:"context"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -170,7 +170,7 @@ func (h *ApprovalsHandler) Decide(c *gin.Context) {
 		DecidedBy string `json:"decided_by"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 

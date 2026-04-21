@@ -126,13 +126,13 @@ func validateAgentURL(rawURL string) error {
 func (h *RegistryHandler) Register(c *gin.Context) {
 	var payload models.RegisterPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
 	// C6: reject SSRF-capable URLs before persisting or caching them.
 	if err := validateAgentURL(payload.URL); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -251,7 +251,7 @@ func (h *RegistryHandler) Register(c *gin.Context) {
 func (h *RegistryHandler) Heartbeat(c *gin.Context) {
 	var payload models.HeartbeatPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -390,7 +390,7 @@ func (h *RegistryHandler) evaluateStatus(c *gin.Context, payload models.Heartbea
 func (h *RegistryHandler) UpdateCard(c *gin.Context) {
 	var payload models.UpdateCardPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 

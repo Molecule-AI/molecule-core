@@ -114,7 +114,7 @@ func (h *ScheduleHandler) Create(c *gin.Context) {
 	// Validate and compute next run
 	nextRun, err := scheduler.ComputeNextRun(body.CronExpr, body.Timezone, time.Now())
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -198,7 +198,7 @@ func (h *ScheduleHandler) Update(c *gin.Context) {
 		}
 		nextRun, err := scheduler.ComputeNextRun(cronExpr, tz, time.Now())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
 		nextRunAt = &nextRun

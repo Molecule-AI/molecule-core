@@ -27,7 +27,7 @@ func (h *AgentHandler) Assign(c *gin.Context) {
 		Model string `json:"model" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -86,7 +86,7 @@ func (h *AgentHandler) Replace(c *gin.Context) {
 		Model string `json:"model" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -165,7 +165,7 @@ func (h *AgentHandler) Move(c *gin.Context) {
 		TargetWorkspaceID string `json:"target_workspace_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 

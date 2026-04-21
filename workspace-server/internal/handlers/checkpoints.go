@@ -71,7 +71,7 @@ func (h *CheckpointsHandler) Upsert(c *gin.Context) {
 		Payload    json.RawMessage `json:"payload"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
