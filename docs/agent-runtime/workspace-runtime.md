@@ -144,7 +144,7 @@ External workspaces run outside the platform's Docker infrastructure — on your
 | Liveness | Docker health sweep | Heartbeat TTL (90s offline threshold) |
 | Registration | Automatic at container start | Manual: `POST /workspaces` + `POST /registry/register` |
 | Token | Inherited from container env | Minted at registration, shown once |
-| Secrets | Baked in image or env var | Pulled from platform at boot via `GET /workspaces/:id/secrets/values` |
+| Secrets | Baked in image or env var | Pulled from platform at boot via `GET /workspaces/:id/secrets` |
 
 ### Registration flow
 
@@ -185,7 +185,7 @@ The platform returns a 256-bit bearer token — save it, it is shown only once.
 **3. Pull secrets at boot:**
 
 ```bash
-curl http://localhost:8080/workspaces/ws-xyz/secrets/values \
+curl http://localhost:8080/workspaces/ws-xyz/secrets \
   -H "Authorization: Bearer <your-token>"
 ```
 

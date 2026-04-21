@@ -22,6 +22,7 @@ type Workspace struct {
 	LastErrorRate      float64         `json:"last_error_rate" db:"last_error_rate"`
 	LastSampleError    sql.NullString  `json:"last_sample_error" db:"last_sample_error"`
 	ActiveTasks        int             `json:"active_tasks" db:"active_tasks"`
+	MaxConcurrentTasks int             `json:"max_concurrent_tasks" db:"max_concurrent_tasks"`
 	UptimeSeconds      int             `json:"uptime_seconds" db:"uptime_seconds"`
 	CreatedAt          time.Time       `json:"created_at" db:"created_at"`
 	UpdatedAt          time.Time       `json:"updated_at" db:"updated_at"`

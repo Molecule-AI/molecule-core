@@ -15,6 +15,7 @@
  *   - Polling: provisioning orgs schedule a 5s refresh (fake timers)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { act } from "react";
 import { render, screen, cleanup } from "@testing-library/react";
 
 // ── Hoisted mocks ────────────────────────────────────────────────────────────
@@ -127,12 +128,9 @@ describe("/orgs — auth guard", () => {
 describe("/orgs — error state", () => {
   it("shows error + Retry button when /cp/orgs fails", async () => {
     mockFetchSession.mockResolvedValue({ userId: "u-1" });
-    mockFetch.mockImplementationOnce(() =>
-      Promise.reject(new Error("GET /cp/orgs: 500"))
-    );
+    mockFetch.mockResolvedValueOnce(notOk(500, "db down"));
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
-    await vi.runAllTimersAsync();
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
     expect(screen.getByText(/Error:/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /retry/i })).toBeTruthy();
   });
@@ -143,7 +141,7 @@ describe("/orgs — empty list", () => {
     mockFetchSession.mockResolvedValue({ userId: "u-1" });
     mockFetch.mockResolvedValueOnce(okJson({ orgs: [] }));
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
     expect(screen.getByText(/don't have any organizations/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /create organization/i })).toBeTruthy();
   });
@@ -170,7 +168,7 @@ describe("/orgs — CTAs by status", () => {
       })
     );
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
     const link = screen.getByRole("link", { name: /open/i }) as HTMLAnchorElement;
     expect(link.href).toBe("https://acme.moleculesai.app/");
   });
@@ -193,7 +191,7 @@ describe("/orgs — CTAs by status", () => {
       })
     );
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
     const link = screen.getByRole("link", {
       name: /complete payment/i,
     }) as HTMLAnchorElement;
@@ -218,7 +216,7 @@ describe("/orgs — CTAs by status", () => {
       })
     );
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
     const link = screen.getByRole("link", {
       name: /contact support/i,
     }) as HTMLAnchorElement;
@@ -247,7 +245,7 @@ describe("/orgs — post-checkout banner", () => {
       })
     );
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
     expect(screen.getByText(/Payment confirmed/i)).toBeTruthy();
     // URL must be rewritten to drop the ?checkout flag so reload doesn't re-show the banner
     expect(replaceState).toHaveBeenCalled();
@@ -259,7 +257,7 @@ describe("/orgs — post-checkout banner", () => {
     mockFetchSession.mockResolvedValue({ userId: "u-1" });
     mockFetch.mockResolvedValueOnce(okJson({ orgs: [] }));
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
     expect(screen.getByText(/don't have any organizations/i)).toBeTruthy();
     expect(screen.queryByText(/Payment confirmed/i)).toBeNull();
   });
@@ -270,7 +268,7 @@ describe("/orgs — fetch includes credentials + timeout signal", () => {
     mockFetchSession.mockResolvedValue({ userId: "u-1" });
     mockFetch.mockResolvedValueOnce(okJson({ orgs: [] }));
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
     const callArgs = mockFetch.mock.calls.find((c) =>
       String(c[0]).includes("/cp/orgs")
     );

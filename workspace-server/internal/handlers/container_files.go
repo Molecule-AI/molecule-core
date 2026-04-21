@@ -18,16 +18,6 @@ import (
 // maxExecOutput limits container exec output to 5MB to prevent OOM.
 const maxExecOutput = 5 * 1024 * 1024
 
-// validateRelPath checks that a relative path is safe to use inside a
-// bind-mounted directory. Blocks absolute paths and ".." traversal.
-func validateRelPath(filePath string) error {
-	clean := filepath.Clean(filePath)
-	if filepath.IsAbs(clean) || strings.Contains(clean, "..") {
-		return fmt.Errorf("unsafe path: %s", filePath)
-	}
-	return nil
-}
-
 // findContainer finds a running container for the workspace.
 // Checks provisioner name, full ID, and DB workspace name (same candidates as terminal handler).
 func (h *TemplatesHandler) findContainer(ctx context.Context, workspaceID string) string {
@@ -77,24 +67,26 @@ func (h *TemplatesHandler) execInContainer(ctx context.Context, containerName st
 }
 
 // copyFilesToContainer creates a tar archive from a map of files and copies it into a container.
+// The destPath is prepended to each file name. File names must be relative and must not escape
+// destPath via ".." segments — otherwise the tar header name could escape the mounted volume.
 func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerName, destPath string, files map[string]string) error {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 
 	createdDirs := map[string]bool{}
 	for name, content := range files {
-		// CWE-22: reject absolute paths and path-traversal sequences
-		// before using the name in the tar header.
+		// Block absolute paths and traversal attempts at the archive-write boundary.
+		// Files are written inside destPath (typically /configs); anything that escapes
+		// via ".." or an absolute name could reach other volumes or system paths.
 		clean := filepath.Clean(name)
-		if filepath.IsAbs(clean) || strings.Contains(clean, "..") {
-			return fmt.Errorf("path traversal blocked: %s", name)
+		if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+			return fmt.Errorf("unsafe file path in archive: %s", name)
 		}
-		// Use the safe, cleaned name joined with destPath so the tar
-		// header Name is always a relative path inside destPath.
-		safeName := filepath.Join(destPath, clean)
+		// Prepend destPath so relative paths land inside the volume mount.
+		archiveName := filepath.Join(destPath, name)
 
 		// Create parent directories in tar (deduplicated)
-		dir := filepath.Dir(safeName)
+		dir := filepath.Dir(archiveName)
 		if dir != destPath && !createdDirs[dir] {
 			tw.WriteHeader(&tar.Header{
 				Typeflag: tar.TypeDir,
@@ -106,7 +98,7 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 
 		data := []byte(content)
 		header := &tar.Header{
-			Name: safeName,
+			Name: archiveName,
 			Mode: 0644,
 			Size: int64(len(data)),
 		}
@@ -162,10 +154,9 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 	if h.docker == nil {
 		return fmt.Errorf("docker not available")
 	}
-
-	// CWE-78/CWE-22: validate before use. Also switch to exec form
-	// ([]string{...}) so filePath is passed as a plain argument — eliminates
-	// shell injection entirely.
+	// CWE-78/CWE-22: validate before use. Also switches to exec form
+	// ([]string{...}) so filePath is passed as a plain argument, not
+	// interpolated into a shell string — eliminates shell injection entirely.
 	if err := validateRelPath(filePath); err != nil {
 		return err
 	}
@@ -184,7 +175,7 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 	if err := h.docker.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return err
 	}
-	// Wait for rm to finish before removing the container
+	// Wait for the rm command to finish before removing the container
 	statusCh, errCh := h.docker.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
 	select {
 	case <-statusCh:
