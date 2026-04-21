@@ -17,6 +17,7 @@
 | T+1 | 2026-04-21 | Chrome DevTools MCP social campaign — Day 1 | Social Media Brand | ⏳ Blocked: credentials |
 | T+2 | 2026-04-22 | SEO Lighthouse audit (48h post-GA) | SEO Analyst | ⏳ Scheduled |
 | T+3 | 2026-04-23 | Fly.io Deploy Anywhere social — Day 3 | Social Media Brand | ✅ Copy approved (2026-04-21) — blocked: credentials |
+| T+4 | TBD | Cloudflare Artifacts social — Day 4 | Social Media Brand | ⏳ PMM positioned — workflow durability / git-native outputs angle. Blog live on staging. Social copy: #1480 |
 | T+5 | 2026-04-25 | Org-scoped API keys social campaign | Social Media Brand | ⏳ Blocked: credentials |
 | T+7 | 2026-04-27 | SEO follow-up audit | SEO Analyst | ⏳ Scheduled |
 | T+14 | 2026-04-34 | 2-week Lighthouse audit | SEO Analyst | ⏳ Scheduled |
