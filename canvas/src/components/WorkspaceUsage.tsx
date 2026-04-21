@@ -98,7 +98,8 @@ export function WorkspaceUsage({ workspaceId }: WorkspaceUsageProps) {
   );
 }
 
-function formatPeriod(start: string, end: string): string {
+function formatPeriod(start: string | undefined, end: string | undefined): string {
+  if (!start || !end) return "—";
   const fmt = (s: string) =>
     new Date(s).toLocaleDateString(undefined, {
       month: "short",

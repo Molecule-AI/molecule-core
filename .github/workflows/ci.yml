@@ -6,7 +6,12 @@ on:
   pull_request:
     branches: [main, staging]
 
-e4a62e1 (ci: add workflow-level concurrency to ci.yml and codeql.yml)
+# Queue new CI runs when a commit arrives on the same ref.
+# New runs queue instead of cancelling each other — prevents
+# the single self-hosted macOS arm64 runner from being monopolised.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   # Detect which paths changed so downstream jobs can skip when only
