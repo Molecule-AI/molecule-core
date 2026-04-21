@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// isSafeURL is defined in mcp.go.
-// isPrivateOrMetadataIP is defined in mcp.go.
+// isSafeURL is defined in a2a_proxy.go.
+// isPrivateOrMetadataIP is defined in a2a_proxy.go.
 // saasMode is defined in registry.go.
 
 // TestSaasMode covers the env-resolution ladder so a self-hosted
@@ -127,6 +127,8 @@ func TestIsPrivateOrMetadataIP_IPv6(t *testing.T) {
 }
 
 func TestIsPrivateOrMetadataIP(t *testing.T) {
+	t.Setenv("MOLECULE_DEPLOY_MODE", "")
+	t.Setenv("MOLECULE_ORG_ID", "")
 	cases := []struct {
 		name  string
 		ipStr string
@@ -173,6 +175,8 @@ func TestIsPrivateOrMetadataIP(t *testing.T) {
 }
 
 func TestIsSafeURL(t *testing.T) {
+	t.Setenv("MOLECULE_DEPLOY_MODE", "")
+	t.Setenv("MOLECULE_ORG_ID", "")
 	cases := []struct {
 		name    string
 		rawURL  string
