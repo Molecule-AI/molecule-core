@@ -114,7 +114,7 @@ func (h *DelegationHandler) Delegate(c *gin.Context) {
 // the 400 response and returns the error so the caller can return.
 func bindDelegateRequest(c *gin.Context, body *delegateRequest) error {
 	if err := c.ShouldBindJSON(body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid delegation request"})
 		return err
 	}
 	if _, err := uuid.Parse(body.TargetID); err != nil {
@@ -344,7 +344,7 @@ func (h *DelegationHandler) Record(c *gin.Context) {
 		DelegationID string `json:"delegation_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 	if _, err := uuid.Parse(body.TargetID); err != nil {
@@ -392,7 +392,7 @@ func (h *DelegationHandler) UpdateStatus(c *gin.Context) {
 		ResponsePreview string `json:"response_preview,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 	if body.Status != "completed" && body.Status != "failed" {

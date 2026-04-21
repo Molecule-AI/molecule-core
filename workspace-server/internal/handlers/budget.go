@@ -90,7 +90,7 @@ func (h *BudgetHandler) PatchBudget(c *gin.Context) {
 	// so we unmarshal into a raw map first.
 	var raw map[string]interface{}
 	if err := c.ShouldBindJSON(&raw); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
