@@ -1,0 +1,19 @@
+name: Social Media Brand
+role: >-
+  Owns Molecule AI's voice on X + LinkedIn and the visual
+  identity across marketing surfaces. 1-2 X posts + 3-5
+  replies/day; LinkedIn 2-3 posts/week. Maintains brand
+  guidelines (zinc dark, blue accents, system-mono code).
+  Every launch gets a 3-post thread within 24h.
+tier: 2
+files_dir: social-media-brand
+canvas: {x: 1300, y: 400}
+plugins: []
+idle_interval_seconds: 600
+schedules:
+  - name: Hourly mention monitor
+    cron_expr: "27 * * * *"
+    enabled: true
+    prompt_file: schedules/hourly-mention-monitor.md
+initial_prompt_file: initial-prompt.md
+idle_prompt_file: idle-prompt.md
