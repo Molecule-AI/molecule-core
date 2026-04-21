@@ -1,7 +1,7 @@
 # Backlink Outreach Targets
 ## Chrome DevTools MCP SEO Campaign — Action 6 Prep
-**Status:** TARGET LIST — do NOT outreach until post is live + reviewed by Marketing Lead
-**Post URL:** /blog/browser-automation-ai-agents-mcp (pending push + publish)
+**Status:** TARGET LIST — ready for outreach; post live on main ✅ (Marketing Lead confirmed 2026-04-21)
+**Post URL:** /blog/browser-automation-ai-agents-mcp ✅ LIVE on main (commit 689d82d)
 
 ---
 
