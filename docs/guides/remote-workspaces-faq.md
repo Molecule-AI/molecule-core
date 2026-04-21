@@ -95,7 +95,7 @@ Same as a container workspace — up to 5 concurrent delegated tasks. Remote run
 **Q: Remote workspace shows offline in Canvas but the process is running on my machine.**
 
 1. Check the agent log: `molecule logs --workspace my-agent`
-2. Confirm the machine has outbound internet access: `curl -s https://[your-org].moleculesai.app/health`
+2. Confirm the machine has outbound internet access: `curl -s https://wss://[your-org].moleculesai.app/health`
 3. Check token validity: `molecule auth status` — re-authenticate if expired
 4. Restart the agent: `molecule restart --workspace my-agent`
 
