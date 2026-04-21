@@ -32,12 +32,17 @@ jobs:
           fetch-depth: 0
       - id: check
         run: |
-          # For push events: diff against previous commit (handles merge commits)
-          # For PR events: diff against the base branch
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          # For PR events: diff against the base branch (not HEAD~1 of the branch,
+          # which may be unrelated after force-pushes). When a push updates a PR,
+          # both pull_request and push events fire — prefer the PR base so that
+          # the diff is always computed against the actual merge base, not the
+          # previous SHA on the branch which may be on a different history line.
+          BASE="${GITHUB_BASE_REF:-${{ github.event.before }}}"
+          # GITHUB_BASE_REF is set by GitHub for PR events (the base branch name).
+          # For pull_request events we use the stored base.sha; for push events
+          # (or when base.sha is unavailable) fall back to github.event.before.
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ -n "${{ github.event.pull_request.base.sha }}" ]; then
             BASE="${{ github.event.pull_request.base.sha }}"
-          else
-            BASE="${{ github.event.before }}"
           fi
           # Fallback: if BASE is empty or all zeros (new branch), run everything
           if [ -z "$BASE" ] || echo "$BASE" | grep -qE '^0+$'; then
@@ -182,6 +187,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.python == 'true'
     runs-on: [self-hosted, macos, arm64]
+    env:
+      WORKSPACE_ID: test
     defaults:
       run:
         working-directory: workspace
