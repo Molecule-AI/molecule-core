@@ -87,11 +87,23 @@ function CanvasInner() {
 
   const onNodeDrag: OnNodeDrag<Node<WorkspaceNodeData>> = useCallback(
     (_event, node) => {
-      const intersecting = getIntersectingNodes(node);
-      const target = intersecting.find(
-        (n) => n.id !== node.id && !isDescendant(node.id, n.id)
-      );
-      setDragOverNode(target?.id ?? null);
+      // Only consider nodes within a proximity threshold as nest targets.
+      // Without this check, getIntersectingNodes returns any node whose bounding
+      // boxes overlap — which can be hundreds of pixels away on a sparse canvas,
+      // causing accidental nesting when the user drags a node across the board.
+      const thresholdPx = 100;
+      const threshold = thresholdPx * thresholdPx; // compare squared distances
+      let nearest: { id: string; dist: number } | null = null;
+      for (const candidate of getIntersectingNodes(node)) {
+        if (candidate.id === node.id || isDescendant(node.id, candidate.id)) continue;
+        const dx = candidate.position.x - node.position.x;
+        const dy = candidate.position.y - node.position.y;
+        const dist2 = dx * dx + dy * dy;
+        if (dist2 <= threshold && (!nearest || dist2 < nearest.dist)) {
+          nearest = { id: candidate.id, dist: dist2 };
+        }
+      }
+      setDragOverNode(nearest?.id ?? null);
     },
     [getIntersectingNodes, isDescendant, setDragOverNode]
   );
