@@ -184,6 +184,15 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 		if id, prefix, err := orgtoken.Validate(ctx, database, tok); err == nil {
 			c.Set("org_token_id", id)
 			c.Set("org_token_prefix", prefix)
+			// F1097: populate org_id on context from the token's org anchor.
+			// orgCallerID(c) in org_tokens.go reads this key so that newly
+			// minted tokens inherit the caller's org instead of NULL.
+			var orgID *string
+			if dbErr := database.QueryRowContext(ctx,
+				`SELECT org_id::text FROM org_api_tokens WHERE id = $1`, id,
+			).Scan(&orgID); dbErr == nil && orgID != nil && *orgID != "" {
+				c.Set("org_id", *orgID)
+			}
 			c.Next()
 			return
 		} else if !errors.Is(err, orgtoken.ErrInvalidToken) {
