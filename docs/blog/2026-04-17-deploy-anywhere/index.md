@@ -112,6 +112,8 @@ No changes to agent code, tool definitions, or orchestration logic. Swap `CONTAI
 
 **See also:** [Give Your AI Agent a Real Browser: MCP + Chrome DevTools](/blog/browser-automation-ai-agents-mcp) — wire Chrome DevTools Protocol into your Molecule AI workspace via MCP for production-grade browser automation.
 
+→ [MCP server list: every Model Context Protocol server in one place](/blog/mcp-server-list)
+
 ---
 
 *[PR #501](https://github.com/Molecule-AI/molecule-core/pull/501) (Fly Machines provisioner) and [PR #503](https://github.com/Molecule-AI/molecule-core/pull/503) (control plane provisioner) are both merged to `main`. Molecule AI is open source — contributions welcome.*
