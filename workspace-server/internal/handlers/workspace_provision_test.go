@@ -1096,9 +1096,8 @@ func TestProvisionWorkspace_NoInternalErrorsInBroadcast(t *testing.T) {
 	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM global_secrets`).
 		WillReturnError(errInternalDB)
 
-	broadcaster := &captureBroadcaster{Broadcaster: *events.NewBroadcaster(nil)}
 	handler := &WorkspaceHandler{
-		broadcaster:  broadcaster,
+		broadcaster:  events.NewBroadcaster(nil),
 		provisioner: &provisioner.Provisioner{},
 		cpProv:       &provisioner.CPProvisioner{},
 		platformURL:  "http://platform.test",
