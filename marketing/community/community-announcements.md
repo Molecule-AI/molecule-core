@@ -1,6 +1,6 @@
 # Phase 30 Launch — Community Announcements
 
-> **For:** DevRel / Community Manager | **Status:** Draft
+> **For:** DevRel / Community Manager | **Status:** ✅ Publish-ready
 > **Channels:** Discord, Slack (public channels), relevant forums
 
 ---
@@ -99,4 +99,4 @@ If you're building agent coordination tooling, these two features should make yo
 
 ---
 
-*Drafted by DevRel. Customize sender name and channel-specific opening lines before posting.*
+*Ready to publish. Customize sender name and channel-specific opening lines before posting.*
