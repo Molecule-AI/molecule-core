@@ -458,6 +458,17 @@ func (h *MCPHandler) toolRecallMemory(ctx context.Context, workspaceID string, a
 	return string(b), nil
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// URL validation helpers — provided by a2a_proxy_helpers.go
+// (SSRF functions removed here to eliminate duplicate definitions)
+//
+// isSafeURL and isPrivateOrMetadataIP are defined once in
+// workspace-server/internal/a2a_proxy_helpers.go and imported
+// as a shared dependency by this package.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
