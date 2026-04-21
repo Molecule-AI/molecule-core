@@ -16,8 +16,9 @@
 | Social copy | Marketing Lead | ✅ APPROVED (PR #1504) |
 | Backlinks outreach | Marketing Lead | ✅ APPROVED (PR #1504) |
 | Social queue Day 1–5 | Marketing Lead | ✅ APPROVED — executing when credentials land |
-| SEO pre-launch | SEO Analyst | ✅ COMPLETE — all P0/P1 keywords integrated, frontmatter + structured data fixed |
-| SEO indexing | SEO Analyst | ⏳ Lighthouse audit opens 2026-04-22 (~15h) |
+| SEO pre-launch | SEO Analyst | ✅ COMPLETE — all P0/P1 keywords integrated, GH link + JSON-LD + frontmatter fixed |
+| SEO Lighthouse checklist | SEO Analyst | 📋 CREATED — 215 lines, 7 post templates (pending commit to PR) |
+| SEO indexing | SEO Analyst | ⏳ Lighthouse audit opens 2026-04-22 (~15h from now) |
 | Social distribution | Social Media Brand | ⏳ BLOCKED — X/LinkedIn credentials not provisioned |
 
 ## Social Queue (Approved)
@@ -27,7 +28,7 @@
 | Day 1 | Apr 21 | Chrome DevTools MCP | ✅ Ready — blocked on credentials |
 | Day 2 | Apr 22 | Discord Adapter | ✅ Ready |
 | Day 3 | Apr 23 | Org API Keys | ✅ Ready |
-| Day 4 | Apr 24 | EC2 Console Output | ⚠️ Draft pending ML approval — share copy to approve |
+| Day 4 | Apr 24 | EC2 Console Output | ✅ APPROVED — social copy written by Marketing Lead (PR #1178 + demo storyboard) |
 | Day 5 | Apr 25 | Cloudflare Artifacts | ✅ APPROVED — "sub-100ms" softened to "fast edge-based clone times" |
 | Day 5+ | Apr 25+ | Org-Scoped API Keys | ✅ Approved | |
 
