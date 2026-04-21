@@ -95,4 +95,4 @@ molecule workspace init --name my-agent --runtime remote
 
 ---
 
-*Replace docs links with live URLs before distributing.*
+*Replace docs links with live URLs before distributing. Quick-start commands need verification against actual `molecule` CLI — Phase 30 storyboard uses Python SDK (`python3 run.py --runtime external`). Pricing section requires PMM confirmation.*

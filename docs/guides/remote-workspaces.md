@@ -145,3 +145,11 @@ The agent appears on the canvas with a **purple REMOTE badge** within seconds. F
 - **[External Agent Registration Guide →](/docs/guides/external-agent-registration)** — full endpoint reference, Python + Node.js examples, troubleshooting
 - **[molecule-sdk-python →](https://github.com/Molecule-AI/molecule-sdk-python)** — SDK source, `RemoteAgentClient` API docs
 - **[SDK Examples →](https://github.com/Molecule-AI/molecule-sdk-python/tree/main/examples/remote-agent)** — `run.py` demo script, annotated walkthrough
+
+---
+
+## Try It on Molecule AI Cloud
+
+**Want to run Remote Workspaces without self-hosting?** [Molecule AI Cloud](https://moleculesai.app) runs the full platform — canvas, agents, billing, auth — so you can register a remote agent in minutes with no infrastructure to manage.
+
+→ [Start for free at moleculesai.app →](https://moleculesai.app)
