@@ -132,6 +132,77 @@ class BaseAdapter(ABC):
             "source": None,
         }
 
+    def pre_stop_state(self) -> dict:
+        """Capture in-memory state for pause/resume serialization.
+
+        Called by main.py's shutdown handler just before the container exits.
+        Returns a dict that will be scrubbed (via lib.snapshot_scrub) and
+        written to /configs/.agent_snapshot.json.
+
+        Default implementation:
+        1. Attempts to read ``self._executor._session_id`` (set by
+           create_executor) and includes it as ``session_id``.
+        2. Includes up to 200 recent transcript lines via transcript_lines().
+
+        Override in adapters that hold additional in-memory state that
+        should survive a container stop.
+
+        Returns:
+            A JSON-serializable dict. All string values are scrubbed before
+            persisting, so it is safe to include raw content from the
+            agent's context.
+        """
+        from lib.pre_stop import MAX_TRANSCRIPT_LINES
+
+        state: dict = {}
+
+        # Session handle — critical for resuming the Claude Code session.
+        executor = getattr(self, "_executor", None)
+        if executor is not None:
+            session_id = getattr(executor, "_session_id", None)
+            if session_id:
+                state["session_id"] = session_id
+
+        # Recent conversation log — captures where the agent left off.
+        # transcript_lines() may be async; call it synchronously if possible,
+        # otherwise let async adapters override pre_stop_state entirely.
+        try:
+            import inspect as _inspect
+            transcript_fn = self.transcript_lines
+            if _inspect.iscoroutinefunction(transcript_fn):
+                # Async adapter — override pre_stop_state() for transcript access.
+                # The base impl still captures session_id above.
+                pass
+            else:
+                transcript = transcript_fn(since=0, limit=MAX_TRANSCRIPT_LINES)
+                if transcript.get("supported"):
+                    state["transcript_lines"] = transcript.get("lines", [])
+        except Exception:
+            # Best-effort: never let transcript capture failure block serialization.
+            pass
+
+        return state
+
+    def restore_state(self, snapshot: dict) -> None:
+        """Restore in-memory state from a pause/resume snapshot.
+
+        Called by main.py on first boot when /configs/.agent_snapshot.json
+        exists. Gives the adapter a chance to restore session handles,
+        conversation context, or any other in-memory state before the A2A
+        server starts accepting requests.
+
+        Default implementation stores ``snapshot["session_id"]`` and
+        ``snapshot["transcript_lines"]`` as ``self._snapshot_session_id``
+        and ``self._snapshot_transcript`` so that ``create_executor()`` or
+        the executor itself can pick them up.
+
+        Args:
+            snapshot: The scrubbed snapshot dict previously written by
+                     pre_stop_state(). All secrets have already been redacted.
+        """
+        self._snapshot_session_id: str | None = snapshot.get("session_id")
+        self._snapshot_transcript: list | None = snapshot.get("transcript_lines")
+
     def register_subagent_hook(self, name: str, spec: dict) -> None:
         """Default no-op. DeepAgents overrides to register a sub-agent."""
         return None
@@ -305,5 +376,9 @@ class BaseAdapter(ABC):
     async def create_executor(self, config: AdapterConfig) -> AgentExecutor:
         """Create and return an AgentExecutor ready for A2A integration.
         The returned executor's execute() method will be called by the
-        A2A server's DefaultRequestHandler."""
+        A2A server's DefaultRequestHandler.
+
+        Subclasses should also store the returned executor as ``self._executor``
+        so ``pre_stop_state()`` can access it for serialization.
+        """
         ...  # pragma: no cover
