@@ -11,11 +11,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// orgTokenValidateQuery is matched for orgtoken.Validate in both
+// orgTokenValidateQueryWithHashWithHash is matched for orgtoken.Validate in both
 // WorkspaceAuth and AdminAuth middleware paths. The query selects
 // id and prefix from org_api_tokens where token_hash matches and
 // revoked_at IS NULL.
-const orgTokenValidateQuery = "SELECT id, prefix FROM org_api_tokens WHERE token_hash"
+const orgTokenValidateQueryWithHashWithHash = "SELECT id, prefix FROM org_api_tokens WHERE token_hash"
 
 func TestWorkspaceAuth_ValidOrgToken_SetsOrgIDContext(t *testing.T) {
 	// F1097 (#1218): org tokens validated via WorkspaceAuth must have
@@ -31,7 +31,7 @@ func TestWorkspaceAuth_ValidOrgToken_SetsOrgIDContext(t *testing.T) {
 	tokenHash := sha256.Sum256([]byte(orgToken))
 
 	// orgtoken.Validate — returns id + prefix (no org_id column yet).
-	mock.ExpectQuery(orgTokenValidateQuery).
+	mock.ExpectQuery(orgTokenValidateQueryWithHash).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).
 			AddRow("tok-org-abc", "tok_test"))
@@ -85,7 +85,7 @@ func TestWorkspaceAuth_ValidOrgToken_OrgIDNULL_DoesNotSetContext(t *testing.T) {
 	tokenHash := sha256.Sum256([]byte(orgToken))
 
 	// orgtoken.Validate.
-	mock.ExpectQuery(orgTokenValidateQuery).
+	mock.ExpectQuery(orgTokenValidateQueryWithHash).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).
 			AddRow("tok-old-xyz", "tok_old_"))
@@ -136,7 +136,7 @@ func TestAdminAuth_ValidOrgToken_SetsOrgIDContext(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	// orgtoken.Validate via AdminAuth — returns id + prefix.
-	mock.ExpectQuery(orgTokenValidateQuery).
+	mock.ExpectQuery(orgTokenValidateQueryWithHash).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).
 			AddRow("tok-admin-org", "tok_adm_"))
@@ -187,7 +187,7 @@ func TestAdminAuth_ValidOrgToken_OrgIDNULL_DoesNotSetContext(t *testing.T) {
 	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	mock.ExpectQuery(orgTokenValidateQuery).
+	mock.ExpectQuery(orgTokenValidateQueryWithHash).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).
 			AddRow("tok-old-admin", "tok_old_"))
@@ -232,7 +232,7 @@ func TestWorkspaceAuth_OrgToken_DBRowScanError_DoesNotPanic(t *testing.T) {
 	orgToken := "tok_token_ok"
 	tokenHash := sha256.Sum256([]byte(orgToken))
 
-	mock.ExpectQuery(orgTokenValidateQuery).
+	mock.ExpectQuery(orgTokenValidateQueryWithHash).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).
 			AddRow("tok-ok", "tok_tok_"))
@@ -277,7 +277,7 @@ func TestWorkspaceAuth_OrgToken_SetsAllContextKeys(t *testing.T) {
 	tokenHash := sha256.Sum256([]byte(orgToken))
 	expectedOrgID := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
-	mock.ExpectQuery(orgTokenValidateQuery).
+	mock.ExpectQuery(orgTokenValidateQueryWithHash).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).
 			AddRow("tok-full", "tok_fu_"))

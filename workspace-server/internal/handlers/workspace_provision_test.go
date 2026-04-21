@@ -901,6 +901,8 @@ func containsStr(s, substr string) bool {
 //
 // Each test injects a known-internal error and verifies the response body
 // or broadcast payload contains ONLY the generic prod-safe message.
+func TestSeedInitialMemories_TruncatesOversizedContent(t *testing.T) {
+	mock := setupTestDB(t)
 	largeContent := string(make([]byte, 100_001))
 	copy([]byte(largeContent), "X") // fill with "X" so test is deterministic
 

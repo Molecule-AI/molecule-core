@@ -79,7 +79,7 @@ func TestValidate_HappyPath(t *testing.T) {
 		WithArgs("tok-live").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	id, prefix, err := Validate(context.Background(), db, plaintext)
+	id, prefix, _, err := Validate(context.Background(), db, plaintext)
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
