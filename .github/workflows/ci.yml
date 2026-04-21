@@ -181,6 +181,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.python == 'true'
     runs-on: [self-hosted, macos, arm64]
+    env:
+      WORKSPACE_ID: test
     defaults:
       run:
         working-directory: workspace
