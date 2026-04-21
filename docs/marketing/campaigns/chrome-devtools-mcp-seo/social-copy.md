@@ -99,12 +99,16 @@ Code example, four real-world use cases, and the full MCP → CDP bridge breakdo
 
 ## Image / Visual Recommendations
 
-| Platform | Asset | Description |
+| Platform | Asset | File |
 |---|---|---|
-| X/LinkedIn | Diagram: MCP bridge | Simple diagram: AI Agent → MCP → CDP → Chrome Browser. Tool call cycle visual. Label: "browser_navigate", "dom_query", "page_screenshot" |
-| X/LinkedIn | Code card | Clean code snippet showing `agent = Agent(mcp_tools=browser.tools())`. Dark background, syntax highlighted. |
-| X (thread) | Comparison card | 2x2 table: Approach / Setup / Session mgmt / Cost. "Custom Playwright" vs "SaaS browser API" vs "Molecule AI + MCP" |
-| X/LinkedIn | CTA graphic | "Your AI agent just got a browser." + GitHub link QR code or CTA button |
+| X/LinkedIn | Diagram: MCP bridge | `assets/mcp-bridge-diagram.svg` |
+| X (thread) | Comparison card | `assets/comparison-table-card.svg` |
+| X/LinkedIn | Code card | Create from blog post code snippet: `agent = Agent(mcp_tools=browser.tools())` |
+| X/LinkedIn | CTA graphic | "Your AI agent just got a browser." + GitHub link |
+
+**Generated assets available in `docs/marketing/campaigns/chrome-devtools-mcp-seo/assets/`:**
+- `mcp-bridge-diagram.svg` — AI Agent → MCP → CDP → Chrome architecture diagram
+- `comparison-table-card.svg` — 3-approach comparison (Custom vs SaaS vs Molecule AI)
 
 ---
 
