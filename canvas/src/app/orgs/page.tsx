@@ -318,7 +318,7 @@ function EmptyState({ banner }: { banner?: React.ReactNode }) {
     <Shell>
       {banner}
       <p className="text-zinc-300">
-        You don&apos;t have any organizations yet. Create one to get started — your
+        You don't have any organizations yet. Create one to get started — your
         workspace spins up automatically once billing is set up.
       </p>
       <div className="mt-6">
