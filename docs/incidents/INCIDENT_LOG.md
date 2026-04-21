@@ -5,11 +5,63 @@
 
 ---
 
-*Last updated: 2026-04-21T07:10Z by Core Platform Lead (post-restart session)*
+*Last updated: 2026-04-21T07:45Z by Core Platform Lead — Incident log rebuilt after linter reset*
 
 ---
 
-## F1088 Credential Exposure — CLOSED (2026-04-21 ~07:10Z update)
+## Security Audit Cycle 6 — ALL CLEAR (2026-04-21 ~07:15Z)
+
+**SHA range:** e69cb26 → 674384b on main (~5 commits + ~10 merged PRs)
+**Verdict:** ✅ No critical/high findings
+
+### Commits Reviewed — All CLEAN
+
+| Commit | Description |
+|--------|-------------|
+| `dc9c64e` / PR #1258 | F1097 org_id context — eliminates redundant 2nd SELECT in AdminAuth |
+| `33f1d1a` | Canvas cascade-delete UX — `pendingDelete.hasChildren`, warning dialog |
+| `0790d57` | Canvas metrics guard — null coalescing |
+| `781c217` | CI YAML fix |
+| `169120d` / PR #1310 | CWE-78/CWE-22 — exec form + path traversal guards |
+| `e431fc4` / PR #1302 | CWE-918 SSRF — `isSafeURL` in `a2a_proxy.go` |
+| `a66f889` / PR #1261 | CWE path-injection — `resolveInsideRoot` for template paths |
+
+Full audit saved to TEAM memory id `abc58b47`.
+
+---
+
+## F1100 — workspace_restart.go Path Traversal (RESOLVED)
+
+**Severity:** Medium | **Finding ID:** F1100
+**Status:** Resolved — fix applied via `a66f889` (PR #1261) on both main and staging
+
+### Summary
+
+`workspace_restart.go:127-133` accepted `body.Template` (attacker-controlled) via raw `filepath.Join(h.configsDir, template)`, allowing path traversal (e.g. `../../../etc`) to escape `configsDir`. **Issue #1043 triage missed this — legitimate gap, not false positive.**
+
+Authenticated callers could pass a crafted `body.Template` value to escape the configs directory.
+
+### Fix Applied
+
+PR #1260 (intended) closed without merge. Fix landed via **PR #1261 (`a66f889`)** on both main and staging:
+
+```go
+// Fixed (a66f889):
+candidatePath, resolveErr := resolveInsideRoot(h.configsDir, template)
+if resolveErr != nil {
+    template = ""  // fallback fires safely
+}
+```
+
+### References
+
+- PR #1260: closed without merge — superseded by PR #1261
+- PR #1261 (`a66f889`): merged ✅
+- Closes: #1043
+
+---
+
+## F1088 Credential Exposure — CLOSED
 
 **All prior F1088 entries below remain valid. Summary of current state:**
 
@@ -383,6 +435,75 @@ Close or revert this branch. `redactSecrets` must remain in `seedInitialMemories
 
 ---
 
+## F1097 — org_id Context Fix — RESOLVED
+
+**Severity:** Medium
+**Status:** Resolved — PR #1258 merged to main (`dc9c64e`)
+
+### Summary
+
+`orgToken.Validate` refactored to return `org_id` directly, eliminating the redundant 2nd SELECT in `AdminAuth`. All SQL parameterized correctly.
+
+### References
+
+- PR #1258 (`dc9c64e`): fix(F1097): set org_id in Gin context for org-token callers
+
+---
+
+## PR #1226 — err.Error() Leaks (STALE — closed without merge)
+
+**Severity:** Medium
+**Status:** Open — PR closed without merging, leaks still present on main
+
+### Summary
+
+PR #1226 (`fix(security): sanitize remaining err.Error() leaks + errcheck artifacts/client.go`) was **closed without merging**. The following leaks remain on main:
+
+| File | Line | Code | Fix |
+|------|------|------|-----|
+| `mcp.go` | 259 | `"parse error: " + err.Error()` | → `"parse error: invalid JSON request body"` |
+| `mcp.go` | 347 | `"invalid params: " + err.Error()` | → `"invalid params: malformed JSON"` |
+| `mcp.go` | 352 | `err.Error()` | → `"dispatch error"` |
+| `org_plugin_allowlist.go` | 260 | `"detail": err.Error()` | → `"detail": "plugin name validation failed"` |
+| `admin_memories.go` | 99 | `"invalid JSON: " + err.Error()` | → `"invalid JSON request body"` |
+
+**Already fixed:** `artifacts/client.go:175` — `defer func() { _ = resp.Body.Close() }()` confirmed correct (via PR #1247).
+
+### Action Required
+
+Reopen PR #1226 and fast-track merge. Alternatively, cherry-pick the 4 commits from that PR onto a fresh branch.
+
+---
+
+## QA Round 18 — orgs-page Test Regression (FIXED on main, pending staging port)
+
+**Severity:** Medium
+**SHA tested:** `ce33da5` (PR #1257 branch merge with staging)
+**Status:** Regression identified in PR #1255, fixed on main, not yet on staging
+
+### Findings
+
+| Finding | Status |
+|---------|--------|
+| Canvas tests: 53 passed, **1 FAILED** | orgs-page.test.tsx line 133 — `vi.useRealTimers()` + raw `setTimeout(50)` without `act()` |
+| PR #1257 conflict | MERGEABLE, approved — closed without merge; fix is on main/staging via `a66f889` |
+| PR #1255 regression | Introduced orgs-page test flakiness — +18/-2 in orgs-page.test.tsx |
+
+### orgs-page Test Regression — Root Cause
+
+PR #1255 (`e885fa1`) regressed the timer fix from PR #1235. It replaced `waitFor()` with `vi.useRealTimers()` + raw `setTimeout(50)` without `act()` — causing microtask flush issues.
+
+### Resolution
+
+**Main:** Fixed in `674384b` (PR #1313) — wraps all 10 affected `vi.advanceTimersByTimeAsync(50)` calls in `act(async () => { ... })`. All 813 canvas tests pass on main.
+**Staging:** Regression NOT yet fixed — `origin/staging` is 13 commits behind main.
+
+### Action needed
+
+Cherry-pick or port the orgs-page test fix from `674384b` to staging.
+
+---
+
 ## Issue #1124 — Orchestrator GET /workspaces 404: Env Var Misconfiguration (OPEN)
 
 **Severity:** Medium
@@ -452,6 +573,10 @@ All modules default to `http://platform:8080` (container mesh hostname). This is
 ### Owner
 
 Core-BE — delegated to Dev Lead (A2A failed). Core-BE sub-team: please pick up.
+
+### Fix PR
+
+[PR #1336](https://github.com/Molecule-AI/molecule-core/pull/1336) filed — `fix(orchestrator): fail-fast if WORKSPACE_ID env var is unset/empty`. Targets staging. Labels: bug, needs-work, area:backend-engineer, area:dev-lead.
 
 ---
 
