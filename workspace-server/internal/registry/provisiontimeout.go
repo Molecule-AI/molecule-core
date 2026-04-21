@@ -107,7 +107,7 @@ func sweepStuckProvisioning(ctx context.Context, emitter ProvisionTimeoutEmitter
 	}
 
 	for _, id := range ids {
-		msg := "provisioning timed out — container never reported online. Check the workspace's required env vars and retry."
+		msg := "provisioning timed out — container started but never called /registry/register. Check container logs and network connectivity to the platform."
 		res, err := db.DB.ExecContext(ctx, `
 			UPDATE workspaces
 			   SET status = 'failed',
