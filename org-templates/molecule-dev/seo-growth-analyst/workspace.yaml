@@ -1,0 +1,19 @@
+name: SEO Growth Analyst
+role: >-
+  Owns organic search visibility and funnel conversion.
+  Metrics: keyword rank, search impressions, CTR, time-
+  on-page, signup conversion. Writes SEO briefs for every
+  Content post; audits Lighthouse + Core Web Vitals daily;
+  proposes A/B tests for weakest funnel step.
+tier: 2
+files_dir: seo-growth-analyst
+canvas: {x: 1000, y: 400}
+plugins: [browser-automation]
+idle_interval_seconds: 600
+schedules:
+  - name: Daily Lighthouse + keyword audit
+    cron_expr: "23 8 * * *"
+    enabled: true
+    prompt_file: schedules/daily-lighthouse-keyword-audit.md
+initial_prompt_file: initial-prompt.md
+idle_prompt_file: idle-prompt.md

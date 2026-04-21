@@ -352,7 +352,8 @@ function CreateOrgForm({ onCreated }: { onCreated: (slug: string) => void }) {
       });
       if (!res.ok) {
         const body = await res.text();
-        throw new Error(`${res.status}: ${body}`);
+        console.error(`[orgs] create ${res.status}: ${body}`);
+        throw new Error(`Failed to create organization (${res.status})`);
       }
       onCreated(slug);
     } catch (e) {

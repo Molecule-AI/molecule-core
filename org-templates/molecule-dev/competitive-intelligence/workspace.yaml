@@ -1,0 +1,7 @@
+name: Competitive Intelligence
+role: Competitor tracking and feature comparison
+files_dir: competitive-intelligence
+plugins: [browser-automation]
+            # Idle-loop rollout wave 2 (sibling to Market Analyst).
+idle_interval_seconds: 600
+idle_prompt_file: idle-prompt.md

@@ -18,10 +18,12 @@
 package handlers
 
 import (
+	"crypto/subtle"
 	"database/sql"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
@@ -53,6 +55,20 @@ func (h *AdminTestTokenHandler) GetTestToken(c *gin.Context) {
 		// 404 (not 403) — hide the route's existence entirely in prod.
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
+	}
+
+	// IDOR fix (#112, CRITICAL): when ADMIN_TOKEN is set, require it
+	// explicitly. Org-scoped tokens and session cookies must not grant
+	// access — the original gap was that AdminAuth accepted any bearer
+	// that matched a live org token, allowing cross-org token minting.
+	adminSecret := os.Getenv("ADMIN_TOKEN")
+	if adminSecret != "" {
+		tok := c.GetHeader("Authorization")
+		tok = strings.TrimPrefix(tok, "Bearer ")
+		if tok == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(adminSecret)) != 1 {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "admin auth required"})
+			return
+		}
 	}
 
 	workspaceID := c.Param("id")
