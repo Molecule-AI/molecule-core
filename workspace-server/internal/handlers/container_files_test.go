@@ -2,16 +2,17 @@ package handlers
 
 // container_files_test.go — CWE-22 regression suite for copyFilesToContainer.
 //
-// Vulnerability: copyFilesToContainer validated the raw filename before
-// filepath.Join(destPath, name) but placed the post-join result in the tar
-// header.  A mid-path traversal such as "foo/../../../etc" passes the prefix
-// check (does not start with "..") yet resolves to /etc after the join,
-// escaping the volume mount and writing outside the container's filesystem.
+// Vulnerability: copyFilesToContainer checked the raw filename before
+// filepath.Join but placed the post-join result in the tar header. A mid-path
+// traversal such as "foo/../../../etc" passes the prefix check (does not start
+// with "..") yet resolves to /etc after the join, escaping the volume mount.
 //
-// Fix (PR #1434): re-validate archiveName after filepath.Join using
-// filepath.Clean, then use the cleaned result in the tar header.
-// A Docker client is not required for these tests — the validation rejects
-// unsafe paths before any Docker call is made.
+// Two-layer guard in copyFilesToContainer:
+//   - Pre-join: filepath.Clean(name) — reject if IsAbs or starts with ".."
+//   - Post-join: strings.HasPrefix(archiveName, destPath) — reject if result
+//     escapes the destination directory after Join
+// A Docker client is not required for these tests — validation rejects unsafe
+// paths before any Docker call is made.
 
 import (
 	"context"
@@ -76,21 +77,21 @@ func TestCopyFilesToContainer_CWE22_RejectsTraversal(t *testing.T) {
 			destPath:  "/configs",
 			files:     map[string]string{"foo/../../../etc/cron.d/malicious": "* * * * * root echo pwned"},
 			wantErr:   true,
-			errSubstr: "traversal after join",
+			errSubstr: "path escapes destination",
 		},
 		{
 			label:     "mid_path_traversal_escapes_configs",
 			destPath:  "/configs",
 			files:     map[string]string{"x/y/../../../../../../../etc/shadow": "malicious"},
 			wantErr:   true,
-			errSubstr: "traversal after join",
+			errSubstr: "path escapes destination",
 		},
 		{
 			label:     "double_dotdot_in_subpath_rejected",
 			destPath:  "/workspace",
 			files:     map[string]string{"a/../../../workspace/somefile": "data"},
 			wantErr:   true,
-			errSubstr: "traversal after join",
+			errSubstr: "path escapes destination",
 		},
 		// ── CWE-22: traversal targeting parent of destPath ───────────────────────
 		{
@@ -98,7 +99,7 @@ func TestCopyFilesToContainer_CWE22_RejectsTraversal(t *testing.T) {
 			destPath:  "/configs",
 			files:     map[string]string{"..%2F..%2F..%2Fsecrets": "data"}, // URL-encoded "../" — still a traversal
 			wantErr:   true,
-			errSubstr: "traversal after join",
+			errSubstr: "path escapes destination",
 		},
 		// ── Mixed: valid entry + traversal entry ────────────────────────────────
 		{
@@ -106,7 +107,7 @@ func TestCopyFilesToContainer_CWE22_RejectsTraversal(t *testing.T) {
 			destPath:  "/configs",
 			files:     map[string]string{"good.txt": "valid", "foo/../../../evil": "bad"},
 			wantErr:   true,
-			errSubstr: "traversal after join",
+			errSubstr: "path escapes destination",
 		},
 	}
 
