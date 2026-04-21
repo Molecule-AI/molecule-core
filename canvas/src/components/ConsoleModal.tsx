@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
+import { showToast } from "@/components/Toaster";
 
 interface Props {
   workspaceId: string;
@@ -133,7 +134,13 @@ export function ConsoleModal({ workspaceId, workspaceName, open, onClose }: Prop
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-zinc-800 bg-zinc-900/40">
           {output && (
             <button
-              onClick={() => navigator.clipboard?.writeText(output)}
+              onClick={() => {
+                if (navigator.clipboard) {
+                  navigator.clipboard.writeText(output);
+                } else {
+                  showToast("Copy requires HTTPS — please select and copy manually", "info");
+                }
+              }}
               className="px-3 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors"
             >
               Copy
