@@ -15,7 +15,7 @@
  *   - Polling: provisioning orgs schedule a 5s refresh (fake timers)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
 
 // ── Hoisted mocks ────────────────────────────────────────────────────────────
 // vi.mock factories are hoisted above imports; any captured references must
@@ -131,10 +131,9 @@ describe("/orgs — error state", () => {
       Promise.reject(new Error("GET /cp/orgs: 500"))
     );
     render(<OrgsPage />);
-    // PR #1243 replaced waitFor polling with vi.advanceTimersByTimeAsync(50),
-    // which fires the timer but does not guarantee React render flush completes
-    // before the assertion runs. Restores waitFor for the error-state test.
-    await waitFor(() => expect(screen.getByText(/Error:/)).toBeTruthy());
+    await vi.advanceTimersByTimeAsync(50);
+    await vi.runAllTimersAsync();
+    expect(screen.getByText(/Error:/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /retry/i })).toBeTruthy();
   });
 });
