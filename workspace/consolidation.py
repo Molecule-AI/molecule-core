@@ -18,7 +18,7 @@ from platform_auth import auth_headers
 
 logger = logging.getLogger(__name__)
 
-PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://platform:8080")
+PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
 WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")
 CONSOLIDATION_INTERVAL = float(os.environ.get("CONSOLIDATION_INTERVAL", "300"))  # 5 min
 CONSOLIDATION_THRESHOLD = int(os.environ.get("CONSOLIDATION_THRESHOLD", "10"))  # min memories before consolidating

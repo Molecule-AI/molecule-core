@@ -22,7 +22,10 @@ import uuid
 import httpx
 
 WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")
-PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://platform:8080")
+if os.path.exists("/.dockerenv") or os.environ.get("DOCKER_VERSION"):
+    PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
+else:
+    PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://localhost:8080")
 
 
 async def discover(target_id: str) -> dict | None:

@@ -22,7 +22,7 @@ from policies.routing import build_team_routing_payload
 
 logger = logging.getLogger(__name__)
 
-PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://platform:8080")
+PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
 WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")
 
 
