@@ -18,6 +18,16 @@ import (
 // maxExecOutput limits container exec output to 5MB to prevent OOM.
 const maxExecOutput = 5 * 1024 * 1024
 
+// validateRelPath checks that a relative path is safe to use inside a
+// bind-mounted directory. Blocks absolute paths and ".." traversal.
+func validateRelPath(filePath string) error {
+	clean := filepath.Clean(filePath)
+	if filepath.IsAbs(clean) || strings.Contains(clean, "..") {
+		return fmt.Errorf("unsafe path: %s", filePath)
+	}
+	return nil
+}
+
 // findContainer finds a running container for the workspace.
 // Checks provisioner name, full ID, and DB workspace name (same candidates as terminal handler).
 func (h *TemplatesHandler) findContainer(ctx context.Context, workspaceID string) string {
@@ -153,15 +163,16 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 		return fmt.Errorf("docker not available")
 	}
 
-	// CWE-22: validate filePath before constructing the rm command so
-	// a path-traversal sequence cannot escape /configs.
+	// CWE-78/CWE-22: validate before use. Also switch to exec form
+	// ([]string{...}) so filePath is passed as a plain argument — eliminates
+	// shell injection entirely.
 	if err := validateRelPath(filePath); err != nil {
 		return err
 	}
 
 	resp, err := h.docker.ContainerCreate(ctx, &container.Config{
 		Image: "alpine:latest",
-		Cmd:   []string{"rm", "-rf", "/configs/" + filePath},
+		Cmd:   []string{"rm", "-rf", "/configs", filePath},
 	}, &container.HostConfig{
 		Binds: []string{volumeName + ":/configs"},
 	}, nil, nil, "")
@@ -171,6 +182,14 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 	defer h.docker.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
 
 	if err := h.docker.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		return err
+	}
+	// Wait for rm to finish before removing the container
+	statusCh, errCh := h.docker.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
+	select {
+	case <-statusCh:
+		return nil
+	case err := <-errCh:
 		return err
 	}
 	// Wait for the rm command to finish before removing the container
