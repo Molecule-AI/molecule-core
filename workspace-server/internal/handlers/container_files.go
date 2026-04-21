@@ -67,31 +67,23 @@ func (h *TemplatesHandler) execInContainer(ctx context.Context, containerName st
 }
 
 // copyFilesToContainer creates a tar archive from a map of files and copies it into a container.
-// The destPath is prepended to each file name. File names must be relative and must not escape
-// destPath via ".." segments — otherwise the tar header name could escape the mounted volume.
+// CWE-22: file names are cleaned before being written to the tar header so that
+// ".." or absolute paths cannot escape destPath into adjacent volumes or system paths.
 func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerName, destPath string, files map[string]string) error {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 
 	createdDirs := map[string]bool{}
 	for name, content := range files {
-		// Block absolute paths and traversal attempts at the archive-write boundary.
-		// Files are written inside destPath (typically /configs); anything that escapes
-		// via ".." or an absolute name could reach other volumes or system paths.
+// CWE-22: clean the path before any archive-write operation. A ".."
+		// segment in name could otherwise escape the mounted volume; an absolute
+		// path could target an unrelated location in the container filesystem.
 		clean := filepath.Clean(name)
 		if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
 			return fmt.Errorf("unsafe file path in archive: %s", name)
 		}
 		// Prepend destPath so relative paths land inside the volume mount.
-		// Use cleaned name so validation (which checks clean) and usage stay consistent.
 		archiveName := filepath.Join(destPath, clean)
-		// Defence-in-depth: ensure the joined path doesn't escape destPath.
-		// This guards against platform-specific filepath.Join behaviour where
-		// joining a relative name containing ".." with a destPath can still
-		// produce an absolute path outside the intended directory.
-		if !strings.HasPrefix(archiveName, destPath) && archiveName != destPath {
-			return fmt.Errorf("path escapes destination: %s", name)
-		}
 
 		// Create parent directories in tar (deduplicated)
 		dir := filepath.Dir(archiveName)

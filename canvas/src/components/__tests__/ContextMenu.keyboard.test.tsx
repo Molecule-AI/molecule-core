@@ -45,6 +45,7 @@ const mockStore = {
   setPanelTab: vi.fn(),
   nestNode: vi.fn(),
   setPendingDelete: vi.fn(),
+  children: [] as Array<{ id: string; name: string }>,
   nodes: [] as Array<{ id: string; data: { parentId: string | null } }>,
 };
 
