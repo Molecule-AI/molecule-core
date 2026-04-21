@@ -153,20 +153,19 @@ def brief_task(text: str, limit: int = 60) -> str:
 async def set_current_task(heartbeat: Any, task: str) -> None:
     """Update current task on heartbeat and push immediately to platform.
 
-    The heartbeat loop only fires every 30s, so quick tasks would finish
-    before the canvas ever sees them. Setting a task pushes immediately.
-    Clearing a task only updates the heartbeat object — the next heartbeat
-    cycle will broadcast the clear, keeping the task visible longer.
+    Uses increment/decrement instead of binary 0/1 so agents can track
+    multiple concurrent tasks (e.g. a cron running while an A2A delegation
+    arrives). The counter never goes below 0.
+
+    Pushes immediately on BOTH increment and decrement to avoid phantom-busy
+    (#1372) where active_tasks=1 persisted in the platform DB indefinitely.
     """
     if heartbeat:
         heartbeat.current_task = task
-        heartbeat.active_tasks = 1 if task else 0
-
-    # Only push immediately when SETTING a task (not clearing)
-    # Clearing is handled by the next heartbeat cycle, which keeps
-    # the task visible on the canvas for quick A2A responses
-    if not task:
-        return
+        if task:
+            heartbeat.active_tasks = getattr(heartbeat, "active_tasks", 0) + 1
+        else:
+            heartbeat.active_tasks = max(0, getattr(heartbeat, "active_tasks", 1) - 1)
 
     import os
     workspace_id = os.environ.get("WORKSPACE_ID", "")
@@ -174,13 +173,14 @@ async def set_current_task(heartbeat: Any, task: str) -> None:
     if workspace_id and platform_url:
         try:
             import httpx
+            active = getattr(heartbeat, "active_tasks", 0) if heartbeat else (1 if task else 0)
             async with httpx.AsyncClient(timeout=3.0) as client:
                 await client.post(
                     f"{platform_url}/registry/heartbeat",
                     json={
                         "workspace_id": workspace_id,
-                        "current_task": task,
-                        "active_tasks": 1,
+                        "current_task": task or "",
+                        "active_tasks": active,
                         "error_rate": 0,
                         "sample_error": "",
                         "uptime_seconds": 0,

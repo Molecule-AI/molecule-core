@@ -303,7 +303,7 @@ func scanWorkspaceRow(rows interface {
 	Scan(dest ...interface{}) error
 }) (map[string]interface{}, error) {
 	var id, name, role, status, url, sampleError, currentTask, runtime, workspaceDir string
-	var tier, activeTasks, uptimeSeconds int
+	var tier, activeTasks, maxConcurrentTasks, uptimeSeconds int
 	var errorRate, x, y float64
 	var collapsed bool
 	var parentID *string
@@ -312,7 +312,7 @@ func scanWorkspaceRow(rows interface {
 	var monthlySpend int64
 
 	err := rows.Scan(&id, &name, &role, &tier, &status, &agentCard, &url,
-		&parentID, &activeTasks, &errorRate, &sampleError, &uptimeSeconds,
+		&parentID, &activeTasks, &maxConcurrentTasks, &errorRate, &sampleError, &uptimeSeconds,
 		&currentTask, &runtime, &workspaceDir, &x, &y, &collapsed,
 		&budgetLimit, &monthlySpend)
 	if err != nil {
@@ -326,8 +326,9 @@ func scanWorkspaceRow(rows interface {
 		"status":            status,
 		"url":               url,
 		"parent_id":         parentID,
-		"active_tasks":      activeTasks,
-		"last_error_rate":   errorRate,
+		"active_tasks":          activeTasks,
+		"max_concurrent_tasks":  maxConcurrentTasks,
+		"last_error_rate":       errorRate,
 		"last_sample_error": sampleError,
 		"uptime_seconds":    uptimeSeconds,
 		"current_task":      currentTask,
@@ -366,7 +367,8 @@ func scanWorkspaceRow(rows interface {
 const workspaceListQuery = `
 	SELECT w.id, w.name, COALESCE(w.role, ''), w.tier, w.status,
 		   COALESCE(w.agent_card, 'null'::jsonb), COALESCE(w.url, ''),
-		   w.parent_id, w.active_tasks, w.last_error_rate,
+		   w.parent_id, w.active_tasks, COALESCE(w.max_concurrent_tasks, 1),
+		   w.last_error_rate,
 		   COALESCE(w.last_sample_error, ''), w.uptime_seconds,
 		   COALESCE(w.current_task, ''), COALESCE(w.runtime, 'langgraph'),
 		   COALESCE(w.workspace_dir, ''),
@@ -418,7 +420,8 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 	row := db.DB.QueryRowContext(c.Request.Context(), `
 		SELECT w.id, w.name, COALESCE(w.role, ''), w.tier, w.status,
 			   COALESCE(w.agent_card, 'null'::jsonb), COALESCE(w.url, ''),
-			   w.parent_id, w.active_tasks, w.last_error_rate,
+			   w.parent_id, w.active_tasks, COALESCE(w.max_concurrent_tasks, 1),
+			   w.last_error_rate,
 			   COALESCE(w.last_sample_error, ''), w.uptime_seconds,
 			   COALESCE(w.current_task, ''), COALESCE(w.runtime, 'langgraph'),
 			   COALESCE(w.workspace_dir, ''),
