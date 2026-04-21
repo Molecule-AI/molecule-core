@@ -79,7 +79,7 @@ func TestValidate_HappyPath(t *testing.T) {
 		WithArgs("tok-live").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	id, prefix, err := Validate(context.Background(), db, plaintext)
+	id, prefix, _, err := Validate(context.Background(), db, plaintext)
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestValidate_HappyPath(t *testing.T) {
 func TestValidate_EmptyPlaintextRejected(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
-	if _, _, err := Validate(context.Background(), db, ""); !errors.Is(err, ErrInvalidToken) {
+	if _, _, _, err := Validate(context.Background(), db, ""); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("empty plaintext should be ErrInvalidToken, got %v", err)
 	}
 }
@@ -110,7 +110,7 @@ func TestValidate_UnknownHashErrInvalid(t *testing.T) {
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnError(sql.ErrNoRows)
 
-	if _, _, err := Validate(context.Background(), db, "ghost"); !errors.Is(err, ErrInvalidToken) {
+	if _, _, _, err := Validate(context.Background(), db, "ghost"); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("unknown hash should be ErrInvalidToken, got %v", err)
 	}
 }
@@ -127,7 +127,7 @@ func TestValidate_RevokedTokenNotAccepted(t *testing.T) {
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnError(sql.ErrNoRows)
 
-	if _, _, err := Validate(context.Background(), db, "revoked-plaintext"); !errors.Is(err, ErrInvalidToken) {
+	if _, _, _, err := Validate(context.Background(), db, "revoked-plaintext"); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("revoked token should be ErrInvalidToken, got %v", err)
 	}
 }

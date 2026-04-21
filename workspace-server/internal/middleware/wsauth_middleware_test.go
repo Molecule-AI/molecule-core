@@ -473,8 +473,8 @@ func TestAdminAuth_InvalidBearer_Returns401(t *testing.T) {
 // token (org_id="ws-org-1").
 // ────────────────────────────────────────────────────────────────────────────
 
-// orgTokenValidateQuery is matched for orgtoken.Validate().
-const orgTokenValidateQuery = "SELECT id, prefix FROM org_api_tokens"
+// orgTokenValidateQuery is declared in wsauth_middleware_org_id_test.go
+// and reused here — same package, shared const, matched by sqlmock regex.
 
 // orgTokenOrgIDQuery is matched for the org_id lookup added in the F1097 fix.
 const orgTokenOrgIDQuery = "SELECT org_id::text FROM org_api_tokens"
