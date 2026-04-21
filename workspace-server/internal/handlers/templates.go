@@ -61,8 +61,8 @@ func (h *TemplatesHandler) resolveTemplateDir(wsName string) string {
 	return ""
 }
 
-// validateRelPath checks that a relative path doesn't escape the target directory.
-func validateRelPath(relPath string) error {
+// validateTemplateRelPath checks that a relative path doesn't escape the target directory.
+func validateTemplateRelPath(relPath string) error {
 	clean := filepath.Clean(relPath)
 	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
 		return fmt.Errorf("path traversal blocked: %s", relPath)
@@ -133,7 +133,7 @@ func (h *TemplatesHandler) ListFiles(c *gin.Context) {
 	}
 	subPath := c.DefaultQuery("path", "")
 	if subPath != "" {
-		if err := validateRelPath(subPath); err != nil {
+		if err := validateTemplateRelPath(subPath); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
 			return
 		}
@@ -257,7 +257,7 @@ func (h *TemplatesHandler) ReadFile(c *gin.Context) {
 		filePath = filePath[1:]
 	}
 
-	if err := validateRelPath(filePath); err != nil {
+	if err := validateTemplateRelPath(filePath); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
 		return
 	}
@@ -295,10 +295,10 @@ func (h *TemplatesHandler) ReadFile(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found (container offline, no template)"})
 		return
 	}
-	// validateRelPath is already called above (line 260) for the container path,
+	// validateTemplateRelPath is already called above (line 260) for the container path,
 	// but the fallback below uses filePath directly in filepath.Join without
 	// any sanitization. Re-validate before the host-side read to close the gap.
-	if err := validateRelPath(filePath); err != nil {
+	if err := validateTemplateRelPath(filePath); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
 		return
 	}
@@ -324,7 +324,7 @@ func (h *TemplatesHandler) WriteFile(c *gin.Context) {
 		filePath = filePath[1:]
 	}
 
-	if err := validateRelPath(filePath); err != nil {
+	if err := validateTemplateRelPath(filePath); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
 		return
 	}
@@ -373,7 +373,7 @@ func (h *TemplatesHandler) DeleteFile(c *gin.Context) {
 		filePath = filePath[1:]
 	}
 
-	if err := validateRelPath(filePath); err != nil {
+	if err := validateTemplateRelPath(filePath); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
 		return
 	}
@@ -441,7 +441,7 @@ func (h *TemplatesHandler) SharedContext(c *gin.Context) {
 
 		files := make([]contextFile, 0, len(cfg.SharedContext))
 		for _, relPath := range cfg.SharedContext {
-			if err := validateRelPath(relPath); err != nil {
+			if err := validateTemplateRelPath(relPath); err != nil {
 				continue
 			}
 			content, err := h.execInContainer(ctx, containerName, []string{"cat", "/configs/" + relPath})
@@ -477,7 +477,7 @@ func (h *TemplatesHandler) SharedContext(c *gin.Context) {
 
 	files := make([]contextFile, 0, len(cfg.SharedContext))
 	for _, relPath := range cfg.SharedContext {
-		if err := validateRelPath(relPath); err != nil {
+		if err := validateTemplateRelPath(relPath); err != nil {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(configDir, relPath))
