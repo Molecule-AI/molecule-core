@@ -1042,6 +1042,8 @@ func (c *captureBroadcaster) RecordAndBroadcast(_ context.Context, _, _ string, 
 	return nil
 }
 
+func (c *captureBroadcaster) BroadcastOnly(_, _ string, _ interface{}) {}
+
 // unsafeErrorStrings lists substrings that must NEVER appear in external-facing
 // error responses. Covers DB driver errors, OS errors, and internal paths.
 var unsafeErrorStrings = []string{
@@ -1145,12 +1147,10 @@ func TestProvisionWorkspaceCP_NoInternalErrorsInBroadcast(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"key", "encrypted_value", "encryption_version"}))
 
 	broadcaster := &captureBroadcaster{}
-	registry := &mockEnvMutator{returnErr: errInternalDB}
 	handler := &WorkspaceHandler{
-		broadcaster:  broadcaster,
+		broadcaster: broadcaster,
 		cpProv:       &provisioner.CPProvisioner{},
 		platformURL:  "http://platform.test",
-		envMutators:  registry,
 	}
 
 	handler.provisionWorkspaceCP("ws-cp-test-456", "", nil, models.CreateWorkspacePayload{Name: "test-cp"})

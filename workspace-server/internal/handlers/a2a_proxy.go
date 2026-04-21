@@ -573,7 +573,7 @@ func (h *WorkspaceHandler) logA2AFailure(ctx context.Context, workspaceID, calle
 	go func(parent context.Context) {
 		logCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), 30*time.Second)
 		defer cancel()
-		LogActivity(logCtx, h.broadcaster, ActivityParams{
+		LogActivity(logCtx, nil, ActivityParams{
 			WorkspaceID:  workspaceID,
 			ActivityType: "a2a_receive",
 			SourceID:     nilIfEmpty(callerID),
@@ -619,7 +619,7 @@ func (h *WorkspaceHandler) logA2ASuccess(ctx context.Context, workspaceID, calle
 	go func(parent context.Context) {
 		logCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), 30*time.Second)
 		defer cancel()
-		LogActivity(logCtx, h.broadcaster, ActivityParams{
+		LogActivity(logCtx, nil, ActivityParams{
 			WorkspaceID:  workspaceID,
 			ActivityType: "a2a_receive",
 			SourceID:     nilIfEmpty(callerID),

@@ -28,6 +28,7 @@ import (
 // the test double *captureBroadcaster used in workspace_provision_test.go.
 type broadcasterLogger interface {
 	RecordAndBroadcast(ctx context.Context, eventType, workspaceID string, payload interface{}) error
+	BroadcastOnly(workspaceID string, eventType string, payload interface{})
 }
 
 type WorkspaceHandler struct {
