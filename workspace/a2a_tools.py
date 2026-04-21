@@ -3,6 +3,7 @@
 Imports shared client functions and constants from a2a_client.
 """
 
+import hashlib
 import json
 import uuid
 
@@ -124,11 +125,16 @@ async def tool_delegate_task_async(workspace_id: str, task: str) -> str:
     if not workspace_id or not task:
         return "Error: workspace_id and task are required"
 
+    # Idempotency key: SHA-256 of (workspace_id, task) so that a restarted agent
+    # firing the same delegation gets the same key and the platform returns the
+    # existing delegation_id instead of creating a duplicate. Fixes #1456.
+    idem_key = hashlib.sha256(f"{workspace_id}:{task}".encode()).hexdigest()[:32]
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
                 f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/delegate",
-                json={"target_id": workspace_id, "task": task},
+                json={"target_id": workspace_id, "task": task, "idempotency_key": idem_key},
                 headers=_auth_headers_for_heartbeat(),
             )
             if resp.status_code == 202:

@@ -906,6 +906,8 @@ func containsStr(s, substr string) bool {
 // truncates content at maxMemoryContentLength before INSERT. Regression
 // test for the error-sanitization / memory-seed contract.
 func TestSeedInitialMemories_Truncation(t *testing.T) {
+	mock := setupTestDB(t)
+
 	largeContent := string(make([]byte, 100_001))
 	copy([]byte(largeContent), "X") // fill with "X" so test is deterministic
 
