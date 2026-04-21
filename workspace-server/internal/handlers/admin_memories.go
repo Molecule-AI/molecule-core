@@ -128,11 +128,6 @@ func (h *AdminMemoriesHandler) Import(c *gin.Context) {
 		// the redacted content so that two backups with the same original
 		// secret (same placeholder output) are treated as duplicates.
 		var exists bool
-		// F1085 / #1132: scrub credential patterns before persistence. Must run
-		// BEFORE the dedup check so the redacted content is what gets stored —
-		// otherwise two backups with the same original secret would each get a
-		// different placeholder, producing duplicate rows with different content.
-		content, _ := redactSecrets(workspaceID, entry.Content)
 
 		err = db.DB.QueryRowContext(ctx,
 			`SELECT EXISTS(SELECT 1 FROM agent_memories WHERE workspace_id = $1 AND content = $2 AND scope = $3)`,
