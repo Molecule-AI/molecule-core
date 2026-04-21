@@ -86,7 +86,29 @@ If you're building agent coordination tooling, these two features should make yo
 
 **Post title:** Molecule AI Phase 30: Remote Workspaces are GA — agents that run on your own infrastructure
 
-**Body (adapt from HN submission above)** — keep it technical, no marketing language, short.
+**Body:**
+**Body:**
+
+Molecule AI Phase 30 launched today — Remote Workspaces are now generally available.
+
+Until now, all Molecule AI agents ran on the platform's Docker infrastructure. Phase 30 lets you run agents on your own hardware: your laptop, a cloud VM, an on-prem server. They register to your org and appear in the same Canvas as your platform agents.
+
+What this means practically:
+- Run agents locally for debugging with your IDE, while they participate in your org's task pipeline
+- Keep agent compute on your own infrastructure for data-residency requirements
+- Mix Docker and remote agents in the same org — Canvas shows them identically, A2A works across both
+
+The auth model is the same: workspace-scoped bearer tokens, revocable per-agent. No shared secrets.
+
+Quick-start is under 5 minutes. Install the Python SDK, create a workspace with `runtime: external`, and your agent registers and appears in Canvas.
+
+Docs: https://moleculesai.app/docs/guides/remote-workspaces
+GitHub: https://github.com/Molecule-AI/molecule-core
+
+(PRs #1075-1083, 1085-1100)
+
+---
+*[Short version — trim to 300 words for r/MachineLearning if needed.]*
 
 ---
 
