@@ -1,0 +1,117 @@
+name: E2E Staging Canvas (Playwright)
+
+# Playwright test suite that provisions a fresh staging org per run and
+# verifies every workspace-panel tab renders without crashing. Complements
+# e2e-staging-saas.yml (which tests the API shape) by exercising the
+# actual browser + canvas bundle against live staging.
+#
+# Triggers: push to main or PR touching canvas sources + this workflow,
+# manual dispatch, and weekly cron to catch browser/runtime drift even
+# when canvas is quiet.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'canvas/**'
+      - '.github/workflows/e2e-staging-canvas.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'canvas/**'
+      - '.github/workflows/e2e-staging-canvas.yml'
+  workflow_dispatch:
+  schedule:
+    # Weekly on Sunday 08:00 UTC — catches Chrome / Playwright / Next.js
+    # release-note-shaped regressions that don't ride in with a PR.
+    - cron: '0 8 * * 0'
+
+concurrency:
+  group: e2e-staging-canvas
+  cancel-in-progress: false
+
+jobs:
+  playwright:
+    name: Canvas tabs E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    env:
+      CANVAS_E2E_STAGING: '1'
+      MOLECULE_CP_URL: https://staging-api.moleculesai.app
+      MOLECULE_SESSION_COOKIE: ${{ secrets.MOLECULE_STAGING_SESSION_COOKIE }}
+      MOLECULE_ADMIN_TOKEN: ${{ secrets.MOLECULE_STAGING_ADMIN_TOKEN }}
+
+    defaults:
+      run:
+        working-directory: canvas
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify required secrets
+        run: |
+          if [ -z "$MOLECULE_SESSION_COOKIE" ] || [ -z "$MOLECULE_ADMIN_TOKEN" ]; then
+            echo "::error::Missing MOLECULE_STAGING_SESSION_COOKIE or MOLECULE_STAGING_ADMIN_TOKEN"
+            exit 2
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: canvas/package-lock.json
+
+      - name: Install canvas deps
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run staging canvas E2E
+        run: npx playwright test --config=playwright.staging.config.ts
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-staging
+          path: canvas/playwright-report-staging/
+          retention-days: 14
+
+      - name: Upload screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-screenshots
+          path: canvas/test-results/
+          retention-days: 14
+
+      # Safety-net teardown mirrors the bash-harness workflow — if
+      # globalTeardown didn't run (worker crash, runner cancel), this
+      # step sweeps any e2e-canvas-* org tagged with today's date.
+      - name: Teardown safety net
+        if: always()
+        env:
+          ADMIN_TOKEN: ${{ secrets.MOLECULE_STAGING_ADMIN_TOKEN }}
+        run: |
+          set +e
+          orgs=$(curl -sS "$MOLECULE_CP_URL/cp/admin/orgs" \
+            -H "Authorization: Bearer $ADMIN_TOKEN" 2>/dev/null \
+            | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          today = __import__('datetime').date.today().strftime('%Y%m%d')
+          candidates = [o['slug'] for o in d.get('orgs', [])
+                        if o.get('slug','').startswith(f'e2e-canvas-{today}-')
+                        and o.get('status') not in ('purged',)]
+          print('\n'.join(candidates))
+          " 2>/dev/null)
+          for slug in $orgs; do
+            curl -sS -X DELETE "$MOLECULE_CP_URL/cp/admin/tenants/$slug" \
+              -H "Authorization: Bearer $ADMIN_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"confirm_token\":\"$slug\"}" >/dev/null || true
+          done
+          exit 0
