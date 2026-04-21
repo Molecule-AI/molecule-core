@@ -29,7 +29,7 @@ from builtin_tools.telemetry import (
     inject_trace_headers,
 )
 
-PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://platform:8080")
+PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
 WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")
 DELEGATION_RETRY_ATTEMPTS = int(os.environ.get("DELEGATION_RETRY_ATTEMPTS", "3"))
 DELEGATION_RETRY_DELAY = float(os.environ.get("DELEGATION_RETRY_DELAY", "5.0"))
