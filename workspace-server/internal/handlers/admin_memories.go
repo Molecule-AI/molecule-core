@@ -32,6 +32,10 @@ type memoryExportEntry struct {
 // Returns all agent memories joined with workspace name so the dump is
 // human-readable and can be re-imported after workspaces are re-provisioned
 // (UUIDs change, names stay stable).
+//
+// SECURITY (F1084 / #1131): applies redactSecrets to each content field
+// before returning so that any credentials stored before SAFE-T1201 (#838)
+// was applied do not leak out via the admin export endpoint.
 func (h *AdminMemoriesHandler) Export(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -56,6 +60,10 @@ func (h *AdminMemoriesHandler) Export(c *gin.Context) {
 			log.Printf("admin/memories/export: scan error: %v", err)
 			continue
 		}
+		// F1084 / #1131: redact secrets before returning so pre-SAFE-T1201
+		// memories (stored before redactSecrets was mandatory) don't leak.
+		redacted, _ := redactSecrets(m.WorkspaceName, m.Content)
+		m.Content = redacted
 		memories = append(memories, m)
 	}
 	if err := rows.Err(); err != nil {
@@ -78,6 +86,11 @@ type memoryImportEntry struct {
 // Accepts a JSON array of memories (same format as export). Matches each
 // workspace by name (not UUID). Skips duplicates where workspace_id + content
 // + scope already exist. Returns counts of imported and skipped entries.
+//
+// SECURITY (F1085 / #1132): calls redactSecrets on each content field
+// before inserting so that secrets embedded in imported memories cannot
+// land unredacted in the agent_memories table (SAFE-T1201 / #838 parity
+// with the commit_memory MCP bridge path).
 func (h *AdminMemoriesHandler) Import(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -104,11 +117,20 @@ func (h *AdminMemoriesHandler) Import(c *gin.Context) {
 			continue
 		}
 
-		// 2. Check for duplicate (same workspace + content + scope)
+		// F1085 / #1132: scrub credential patterns before persistence so that
+		// imported memories with secrets don't bypass SAFE-T1201 (#838).
+		// Must run BEFORE the dedup check so the redacted content is what
+		// gets stored — otherwise re-importing the same backup would produce
+		// a duplicate with different (original, unredacted) content.
+		content, _ := redactSecrets(workspaceID, entry.Content)
+
+		// 2. Check for duplicate (same workspace + content + scope) using
+		// the redacted content so that two backups with the same original
+		// secret (same placeholder output) are treated as duplicates.
 		var exists bool
 		err = db.DB.QueryRowContext(ctx,
 			`SELECT EXISTS(SELECT 1 FROM agent_memories WHERE workspace_id = $1 AND content = $2 AND scope = $3)`,
-			workspaceID, entry.Content, entry.Scope,
+			workspaceID, content, entry.Scope,
 		).Scan(&exists)
 		if err != nil {
 			log.Printf("admin/memories/import: duplicate check error for workspace %q: %v", entry.WorkspaceName, err)
@@ -129,12 +151,12 @@ func (h *AdminMemoriesHandler) Import(c *gin.Context) {
 		if entry.CreatedAt != "" {
 			_, err = db.DB.ExecContext(ctx,
 				`INSERT INTO agent_memories (workspace_id, content, scope, namespace, created_at) VALUES ($1, $2, $3, $4, $5)`,
-				workspaceID, entry.Content, entry.Scope, namespace, entry.CreatedAt,
+				workspaceID, content, entry.Scope, namespace, entry.CreatedAt,
 			)
 		} else {
 			_, err = db.DB.ExecContext(ctx,
 				`INSERT INTO agent_memories (workspace_id, content, scope, namespace) VALUES ($1, $2, $3, $4)`,
-				workspaceID, entry.Content, entry.Scope, namespace,
+				workspaceID, content, entry.Scope, namespace,
 			)
 		}
 		if err != nil {
