@@ -88,9 +88,9 @@ type memoryImportEntry struct {
 // + scope already exist. Returns counts of imported and skipped entries.
 //
 // SECURITY (F1085 / #1132): calls redactSecrets on each content field
-// before inserting so that secrets embedded in imported memories cannot
-// land unredacted in the agent_memories table (SAFE-T1201 / #838 parity
-// with the commit_memory MCP bridge path).
+// before both the deduplication check and the INSERT so that imported memories
+// with embedded credentials cannot land unredacted in agent_memories (SAFE-T1201
+// parity with the commit_memory MCP bridge path).
 func (h *AdminMemoriesHandler) Import(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -128,6 +128,12 @@ func (h *AdminMemoriesHandler) Import(c *gin.Context) {
 		// the redacted content so that two backups with the same original
 		// secret (same placeholder output) are treated as duplicates.
 		var exists bool
+		// F1085 / #1132: scrub credential patterns before persistence. Must run
+		// BEFORE the dedup check so the redacted content is what gets stored —
+		// otherwise two backups with the same original secret would each get a
+		// different placeholder, producing duplicate rows with different content.
+		content, _ := redactSecrets(workspaceID, entry.Content)
+
 		err = db.DB.QueryRowContext(ctx,
 			`SELECT EXISTS(SELECT 1 FROM agent_memories WHERE workspace_id = $1 AND content = $2 AND scope = $3)`,
 			workspaceID, content, entry.Scope,
