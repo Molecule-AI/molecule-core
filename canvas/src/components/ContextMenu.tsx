@@ -18,7 +18,6 @@ interface MenuItem {
 export function ContextMenu() {
   const contextMenu = useCanvasStore((s) => s.contextMenu);
   const closeContextMenu = useCanvasStore((s) => s.closeContextMenu);
-  const removeNode = useCanvasStore((s) => s.removeNode);
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const selectNode = useCanvasStore((s) => s.selectNode);
   const setPanelTab = useCanvasStore((s) => s.setPanelTab);

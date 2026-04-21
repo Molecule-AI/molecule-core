@@ -40,7 +40,6 @@ const mockStore = {
     nodeData: Record<string, unknown>;
   } | null,
   closeContextMenu,
-  removeNode: vi.fn(),
   updateNodeData: vi.fn(),
   selectNode: vi.fn(),
   setPanelTab: vi.fn(),
