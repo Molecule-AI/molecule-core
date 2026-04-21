@@ -128,9 +128,15 @@ jobs:
           run_id = os.environ.get('GITHUB_RUN_ID', '')
           d = json.load(sys.stdin)
           today = __import__('datetime').date.today().strftime('%Y%m%d')
+          # ONLY sweep slugs from *this* CI run. Previously the filter was
+          # f'e2e-{today}-' which stomped on parallel CI runs AND any manual
+          # E2E probes a dev was running against staging (incident 2026-04-21
+          # 15:02Z: this workflow's safety net deleted an unrelated manual
+          # run's tenant 1s after it hit 'running').
+          prefix = f'e2e-{today}-{run_id}-' if run_id else f'e2e-{today}-'
           candidates = [o['slug'] for o in d.get('orgs', [])
-                        if o.get('slug','').startswith(f'e2e-{today}-')
-                        and o.get('status') not in ('purged',)]
+                        if o.get('slug','').startswith(prefix)
+                        and o.get('instance_status') not in ('purged',)]
           print('\n'.join(candidates))
           " 2>/dev/null)
           for slug in $orgs; do
