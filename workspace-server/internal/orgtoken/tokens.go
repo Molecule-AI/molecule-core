@@ -69,7 +69,11 @@ type Token struct {
 // name and createdBy are both optional (nullable columns). Typical
 // use: name = "zapier integration", createdBy = current session
 // user_id.
-func Issue(ctx context.Context, db *sql.DB, name, createdBy string) (plaintext, id string, err error) {
+//
+// orgID is the root workspace UUID of the org this token belongs to.
+// Required for Phase 32 multi-org isolation. Tokens without orgID are
+// denied access to org-scoped routes (requireCallerOwnsOrg).
+func Issue(ctx context.Context, db *sql.DB, name, createdBy, orgID string) (plaintext, id string, err error) {
 	buf := make([]byte, tokenPayloadBytes)
 	if _, err := rand.Read(buf); err != nil {
 		return "", "", fmt.Errorf("orgtoken: generate: %w", err)
@@ -79,10 +83,10 @@ func Issue(ctx context.Context, db *sql.DB, name, createdBy string) (plaintext, 
 	prefix := plaintext[:tokenPrefixLen]
 
 	err = db.QueryRowContext(ctx, `
-		INSERT INTO org_api_tokens (token_hash, prefix, name, created_by)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO org_api_tokens (token_hash, prefix, name, created_by, org_id)
+		VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid)
 		RETURNING id
-	`, hash[:], prefix, nullIfEmpty(name), nullIfEmpty(createdBy)).Scan(&id)
+	`, hash[:], prefix, nullIfEmpty(name), nullIfEmpty(createdBy), orgID).Scan(&id)
 	if err != nil {
 		return "", "", fmt.Errorf("orgtoken: persist: %w", err)
 	}
