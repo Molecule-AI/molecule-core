@@ -161,11 +161,13 @@ async def set_current_task(heartbeat: Any, task: str) -> None:
     (#1372) where active_tasks=1 persisted in the platform DB indefinitely.
     """
     if heartbeat:
-        heartbeat.current_task = task
         if task:
             heartbeat.active_tasks = getattr(heartbeat, "active_tasks", 0) + 1
+            heartbeat.current_task = task
         else:
-            heartbeat.active_tasks = max(0, getattr(heartbeat, "active_tasks", 1) - 1)
+            heartbeat.active_tasks = max(0, getattr(heartbeat, "active_tasks", 0) - 1)
+            if heartbeat.active_tasks == 0:
+                heartbeat.current_task = ""
 
     import os
     workspace_id = os.environ.get("WORKSPACE_ID", "")
@@ -174,12 +176,13 @@ async def set_current_task(heartbeat: Any, task: str) -> None:
         try:
             import httpx
             active = getattr(heartbeat, "active_tasks", 0) if heartbeat else (1 if task else 0)
+            cur_task = getattr(heartbeat, "current_task", task or "") if heartbeat else (task or "")
             async with httpx.AsyncClient(timeout=3.0) as client:
                 await client.post(
                     f"{platform_url}/registry/heartbeat",
                     json={
                         "workspace_id": workspace_id,
-                        "current_task": task or "",
+                        "current_task": cur_task,
                         "active_tasks": active,
                         "error_rate": 0,
                         "sample_error": "",

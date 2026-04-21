@@ -283,9 +283,9 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 		for i := 0; i < 12; i++ {
 			time.Sleep(10 * time.Second)
 			if err := db.DB.QueryRowContext(ctx,
-				`SELECT COALESCE(active_tasks, 0) FROM workspaces WHERE id = $1`,
+				`SELECT COALESCE(active_tasks, 0), COALESCE(max_concurrent_tasks, 1) FROM workspaces WHERE id = $1`,
 				sched.WorkspaceID,
-			).Scan(&activeTasks); err != nil || activeTasks < maxConcurrent {
+			).Scan(&activeTasks, &maxConcurrent); err != nil || activeTasks < maxConcurrent {
 				waited = true
 				break
 			}
