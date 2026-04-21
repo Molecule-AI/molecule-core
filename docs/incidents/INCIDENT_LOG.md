@@ -85,7 +85,7 @@ Commit `d513a0ced549ef2be8903a7b4794256110ba1805` on staging (merged to main via
 |---|------------|-------|--------|
 | 1 | ANTHROPIC_AUTH_TOKEN | `sk-cp-lHt-QFSyZwZxeo...KVw` | ⚠️ Revoked or inactive (404 on API call) |
 | 2 | GITHUB_TOKEN | `github_pat_11BPRRWQI0m...hsIJLIL` | ✅ Revoked (confirmed 401) |
-| 3 | ADMIN_TOKEN | `***REDACTED***F1088-CREDENTIAL-3***=` | Needs confirmation — treated as active until proven otherwise |
+| 3 | ADMIN_TOKEN | `***REDACTED***` | Needs confirmation — treated as active until proven otherwise |
 
 ### Resolution
 
@@ -103,9 +103,9 @@ The commit itself fixed the problem by replacing hardcoded defaults with env-var
 
 | # | Credential | Value (redacted reference) | Service |
 |---|------------|------------------------------|---------|
-| 1 | ANTHROPIC_AUTH_TOKEN | `***REDACTED***F1088-CREDENTIAL-1***` | MiniMax API (api.minimax.io/anthropic) |
-| 2 | GITHUB_TOKEN | `***REDACTED***F1088-CREDENTIAL-2***` | GitHub (fine-grained PAT, scope unknown) |
-| 3 | ADMIN_TOKEN | `***REDACTED***F1088-CREDENTIAL-3***=` | Platform admin authentication |
+| 1 | ANTHROPIC_AUTH_TOKEN | `***REDACTED***` | MiniMax API (api.minimax.io/anthropic) |
+| 2 | GITHUB_TOKEN | `***REDACTED***` | GitHub (fine-grained PAT, scope unknown) |
+| 3 | ADMIN_TOKEN | `***REDACTED***` | Platform admin authentication |
 
 ### Affected Files
 
@@ -150,9 +150,9 @@ The commit itself fixed the problem by replacing hardcoded defaults with env-var
 
 **Step 1 — Create credentials manifest (`creds.txt`) [NOT NEEDED]:**
 ```
-***REDACTED***F1088-CREDENTIAL-3***=
-***REDACTED***F1088-CREDENTIAL-1***
-***REDACTED***F1088-CREDENTIAL-2***
+***REDACTED***
+***REDACTED***
+***REDACTED***
 ```
 
 **Step 2 — Clean origin/main:**
