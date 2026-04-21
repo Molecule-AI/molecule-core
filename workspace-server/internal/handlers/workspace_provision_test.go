@@ -901,7 +901,11 @@ func containsStr(s, substr string) bool {
 //
 // Each test injects a known-internal error and verifies the response body
 // or broadcast payload contains ONLY the generic prod-safe message.
-func TestSeedInitialMemories_TruncatesOversizedContent(t *testing.T) {
+
+// TestSeedInitialMemories_TruncatesOversizedContent_SingleCase is an alternative
+// single-case variant of the table-driven TestSeedInitialMemories_TruncatesOversizedContent
+// (line 538). Kept to cover the 100,001-byte regression path independently.
+func TestSeedInitialMemories_TruncatesOversizedContent_SingleCase(t *testing.T) {
 	mock := setupTestDB(t)
 	largeContent := string(make([]byte, 100_001))
 	copy([]byte(largeContent), "X") // fill with "X" so test is deterministic

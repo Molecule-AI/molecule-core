@@ -11,11 +11,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// orgTokenValidateQueryWithHashWithHash is matched for orgtoken.Validate in both
+// orgTokenValidateQueryWithHash is matched for orgtoken.Validate in both
 // WorkspaceAuth and AdminAuth middleware paths. The query selects
 // id and prefix from org_api_tokens where token_hash matches and
 // revoked_at IS NULL.
-const orgTokenValidateQueryWithHashWithHash = "SELECT id, prefix FROM org_api_tokens WHERE token_hash"
+const orgTokenValidateQueryWithHash = "SELECT id, prefix FROM org_api_tokens WHERE token_hash"
 
 func TestWorkspaceAuth_ValidOrgToken_SetsOrgIDContext(t *testing.T) {
 	// F1097 (#1218): org tokens validated via WorkspaceAuth must have
