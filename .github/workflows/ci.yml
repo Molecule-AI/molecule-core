@@ -6,6 +6,14 @@ on:
   pull_request:
     branches: [main, staging]
 
+# Workflow-level concurrency: only one run per branch/PR at a time.
+# `cancel-in-progress: false` queues new runs rather than cancelling
+# them — fast jobs (platform-build, canvas-build) use this pattern so
+# they stack instead of fighting the single mac mini runner slot.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # Detect which paths changed so downstream jobs can skip when only
   # docs/markdown files were modified. Uses git diff (no Docker — works
