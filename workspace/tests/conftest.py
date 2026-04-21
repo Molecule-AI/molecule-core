@@ -296,7 +296,7 @@ if "coordinator" not in sys.modules:
     # Try importing real coordinator first
     try:
         import coordinator as _coord  # noqa: F401
-    except ImportError:
+    except (ImportError, RuntimeError):
         coordinator_mod = ModuleType("coordinator")
         coordinator_mod.get_children = MagicMock()
         coordinator_mod.get_parent_context = MagicMock()
