@@ -9,6 +9,27 @@
 
 ---
 
+## Security Audit Cycle 6 — ALL CLEAR (2026-04-21 ~07:15Z)
+
+**SHA range:** e69cb26 → 674384b on main (~5 commits + ~10 merged PRs)
+**Verdict:** ✅ No critical/high findings
+
+### Commits Reviewed — All CLEAN
+
+| Commit | Description |
+|--------|-------------|
+| `dc9c64e` / PR #1258 | F1097 org_id context — eliminates redundant 2nd SELECT in AdminAuth |
+| `33f1d1a` | Canvas cascade-delete UX — `pendingDelete.hasChildren`, warning dialog |
+| `0790d57` | Canvas metrics guard — null coalescing |
+| `781c217` | CI YAML fix |
+| `169120d` / PR #1310 | CWE-78/CWE-22 — exec form + path traversal guards |
+| `e431fc4` / PR #1302 | CWE-918 SSRF — `isSafeURL` in `a2a_proxy.go` |
+| `a66f889` / PR #1261 | CWE path-injection — `resolveInsideRoot` for template paths |
+
+Full audit saved to TEAM memory id `abc58b47`.
+
+---
+
 ## F1088 Credential Exposure — CLOSED (2026-04-21 ~07:10Z update)
 
 **All prior F1088 entries below remain valid. Summary of current state:**
@@ -138,6 +159,21 @@ PR #1230 / commit `524e3c6` ("fix(security): replace err.Error() leaks") failed 
 - `org_plugin_allowlist.go:260`: "detail": err.Error()
 
 Fix is covered by PR #1226 (rebased, MERGEABLE). Gap should close after #1226 merges.
+
+---
+
+## F1097 — org_id Context Fix — RESOLVED
+
+**Severity:** Medium
+**Status:** Resolved — PR #1258 merged to main (`dc9c64e`)
+
+### Summary
+
+`orgToken.Validate` refactored to return `org_id` directly, eliminating the redundant 2nd SELECT in `AdminAuth`. All SQL parameterized correctly.
+
+### References
+
+- PR #1258 (`dc9c64e`): fix(F1097): set org_id in Gin context for org-token callers
 
 ---
 
@@ -455,4 +491,29 @@ Core-BE — delegated to Dev Lead (A2A failed). Core-BE sub-team: please pick up
 
 ---
 
-*Last updated: 2026-04-21T07:10Z by Core Platform Lead (post-restart session — all findings re-verified)*
+## PR #1226 — err.Error() Leaks (STALE — closed without merge)
+
+**Severity:** Medium
+**Status:** Open — PR closed without merging, leaks still present on main
+
+### Summary
+
+PR #1226 (`fix(security): sanitize remaining err.Error() leaks + errcheck artifacts/client.go`) was **closed without merging**. The following leaks remain on main:
+
+| File | Line | Code | Fix |
+|------|------|------|-----|
+| `mcp.go` | 259 | `"parse error: " + err.Error()` | → `"parse error: invalid JSON request body"` |
+| `mcp.go` | 347 | `"invalid params: " + err.Error()` | → `"invalid params: malformed JSON"` |
+| `mcp.go` | 352 | `err.Error()` | → `"dispatch error"` |
+| `org_plugin_allowlist.go` | 260 | `"detail": err.Error()` | → `"detail": "plugin name validation failed"` |
+| `admin_memories.go` | 99 | `"invalid JSON: " + err.Error()` | → `"invalid JSON request body"` |
+
+**Already fixed:** `artifacts/client.go:175` — `defer func() { _ = resp.Body.Close() }()` confirmed correct (via PR #1247).
+
+### Action Required
+
+Reopen PR #1226 and fast-track merge. Alternatively, cherry-pick the 4 commits from that PR onto a fresh branch.
+
+---
+
+*Last updated: 2026-04-21T07:20Z by Core Platform Lead — Audit Cycle 6 complete, F1097 resolved, PR #1226 stale flag added*
