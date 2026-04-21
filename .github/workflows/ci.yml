@@ -6,12 +6,7 @@ on:
   pull_request:
     branches: [main, staging]
 
-# Cancel in-progress CI runs when a new commit arrives on the same ref.
-# This prevents multiple stale runs from queuing behind each other and
-# monopolising the self-hosted macOS arm64 runner.
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+e4a62e1 (ci: add workflow-level concurrency to ci.yml and codeql.yml)
 
 jobs:
   # Detect which paths changed so downstream jobs can skip when only
