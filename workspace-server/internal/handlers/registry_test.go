@@ -505,6 +505,7 @@ func TestValidateAgentURL(t *testing.T) {
 		// either misconfigured or intentionally unreachable.
 		{"DNS name: nxdomain (must fail)", "https://this-domain-definitely-does-not-exist-12345.invalid/", true},
 	}
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateAgentURL(tc.url)
 			if tc.wantErr && err == nil {
