@@ -3,7 +3,7 @@
 **URL:** /blog/cloudflare-artifacts-molecule-ai (pending publish)
 **Date:** 2026-04-21
 **Author:** Content Marketer
-**Status:** DRAFT — for Social Media Brand review + publish
+**Status:** ✅ APPROVED by Marketing Lead (PMM ruling: soften "sub-100ms" claim — see Post 2)
 
 ---
 
@@ -22,7 +22,7 @@ Git-native. Versioned by default. Agents push, pull, and branch — the same wor
 **Post 2 (What it is):**
 > Cloudflare Artifacts is git-native object storage.
 
-Git pull and git push semantics. Sub-100ms clone times from anywhere on Cloudflare's edge. No S3 bandwidth bills.
+Git pull and git push semantics. Fast edge-based clone times from anywhere on Cloudflare's global network. No S3 bandwidth bills.
 
 Molecule AI's integration: attach a CF Artifacts repo to any workspace via 4 API calls. Agents clone, commit, push — and their work survives the session.
 
@@ -74,7 +74,7 @@ We've shipped Cloudflare Artifacts support for Molecule AI workspaces — and it
 
 The problem: AI agent outputs are mostly transient. Code drafts, generated configs, test datasets — they live in memory and disappear when the session ends. Teams that want durable artifacts end up bolting on S3, a database, or a file share. All introduce a new API surface, new auth scheme, new workflow.
 
-Git-native storage is different. Cloudflare Artifacts speaks git — pull, push, branch, fork. Agents already know it. Your team already knows it. And Cloudflare's edge means sub-100ms clone times from anywhere.
+Git-native storage is different. Cloudflare Artifacts speaks git — pull, push, branch, fork. Agents already know it. Your team already knows it. And Cloudflare's global edge network means low-latency access wherever your agents run.
 
 The Molecule AI integration exposes four API endpoints:
 - Attach a CF Artifacts repo to any workspace
