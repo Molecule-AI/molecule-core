@@ -131,7 +131,12 @@ log "1/11 Creating org $SLUG via /cp/admin/orgs..."
 CREATE_RESP=$(admin_call POST /cp/admin/orgs \
   -d "{\"slug\":\"$SLUG\",\"name\":\"E2E $SLUG\",\"owner_user_id\":\"e2e-runner:$SLUG\"}")
 echo "$CREATE_RESP" | python3 -m json.tool >/dev/null || fail "Org create returned non-JSON: $CREATE_RESP"
-ok "Org created"
+# Capture org_id for tenant-guard header on every subsequent tenant call.
+# Without X-Molecule-Org-Id matching MOLECULE_ORG_ID on the tenant, the
+# tenant-guard middleware returns 404 to avoid leaking tenant existence.
+ORG_ID=$(echo "$CREATE_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))")
+[ -z "$ORG_ID" ] && fail "Org create response missing 'id': $CREATE_RESP"
+ok "Org created (id=$ORG_ID)"
 
 # ─── 2. Wait for tenant provisioning ────────────────────────────────────
 log "2/11 Waiting for tenant provisioning (up to ${PROVISION_TIMEOUT_SECS}s)..."
@@ -215,8 +220,11 @@ fi
 tenant_call() {
   local method="$1"; shift
   local path="$1"; shift
+  # X-Molecule-Org-Id is REQUIRED — tenant guard 404s anything without
+  # it (it does NOT 403, to hide tenant existence from org scanners).
   curl "${CURL_COMMON[@]}" -X "$method" "$TENANT_URL$path" \
     -H "Authorization: Bearer $EFFECTIVE_TENANT_TOKEN" \
+    -H "X-Molecule-Org-Id: $ORG_ID" \
     "$@"
 }
 
