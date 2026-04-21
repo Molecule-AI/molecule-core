@@ -38,6 +38,14 @@ import { SettingsPanel, DeleteConfirmDialog } from "./settings";
 import { BatchActionBar } from "./BatchActionBar";
 import { ProvisioningTimeout } from "./ProvisioningTimeout";
 
+// Drag-to-nest proximity: nodes must be within this many pixels (center-to-center)
+// to trigger the "Nest Workspace" dialog. The default ReactFlow intersection
+// detection uses bounding-box overlap which fires from large distances when
+// nodes have large CSS min-width/min-height values.
+const NEST_PROXIMITY_THRESHOLD = 150; // px — ~60% of a collapsed node width
+const DEFAULT_NODE_WIDTH = 245; // px — approx mid-range of min-w-[210px] / max-w-[280px]
+const DEFAULT_NODE_HEIGHT = 110; // px — approx min-height for a collapsed node
+
 const nodeTypes = {
   workspaceNode: WorkspaceNode,
 };
@@ -76,7 +84,6 @@ function CanvasInner() {
   const nestNode = useCanvasStore((s) => s.nestNode);
   const isDescendant = useCanvasStore((s) => s.isDescendant);
   const dragStartParentRef = useRef<string | null>(null);
-  const { getIntersectingNodes } = useReactFlow();
 
   const onNodeDragStart: OnNodeDrag<Node<WorkspaceNodeData>> = useCallback(
     (_event, node) => {
@@ -87,13 +94,30 @@ function CanvasInner() {
 
   const onNodeDrag: OnNodeDrag<Node<WorkspaceNodeData>> = useCallback(
     (_event, node) => {
-      const intersecting = getIntersectingNodes(node);
-      const target = intersecting.find(
-        (n) => n.id !== node.id && !isDescendant(node.id, n.id)
-      );
-      setDragOverNode(target?.id ?? null);
+      const { nodes: allNodes } = useCanvasStore.getState();
+      const nodeCenterX = node.position.x + (node.measured?.width ?? DEFAULT_NODE_WIDTH) / 2;
+      const nodeCenterY = node.position.y + (node.measured?.height ?? DEFAULT_NODE_HEIGHT) / 2;
+
+      let closest: string | null = null;
+      let closestDist = NEST_PROXIMITY_THRESHOLD;
+
+      for (const n of allNodes) {
+        if (n.id === node.id || isDescendant(node.id, n.id)) continue;
+        const otherWidth = n.measured?.width ?? DEFAULT_NODE_WIDTH;
+        const otherHeight = n.measured?.height ?? DEFAULT_NODE_HEIGHT;
+        const otherCenterX = n.position.x + otherWidth / 2;
+        const otherCenterY = n.position.y + otherHeight / 2;
+        const dist = Math.sqrt(
+          (nodeCenterX - otherCenterX) ** 2 + (nodeCenterY - otherCenterY) ** 2
+        );
+        if (dist < closestDist) {
+          closestDist = dist;
+          closest = n.id;
+        }
+      }
+      setDragOverNode(closest);
     },
-    [getIntersectingNodes, isDescendant, setDragOverNode]
+    [isDescendant, setDragOverNode]
   );
 
   // Confirmation dialog state for structure changes
