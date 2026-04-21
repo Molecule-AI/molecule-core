@@ -34,10 +34,9 @@ jobs:
         run: |
           # For push events: diff against previous commit (handles merge commits)
           # For PR events: diff against the base branch
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          BASE="${GITHUB_BASE_REF:-${{ github.event.before }}}"
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ -n "${{ github.event.pull_request.base.sha }}" ]; then
             BASE="${{ github.event.pull_request.base.sha }}"
-          else
-            BASE="${{ github.event.before }}"
           fi
           # Fallback: if BASE is empty or all zeros (new branch), run everything
           if [ -z "$BASE" ] || echo "$BASE" | grep -qE '^0+$'; then

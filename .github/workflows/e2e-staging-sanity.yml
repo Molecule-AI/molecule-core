@@ -1,0 +1,152 @@
+name: E2E Staging Sanity (leak-detection self-check)
+
+# Periodic assertion that the teardown safety nets in e2e-staging-saas
+# and canary-staging actually work. Runs the E2E harness with
+# E2E_INTENTIONAL_FAILURE=1, which poisons the tenant admin token after
+# the org is provisioned. The workspace-provision step then fails, the
+# script exits non-zero, and the EXIT trap + workflow always()-step
+# must still tear down cleanly.
+#
+# A green run means:
+#   - The script exited non-zero (intentional failure caught)
+#   - The trap fired teardown
+#   - The leak-detection poll found zero orphan orgs
+#
+# A red run means the teardown path itself is broken — act on this the
+# same way you'd act on a canary failure (the whole E2E safety net is
+# compromised until it's fixed).
+#
+# Cadence: once a week, Monday 06:00 UTC. Drift-slow, not per-PR — the
+# teardown path rarely changes, and a weekly heartbeat is enough to
+# catch silent regressions in cleanup code paths.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  # Shares the group with canary + full so they don't collide on
+  # staging org-create quota.
+  group: e2e-staging-sanity
+  cancel-in-progress: false
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  sanity:
+    name: Intentional-failure teardown sanity
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      MOLECULE_CP_URL: https://staging-api.moleculesai.app
+      MOLECULE_ADMIN_TOKEN: ${{ secrets.MOLECULE_STAGING_ADMIN_TOKEN }}
+      E2E_MODE: canary            # lean lifecycle; we only need the org to exist
+      E2E_RUNTIME: hermes
+      E2E_RUN_ID: "sanity-${{ github.run_id }}"
+      E2E_INTENTIONAL_FAILURE: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify admin token present
+        run: |
+          if [ -z "$MOLECULE_ADMIN_TOKEN" ]; then
+            echo "::error::MOLECULE_STAGING_ADMIN_TOKEN not set"
+            exit 2
+          fi
+
+      # Inverted assertion: the run MUST fail. If it passes, the
+      # E2E_INTENTIONAL_FAILURE path is broken (token not being
+      # poisoned correctly, or the harness silently recovered).
+      - name: Run harness — expecting exit !=0
+        id: harness
+        run: |
+          set +e
+          bash tests/e2e/test_staging_full_saas.sh
+          rc=$?
+          echo "harness_rc=$rc" >> "$GITHUB_OUTPUT"
+          # The only acceptable outcomes:
+          #   1 — harness failed mid-run, teardown ran, leak-check passed
+          #   (exit 4 means teardown left a leak — that's the real bug
+          #    this sanity check exists to catch)
+          if [ "$rc" = "1" ]; then
+            echo "✓ Harness failed as expected (rc=1); teardown trap ran, leak-check passed"
+            exit 0
+          elif [ "$rc" = "0" ]; then
+            echo "::error::Harness succeeded under E2E_INTENTIONAL_FAILURE=1 — the poisoning path is broken"
+            exit 1
+          elif [ "$rc" = "4" ]; then
+            echo "::error::LEAK DETECTED (rc=4) — teardown failed to clean up the org. Safety net broken."
+            exit 4
+          else
+            echo "::error::Unexpected rc=$rc — neither clean-failure nor leak. Investigate harness."
+            exit 1
+          fi
+
+      - name: Open issue if safety net is broken
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = "🚨 E2E teardown safety net broken";
+            const runURL = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body =
+              `The weekly sanity run (E2E_INTENTIONAL_FAILURE=1) did not exit ` +
+              `as expected. This means one of:\n` +
+              `  - poisoning didn't actually cause failure (test harness regression), OR\n` +
+              `  - teardown left an orphan org (leak detection caught a real bug)\n\n` +
+              `Run: ${runURL}\n\n` +
+              `This is higher priority than a canary failure — the whole ` +
+              `E2E safety net can't be trusted until this is resolved.`;
+
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'e2e-safety-net',
+            });
+            const match = existing.find(i => i.title === title);
+            if (match) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: match.number,
+                body: `Still broken. ${runURL}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body,
+                labels: ['e2e-safety-net', 'bug', 'priority-high'],
+              });
+            }
+
+      # Belt-and-braces: if teardown left anything behind, nuke it here
+      # so we don't bleed staging quota. Different label from the
+      # always()-steps in the other workflows so sanity-only orgs get
+      # cleaned up by sanity runs.
+      - name: Teardown safety net
+        if: always()
+        env:
+          ADMIN_TOKEN: ${{ secrets.MOLECULE_STAGING_ADMIN_TOKEN }}
+        run: |
+          set +e
+          orgs=$(curl -sS "$MOLECULE_CP_URL/cp/admin/orgs" \
+            -H "Authorization: Bearer $ADMIN_TOKEN" 2>/dev/null \
+            | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          today = __import__('datetime').date.today().strftime('%Y%m%d')
+          candidates = [o['slug'] for o in d.get('orgs', [])
+                        if o.get('slug','').startswith(f'e2e-canary-{today}-sanity-')
+                        and o.get('status') not in ('purged',)]
+          print('\n'.join(candidates))
+          " 2>/dev/null)
+          for slug in $orgs; do
+            curl -sS -X DELETE "$MOLECULE_CP_URL/cp/admin/tenants/$slug" \
+              -H "Authorization: Bearer $ADMIN_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"confirm\":\"$slug\"}" >/dev/null || true
+          done
+          exit 0

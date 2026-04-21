@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// isSafeURL is defined in mcp.go.
-// isPrivateOrMetadataIP is defined in mcp.go.
+// isSafeURL is defined in a2a_proxy.go.
+// isPrivateOrMetadataIP is defined in a2a_proxy.go.
 // saasMode is defined in registry.go.
 
 // TestSaasMode covers the env-resolution ladder so a self-hosted
