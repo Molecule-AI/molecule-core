@@ -178,3 +178,63 @@ No dedicated landing page confirmed yet — coordinate with PMM (GH#1116) to det
 ## Confirmed Deliverables
 
 - **Guide:** `docs/guides/same-origin-canvas-fetches.md`
+
+---
+
+# ⚠️ PRE-POSITIONING — Do Not Publish Until Feature Ships
+
+# External Workspaces Polling Mode — SEO Keyword Brief
+
+**⚠️ Status:** PRE-POSITIONING. Do NOT create blog content or commit SEO-optimized copy until `molecule-external-agent` Python library ships on PyPI and `/docs/guides/external-workspaces-polling.md` is published. Feature is in draft (2026-04-21).
+**Campaign:** Phase 30 extension — External Workspaces Polling Mode
+**Date:** 2026-04-21
+**Owner:** SEO Analyst
+**Status:** Pre-positioning brief — feature not yet shipped
+
+## Background (read before writing)
+
+External workspaces (Phase 30) require agents to expose a public HTTP endpoint. This works for servers but fails for laptops behind NAT, corporate firewalls, or consumer ISPs. Polling mode flips the pattern: the agent makes outbound HTTPS calls only — long-polling an inbox endpoint for inbound messages, posting outbound A2A the same way. No port forwarding. No public URL. No NAT holes. Ships as `molecule-external-agent` on PyPI + `/docs/guides/external-workspaces-polling.md`.
+
+**Design doc:** `Molecule-AI/internal/product/external-workspaces-polling.md` (SHA draft, 2026-04-21)
+
+## Primary Keywords (P0)
+
+| Keyword | Intent | Target | Notes |
+|---------|--------|--------|-------|
+| `run AI agent on laptop` | Informational / How-to | Blog H1 — exact match | Core user story: "anyone with a laptop and Python 3.10+ can be running an external workspace in < 5 minutes" |
+| `external AI agent` | Informational / Product | Blog H2 + meta description | Key differentiator vs. cloud-only platforms |
+| `AI agent behind firewall` | Informational / How-to | Blog body + anchor | Solves the exact problem competitors can't |
+
+## Secondary Keywords (P1)
+
+| Keyword | Intent | Target | Notes |
+|---------|--------|--------|-------|
+| `remote AI agent without VPN` | Informational | Blog body | Core value prop — no infrastructure required |
+| `laptop AI agent` | Informational / Long-tail | Blog body | Casual/daily-driver user persona |
+| `AI agent cross-network` | Informational | Blog body | Cross-cloud A2A angle |
+| `self-hosted AI agent laptop` | Comparison / How-to | Blog body | Self-hosted angle from laptop persona |
+
+## Keyword Strategy
+
+- **P0 kw `run AI agent on laptop`** — this is the head term. Exact-match H1 required. Strong search intent from developers who want to run agents on personal hardware without cloud dependency or infrastructure setup. Competitive gap: most "run AI agent locally" content focuses on Ollama/LM Studio (local model inference), not agent platform. This is a distinct angle.
+- **P0 kw `external AI agent`** — product-category kw. Correlates with Phase 30 Remote Workspaces. Do not conflate with "remote agent" (which could mean cloud VM). Use `external` precisely to mean "not on-platform, registered via A2A."
+- **P0 kw `AI agent behind firewall`** — solves a real pain. Enterprise/dev users blocked by corporate networks are a high-value audience. Content should demonstrate the specific problem and the 3-line `pip install + molecli ws create + chat` solution.
+- Competitive landscape: most AI agent platforms assume cloud-hosted agents. "Laptop agent" and "behind firewall" angles have low competition from other agent platform vendors — this is a genuine SEO gap.
+
+## Content Angle
+
+Lead with the problem: "Your AI agent can't run on a laptop because it needs a public URL." Pivot to the solution: "Now it doesn't." Sub-5-minute setup story is the hook. Code sample: `pip install molecule-external-agent && molecli ws create`. Show the agent appearing on the Canvas with a purple REMOTE badge.
+
+## Blog Post Candidate Slug
+
+`docs/blog/2026-04-XX-external-workspaces-polling/index.md` (slug: `run-ai-agent-on-your-laptop`)
+
+## Confirmed Deliverables (pending ship)
+
+- **Blog post:** `docs/blog/2026-04-XX-external-workspaces-polling/index.md` (slug: `run-ai-agent-on-your-laptop`)
+- **Keyword brief:** this entry
+- **Trigger:** ship `molecule-external-agent` on PyPI + publish `/docs/guides/external-workspaces-polling.md`
+
+## SEO Analyst Note
+
+**Wait to publish.** This brief is pre-positioning only. Publishing content before the feature ships creates 404 risk if the feature is delayed or renamed. Add to content pipeline when engineering confirms ship date.
