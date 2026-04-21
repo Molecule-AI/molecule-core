@@ -84,7 +84,7 @@ cleanup_org() {
   curl "${CURL_COMMON[@]}" -X DELETE "$CP_URL/cp/admin/tenants/$SLUG" \
     -H "Authorization: Bearer $ADMIN_TOKEN" \
     -H "Content-Type: application/json" \
-    -d "{\"confirm_token\":\"$SLUG\"}" >/dev/null 2>&1 \
+    -d "{\"confirm\":\"$SLUG\"}" >/dev/null 2>&1 \
     && ok "Teardown request accepted" \
     || log "Teardown returned non-2xx (may already be gone)"
 

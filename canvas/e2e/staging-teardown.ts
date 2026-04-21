@@ -45,7 +45,7 @@ export default async function globalTeardown(): Promise<void> {
         Authorization: `Bearer ${ADMIN_TOKEN}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ confirm_token: slug }),
+      body: JSON.stringify({ confirm: slug }),
     });
     if (res.ok) {
       console.log(`[staging-teardown] ${slug} deleted`);
