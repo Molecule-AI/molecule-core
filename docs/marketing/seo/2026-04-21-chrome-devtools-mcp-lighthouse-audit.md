@@ -1,7 +1,8 @@
 # Lighthouse Audit — chrome-devtools-mcp — 2026-04-21
 
 **URL:** https://molecule.ai/blog/chrome-devtools-mcp
-**Status:** ⚠️ CONTENT COMMITTED — 404 is deployment/CDN issue, NOT a content issue
+**Status:** ⚠️ CONTENT COMMITTED — blog routes redirect to /lander (not serving content)
+**Live check:** `curl -sL molecule.ai/blog/chrome-devtools-mcp` → `<script>window.onload=function(){window.location.href="/lander"}</script>` — all blog routes redirect to landing page, not rendered
 **Source:** `docs/blog/2026-04-20-chrome-devtools-mcp/index.md` on origin/main
 **Commit:** 2133e56 (PR #1491) — "Browser Automation Meets Production Standards — Chrome DevTools MCP and the Governance Layer"
 **Publish date:** 2026-04-20
@@ -118,11 +119,11 @@
 
 ## Blocking Issues
 
-1. **[CRITICAL] Deployment/CDN issue** — `https://molecule.ai/blog/chrome-devtools-mcp` returns 404, but content IS committed to origin/main (commit 2133e56, PR #1491). This is a deployment/CDN pipeline issue, NOT a content issue. **Action: DevOps or human must check the deploy pipeline for molecule.ai — outside Content Marketer scope.**
+1. **[CRITICAL] Blog routes not serving content** — All blog pages (chrome-devtools-mcp, deploy-anywhere, mcp-server-list) return `window.location.href="/lander"` instead of rendered content. CDN returns HTTP 200 but routes to landing page. **Action: DevOps must check the canvas/Next.js build and deploy pipeline — blog routes not rendered in production.**
 
 2. **[HIGH] OG image missing** — `docs/assets/blog/2026-04-20-chrome-devtools-mcp-og.png` does not exist on disk. Social Media Brand owns this. **Action: Generate and commit 1200×630 PNG.**
 
-3. **[LOW] Meta description 148 chars** — within 120–160 spec but at lower bound. Consider expanding slightly to ~155 chars for better SERP presence. Optional.
+3. **[LOW] Meta description 148 chars** — within 120–160 spec but at lower bound. Optional.
 
 ---
 
@@ -150,9 +151,9 @@ site:molecule.ai/blog/chrome-devtools-mcp
 
 ## Audit Complete — Next Steps
 
-- [ ] **BLOCKING**: DevOps/human check deploy pipeline for molecule.ai/blog/chrome-devtools-mcp — content is on origin/main (2133e56), 404 is CDN/deployment
+- [ ] **BLOCKING**: DevOps check canvas/Next.js build — blog routes redirect to /lander, not rendering MDX content in production
 - [ ] **BLOCKING**: Social Media Brand generates OG image at `docs/assets/blog/2026-04-20-chrome-devtools-mcp-og.png` (1200×630)
-- [ ] Run live Lighthouse audit after deploy confirmed
+- [ ] Run live Lighthouse audit after blog routes confirmed rendering
 - [ ] Verify indexation via Google Search Console
 
 ---
