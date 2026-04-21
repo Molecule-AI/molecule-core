@@ -22,10 +22,10 @@ func TestIssue_StoresHashNotPlaintext(t *testing.T) {
 	// INSERT arguments are a hash (bytea) + short prefix + optional
 	// fields. sqlmock's AnyArg sidesteps the randomness.
 	mock.ExpectQuery(`INSERT INTO org_api_tokens`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "my-ci", "user_01").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "my-ci", "user_01", "org-1").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-1"))
 
-	plaintext, id, err := Issue(context.Background(), db, "my-ci", "user_01")
+	plaintext, id, err := Issue(context.Background(), db, "my-ci", "user_01", "org-1")
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -47,13 +47,13 @@ func TestIssue_EmptyNameAndCreatedByStoreNull(t *testing.T) {
 		t.Fatalf("sqlmock: %v", err)
 	}
 	defer db.Close()
-	// Empty name + createdBy → NULL in DB so `WHERE name IS NULL` works
-	// for future queries that want "unnamed" tokens.
+	// Empty name + createdBy + orgID → NULL in DB so `WHERE name IS NULL`
+	// works for future queries that want "unnamed" tokens.
 	mock.ExpectQuery(`INSERT INTO org_api_tokens`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), nil, nil).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), nil, nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-min"))
 
-	_, _, err = Issue(context.Background(), db, "", "")
+	_, _, err = Issue(context.Background(), db, "", "", "")
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -143,9 +143,9 @@ func TestList_NewestFirst(t *testing.T) {
 	earlier := now.Add(-1 * time.Hour)
 	mock.ExpectQuery(`SELECT id, prefix.*FROM org_api_tokens.*ORDER BY created_at DESC`).
 		WithArgs(listMax).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "name", "created_by", "created_at", "last_used_at"}).
-			AddRow("t2", "abcd1234", "zapier", "user_01", now, now).
-			AddRow("t1", "efgh5678", "", "", earlier, nil))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "name", "org_id", "created_by", "created_at", "last_used_at"}).
+			AddRow("t2", "abcd1234", "zapier", "org-1", "user_01", now, now).
+			AddRow("t1", "efgh5678", "", "", "", earlier, nil))
 
 	tokens, err := List(context.Background(), db)
 	if err != nil {
@@ -156,6 +156,9 @@ func TestList_NewestFirst(t *testing.T) {
 	}
 	if tokens[0].ID != "t2" {
 		t.Errorf("ordering not preserved: got %q first", tokens[0].ID)
+	}
+	if tokens[0].OrgID != "org-1" {
+		t.Errorf("got org_id %q, want org-1", tokens[0].OrgID)
 	}
 	if tokens[1].LastUsedAt != nil {
 		t.Errorf("never-used token should have nil LastUsedAt, got %v", tokens[1].LastUsedAt)
@@ -208,5 +211,64 @@ func TestHasAnyLive(t *testing.T) {
 	got, err = HasAnyLive(context.Background(), db)
 	if err != nil || got {
 		t.Errorf("has-any-live empty: got (%v, %v), want (false, nil)", got, err)
+	}
+}
+
+func TestOrgIDByTokenID_HappyPath(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(`SELECT org_id FROM org_api_tokens WHERE id = \$1`).
+		WithArgs("tok-org-1").
+		WillReturnRows(sqlmock.NewRows([]string{"org_id"}).AddRow("org-1"))
+
+	orgID, err := OrgIDByTokenID(context.Background(), db, "tok-org-1")
+	if err != nil {
+		t.Fatalf("OrgIDByTokenID: %v", err)
+	}
+	if orgID != "org-1" {
+		t.Errorf("orgID = %q, want org-1", orgID)
+	}
+}
+
+func TestOrgIDByTokenID_NullOrgIDReturnsEmpty(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	// Pre-migration token or ADMIN_TOKEN bootstrap token — org_id is NULL.
+	// Caller should get ("", nil) and deny by default.
+	mock.ExpectQuery(`SELECT org_id FROM org_api_tokens WHERE id = \$1`).
+		WithArgs("tok-old").
+		WillReturnRows(sqlmock.NewRows([]string{"org_id"}).AddRow(nil))
+
+	orgID, err := OrgIDByTokenID(context.Background(), db, "tok-old")
+	if err != nil {
+		t.Fatalf("OrgIDByTokenID null: got err %v", err)
+	}
+	if orgID != "" {
+		t.Errorf("orgID for null row = %q, want \"\"", orgID)
+	}
+}
+
+func TestOrgIDByTokenID_DBError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(`SELECT org_id FROM org_api_tokens WHERE id = \$1`).
+		WithArgs("tok-bad").
+		WillReturnError(sql.ErrConnDone)
+
+	_, err = OrgIDByTokenID(context.Background(), db, "tok-bad")
+	if err == nil {
+		t.Error("expected error on DB failure, got nil")
 	}
 }

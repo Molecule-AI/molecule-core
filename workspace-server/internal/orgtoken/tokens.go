@@ -56,6 +56,7 @@ type Token struct {
 	ID         string     `json:"id"`
 	Prefix     string     `json:"prefix"`
 	Name       string     `json:"name,omitempty"`
+	OrgID      string     `json:"org_id,omitempty"`
 	CreatedBy  string     `json:"created_by,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
@@ -66,13 +67,10 @@ type Token struct {
 // caller once and must be handed to the user verbatim — we cannot
 // recover it from the database.
 //
-// name and createdBy are both optional (nullable columns). Typical
-// use: name = "zapier integration", createdBy = current session
-// user_id.
-//
-// orgID is the root workspace UUID of the org this token belongs to.
-// Required for Phase 32 multi-org isolation. Tokens without orgID are
-// denied access to org-scoped routes (requireCallerOwnsOrg).
+// name and orgID are both optional (nullable columns). createdBy
+// records provenance for audit. orgID is the caller's org workspace
+// ID and is used by requireCallerOwnsOrg to enforce org isolation
+// on org-scoped routes (#1200 / F1094).
 func Issue(ctx context.Context, db *sql.DB, name, createdBy, orgID string) (plaintext, id string, err error) {
 	buf := make([]byte, tokenPayloadBytes)
 	if _, err := rand.Read(buf); err != nil {
@@ -84,9 +82,9 @@ func Issue(ctx context.Context, db *sql.DB, name, createdBy, orgID string) (plai
 
 	err = db.QueryRowContext(ctx, `
 		INSERT INTO org_api_tokens (token_hash, prefix, name, created_by, org_id)
-		VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id
-	`, hash[:], prefix, nullIfEmpty(name), nullIfEmpty(createdBy), orgID).Scan(&id)
+	`, hash[:], prefix, nullIfEmpty(name), nullIfEmpty(createdBy), nullIfEmpty(orgID)).Scan(&id)
 	if err != nil {
 		return "", "", fmt.Errorf("orgtoken: persist: %w", err)
 	}
@@ -134,8 +132,8 @@ func Validate(ctx context.Context, db *sql.DB, plaintext string) (id, prefix str
 // minting loop from O(N) pageloads in the admin UI.
 func List(ctx context.Context, db *sql.DB) ([]Token, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, prefix, COALESCE(name,''), COALESCE(created_by,''),
-		       created_at, last_used_at
+		SELECT id, prefix, COALESCE(name,''), COALESCE(org_id,''),
+		       COALESCE(created_by,''), created_at, last_used_at
 		FROM org_api_tokens
 		WHERE revoked_at IS NULL
 		ORDER BY created_at DESC
@@ -150,7 +148,7 @@ func List(ctx context.Context, db *sql.DB) ([]Token, error) {
 	for rows.Next() {
 		var t Token
 		var lastUsed sql.NullTime
-		if err := rows.Scan(&t.ID, &t.Prefix, &t.Name, &t.CreatedBy,
+		if err := rows.Scan(&t.ID, &t.Prefix, &t.Name, &t.OrgID, &t.CreatedBy,
 			&t.CreatedAt, &lastUsed); err != nil {
 			return nil, fmt.Errorf("orgtoken: scan: %w", err)
 		}
@@ -195,6 +193,25 @@ func HasAnyLive(ctx context.Context, db *sql.DB) (bool, error) {
 		return false, fmt.Errorf("orgtoken: has-any-live: %w", err)
 	}
 	return ok, nil
+}
+
+// OrgIDByTokenID looks up the org workspace ID for a token.
+// Used by requireCallerOwnsOrg to enforce org isolation on org-scoped
+// routes (#1200 / F1094). Returns ("", nil) when the token has no org_id
+// set (e.g. pre-migration tokens, ADMIN_TOKEN bootstrap tokens) — the
+// caller treats this as "deny by default".
+func OrgIDByTokenID(ctx context.Context, db *sql.DB, tokenID string) (string, error) {
+	var orgID sql.NullString
+	err := db.QueryRowContext(ctx,
+		`SELECT org_id FROM org_api_tokens WHERE id = $1`, tokenID,
+	).Scan(&orgID)
+	if err != nil {
+		return "", fmt.Errorf("orgtoken: org_id lookup: %w", err)
+	}
+	if !orgID.Valid || orgID.String == "" {
+		return "", nil // unanchored token — deny by default
+	}
+	return orgID.String, nil
 }
 
 func nullIfEmpty(s string) interface{} {
