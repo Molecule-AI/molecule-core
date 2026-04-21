@@ -49,7 +49,7 @@ func (h *TracesHandler) List(c *gin.Context) {
 		c.JSON(http.StatusOK, []interface{}{})
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = $1 }()
 
 	body, _ := io.ReadAll(resp.Body)
 	c.Data(resp.StatusCode, "application/json", body)

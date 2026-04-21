@@ -163,7 +163,7 @@ func generateAppInstallationToken() (string, time.Time, error) {
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = $1 }()
 	var result struct {
 		Token     string    `json:"token"`
 		ExpiresAt time.Time `json:"expires_at"`
