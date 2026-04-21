@@ -450,3 +450,122 @@ func TestRecordSkipped_shortWorkspaceIDNoPanic(t *testing.T) {
 	}()
 	s.recordSkipped(context.Background(), sched, 1)
 }
+
+// ── Panic-recovery next_run_at advancement (#1029) ──────────────────────────
+//
+// Issue #1029: when fireSchedule panics, the deferred recover must advance
+// next_run_at to the next cron window. Without this fix the schedule's
+// next_run_at stays in the past and fires on every 30-second tick.
+
+const testCronPanic = "0 * * * *"
+
+// TestPanicRecovery_AdvancesNextRunAt verifies that recover issues an UPDATE
+// to advance next_run_at when the proxy panics. panic -> recover -> advance.
+func TestPanicRecovery_AdvancesNextRunAt(t *testing.T) {
+	mock := setupTestDB(t)
+
+	sched := scheduleRow{
+		ID:          "aaa11111-1111-1111-1111-111111111111",
+		WorkspaceID: "bbb22222-2222-2222-2222-222222222222",
+		Name:        "panic-advance-test",
+		CronExpr:    testCronPanic,
+		Timezone:    "UTC",
+		Prompt:      "trigger panic",
+	}
+
+	// fireSchedule checks active_tasks first.
+	mock.ExpectQuery(`SELECT COALESCE`).
+		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(0))
+
+	// panicProxy causes ProxyA2ARequest to panic.
+	// Deferred recover calls ComputeNextRun, then ExecContext for next_run_at.
+	mock.ExpectExec(`UPDATE workspace_schedules SET next_run_at`).
+		WithArgs(sqlmock.AnyArg(), sched.ID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s := New(&panicProxy{}, nil)
+	s.fireSchedule(context.Background(), sched)
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet DB expectations: %v
+"+
+			"Panic-recovery defer must advance next_run_at via UPDATE (#1029)", err)
+	}
+}
+
+// TestFireSchedule_NormalSuccess_AdvancesNextRunAt regression guard: normal
+// fireSchedule completion must still advance next_run_at via the post-fire UPDATE.
+func TestFireSchedule_NormalSuccess_AdvancesNextRunAt(t *testing.T) {
+	mock := setupTestDB(t)
+
+	sched := scheduleRow{
+		ID:          "ccc33333-3333-3333-3333-333333333333",
+		WorkspaceID: "ddd44444-4444-4444-4444-444444444444",
+		Name:        "normal-advance-test",
+		CronExpr:    "30 * * * *",
+		Timezone:    "UTC",
+		Prompt:      "do work",
+	}
+
+	// active_tasks check -> workspace idle
+	mock.ExpectQuery(`SELECT COALESCE`).
+		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(0))
+
+	// #795 consecutive_empty_runs reset
+	mock.ExpectExec(`UPDATE workspace_schedules`).
+		WithArgs(sched.ID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Normal post-fire UPDATE
+	mock.ExpectExec(`UPDATE workspace_schedules`).
+		WithArgs(sched.ID, sqlmock.AnyArg(), "ok", "").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// activity_logs INSERT
+	mock.ExpectExec(`INSERT INTO activity_logs`).
+		WithArgs(sched.WorkspaceID, sqlmock.AnyArg(), sqlmock.AnyArg(), "ok", "").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s := New(&successProxy{}, nil)
+	s.fireSchedule(context.Background(), sched)
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet DB expectations: %v
+"+
+			"Normal fire must still advance next_run_at via the post-fire UPDATE", err)
+	}
+}
+
+// TestRecordSkipped_AdvancesNextRunAt verifies recordSkipped advances
+// next_run_at so the schedule doesn't re-fire on the very next tick.
+func TestRecordSkipped_AdvancesNextRunAt(t *testing.T) {
+	mock := setupTestDB(t)
+
+	sched := scheduleRow{
+		ID:          "eee55555-5555-5555-5555-555555555555",
+		WorkspaceID: "fff66666-6666-6666-6666-666666666666",
+		Name:        "skipped-advance-test",
+		CronExpr:    "15 * * * *",
+		Timezone:    "UTC",
+		Prompt:      "skipped work",
+	}
+
+	// recordSkipped UPDATE
+	mock.ExpectExec(`UPDATE workspace_schedules`).
+		WithArgs(sched.ID, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// activity_logs INSERT
+	mock.ExpectExec(`INSERT INTO activity_logs`).
+		WithArgs(sched.WorkspaceID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s := New(&successProxy{}, nil)
+	s.recordSkipped(context.Background(), sched, 2)
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet DB expectations: %v
+"+
+			"recordSkipped must advance next_run_at when workspace is busy (#1029)", err)
+	}
+}
