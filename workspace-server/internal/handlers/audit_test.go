@@ -51,7 +51,10 @@ func makeAuditHMAC(t *testing.T, key []byte, ev *auditEventRow) string {
 		"session_id":           ev.SessionID,
 		"timestamp":            ev.Timestamp.UTC().Format("2006-01-02T15:04:05Z"),
 	}
-	payload, _ := json.Marshal(canonical)
+	payload, err := json.Marshal(canonical)
+	if err != nil {
+		t.Fatalf("makeAuditHMAC: marshal failed: %v", err)
+	}
 	mac := hmac.New(sha256.New, key)
 	mac.Write(payload)
 	return hex.EncodeToString(mac.Sum(nil))
@@ -60,7 +63,8 @@ func makeAuditHMAC(t *testing.T, key []byte, ev *auditEventRow) string {
 // strPtr is a test helper to get a *string from a literal.
 func strPtr(s string) *string { return &s }
 
-// resetAuditKeyCache clears the cached HMAC key so tests can control it via env.
+// resetAuditKeyCache resets the audit HMAC key cache for testing.
+// NOTE: Not safe for parallel tests — only use with t.Run (serial subtests).
 func resetAuditKeyCache() {
 	auditKeyOnce = *new(sync.Once)
 	auditHMACKey = nil

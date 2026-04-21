@@ -3,22 +3,25 @@
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import type { AuditEntry, AuditResponse } from "@/types/audit";
+import { auditSummary } from "@/types/audit";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-type EventFilter = "all" | AuditEntry["event_type"];
+type OperationFilter = "all" | string;
 
-const BADGE_COLORS: Record<AuditEntry["event_type"], { text: string; bg: string; border: string }> = {
-  delegation: { text: "text-blue-400",   bg: "bg-blue-950/40",   border: "border-blue-800/40" },
-  decision:   { text: "text-violet-400", bg: "bg-violet-950/40", border: "border-violet-800/40" },
-  gate:       { text: "text-yellow-400", bg: "bg-yellow-950/40", border: "border-yellow-800/40" },
-  hitl:       { text: "text-orange-400", bg: "bg-orange-950/40", border: "border-orange-800/40" },
+const BADGE_COLORS: Record<string, { text: string; bg: string; border: string }> = {
+  task_start:  { text: "text-blue-400",   bg: "bg-blue-950/40",   border: "border-blue-800/40" },
+  task_end:    { text: "text-violet-400", bg: "bg-violet-950/40", border: "border-violet-800/40" },
+  gate:        { text: "text-yellow-400", bg: "bg-yellow-950/40", border: "border-yellow-800/40" },
+  hitl:        { text: "text-orange-400", bg: "bg-orange-950/40", border: "border-orange-800/40" },
 };
 
-const FILTERS: { id: EventFilter; label: string }[] = [
+const DEFAULT_BADGE = { text: "text-zinc-400", bg: "bg-zinc-800/40", border: "border-zinc-700/40" };
+
+const FILTERS: { id: OperationFilter; label: string }[] = [
   { id: "all",        label: "All" },
-  { id: "delegation", label: "Delegation" },
-  { id: "decision",   label: "Decision" },
+  { id: "task_start", label: "Task Start" },
+  { id: "task_end",   label: "Task End" },
   { id: "gate",       label: "Gate" },
   { id: "hitl",       label: "HITL" },
 ];
@@ -49,20 +52,21 @@ interface Props {
  * AuditTrailPanel — side-panel tab showing the workspace audit ledger.
  *
  * Features:
- * - Color-coded event-type badges (delegation/decision/gate/hitl)
- * - chain_valid=false tamper ⚠ indicator
- * - Event-type filter bar
- * - Cursor-based "Load more" pagination
+ * - Color-coded operation badges
+ * - chain_valid=false tamper indicator
+ * - Operation filter bar
+ * - Offset-based "Load more" pagination
  * - Relative timestamps refreshed every 30 s
  * - Empty state with icon
  */
 export function AuditTrailPanel({ workspaceId }: Props) {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<EventFilter>("all");
+  const [filter, setFilter] = useState<OperationFilter>("all");
   // Relative-time "now" — refreshed every 30 s to keep labels current
   const [now, setNow] = useState(() => Date.now());
 
@@ -74,11 +78,11 @@ export function AuditTrailPanel({ workspaceId }: Props) {
   // ── URL builder (stable between renders when inputs unchanged) ─────────────
 
   const buildUrl = useCallback(
-    (cursorParam?: string | null): string => {
+    (pageOffset: number): string => {
       const params = new URLSearchParams();
       params.set("limit", String(AUDIT_LIMIT));
-      if (filter !== "all") params.set("event_type", filter);
-      if (cursorParam) params.set("cursor", cursorParam);
+      params.set("offset", String(pageOffset));
+      if (filter !== "all") params.set("operation", filter);
       return `/workspaces/${workspaceId}/audit?${params.toString()}`;
     },
     [workspaceId, filter]
@@ -90,13 +94,15 @@ export function AuditTrailPanel({ workspaceId }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.get<AuditResponse>(buildUrl());
-      setEntries(data.entries ?? []);
-      setCursor(data.cursor ?? null);
+      const data = await api.get<AuditResponse>(buildUrl(0));
+      setEntries(data.events ?? []);
+      setTotal(data.total ?? 0);
+      setOffset(data.events?.length ?? 0);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load audit trail");
       setEntries([]);
-      setCursor(null);
+      setTotal(0);
+      setOffset(0);
     } finally {
       setLoading(false);
     }
@@ -108,19 +114,22 @@ export function AuditTrailPanel({ workspaceId }: Props) {
 
   // ── Pagination (append next page) ─────────────────────────────────────────
 
+  const hasMore = entries.length < total;
+
   const loadMore = useCallback(async () => {
-    if (!cursor || loadingMore) return;
+    if (!hasMore || loadingMore) return;
     setLoadingMore(true);
     try {
-      const data = await api.get<AuditResponse>(buildUrl(cursor));
-      setEntries((prev) => [...prev, ...(data.entries ?? [])]);
-      setCursor(data.cursor ?? null);
+      const data = await api.get<AuditResponse>(buildUrl(offset));
+      const newEvents = data.events ?? [];
+      setEntries((prev) => [...prev, ...newEvents]);
+      setOffset((prev) => prev + newEvents.length);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load more entries");
     } finally {
       setLoadingMore(false);
     }
-  }, [cursor, loadingMore, buildUrl]);
+  }, [hasMore, loadingMore, buildUrl, offset]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -187,7 +196,7 @@ export function AuditTrailPanel({ workspaceId }: Props) {
             </div>
 
             {/* Load more */}
-            {cursor && (
+            {hasMore && (
               <div className="mt-4 flex justify-center">
                 <button
                   onClick={loadMore}
@@ -202,7 +211,7 @@ export function AuditTrailPanel({ workspaceId }: Props) {
             {/* Entry count footer */}
             <p className="mt-3 text-center text-[9px] text-zinc-600">
               {entries.length} event{entries.length !== 1 ? "s" : ""} loaded
-              {cursor ? " · more available" : " · all loaded"}
+              {hasMore ? ` · ${total - entries.length} more available` : " · all loaded"}
             </p>
           </>
         )}
@@ -223,34 +232,30 @@ export interface AuditEntryRowProps {
  * Exported so tests can render it in isolation without the full panel.
  */
 export function AuditEntryRow({ entry, now }: AuditEntryRowProps) {
-  const badge = BADGE_COLORS[entry.event_type] ?? {
-    text: "text-zinc-400",
-    bg: "bg-zinc-800/40",
-    border: "border-zinc-700/40",
-  };
+  const badge = BADGE_COLORS[entry.operation] ?? DEFAULT_BADGE;
 
   return (
     <div
       role="listitem"
       className="rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-3 py-2.5 space-y-1.5"
     >
-      {/* Header row: badge · actor · tamper flag · timestamp */}
+      {/* Header row: badge · agent_id · tamper flag · timestamp */}
       <div className="flex items-center gap-2">
-        {/* Event-type badge */}
+        {/* Operation badge */}
         <span
           className={`shrink-0 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border ${badge.text} ${badge.bg} ${badge.border}`}
-          aria-label={`Event type: ${entry.event_type}`}
+          aria-label={`Operation: ${entry.operation}`}
         >
-          {entry.event_type}
+          {entry.operation}
         </span>
 
-        {/* Actor name */}
+        {/* Agent ID */}
         <span className="text-[10px] text-zinc-400 truncate flex-1 min-w-0 font-mono">
-          {entry.actor}
+          {entry.agent_id}
         </span>
 
         {/* Tamper warning — only rendered when chain is invalid */}
-        {!entry.chain_valid && (
+        {entry.chain_valid === false && (
           <span
             className="shrink-0 text-[11px] text-red-400 font-bold leading-none"
             title="Chain integrity check failed — this entry may have been tampered with"
@@ -263,13 +268,13 @@ export function AuditEntryRow({ entry, now }: AuditEntryRowProps) {
 
         {/* Relative timestamp */}
         <span className="shrink-0 text-[9px] text-zinc-600">
-          {formatAuditRelativeTime(entry.created_at, now)}
+          {formatAuditRelativeTime(entry.timestamp, now)}
         </span>
       </div>
 
-      {/* Summary text */}
+      {/* Summary text (derived from operation + model_used) */}
       <p className="text-[11px] text-zinc-300 leading-relaxed break-words">
-        {entry.summary}
+        {auditSummary(entry)}
       </p>
     </div>
   );

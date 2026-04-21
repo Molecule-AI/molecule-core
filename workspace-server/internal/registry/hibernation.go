@@ -74,6 +74,7 @@ func hibernateIdleWorkspaces(ctx context.Context, onHibernate HibernateHandler) 
 		  AND COALESCE(runtime, 'langgraph') != 'external'
 		  AND last_heartbeat_at IS NOT NULL
 		  AND last_heartbeat_at < now() - (hibernation_idle_minutes * INTERVAL '1 minute')
+		LIMIT 100
 	`)
 	if err != nil {
 		log.Printf("Hibernation monitor: query error: %v", err)
@@ -91,6 +92,10 @@ func hibernateIdleWorkspaces(ctx context.Context, onHibernate HibernateHandler) 
 	if err := rows.Err(); err != nil {
 		log.Printf("Hibernation monitor: row iteration error: %v", err)
 		return
+	}
+
+	if len(ids) >= 100 {
+		log.Printf("[hibernation] batch limit reached (%d), remaining workspaces will be processed next cycle", len(ids))
 	}
 
 	for _, id := range ids {

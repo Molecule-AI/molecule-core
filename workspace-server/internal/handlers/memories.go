@@ -435,12 +435,14 @@ func (h *MemoriesHandler) Search(c *gin.Context) {
 
 		if semantic {
 			var simScore float64
-			if rows.Scan(&id, &wsID, &content, &memScope, &memNS, &createdAt, &simScore) != nil {
+			if err := rows.Scan(&id, &wsID, &content, &memScope, &memNS, &createdAt, &simScore); err != nil {
+				log.Printf("[memories] scan error: %v", err)
 				continue
 			}
 			entry["similarity_score"] = simScore
 		} else {
-			if rows.Scan(&id, &wsID, &content, &memScope, &memNS, &createdAt) != nil {
+			if err := rows.Scan(&id, &wsID, &content, &memScope, &memNS, &createdAt); err != nil {
+				log.Printf("[memories] scan error: %v", err)
 				continue
 			}
 		}

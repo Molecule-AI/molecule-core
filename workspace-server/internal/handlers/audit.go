@@ -281,11 +281,16 @@ func verifyAuditChain(events []auditEventRow) *bool {
 		}
 
 		// Recompute the expected HMAC.
-		expected := computeAuditHMAC(key, ev)
+		expected, err := computeAuditHMAC(key, ev)
+		if err != nil {
+			log.Printf("audit: HMAC computation failed at event %s (agent=%s): %v", ev.ID, ev.AgentID, err)
+			f := false
+			return &f
+		}
 		if !hmac.Equal([]byte(ev.HMAC), []byte(expected)) {
 			log.Printf(
 				"audit: HMAC mismatch at event %s (agent=%s): stored=%q computed=%q",
-				ev.ID, ev.AgentID, ev.HMAC[:12], expected[:12],
+				ev.ID, ev.AgentID, truncHMAC(ev.HMAC), truncHMAC(expected),
 			)
 			f := false
 			return &f
@@ -319,7 +324,7 @@ func verifyAuditChain(events []auditEventRow) *bool {
 //   - Compact separators (no spaces)
 //   - Timestamp as RFC-3339 seconds-precision with Z suffix
 //   - Null values as JSON null (Go *string nil → null)
-func computeAuditHMAC(key []byte, ev *auditEventRow) string {
+func computeAuditHMAC(key []byte, ev *auditEventRow) (string, error) {
 	// Build the canonical map — keys must sort alphabetically to match Python.
 	canonical := map[string]interface{}{
 		"agent_id":             ev.AgentID,
@@ -335,10 +340,22 @@ func computeAuditHMAC(key []byte, ev *auditEventRow) string {
 		"timestamp":            ev.Timestamp.UTC().Format("2006-01-02T15:04:05Z"),
 	}
 
-	payload, _ := json.Marshal(canonical) // compact, sorted keys
+	payload, err := json.Marshal(canonical)
+	if err != nil {
+		return "", fmt.Errorf("marshal canonical payload: %w", err)
+	}
 	mac := hmac.New(sha256.New, key)
 	mac.Write(payload)
-	return hex.EncodeToString(mac.Sum(nil))
+	return hex.EncodeToString(mac.Sum(nil)), nil
+}
+
+// truncHMAC safely truncates an HMAC hex string to at most 12 characters for logging.
+// Avoids a panic when the stored HMAC is shorter than expected.
+func truncHMAC(s string) string {
+	if len(s) < 12 {
+		return s
+	}
+	return s[:12]
 }
 
 // nilOrString converts a *string to interface{} where nil → nil (JSON null).
