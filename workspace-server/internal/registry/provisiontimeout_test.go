@@ -58,8 +58,8 @@ func TestSweepStuckProvisioning_FlipsOverdue(t *testing.T) {
 	if emit.count() != 1 {
 		t.Fatalf("expected 1 event, got %d", emit.count())
 	}
-	if emit.events[0].Type != "WORKSPACE_PROVISION_TIMEOUT" {
-		t.Errorf("event type = %q, want WORKSPACE_PROVISION_TIMEOUT", emit.events[0].Type)
+	if emit.events[0].Type != "WORKSPACE_PROVISION_FAILED" {
+		t.Errorf("event type = %q, want WORKSPACE_PROVISION_FAILED", emit.events[0].Type)
 	}
 	if emit.events[0].WorkspaceID != "ws-stuck" {
 		t.Errorf("workspace id = %q, want ws-stuck", emit.events[0].WorkspaceID)
@@ -72,7 +72,7 @@ func TestSweepStuckProvisioning_FlipsOverdue(t *testing.T) {
 // TestSweepStuckProvisioning_RaceSafe covers the case where UPDATE affects
 // 0 rows because the workspace flipped to online (or got restarted) between
 // the SELECT and the UPDATE. We should skip the event, not emit a false
-// WORKSPACE_PROVISION_TIMEOUT.
+// WORKSPACE_PROVISION_FAILED.
 func TestSweepStuckProvisioning_RaceSafe(t *testing.T) {
 	mock := setupTestDB(t)
 
