@@ -121,9 +121,21 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		wsAdmin.GET("/workspaces", wh.List)
 		wsAdmin.POST("/workspaces", wh.Create)
 		wsAdmin.DELETE("/workspaces/:id", wh.Delete)
+		// Out-of-band bootstrap signal: CP's watcher POSTs here when it
+		// detects "RUNTIME CRASHED" in a workspace EC2 console output,
+		// so the canvas flips to failed in seconds instead of waiting
+		// for the 10-minute provision-timeout sweeper.
+		wsAdmin.POST("/admin/workspaces/:id/bootstrap-failed", wh.BootstrapFailed)
+		// Proxy to CP's serial-console endpoint so the canvas's "View
+		// Logs" button can render the actual boot trace without handing
+		// the tenant AWS credentials. Admin-gated because console output
+		// can include user-data snippets we treat as semi-sensitive.
+		wsAdmin.GET("/workspaces/:id/console", wh.Console)
 
 		// Admin memory backup/restore (#1051) — bulk export/import of agent
 		// memories for safe Docker rebuilds. Matches workspaces by name on import.
+		// F1084/#1131: Export applies redactSecrets before returning content.
+		// F1085/#1132: Import applies redactSecrets before persisting content.)
 		adminMemH := handlers.NewAdminMemoriesHandler()
 		wsAdmin.GET("/admin/memories/export", adminMemH.Export)
 		wsAdmin.POST("/admin/memories/import", adminMemH.Import)
