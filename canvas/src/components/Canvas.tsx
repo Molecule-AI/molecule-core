@@ -117,6 +117,12 @@ function CanvasInner() {
     }
   }, [pendingDelete, setPendingDelete, removeNode]);
 
+  // Cascade guard: include child count in the warning message when the workspace
+  // has children, so the user understands the blast radius before clicking Delete All.
+  const cascadeMessage = pendingDelete?.hasChildren
+    ? `⚠️ Deleting "${pendingDelete.name}" will permanently delete all child workspaces and their data. This cannot be undone.`
+    : null;
+
   const onNodeDragStop: OnNodeDrag<Node<WorkspaceNodeData>> = useCallback(
     (_event, node) => {
       const { dragOverNodeId, nodes: allNodes } = useCanvasStore.getState();
@@ -381,9 +387,11 @@ function CanvasInner() {
       {/* Confirmation dialog for workspace delete — driven by store */}
       <ConfirmDialog
         open={!!pendingDelete}
-        title="Delete Workspace"
-        message={`Permanently delete "${pendingDelete?.name}"? This will stop the container and remove all configuration. This action cannot be undone.`}
-        confirmLabel="Delete"
+        title={pendingDelete?.hasChildren ? "Delete Workspace and Children" : "Delete Workspace"}
+        message={pendingDelete?.hasChildren
+          ? `⚠️ Deleting "${pendingDelete?.name}" will permanently delete all of its child workspaces and their data. This cannot be undone.`
+          : `Permanently delete "${pendingDelete?.name}"? This will stop the container and remove all configuration. This action cannot be undone.`}
+        confirmLabel={pendingDelete?.hasChildren ? "Delete All" : "Delete"}
         confirmVariant="danger"
         onConfirm={confirmDelete}
         onCancel={() => setPendingDelete(null)}
