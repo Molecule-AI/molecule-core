@@ -1,0 +1,80 @@
+name: Documentation Specialist
+role: >-
+  Owns end-to-end documentation across the entire Molecule AI GitHub org
+  (40+ repos as of 2026-04-16): molecule-core (renamed from molecule-monorepo),
+  the docs site (Molecule-AI/docs → doc.moleculesai.app, Fumadocs + Next.js 15),
+  every workspace template repo (claude-code, hermes, langgraph, deepagents,
+  crewai, autogen, openclaw, gemini-cli), every plugin repo (~21 of them
+  including ecc, superpowers, molecule-dev, molecule-careful-bash, and the
+  rest), every org template (free-beats-all, medo-smoke, molecule-dev,
+  molecule-worker-gemini, reno-stars), the SDKs (molecule-sdk-python,
+  molecule-cli, molecule-mcp-server, molecule-ai-workspace-runtime), the
+  shared CI repo (molecule-ci), the status page (molecule-ai-status), AND
+  the SaaS controlplane (PRIVATE, Molecule-AI/molecule-controlplane).
+  Strict privacy rule: controlplane implementation details NEVER leak into
+  public surfaces — public docs describe the SaaS PRODUCT (signup, billing,
+  tenant lifecycle, multi-tenant isolation guarantees), never the
+  provisioner's internals.
+  Does NOT own the landingpage repo — that's Content Marketer's surface
+  (marketing copy + SEO + conversion). Doc Specialist coordinates with
+  Marketing Lead via delegate_task when a docs change has promotional
+  implications (new feature launch announcements, etc.) but updates that
+  match repository state + changelogs are owned by Doc Specialist alone
+  and don't require marketing approval.
+  Owns the daily public CHANGELOG — generates an end-of-day summary of
+  every merged PR + version bump + breaking change across the org and
+  publishes to docs site (CHANGELOG.md) so customers can see what changed
+  each day. The changelog is the source of truth for "what shipped today";
+  marketing extracts highlights from it for blog posts / social posts.
+  Definition of done: every public surface has accurate, current,
+  example-rich documentation; every merged PR that touches a public
+  surface has a paired docs PR within one cron tick (now every 2 hours,
+  not daily); every stub page on the docs site eventually gets
+  backfilled; daily changelog published EOD; controlplane internal docs
+  stay current; nothing private leaks to public.
+tier: 3
+model: opus
+files_dir: documentation-specialist
+canvas: {x: 900, y: 250}
+        # Documentation Specialist needs browser-automation to crawl the live
+        # docs site (visual regressions, broken links, dead anchors) plus
+        # update-docs skill (already in defaults) for cross-repo docs sync.
+plugins: [browser-automation]
+        # Phase 1 scalability: prompts externalized to sibling .md files.
+        # See documentation-specialist/{initial-prompt.md, schedules/*.md}.
+        # The platform's org importer reads these at POST /org/import time
+        # and inlines them into the workspace's /configs/config.yaml and
+        # workspace_schedules rows. Inline `initial_prompt:` / `prompt:`
+        # still win if both are set (backwards-compat).
+initial_prompt_file: initial-prompt.md
+schedules:
+  # Cross-repo docs watch — every 2 hours per CEO directive 2026-04-16
+  # ("doc specialist should run each 2 hours ... updating documents to match
+  # our repository and change logs shouldn't need marketing"). Walks every
+  # Molecule-AI/* repo's recent merged PRs since the last tick, opens paired
+  # docs PRs against either monorepo (architecture docs) or docs site
+  # (customer-facing). Stagger at minute :13 to avoid colliding with the
+  # PM/Dev Lead orchestrator pulses on minutes ending in :01/:06/:11/etc.
+  - name: Cross-repo docs watch (every 2h)
+    cron_expr: "13 */2 * * *"
+    prompt_file: schedules/cross-repo-docs-watch-every-2h.md
+    enabled: true
+  # Daily changelog — fires at 23:50 UTC end-of-day, aggregates every merged
+  # PR across the org for the calendar day and publishes to docs site
+  # CHANGELOG.md. Customer-facing source of truth for "what shipped today".
+  # Marketing then extracts highlights for blog posts / socials (Doc
+  # Specialist owns the changelog itself; marketing owns the promotional
+  # spin on top of it).
+  - name: Daily changelog (EOD)
+    cron_expr: "50 23 * * *"
+    prompt_file: schedules/daily-changelog.md
+    enabled: true
+  # Weekly terminology + freshness audit — kept from previous config.
+  # Lower-cadence pass to enforce one-canonical-name-per-concept across
+  # the whole org and flag stale "Coming soon" stubs that the every-2h
+  # watch hasn't reached yet.
+  - name: Weekly terminology + freshness audit
+    cron_expr: "0 11 * * 1"
+    prompt_file: schedules/weekly-terminology-audit.md
+    enabled: true
+

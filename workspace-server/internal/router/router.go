@@ -121,6 +121,12 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		wsAdmin.GET("/workspaces", wh.List)
 		wsAdmin.POST("/workspaces", wh.Create)
 		wsAdmin.DELETE("/workspaces/:id", wh.Delete)
+
+		// Admin memory backup/restore (#1051) — bulk export/import of agent
+		// memories for safe Docker rebuilds. Matches workspaces by name on import.
+		adminMemH := handlers.NewAdminMemoriesHandler()
+		wsAdmin.GET("/admin/memories/export", adminMemH.Export)
+		wsAdmin.POST("/admin/memories/import", adminMemH.Import)
 	}
 
 	// A2A proxy — registered outside the auth group; already enforces CanCommunicate access control.

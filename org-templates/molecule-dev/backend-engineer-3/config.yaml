@@ -1,0 +1,12 @@
+name: Backend Engineer (Proxy & Runtime)
+role: backend-engineer-3
+runtime: claude-code
+tier: 3
+template: claude-code-default
+github_repo: Molecule-AI/molecule-tenant-proxy
+
+runtime_config:
+  timeout: 0
+
+prompt_files:
+  - system-prompt.md
