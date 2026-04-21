@@ -74,28 +74,12 @@
 
 | Check | Result |
 |---|---|
-| JSON-LD blocks | ⚠️ None present — recommend adding Article schema |
+| JSON-LD blocks | ✅ 2 blocks — Article schema + FAQPage (5 Q&As) |
 | datePublished | ✅ 2026-04-20 in frontmatter |
 | dateModified | ✅ 2026-04-21 in frontmatter (recreation) |
 | author | ✅ "Molecule AI" in frontmatter |
 
-**Action item:** Add JSON-LD Article schema block to frontmatter or MDX body. Template:
-
-```html
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "Article",
-  "headline": "The MCP Server List: Which Servers Work With Molecule AI?",
-  "datePublished": "2026-04-20",
-  "dateModified": "2026-04-21",
-  "author": { "@type": "Organization", "name": "Molecule AI" },
-  "publisher": { "@type": "Organization", "name": "Molecule AI", "logo": "https://molecule.ai/logo.png" },
-  "description": "A practical guide to the Model Context Protocol ecosystem — finding the right MCP server for your use case, which ones integrate with Molecule AI, and how to evaluate servers before you commit.",
-  "keywords": "MCP server list, MCP servers, Model Context Protocol, MCP server, MCP integration"
-}
-</script>
-```
+**Action item:** ✅ RESOLVED — Article + FAQPage schemas added (commit c3186a8).
 
 ---
 
@@ -105,8 +89,8 @@
 |---|---|
 | og:title | ✅ `The MCP Server List: Which Servers Work With Molecule AI?` |
 | og:description | ✅ `Find the right MCP server for your AI agent workflow. Full list of reference servers, official integrations, server frameworks, and community registries — with Molecule AI compatibility notes.` |
-| og:image | ⚠️ **MISSING** — no `og_image` frontmatter set. Needs Social Media Brand to generate 1200×630 PNG at `/assets/blog/2026-04-21-mcp-server-list-og.png` |
-| twitter:card | ⚠️ Not set — recommend adding `twitter_card: summary_large_image` to frontmatter |
+| og:image | ⚠️ **MISSING** — `og_image` frontmatter set to `/assets/blog/2026-04-21-mcp-server-list-og.png` but file not yet on disk. Social Media Brand needs to generate 1200×630 PNG. |
+| twitter:card | ✅ `summary_large_image` set in frontmatter (commit c3186a8) |
 | Canonical in OG | ✅ `https://molecule.ai/blog/mcp-server-list` |
 
 ---
@@ -140,19 +124,17 @@
 
 2. **[HIGH] OG image missing** — no `og_image` frontmatter set. Social Media Brand needs to generate 1200×630 PNG at `docs/assets/blog/2026-04-21-mcp-server-list-og.png`.
 
-3. **[MEDIUM] JSON-LD Article schema not present** — source audit shows no structured data block. Recommend adding Article schema per chrome-devtools-mcp pattern.
-
+3. ~~[MEDIUM] JSON-LD Article schema not present~~ ✅ RESOLVED — Article + FAQPage schemas added (commit c3186a8)
 4. **[LOW] Title tag 66 chars** — 6 over the 60-char target. Acceptable but could be trimmed for strict compliance.
 
 ---
 
 ## Non-Blocking Recommendations
 
-1. **Add JSON-LD Article schema** — use template provided above
-2. **Add `twitter_card: summary_large_image`** to frontmatter to mirror og:image coverage
+1. ~~Add JSON-LD Article schema~~ ✅ RESOLVED — Article + FAQPage schemas added
+2. ~~Add `twitter_card: summary_large_image`~~ ✅ RESOLVED — added to frontmatter (commit c3186a8)
 3. **Live Lighthouse run** — schedule immediately after DevOps fixes blog route rendering
 4. **Verify indexation** via Google Search Console: `site:molecule.ai/blog/mcp-server-list`
-5. **Add FAQPage schema** — MCP server decision guide pairs well with FAQ structured data (e.g., "What is an MCP server?", "How do I add an MCP server to Molecule AI?")
 
 ---
 
@@ -176,7 +158,7 @@ site:molecule.ai "MCP server list"
 
 - [ ] **BLOCKING**: DevOps check canvas/Next.js build — blog routes redirect to /lander, not rendering MDX content in production
 - [ ] **BLOCKING**: Social Media Brand generates OG image at `docs/assets/blog/2026-04-21-mcp-server-list-og.png` (1200×630)
-- [ ] **RECOMMENDED**: Add JSON-LD Article schema + `twitter_card` to frontmatter
+- [x] ~~Add JSON-LD Article schema + `twitter_card` to frontmatter~~ ✅ Done (commit c3186a8)
 - [ ] Run live Lighthouse audit after blog routes confirmed rendering
 - [ ] Verify indexation via Google Search Console
 
