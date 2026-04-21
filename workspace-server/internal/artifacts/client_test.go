@@ -83,7 +83,7 @@ func TestCreateRepo_Success(t *testing.T) {
 			CreatedAt: time.Now(),
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(cfEnvelope(t, repo))
+		_, _ = w.Write(cfEnvelope(t, repo))
 	})
 
 	client := newTestClient(t, mux)
@@ -111,7 +111,7 @@ func TestCreateRepo_APIError(t *testing.T) {
 		body, status := cfError(t, http.StatusConflict, 1009, "repo already exists")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
-		w.Write(body)
+		_, _ = w.Write(body)
 	})
 
 	client := newTestClient(t, mux)
@@ -146,7 +146,7 @@ func TestGetRepo_Success(t *testing.T) {
 			RemoteURL: "https://x:tok@hash.artifacts.cloudflare.net/git/repo-xyz.git",
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(cfEnvelope(t, repo))
+		_, _ = w.Write(cfEnvelope(t, repo))
 	})
 
 	client := newTestClient(t, mux)
@@ -165,7 +165,7 @@ func TestGetRepo_NotFound(t *testing.T) {
 		body, status := cfError(t, http.StatusNotFound, 1004, "repo not found")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
-		w.Write(body)
+		_, _ = w.Write(body)
 	})
 
 	client := newTestClient(t, mux)
@@ -206,7 +206,7 @@ func TestForkRepo_Success(t *testing.T) {
 			ObjectCount: 42,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(cfEnvelope(t, result))
+		_, _ = w.Write(cfEnvelope(t, result))
 	})
 
 	client := newTestClient(t, mux)
@@ -245,7 +245,7 @@ func TestImportRepo_Success(t *testing.T) {
 			RemoteURL: "https://x:tok@hash.artifacts.cloudflare.net/git/repo-imp-1.git",
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(cfEnvelope(t, repo))
+		_, _ = w.Write(cfEnvelope(t, repo))
 	})
 
 	client := newTestClient(t, mux)
@@ -274,7 +274,7 @@ func TestDeleteRepo_Success(t *testing.T) {
 		deleted := map[string]string{"id": "repo-del-1"}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
-		w.Write(cfEnvelope(t, deleted))
+		_, _ = w.Write(cfEnvelope(t, deleted))
 	})
 
 	client := newTestClient(t, mux)
@@ -306,7 +306,7 @@ func TestCreateToken_Success(t *testing.T) {
 			ExpiresAt: expiry,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(cfEnvelope(t, tok))
+		_, _ = w.Write(cfEnvelope(t, tok))
 	})
 
 	client := newTestClient(t, mux)
@@ -340,7 +340,7 @@ func TestRevokeToken_Success(t *testing.T) {
 		}
 		deleted := map[string]string{"id": "tok-456"}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(cfEnvelope(t, deleted))
+		_, _ = w.Write(cfEnvelope(t, deleted))
 	})
 
 	client := newTestClient(t, mux)
