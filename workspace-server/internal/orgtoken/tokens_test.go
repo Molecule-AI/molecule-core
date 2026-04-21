@@ -72,14 +72,14 @@ func TestValidate_HappyPath(t *testing.T) {
 	plaintext := "known-plaintext-for-test"
 	hash := sha256.Sum256([]byte(plaintext))
 
-	mock.ExpectQuery(`SELECT id, prefix FROM org_api_tokens`).
+	mock.ExpectQuery(`SELECT id, prefix, org_id FROM org_api_tokens`).
 		WithArgs(hash[:]).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).AddRow("tok-live", "abcd1234"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).AddRow("tok-live", "abcd1234", "org-happy"))
 	mock.ExpectExec(`UPDATE org_api_tokens SET last_used_at`).
 		WithArgs("tok-live").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	id, prefix, _, err := Validate(context.Background(), db, plaintext)
+	id, prefix, orgID, err := Validate(context.Background(), db, plaintext)
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
@@ -88,6 +88,9 @@ func TestValidate_HappyPath(t *testing.T) {
 	}
 	if prefix != "abcd1234" {
 		t.Errorf("prefix = %q, want abcd1234", prefix)
+	}
+	if orgID != "org-happy" {
+		t.Errorf("orgID = %q, want org-happy", orgID)
 	}
 }
 
