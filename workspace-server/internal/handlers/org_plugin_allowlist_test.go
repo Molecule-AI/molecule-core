@@ -553,3 +553,177 @@ func TestCheckOrgPluginAllowlist_FailOpen_OnCountError(t *testing.T) {
 		t.Error("expected fail-open (not blocked) on DB error during COUNT check")
 	}
 }
+
+// ─── requireCallerOwnsOrg regression tests (F1094 / #1200) ─────────────────
+
+func TestRequireCallerOwnsOrg_NotOrgTokenCaller(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	// No org_token_id in context → caller is session/admin → returns ("", nil)
+	c.Set("org_token_id", "something") // weird but set to a non-string type
+	orgID, err := requireCallerOwnsOrg(c)
+	if err != nil {
+		t.Fatalf("requireCallerOwnsOrg: got err %v", err)
+	}
+	if orgID != "" {
+		t.Errorf("non-string org_token_id: got orgID=%q, want \"\"", orgID)
+	}
+}
+
+func TestRequireCallerOwnsOrg_NoOrgTokenIDInContext(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	// No org_token_id key → not an org-token caller → returns ("", nil)
+	orgID, err := requireCallerOwnsOrg(c)
+	if err != nil {
+		t.Fatalf("requireCallerOwnsOrg: got err %v", err)
+	}
+	if orgID != "" {
+		t.Errorf("no org_token_id: got orgID=%q, want \"\"", orgID)
+	}
+}
+
+func TestRequireCallerOwnsOrg_TokenHasMatchingOrgID(t *testing.T) {
+	mock := setupTestDB(t)
+
+	orgID := "org-abc123"
+	mock.ExpectQuery(`SELECT org_id FROM org_api_tokens WHERE id = \$1`).
+		WithArgs("tok-123").
+		WillReturnRows(sqlmock.NewRows([]string{"org_id"}).AddRow(orgID))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("org_token_id", "tok-123")
+
+	got, err := requireCallerOwnsOrg(c)
+	if err != nil {
+		t.Fatalf("requireCallerOwnsOrg: %v", err)
+	}
+	if got != orgID {
+		t.Errorf("got orgID=%q, want %q", got, orgID)
+	}
+}
+
+func TestRequireCallerOwnsOrg_TokenHasNullOrgID_UnanchoredDeny(t *testing.T) {
+	mock := setupTestDB(t)
+
+	// Pre-migration token or ADMIN_TOKEN bootstrap token — org_id is NULL.
+	// callerOrg="" → requireOrgOwnership denies (safer than cross-org access).
+	mock.ExpectQuery(`SELECT org_id FROM org_api_tokens WHERE id = \$1`).
+		WithArgs("tok-old").
+		WillReturnRows(sqlmock.NewRows([]string{"org_id"}).AddRow(nil))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("org_token_id", "tok-old")
+
+	got, err := requireCallerOwnsOrg(c)
+	if err != nil {
+		t.Fatalf("null org_id: got err %v (want nil)", err)
+	}
+	if got != "" {
+		t.Errorf("unanchored token: got orgID=%q, want \"\"", got)
+	}
+}
+
+func TestRequireCallerOwnsOrg_TokenDBError_Denies(t *testing.T) {
+	mock := setupTestDB(t)
+
+	mock.ExpectQuery(`SELECT org_id FROM org_api_tokens WHERE id = \$1`).
+		WithArgs("tok-bad").
+		WillReturnError(sql.ErrConnDone)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("org_token_id", "tok-bad")
+
+	_, err := requireCallerOwnsOrg(c)
+	if err == nil {
+		t.Error("expected error on DB failure, got nil")
+	}
+}
+
+func TestRequireOrgOwnership_SessionCallerBypasses(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	// No org_token_id → session/admin caller → should pass (return true)
+	if !requireOrgOwnership(c, "any-org") {
+		t.Error("session caller should be allowed (no org token in context)")
+	}
+}
+
+func TestRequireOrgOwnership_OrgTokenMatchesOwnOrg_Passes(t *testing.T) {
+	mock := setupTestDB(t)
+
+	const targetOrg = "org-abc123"
+	mock.ExpectQuery(`SELECT org_id FROM org_api_tokens WHERE id = \$1`).
+		WithArgs("tok-123").
+		WillReturnRows(sqlmock.NewRows([]string{"org_id"}).AddRow(targetOrg))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("org_token_id", "tok-123")
+
+	if !requireOrgOwnership(c, targetOrg) {
+		t.Error("org-token caller matching own org should be allowed")
+	}
+}
+
+func TestRequireOrgOwnership_OrgTokenCrossOrg_Denied(t *testing.T) {
+	mock := setupTestDB(t)
+
+	// Token belongs to org-abc, trying to access org-xyz → 403
+	mock.ExpectQuery(`SELECT org_id FROM org_api_tokens WHERE id = \$1`).
+		WithArgs("tok-cross").
+		WillReturnRows(sqlmock.NewRows([]string{"org_id"}).AddRow("org-abc"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("org_token_id", "tok-cross")
+
+	if requireOrgOwnership(c, "org-xyz") {
+		t.Error("cross-org org-token caller should be denied")
+	}
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", w.Code)
+	}
+}
+
+func TestRequireOrgOwnership_UnanchoredToken_Denied(t *testing.T) {
+	mock := setupTestDB(t)
+
+	// Unanchored token (org_id NULL) → callerOrg="" → deny
+	mock.ExpectQuery(`SELECT org_id FROM org_api_tokens WHERE id = \$1`).
+		WithArgs("tok-unanchored").
+		WillReturnRows(sqlmock.NewRows([]string{"org_id"}).AddRow(nil))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("org_token_id", "tok-unanchored")
+
+	if requireOrgOwnership(c, "org-any") {
+		t.Error("unanchored org-token caller should be denied (safer default)")
+	}
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", w.Code)
+	}
+}
+
+func TestRequireOrgOwnership_DBError_Denied(t *testing.T) {
+	mock := setupTestDB(t)
+
+	mock.ExpectQuery(`SELECT org_id FROM org_api_tokens WHERE id = \$1`).
+		WithArgs("tok-err").
+		WillReturnError(sql.ErrConnDone)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("org_token_id", "tok-err")
+
+	if requireOrgOwnership(c, "org-any") {
+		t.Error("DB error should deny by default")
+	}
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", w.Code)
+	}
+}
