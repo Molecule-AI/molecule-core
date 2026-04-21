@@ -396,9 +396,6 @@ func (h *WorkspaceHandler) resolveAgentURL(ctx context.Context, workspaceID stri
 			Response: gin.H{"error": "workspace URL is not publicly routable"},
 		}
 	}
-18) to main — isSafeURL in mcp.go and a2a_proxy.go)
-		}
-	}
 	return agentURL, nil
 }
 
