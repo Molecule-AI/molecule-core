@@ -7,6 +7,8 @@ tags: [mcp, model-context-protocol, ai-agents, integrations]
 author: Molecule AI
 og_title: "The MCP Server List: Which Servers Work With Molecule AI?"
 og_description: "Find the right MCP server for your AI agent workflow. Full list of reference servers, official integrations, server frameworks, and community registries — with Molecule AI compatibility notes."
+og_image: /assets/blog/2026-04-21-mcp-server-list-og.png
+twitter_card: summary_large_image
 canonical: https://molecule.ai/blog/mcp-server-list
 keywords:
   - MCP server list
@@ -15,6 +17,25 @@ keywords:
   - MCP server
   - MCP integration
 ---
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "The MCP Server List: Which Servers Work With Molecule AI?",
+  "datePublished": "2026-04-20",
+  "dateModified": "2026-04-21",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  },
+  "description": "A practical guide to the Model Context Protocol ecosystem — finding the right MCP server for your use case, which ones integrate with Molecule AI, and how to evaluate servers before you commit.",
+  "keywords": "MCP server list, MCP servers, Model Context Protocol, MCP server, MCP integration",
+  "url": "https://molecule.ai/blog/mcp-server-list"
+}
+</script>
 
 # The MCP Server List: Which Servers Work With Molecule AI?
 
@@ -278,6 +299,55 @@ Every MCP server your agent can access is a decision about what the agent is per
 This is the governance layer that makes running MCP servers practical in production. A list of MCP servers is only as useful as the controls around them. Molecule AI provides those controls built in.
 
 Get started with MCP on Molecule AI in the [MCP Server Setup Guide](/docs/guides/mcp-server-setup).
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "What is an MCP server?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "An MCP server is a process that implements the Model Context Protocol (MCP). It runs separately from your AI agent and exposes tools, resources, and prompts that any MCP-compatible AI agent can discover and call — without custom code on the agent side."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I add an MCP server to Molecule AI?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Add the server configuration to your Molecule AI workspace config under the mcpServers key. Most servers can be started with a single command (npx, uvx, or Docker) and then referenced in your workspace configuration. Molecule AI's workspace isolation handles the container lifecycle automatically."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which MCP servers are officially supported?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Molecule AI supports the full MCP ecosystem. Reference servers (filesystem, git, memory, brave-search) are maintained by the modelcontextprotocol GitHub organization. Official integrations from Slack, GitHub, AWS, and Google are also available. Any MCP server in the ecosystem is compatible with Molecule AI."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I evaluate an MCP server before adding it to my agent?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Start narrow — add MCP servers only when your agent's tasks require them. Evaluate each server's security posture, credential requirements, and failure modes before adding it. Molecule AI's workspace-level server configuration makes it easy to add servers incrementally and revoke access at the workspace boundary."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I build a custom MCP server?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. MCP server frameworks in Python (official), TypeScript, and Go let you build custom integrations without implementing the protocol from scratch. Package your server as a Docker image and reference it by image URL in your Molecule AI workspace server config for one-command deployment."
+      }
+    }
+  ]
+}
+</script>
 
 ---
 
