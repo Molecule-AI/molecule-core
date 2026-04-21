@@ -3,20 +3,24 @@
  * fresh staging org provisioned in the global setup. Asserts each tab
  * renders without throwing and captures a screenshot for visual review.
  *
- * Relies on `staging-setup.ts` to provision a tenant org, provision one
- * hermes workspace on it, and hand us a tenant URL + workspace id via
- * env (set by the setup file before tests run). Global teardown tears
- * down the org.
+ * Auth model: the tenant platform's AdminAuth middleware accepts a bearer
+ * token OR a WorkOS session cookie. Playwright can't mint a WorkOS
+ * session, so we feed the per-tenant admin token (fetched in global
+ * setup via GET /cp/admin/orgs/:slug/admin-token) as an Authorization:
+ * Bearer header via context.setExtraHTTPHeaders(). Every browser
+ * request inherits the header.
  *
- * Runs only when CANVAS_E2E_STAGING=1 — tests are skipped in local dev
- * where the prerequisite env isn't set.
+ * Known SaaS gaps — documented in #1369 and allowed to render errored
+ * content without failing the test (the gate is "no hard crash, no
+ * 'Failed to load' toast"):
+ *   - Files tab: empty (platform can't docker exec into a remote EC2)
+ *   - Terminal tab: WS connect fails
+ *   - Peers tab: 401 without workspace-scoped token
  */
 
 import { test, expect } from "@playwright/test";
 
 // Tab ids as declared in canvas/src/components/SidePanel.tsx TABS.
-// Kept duplicated here (not imported) because Playwright tests run outside
-// the Next.js bundler and can't import from @/components paths.
 const TAB_IDS = [
   "chat",
   "activity",
@@ -43,32 +47,21 @@ test.describe("staging canvas tabs", () => {
     context,
   }) => {
     const tenantURL = process.env.STAGING_TENANT_URL;
-    const sessionCookie = process.env.STAGING_SESSION_COOKIE;
+    const tenantToken = process.env.STAGING_TENANT_TOKEN;
     const workspaceId = process.env.STAGING_WORKSPACE_ID;
 
-    if (!tenantURL || !sessionCookie || !workspaceId) {
+    if (!tenantURL || !tenantToken || !workspaceId) {
       throw new Error(
-        "staging-setup.ts did not export STAGING_TENANT_URL / STAGING_SESSION_COOKIE / STAGING_WORKSPACE_ID — did global setup run?",
+        "staging-setup.ts did not export STAGING_TENANT_URL / STAGING_TENANT_TOKEN / STAGING_WORKSPACE_ID — did global setup run?",
       );
     }
 
-    // The session cookie was minted by CP at sign-in; canvas on the tenant
-    // subdomain shares it via the parent-domain scope (.moleculesai.app).
-    // Playwright needs both the cookie and the cross-domain visibility.
-    const url = new URL(tenantURL);
-    await context.addCookies([
-      {
-        name: "molecule_cp_session",
-        value: sessionCookie,
-        // Leading dot → valid on all subdomains. The staging WorkOS auth
-        // flow sets it this way, so we mirror.
-        domain: "." + url.hostname.replace(/^[^.]+\./, ""),
-        path: "/",
-        httpOnly: true,
-        secure: true,
-        sameSite: "Lax",
-      },
-    ]);
+    // Attach the per-tenant admin bearer to every outbound request.
+    // The tenant platform's AdminAuth middleware accepts this; no
+    // WorkOS session needed.
+    await context.setExtraHTTPHeaders({
+      Authorization: `Bearer ${tenantToken}`,
+    });
 
     const consoleErrors: string[] = [];
     page.on("console", (msg) => {
@@ -79,12 +72,13 @@ test.describe("staging canvas tabs", () => {
 
     await page.goto(tenantURL, { waitUntil: "networkidle" });
 
-    // Canvas hydration races WebSocket connect + /workspaces fetch. Wait
-    // for the workspace node selector or the hydration-error banner —
-    // whichever wins first.
-    await page.waitForSelector('[role="tablist"], [data-testid="hydration-error"]', {
-      timeout: 45_000,
-    });
+    // Canvas hydration races WebSocket connect + /workspaces fetch.
+    // Wait for the tablist element (appears after a workspace is
+    // selected) or the hydration-error banner — whichever wins first.
+    await page.waitForSelector(
+      '[role="tablist"], [data-testid="hydration-error"]',
+      { timeout: 45_000 },
+    );
 
     const hydrationErr = await page
       .locator('[data-testid="hydration-error"]')
@@ -94,20 +88,19 @@ test.describe("staging canvas tabs", () => {
       "canvas hydration failed — check staging CP + tenant reachability",
     ).toBe(0);
 
-    // Click the workspace node to open the side panel. The node's
-    // accessible name is the workspace display name; we match by id attr
-    // to avoid coupling to the display name which tests can't know.
-    const node = page.locator(`[data-workspace-id="${workspaceId}"]`).first();
-    // Fallback: click by role if the data attribute isn't wired
-    if ((await node.count()) === 0) {
-      // Try clicking the first workspace card visible
-      const firstNode = page.locator('[role="button"][aria-label*="Workspace"]').first();
-      await firstNode.click({ timeout: 10_000 });
+    // Click the workspace node to open the side panel. Try a data
+    // attribute first, fall back to a generic role-based selector so
+    // the test doesn't break when the node-card markup changes.
+    const byDataAttr = page.locator(`[data-workspace-id="${workspaceId}"]`).first();
+    if ((await byDataAttr.count()) > 0) {
+      await byDataAttr.click({ timeout: 10_000 });
     } else {
-      await node.click({ timeout: 10_000 });
+      const firstNode = page
+        .locator('[role="button"][aria-label*="Workspace" i]')
+        .first();
+      await firstNode.click({ timeout: 10_000 });
     }
 
-    // Wait for the side panel tablist to mount
     await page.waitForSelector('[role="tablist"]', { timeout: 15_000 });
 
     for (const tabId of TAB_IDS) {
@@ -120,23 +113,17 @@ test.describe("staging canvas tabs", () => {
         await tabButton.click();
 
         const panel = page.locator(`#panel-${tabId}`);
-        await expect(
-          panel,
-          `panel for ${tabId} never rendered`,
-        ).toBeVisible({ timeout: 10_000 });
+        await expect(panel, `panel for ${tabId} never rendered`).toBeVisible({
+          timeout: 10_000,
+        });
 
-        // No toast-style error banner should appear for a healthy workspace.
-        // Known exceptions: terminal may 4xx on SaaS cross-EC2 (WS target
-        // unreachable), peers may 401 without workspace token. Those are
-        // reported separately in issue #1369; here we just guard against
-        // hard crashes (toast with "Error" keyword).
+        // "Failed to load" toast = hard crash. Known SaaS-mode gaps
+        // (Files empty, Terminal disconnected, Peers 401) surface as
+        // in-panel content, not toasts.
         const errorToasts = await page
           .locator('[role="alert"]:has-text("Failed to load")')
           .count();
-        expect(
-          errorToasts,
-          `tab ${tabId}: saw "Failed to load" toast`,
-        ).toBe(0);
+        expect(errorToasts, `tab ${tabId}: "Failed to load" toast`).toBe(0);
 
         await page.screenshot({
           path: `test-results/staging-tab-${tabId}.png`,
@@ -145,14 +132,16 @@ test.describe("staging canvas tabs", () => {
       });
     }
 
-    // Aggregate console-error check. Allow a small budget for known-noisy
-    // Sentry/Vercel analytics errors that don't reflect app health.
+    // Aggregate console-error budget. Known-noisy sources whitelisted:
+    // Sentry, Vercel analytics, WS reconnects (expected on SaaS
+    // terminal), favicon 404 (cosmetic).
     const appErrors = consoleErrors.filter(
       (msg) =>
         !msg.includes("sentry") &&
         !msg.includes("vercel") &&
-        !msg.includes("WebSocket") && // WS failures ≠ app failures
-        !msg.includes("favicon"),
+        !msg.includes("WebSocket") &&
+        !msg.includes("favicon") &&
+        !msg.includes("molecule-icon.png"), // another cosmetic 404
     );
     expect(
       appErrors,

@@ -42,7 +42,6 @@ jobs:
 
     env:
       MOLECULE_CP_URL: https://staging-api.moleculesai.app
-      MOLECULE_SESSION_COOKIE: ${{ secrets.MOLECULE_STAGING_SESSION_COOKIE }}
       MOLECULE_ADMIN_TOKEN: ${{ secrets.MOLECULE_STAGING_ADMIN_TOKEN }}
       E2E_MODE: canary
       E2E_RUNTIME: hermes
@@ -51,10 +50,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify required secrets
+      - name: Verify admin token present
         run: |
-          if [ -z "$MOLECULE_SESSION_COOKIE" ] || [ -z "$MOLECULE_ADMIN_TOKEN" ]; then
-            echo "::error::Canary secrets missing — set MOLECULE_STAGING_SESSION_COOKIE and MOLECULE_STAGING_ADMIN_TOKEN"
+          if [ -z "$MOLECULE_ADMIN_TOKEN" ]; then
+            echo "::error::MOLECULE_STAGING_ADMIN_TOKEN not set"
             exit 2
           fi
 

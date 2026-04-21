@@ -1,25 +1,21 @@
 /**
  * Playwright global setup for the staging canvas E2E.
  *
- * Provisions a fresh staging org per test run (via POST /cp/orgs against
- * staging CP), waits for the tenant EC2 + cloudflared tunnel + TLS
- * propagation, provisions one hermes workspace on the new tenant, waits
- * for it to reach status=online, then exports:
+ * Provisions a fresh staging org per run (POST /cp/admin/orgs), fetches
+ * the per-tenant admin token, provisions one hermes workspace, waits
+ * for online, then exports:
  *
- *   STAGING_TENANT_URL    — https://<slug>.moleculesai.app
- *   STAGING_WORKSPACE_ID  — UUID of the provisioned hermes workspace
- *   STAGING_SLUG          — org slug (for teardown)
+ *   STAGING_TENANT_URL     https://<slug>.moleculesai.app
+ *   STAGING_WORKSPACE_ID   UUID of the hermes workspace
+ *   STAGING_TENANT_TOKEN   per-tenant admin bearer (for spec requests)
+ *   STAGING_SLUG           org slug (used by teardown)
  *
- * staging-teardown.ts consumes STAGING_SLUG to DELETE the org.
- *
- * Required env (set via GH Actions secrets in the workflow):
- *   MOLECULE_CP_URL           default: https://staging-api.moleculesai.app
- *   MOLECULE_SESSION_COOKIE   WorkOS session for the staging test user
- *   MOLECULE_ADMIN_TOKEN      CP admin bearer for teardown (unused in setup
- *                             but checked here so both halves fail fast)
- *
- * Runs only when CANVAS_E2E_STAGING=1 so local `pnpm playwright test` in
- * dev doesn't try to provision against staging by accident.
+ * Required env:
+ *   MOLECULE_CP_URL        default: https://staging-api.moleculesai.app
+ *   MOLECULE_ADMIN_TOKEN   CP admin bearer (Railway staging
+ *                          CP_ADMIN_API_TOKEN). Drives provision +
+ *                          tenant-token retrieval + teardown via a
+ *                          single credential.
  */
 
 import type { FullConfig } from "@playwright/test";
@@ -27,11 +23,10 @@ import { writeFileSync } from "fs";
 import { join } from "path";
 
 const CP_URL = process.env.MOLECULE_CP_URL || "https://staging-api.moleculesai.app";
-const SESSION = process.env.MOLECULE_SESSION_COOKIE;
 const ADMIN_TOKEN = process.env.MOLECULE_ADMIN_TOKEN;
 const STAGING = process.env.CANVAS_E2E_STAGING === "1";
 
-const PROVISION_TIMEOUT_MS = 15 * 60 * 1000; // 15 min cold-boot budget
+const PROVISION_TIMEOUT_MS = 15 * 60 * 1000;
 const WORKSPACE_ONLINE_TIMEOUT_MS = 10 * 60 * 1000;
 const TLS_TIMEOUT_MS = 3 * 60 * 1000;
 
@@ -41,10 +36,7 @@ async function jsonFetch(
 ): Promise<{ status: number; body: any }> {
   const res = await fetch(url, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init.headers || {}),
-    },
+    headers: { "Content-Type": "application/json", ...(init.headers || {}) },
   });
   let body: any = null;
   try {
@@ -71,8 +63,6 @@ async function waitFor<T>(
 }
 
 function makeSlug(): string {
-  // Matches CP's ^[a-z][a-z0-9-]{2,31}$. The "e2e-" prefix lets auto-cleanup
-  // crons grep-find leftovers from crashed runs.
   const y = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const rand = Math.random().toString(36).slice(2, 8);
   return `e2e-canvas-${y}-${rand}`.slice(0, 32);
@@ -83,67 +73,65 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
     console.log("[staging-setup] CANVAS_E2E_STAGING not set, skipping");
     return;
   }
-
-  if (!SESSION) {
-    throw new Error("MOLECULE_SESSION_COOKIE required for staging E2E");
-  }
   if (!ADMIN_TOKEN) {
     throw new Error(
-      "MOLECULE_ADMIN_TOKEN required for staging E2E (teardown needs it)",
+      "MOLECULE_ADMIN_TOKEN required (Railway staging CP_ADMIN_API_TOKEN)",
     );
   }
 
   const slug = makeSlug();
-  const cookieHeader = `molecule_cp_session=${SESSION}`;
+  const adminAuth = { Authorization: `Bearer ${ADMIN_TOKEN}` };
   console.log(`[staging-setup] Using slug=${slug}`);
 
-  // 1. Accept terms (idempotent — already-accepted returns 2xx or 400)
-  await jsonFetch(`${CP_URL}/cp/auth/accept-terms`, {
+  // 1. Create org via admin endpoint — no WorkOS session needed
+  const create = await jsonFetch(`${CP_URL}/cp/admin/orgs`, {
     method: "POST",
-    headers: { Cookie: cookieHeader },
-    body: JSON.stringify({}),
-  }).catch(() => {
-    /* best-effort */
-  });
-
-  // 2. Create org
-  const create = await jsonFetch(`${CP_URL}/cp/orgs`, {
-    method: "POST",
-    headers: { Cookie: cookieHeader },
-    body: JSON.stringify({ slug, name: `E2E Canvas ${slug}` }),
+    headers: adminAuth,
+    body: JSON.stringify({
+      slug,
+      name: `E2E Canvas ${slug}`,
+      owner_user_id: `e2e-runner:${slug}`,
+    }),
   });
   if (create.status >= 400) {
     throw new Error(
-      `POST /cp/orgs returned ${create.status}: ${JSON.stringify(create.body)}`,
+      `POST /cp/admin/orgs ${create.status}: ${JSON.stringify(create.body)}`,
     );
   }
   console.log(`[staging-setup] Org created: ${slug}`);
 
-  // 3. Wait for tenant provision (status=running)
-  const finalStatus = await waitFor<{ url?: string; status: string }>(
+  // 2. Wait for tenant running (admin-orgs list is the status source)
+  await waitFor<boolean>(
     async () => {
-      const r = await jsonFetch(
-        `${CP_URL}/cp/orgs/${slug}/provision-status`,
-        { headers: { Cookie: cookieHeader } },
-      );
+      const r = await jsonFetch(`${CP_URL}/cp/admin/orgs`, { headers: adminAuth });
       if (r.status !== 200) return null;
-      if (r.body?.status === "running") return r.body;
-      if (r.body?.status === "failed") {
-        throw new Error(`Provisioning failed: ${JSON.stringify(r.body)}`);
-      }
+      const row = (r.body?.orgs || []).find((o: any) => o.slug === slug);
+      if (!row) return null;
+      if (row.status === "running") return true;
+      if (row.status === "failed") throw new Error(`provision failed: ${slug}`);
       return null;
     },
     PROVISION_TIMEOUT_MS,
     15_000,
     "tenant provision",
   );
+  console.log(`[staging-setup] Tenant running`);
 
-  const tenantURL =
-    finalStatus.url ||
-    `https://${slug}.${CP_URL.includes("staging") ? "moleculesai.app" : "moleculesai.app"}`;
+  // 3. Fetch per-tenant admin token
+  const tokRes = await jsonFetch(
+    `${CP_URL}/cp/admin/orgs/${slug}/admin-token`,
+    { headers: adminAuth },
+  );
+  if (tokRes.status !== 200 || !tokRes.body?.admin_token) {
+    throw new Error(
+      `tenant-token fetch ${tokRes.status}: ${JSON.stringify(tokRes.body)}`,
+    );
+  }
+  const tenantToken: string = tokRes.body.admin_token;
+  const tenantURL = `https://${slug}.moleculesai.app`;
   console.log(`[staging-setup] Tenant URL: ${tenantURL}`);
 
-  // 4. Wait for tenant TLS readiness
+  // 4. TLS readiness
   await waitFor<boolean>(
     async () => {
       try {
@@ -160,10 +148,11 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
     "tenant TLS",
   );
 
-  // 5. Provision one hermes workspace (cheapest, fastest-booting)
+  // 5. Provision workspace
+  const tenantAuth = { Authorization: `Bearer ${tenantToken}` };
   const ws = await jsonFetch(`${tenantURL}/workspaces`, {
     method: "POST",
-    headers: { Cookie: cookieHeader },
+    headers: tenantAuth,
     body: JSON.stringify({
       name: "E2E Canvas Test",
       runtime: "hermes",
@@ -172,9 +161,7 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
     }),
   });
   if (ws.status >= 400 || !ws.body?.id) {
-    throw new Error(
-      `Workspace create failed (${ws.status}): ${JSON.stringify(ws.body)}`,
-    );
+    throw new Error(`Workspace create ${ws.status}: ${JSON.stringify(ws.body)}`);
   }
   const workspaceId = ws.body.id as string;
   console.log(`[staging-setup] Workspace created: ${workspaceId}`);
@@ -183,14 +170,12 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   await waitFor<boolean>(
     async () => {
       const r = await jsonFetch(`${tenantURL}/workspaces/${workspaceId}`, {
-        headers: { Cookie: cookieHeader },
+        headers: tenantAuth,
       });
       if (r.status !== 200) return null;
       if (r.body?.status === "online") return true;
       if (r.body?.status === "failed") {
-        throw new Error(
-          `Workspace ${workspaceId} failed: ${r.body.last_sample_error || ""}`,
-        );
+        throw new Error(`Workspace failed: ${r.body.last_sample_error || ""}`);
       }
       return null;
     },
@@ -200,19 +185,15 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   );
   console.log(`[staging-setup] Workspace online`);
 
-  // 7. Export via a state file so staging-teardown and the test spec can
-  //    pick up the same slug / urls. Playwright's global setup can't
-  //    export env to the test subprocess directly in all configurations.
+  // 7. Hand state off to tests + teardown
   const stateFile = join(process.cwd(), ".playwright-staging-state.json");
   writeFileSync(
     stateFile,
-    JSON.stringify({ slug, tenantURL, workspaceId }, null, 2),
+    JSON.stringify({ slug, tenantURL, workspaceId, tenantToken }, null, 2),
   );
-  // Also set env for in-process test reads.
   process.env.STAGING_SLUG = slug;
   process.env.STAGING_TENANT_URL = tenantURL;
   process.env.STAGING_WORKSPACE_ID = workspaceId;
-  process.env.STAGING_SESSION_COOKIE = SESSION;
-
+  process.env.STAGING_TENANT_TOKEN = tenantToken;
   console.log(`[staging-setup] Ready — ${stateFile}`);
 }

@@ -1,63 +1,76 @@
-# Staging full-SaaS E2E
+# Staging SaaS E2E — runbook
 
-`tests/e2e/test_staging_full_saas.sh` provisions a fresh org per run, exercises the workspace lifecycle end-to-end, then tears the org down and asserts leak-free. Runs in CI via `.github/workflows/e2e-staging-saas.yml`.
+Four workflows + a shared bash harness that together cover the SaaS stack end to end against live staging. Every workflow provisions a fresh org per run and tears it down; leaks are CI failures.
 
-## What it covers
+## Coverage
 
-| Step | What it verifies |
+| Workflow | Cadence | Wall time | Scope |
+|---|---|---|---|
+| `e2e-staging-saas.yml` | push + nightly 07:00 UTC | ~20 min | Full API: org → tenant → 2 workspaces → A2A → HMA → delegation → leak check |
+| `canary-staging.yml` | every 30 min | ~8 min | Minimum smoke + self-managed alert issue |
+| `e2e-staging-canvas.yml` | push + weekly Sunday 08:00 | ~25 min | All 13 canvas workspace-panel tabs via Playwright |
+| `e2e-staging-sanity.yml` | weekly Monday 06:00 | ~10 min | Intentional-failure: teardown safety-net self-check |
+
+`tests/e2e/test_staging_full_saas.sh` is the shared harness all workflows invoke (with `E2E_MODE={full|canary}` and `E2E_INTENTIONAL_FAILURE={0|1}` toggles).
+
+### Full-SaaS checklist (sections)
+
+| # | What |
 |---|---|
-| 1. Accept terms (POST `/cp/auth/accept-terms`) | Session cookie valid, ToS gate honours idempotent replay |
-| 2. Create org (POST `/cp/orgs`) | Slug validation, member insert, billing gate, quota |
-| 3. Wait for provisioning | CP tenant EC2 boot + cloudflared tunnel + DNS + TLS (~5–10 min cold) |
-| 4. Tenant health (GET `/health` on new tenant URL) | Cert chain OK, TenantGuard + session-auth wired |
-| 5. Provision parent workspace | SaaS provision path (CP RunInstances, EC2 bootstrap, runtime register) |
-| 6. Provision child workspace under parent | `parent_id` relationship, team-hierarchy |
-| 7. Wait both online | Workspace sweeper + register handler + token bootstrap |
-| 8. A2A round-trip (POST `/workspaces/:id/a2a`) | Full LLM loop — registration, MCP tools, provider auth, response shape |
-| 9. HMA memory write+read | `/memories` scope routing, awareness namespace, persistence |
-| 9b. Peers + activity smoke | Route registration + activity-log write path |
-| 10. Teardown | `DELETE /cp/admin/tenants/:slug` + leak assertion |
+| 0 | CP preflight |
+| 1 | `POST /cp/admin/orgs` — org create without WorkOS session |
+| 2 | Wait for tenant status = running |
+| 3 | `GET /cp/admin/orgs/:slug/admin-token` — fetch per-tenant bearer |
+| 4 | Tenant TLS readiness on `/health` |
+| 5 | Provision parent workspace |
+| 6 | Provision child workspace (full mode) |
+| 7 | Wait both online |
+| 8 | A2A round-trip on parent — expect agent response |
+| 9 | HMA memory write + read, peers smoke, activity log (full mode) |
+| 10 | Delegation mechanics: parent → child via proxy + activity assertion (full mode) |
+| 11 | EXIT trap — teardown + leak detection |
 
-If any step fails, the EXIT trap tears down the org anyway.
+### Canvas tabs
 
-## Required GitHub Actions secrets
+Opens all 13 workspace-panel tabs against the freshly-provisioned org:
 
-Both are at **Settings → Secrets and variables → Actions → Repository secrets**:
+```
+chat, activity, details, skills, terminal, config, schedule,
+channels, files, memory, traces, events, audit
+```
 
-### `MOLECULE_STAGING_SESSION_COOKIE`
+Per tab: visible, panel renders, no "Failed to load" toast, screenshot captured. Known SaaS-mode gaps (Files empty, Terminal disconnect, Peers 401) are whitelisted — see issue #1369.
 
-A valid `molecule_cp_session` cookie for a **test user** that:
+### Sanity self-check
 
-- is on the staging beta allowlist (or `BETA_GATE_ENABLED=false` on staging)
-- has already accepted the current terms version (the script re-accepts idempotently but can't bootstrap from unaccepted)
-- has under-quota owned orgs
+Runs the harness with `E2E_INTENTIONAL_FAILURE=1`, which poisons the tenant admin token after the org is provisioned. The workspace-provision step then fails and the script exits non-zero; the EXIT trap + teardown + leak assertion must still run clean. If they don't, the sanity workflow files a `priority-high` issue with label `e2e-safety-net`.
 
-**How to extract:**
+## Required secret (exactly one)
 
-1. In an incognito window, sign in at `https://staging-api.moleculesai.app/cp/auth/login` with the test user.
-2. DevTools → Application → Cookies → `https://staging-api.moleculesai.app`
-3. Copy the `molecule_cp_session` value (base64-looking blob).
-4. Paste as the secret value. Do not include the `molecule_cp_session=` prefix.
-
-**Rotation:** WorkOS sessions don't expire until the user signs out or the refresh token revokes. A 90-day rotation schedule is safe.
+Set in **Settings → Secrets and variables → Actions → Repository secrets**:
 
 ### `MOLECULE_STAGING_ADMIN_TOKEN`
 
-The `CP_ADMIN_API_TOKEN` env var currently set on the Railway **staging** molecule-platform → controlplane service.
-
-**How to extract:**
+The `CP_ADMIN_API_TOKEN` env currently set on the Railway staging molecule-platform → controlplane service.
 
 ```
-railway variables --service controlplane --environment staging --kv | grep CP_ADMIN_API_TOKEN
+railway variables --environment staging --service controlplane --kv | grep CP_ADMIN_API_TOKEN
 ```
 
-Used exclusively for teardown (`DELETE /cp/admin/tenants/:slug`) and leak detection (`GET /cp/admin/orgs`). Write access, treat like prod admin.
+This **one** secret drives everything:
+
+- `POST /cp/admin/orgs` — provision org (no WorkOS session needed)
+- `GET /cp/admin/orgs/:slug/admin-token` — fetch per-tenant bearer
+- `DELETE /cp/admin/tenants/:slug` — teardown
+- `GET /cp/admin/orgs` — leak detection post-teardown
+
+The per-tenant admin token (short-lived, per-org) drives every tenant-side call (`POST /workspaces`, `/memories`, `/a2a`, etc.).
+
+**No WorkOS session cookie needed** — admin endpoints bypass session auth via `AdminGate` (bearer + rate-limit only). CI provision + teardown collapse to one credential.
 
 ## Running locally
 
 ```
-export MOLECULE_CP_URL=https://staging-api.moleculesai.app
-export MOLECULE_SESSION_COOKIE="…"
 export MOLECULE_ADMIN_TOKEN="…"
 # Optional: keep the org for post-mortem inspection
 export E2E_KEEP_ORG=1
@@ -68,14 +81,29 @@ bash tests/e2e/test_staging_full_saas.sh
 
 ## Cost
 
-- Full run: ~20 min wall clock
-- Compute: ~12 min of t3.small tenant EC2 + ~4 min of per-workspace EC2 × 2 = ~20 t3.small-minutes ≈ **$0.007/run**
-- Daily (nightly cron + PR runs ≈ 5/day): **~$0.04/day**
-- Hard timeout (30 min workflow timeout + per-request curl timeouts) caps runaway cost
+- Full run: ~20 min, ~$0.007
+- Canary (48/day): ~$0.06/day
+- Canvas (few/week): ~$0.01/day
+- Sanity (weekly): ~$0.002/week
+- **Total staging burn: < $0.15/day** at expected CI load
 
-## Known gaps (follow-ups)
+Hard per-workflow timeouts (15–40 min) cap runaway cost. Three teardown layers:
 
-- Canvas UI tabs not covered — separate Playwright workflow in `e2e-staging-canvas.yml` (todo)
-- Delegation end-to-end (parent calls `delegate_task` MCP tool against child) — not in this run because it needs a real LLM loop and doubles runtime cost
-- Claude Code runtime test — currently only Hermes is exercised to keep wall time down; pass `runtime: claude-code` via workflow_dispatch to test it
-- No screenshot/trace capture on failure — add if CI signal is noisy
+1. Bash `trap cleanup_org EXIT INT TERM` in the harness
+2. Playwright `globalTeardown` for the canvas workflow
+3. `if: always()` step in every workflow that greps today's `e2e-*` orgs and force-deletes them
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Happy path |
+| 1 | Generic failure (agent didn't respond, provisioning hung, etc.) |
+| 2 | Missing required env |
+| 3 | Provisioning timed out |
+| 4 | Teardown left orphan resources (**leak detected — sanity workflow catches this**) |
+
+## Known gaps (tracked elsewhere)
+
+- [#1369](https://github.com/Molecule-AI/molecule-core/issues/1369): SaaS canvas Files / Terminal / Peers tabs — architecturally broken; whitelisted in the spec
+- LLM-driven delegation (autonomous `delegate_task` tool use) — probabilistic, not in v1; proxy mechanics covered
