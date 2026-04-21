@@ -46,6 +46,13 @@ RUN chmod +x /scripts/clone-manifest.sh && /scripts/clone-manifest.sh /manifest.
 FROM node:20-alpine
 RUN apk add --no-cache ca-certificates git tzdata
 
+# Non-root runtime for the Node.js canvas process.
+# The Go binary (started by entrypoint.sh) is also non-root — the
+# entrypoint runs as root only long enough to set volume ownership,
+# then exec's as the 'canvas' user via su-exec / setpriv.
+# The Go platform itself drops privileges after init.
+RUN addgroup -g 1000 canvas && adduser -u 1000 -G canvas -s /bin/sh -D canvas
+
 # Go platform binary
 COPY --from=go-builder /platform /platform
 COPY workspace-server/migrations /migrations
@@ -62,7 +69,11 @@ COPY --from=canvas-builder /canvas/.next/static ./.next/static
 COPY --from=canvas-builder /canvas/public ./public
 
 COPY workspace-server/entrypoint-tenant.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN chmod +x /entrypoint.sh && \
+    chown -R canvas:canvas /canvas /platform /migrations
 
 EXPOSE 8080
+# entrypoint.sh starts as root to fix volume perms, then drops to
+# canvas user. The Go binary (PID 1 replacement) runs as non-root.
+USER canvas
 CMD ["/entrypoint.sh"]
