@@ -184,6 +184,17 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 		if id, prefix, err := orgtoken.Validate(ctx, database, tok); err == nil {
 			c.Set("org_token_id", id)
 			c.Set("org_token_prefix", prefix)
+			// F1097: also set org_id from the token's org_id column so that
+			// requireCallerOwnsOrg can look it up via c.Get("org_id").
+			// Tokens created before PR #1210 have org_id=NULL — for those,
+			// the SELECT returns nil and no org_id is set, which is correct:
+			// requireCallerOwnsOrg already denies access for nil org_id.
+			var orgID *string
+			if err := database.QueryRowContext(ctx,
+				`SELECT org_id::text FROM org_api_tokens WHERE id = $1`, id,
+			).Scan(&orgID); err == nil && orgID != nil && *orgID != "" {
+				c.Set("org_id", *orgID)
+			}
 			c.Next()
 			return
 		} else if !errors.Is(err, orgtoken.ErrInvalidToken) {

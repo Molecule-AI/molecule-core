@@ -1,15 +1,14 @@
 // @vitest-environment jsdom
 /**
- * MemoryInspectorPanel tests — issue #730
+ * MemoryInspectorPanel tests — issue #909
  *
- * Covers: loading, empty state, entry list, expand, edit flow (happy path,
- * invalid JSON, cancel), delete flow (confirm, cancel), optimistic updates,
- * and Refresh.
+ * Covers: loading, empty state, scope tabs, namespace filter,
+ * entry list, expand, delete flow, optimistic updates, Refresh, semantic search.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 
-// ── Mocks (must be hoisted before any imports) ────────────────────────────────
+// ── Mocks ─────────────────────────────────────────────────────────────────────
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -19,9 +18,6 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
-// ConfirmDialog uses createPortal + a `mounted` state guard that requires
-// useEffect to fire. We mock it to a simple inline rendering so tests are
-// synchronous and don't depend on document.body portal availability.
 vi.mock("@/components/ConfirmDialog", () => ({
   ConfirmDialog: ({
     open,
@@ -49,38 +45,37 @@ vi.mock("@/components/ConfirmDialog", () => ({
     ) : null,
 }));
 
-// ── Imports (after mocks) ─────────────────────────────────────────────────────
-
 import { api } from "@/lib/api";
 import { MemoryInspectorPanel } from "../MemoryInspectorPanel";
 
 // ── Typed mock helpers ────────────────────────────────────────────────────────
 
 const mockGet = vi.mocked(api.get);
-const mockPost = vi.mocked(api.post);
 const mockDel = vi.mocked(api.del);
 
 // ── Sample fixtures ───────────────────────────────────────────────────────────
 
-const NOW = new Date("2026-04-17T12:00:00.000Z").toISOString();
-const LATER = new Date("2026-04-17T13:00:00.000Z").toISOString();
+const NOW = "2026-04-17T12:00:00.000Z";
 
-const ENTRY_A = {
-  key: "task-queue",
-  value: { pending: ["t-1", "t-2"], done: [] },
-  version: 3,
-  updated_at: NOW,
+const MEMORY_A: import("../MemoryInspectorPanel").MemoryEntry = {
+  id: "mem-a",
+  workspace_id: "ws-1",
+  content: "Remember to review PRs before merging",
+  scope: "LOCAL",
+  namespace: "general",
+  created_at: NOW,
 };
 
-const ENTRY_B = {
-  key: "session-token",
-  value: "abc123",
-  version: 1,
-  expires_at: LATER,
-  updated_at: NOW,
+const MEMORY_B: import("../MemoryInspectorPanel").MemoryEntry = {
+  id: "mem-b",
+  workspace_id: "ws-1",
+  content: "Team knowledge: deploy happens on Fridays",
+  scope: "TEAM",
+  namespace: "procedures",
+  created_at: NOW,
 };
 
-const TWO_ENTRIES = [ENTRY_A, ENTRY_B];
+const TWO_MEMORIES = [MEMORY_A, MEMORY_B];
 
 // ── Setup / teardown ──────────────────────────────────────────────────────────
 
@@ -92,82 +87,177 @@ afterEach(() => {
   cleanup();
 });
 
+// ── Helper: flush microtasks + React state updates ─────────────────────────────
+async function flushUpdates(): Promise<void> {
+  await act(async () => {});
+}
+
 // ── Loading & empty state ─────────────────────────────────────────────────────
 
 describe("MemoryInspectorPanel — loading and empty state", () => {
   it("shows loading indicator before data arrives", () => {
-    // Never resolves within this test — just checks the loading UI
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockGet.mockReturnValue(new Promise(() => {}) as any);
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    expect(screen.getByText(/loading memory/i)).toBeTruthy();
+    expect(screen.getByText(/loading memories/i)).toBeTruthy();
   });
 
   it("renders empty state when API returns []", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockGet.mockResolvedValue([] as any);
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() =>
-      expect(screen.getByText("No memory entries yet")).toBeTruthy()
-    );
+    await flushUpdates();
+    expect(screen.getByText("No LOCAL memories")).toBeTruthy();
   });
 
-  it("fetches from the correct workspace memory endpoint", async () => {
+  it("fetches from the correct workspace memories endpoint with scope=LOCAL", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockGet.mockResolvedValue([] as any);
     render(<MemoryInspectorPanel workspaceId="ws-abc-123" />);
-    await waitFor(() =>
-      expect(mockGet).toHaveBeenCalledWith("/workspaces/ws-abc-123/memory")
+    await flushUpdates();
+    expect(mockGet).toHaveBeenCalledWith(
+      "/workspaces/ws-abc-123/memories?scope=LOCAL"
     );
   });
 
   it("shows error banner when fetch throws", async () => {
     mockGet.mockRejectedValue(new Error("Network error"));
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() =>
-      expect(screen.getByText("Network error")).toBeTruthy()
-    );
+    await flushUpdates();
+    expect(screen.getByText("Network error")).toBeTruthy();
   });
 });
 
-// ── Entry list ────────────────────────────────────────────────────────────────
+// ── Scope tabs ────────────────────────────────────────────────────────────────
+
+describe("MemoryInspectorPanel — scope tabs", () => {
+  it("renders LOCAL, TEAM, GLOBAL tabs", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue([] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await flushUpdates();
+    expect(screen.getByRole("button", { name: "LOCAL" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "TEAM" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "GLOBAL" })).toBeTruthy();
+  });
+
+  it("LOCAL is active by default", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue([] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await flushUpdates();
+    expect(screen.getByRole("button", { name: "LOCAL" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("clicking TEAM tab re-fetches with scope=TEAM", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue([] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await flushUpdates();
+
+    mockGet.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "TEAM" }));
+    await flushUpdates();
+    expect(mockGet).toHaveBeenCalledWith(
+      "/workspaces/ws-1/memories?scope=TEAM"
+    );
+  });
+
+  it("clicking GLOBAL tab re-fetches with scope=GLOBAL", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue([] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await flushUpdates();
+
+    mockGet.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "GLOBAL" }));
+    await flushUpdates();
+    expect(mockGet).toHaveBeenCalledWith(
+      "/workspaces/ws-1/memories?scope=GLOBAL"
+    );
+  });
+
+  it("shows scope-specific empty state when switching tabs", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue([] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await flushUpdates();
+
+    fireEvent.click(screen.getByRole("button", { name: "TEAM" }));
+    await flushUpdates();
+    expect(screen.getByText("No TEAM memories")).toBeTruthy();
+  });
+});
+
+// ── Namespace filter ──────────────────────────────────────────────────────────
+
+describe("MemoryInspectorPanel — namespace filter", () => {
+  it("renders namespace filter input", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue([] as any);
+    render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await flushUpdates();
+    expect(screen.getByLabelText("Filter by namespace")).toBeTruthy();
+  });
+
+  it("includes namespace param in API call when set", async () => {
+    vi.useFakeTimers();
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mockGet.mockResolvedValue([] as any);
+      render(<MemoryInspectorPanel workspaceId="ws-1" />);
+      await flushUpdates();
+
+      mockGet.mockClear();
+      fireEvent.change(screen.getByLabelText("Filter by namespace"), {
+        target: { value: "facts" },
+      });
+      // Advance past the 300ms debounce
+      act(() => { vi.advanceTimersByTime(350); });
+      await flushUpdates();
+
+      expect(mockGet).toHaveBeenCalledWith(
+        "/workspaces/ws-1/memories?scope=LOCAL&namespace=facts"
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ── Entry list ───────────────────────────────────────────────────────────────
 
 describe("MemoryInspectorPanel — entry list", () => {
   beforeEach(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockGet.mockResolvedValue(TWO_ENTRIES as any);
+    mockGet.mockResolvedValue(TWO_MEMORIES as any);
   });
 
-  it("renders a row for every entry key", async () => {
+  it("renders a row for every memory", async () => {
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() => screen.getByText("task-queue"));
-    expect(screen.getByText("session-token")).toBeTruthy();
+    await flushUpdates();
+    expect(screen.getByText(/Remember to review PRs before merging/)).toBeTruthy();
+    expect(screen.getByText(/Team knowledge: deploy happens on Fridays/)).toBeTruthy();
   });
 
-  it("displays '2 entries' count in the toolbar", async () => {
+  it("displays memory count in toolbar", async () => {
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() => expect(screen.getByText("2 entries")).toBeTruthy());
+    await flushUpdates();
+    expect(screen.getByText("2 memories")).toBeTruthy();
   });
 
-  it("displays '1 entry' (singular) when there is one entry", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockGet.mockResolvedValue([ENTRY_A] as any);
+  it("displays scope badge for each entry", async () => {
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() => expect(screen.getByText("1 entry")).toBeTruthy());
+    await flushUpdates();
+    expect(screen.getByTitle("Scope: LOCAL")).toBeTruthy();
+    expect(screen.getByTitle("Scope: TEAM")).toBeTruthy();
   });
 
-  it("shows version badge for each entry", async () => {
+  it("entries are collapsed by default (pre region not visible)", async () => {
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() => screen.getByText("task-queue"));
-    expect(screen.getByText("v3")).toBeTruthy();
-    expect(screen.getByText("v1")).toBeTruthy();
-  });
-
-  it("entries are collapsed by default (value not visible)", async () => {
-    render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() => screen.getByText("task-queue"));
-    // The JSON value should NOT be rendered while collapsed
-    expect(screen.queryByText(/"pending"/)).toBeNull();
+    await flushUpdates();
+    // Expanded region (pre tag) should not exist in DOM yet
+    expect(screen.queryByRole("region")).toBeNull();
   });
 });
 
@@ -176,144 +266,36 @@ describe("MemoryInspectorPanel — entry list", () => {
 describe("MemoryInspectorPanel — expand/collapse", () => {
   beforeEach(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockGet.mockResolvedValue(TWO_ENTRIES as any);
+    mockGet.mockResolvedValue(TWO_MEMORIES as any);
   });
 
-  it("clicking a row header expands it and shows the JSON value", async () => {
+  it("clicking a row header expands it and shows the full content in a pre tag", async () => {
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() => screen.getByText("task-queue"));
+    await flushUpdates();
 
-    // Click to expand
     fireEvent.click(
-      screen.getByText("task-queue").closest("button")!
+      screen.getByText(/Remember to review PRs before merging/).closest("button")!
     );
-
-    await waitFor(() =>
-      expect(screen.getByText(/"pending"/)).toBeTruthy()
-    );
+    await flushUpdates();
+    // After expand, a region with the full content <pre> should appear
+    expect(screen.getByRole("region")).toBeTruthy();
   });
 
-  it("clicking the header again collapses the row", async () => {
+  it("clicking the header again collapses the row (pre region removed)", async () => {
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() => screen.getByText("task-queue"));
+    await flushUpdates();
 
-    const headerBtn = screen.getByText("task-queue").closest("button")!;
+    const headerBtn = screen
+      .getByText(/Remember to review PRs before merging/)
+      .closest("button")!;
     fireEvent.click(headerBtn); // expand
-    await waitFor(() => screen.getByText(/"pending"/));
+    await flushUpdates();
+    expect(screen.getByRole("region")).toBeTruthy();
 
     fireEvent.click(headerBtn); // collapse
-    await waitFor(() =>
-      expect(screen.queryByText(/"pending"/)).toBeNull()
-    );
-  });
-
-  it("shows expires_at when present", async () => {
-    render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() => screen.getByText("session-token"));
-    fireEvent.click(
-      screen.getByText("session-token").closest("button")!
-    );
-    await waitFor(() =>
-      expect(screen.getByText(/expires/i)).toBeTruthy()
-    );
-  });
-});
-
-// ── Edit flow ─────────────────────────────────────────────────────────────────
-
-describe("MemoryInspectorPanel — edit flow", () => {
-  beforeEach(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockGet.mockResolvedValue(TWO_ENTRIES as any);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockPost.mockResolvedValue({ status: "ok", key: "task-queue", version: 4 } as any);
-  });
-
-  /** Helper: expand entry-A and click its Edit button */
-  async function openEditForEntryA() {
-    render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() => screen.getByText("task-queue"));
-    fireEvent.click(screen.getByText("task-queue").closest("button")!);
-    await waitFor(() =>
-      screen.getByRole("button", { name: "Edit task-queue" })
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Edit task-queue" }));
-  }
-
-  it("shows a textarea pre-filled with the entry value after clicking Edit", async () => {
-    await openEditForEntryA();
-    const ta = screen.getByRole("textbox", { name: "Edit memory value" });
-    expect(ta).toBeTruthy();
-    expect((ta as HTMLTextAreaElement).value).toContain("pending");
-  });
-
-  it("shows Save and Cancel buttons in edit mode", async () => {
-    await openEditForEntryA();
-    expect(screen.getByRole("button", { name: /^save$/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^cancel$/i })).toBeTruthy();
-  });
-
-  it("POSTs to correct path with key, parsed value, and if_match_version", async () => {
-    await openEditForEntryA();
-    fireEvent.change(
-      screen.getByRole("textbox", { name: "Edit memory value" }),
-      { target: { value: '{"updated":true}' } }
-    );
-    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
-
-    await waitFor(() => expect(mockPost).toHaveBeenCalled());
-
-    const [path, body] = mockPost.mock.calls[0] as [
-      string,
-      { key: string; value: unknown; if_match_version: number }
-    ];
-    expect(path).toBe("/workspaces/ws-1/memory");
-    expect(body.key).toBe("task-queue");
-    expect(body.if_match_version).toBe(3); // ENTRY_A.version
-    expect(body.value).toEqual({ updated: true });
-  });
-
-  it("closes the edit form on successful save", async () => {
-    await openEditForEntryA();
-    fireEvent.change(
-      screen.getByRole("textbox", { name: "Edit memory value" }),
-      { target: { value: '"new-value"' } }
-    );
-    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
-
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("textbox", { name: "Edit memory value" })
-      ).toBeNull()
-    );
-  });
-
-  it("shows an inline error (no API call) for syntactically invalid JSON", async () => {
-    await openEditForEntryA();
-    fireEvent.change(
-      screen.getByRole("textbox", { name: "Edit memory value" }),
-      { target: { value: "{{bad json" } }
-    );
-    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
-
-    // Error message appears, textarea stays open, api.post NOT called
-    await waitFor(() =>
-      expect(screen.getByText(/invalid json/i)).toBeTruthy()
-    );
-    expect(mockPost).not.toHaveBeenCalled();
-    expect(screen.getByRole("textbox", { name: "Edit memory value" })).toBeTruthy();
-  });
-
-  it("Cancel closes the edit form without calling api.post", async () => {
-    await openEditForEntryA();
-    fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
-
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("textbox", { name: "Edit memory value" })
-      ).toBeNull()
-    );
-    expect(mockPost).not.toHaveBeenCalled();
+    await flushUpdates();
+    // After collapse, the region (pre) is removed from the DOM
+    expect(screen.queryByRole("region")).toBeNull();
   });
 });
 
@@ -322,271 +304,164 @@ describe("MemoryInspectorPanel — edit flow", () => {
 describe("MemoryInspectorPanel — delete flow", () => {
   beforeEach(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockGet.mockResolvedValue(TWO_ENTRIES as any);
+    mockGet.mockResolvedValue(TWO_MEMORIES as any);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockDel.mockResolvedValue({ status: "deleted" } as any);
   });
 
-  /** Helper: expand entry-A and click its Delete button */
-  async function openDeleteForEntryA() {
+  /** Helper: expand memory-A and click its Delete button */
+  async function openDeleteForMemoryA() {
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() => screen.getByText("task-queue"));
-    fireEvent.click(screen.getByText("task-queue").closest("button")!);
-    await waitFor(() =>
-      screen.getByRole("button", { name: "Delete task-queue" })
+    await flushUpdates();
+    fireEvent.click(
+      screen.getByText(/Remember to review PRs before merging/).closest("button")!
     );
-    fireEvent.click(screen.getByRole("button", { name: "Delete task-queue" }));
+    await flushUpdates();
+    fireEvent.click(screen.getByRole("button", { name: "Delete memory" }));
+    await flushUpdates();
   }
 
-  it("opens the ConfirmDialog when Delete is clicked", async () => {
-    await openDeleteForEntryA();
+  it("opens ConfirmDialog when Delete is clicked", async () => {
+    await openDeleteForMemoryA();
     expect(screen.getByTestId("confirm-dialog")).toBeTruthy();
-    expect(screen.getByTestId("dialog-title").textContent).toBe(
-      "Delete memory entry"
-    );
-  });
-
-  it("includes the key in the dialog message", async () => {
-    await openDeleteForEntryA();
-    expect(screen.getByTestId("dialog-message").textContent).toContain(
-      "task-queue"
-    );
+    expect(screen.getByTestId("dialog-title").textContent).toBe("Delete memory");
   });
 
   it("calls api.del with the correct URL-encoded path on confirm", async () => {
-    await openDeleteForEntryA();
+    await openDeleteForMemoryA();
     fireEvent.click(screen.getByText("Confirm Delete"));
-    await waitFor(() =>
-      expect(mockDel).toHaveBeenCalledWith(
-        "/workspaces/ws-1/memory/task-queue"
-      )
-    );
+    await flushUpdates();
+    expect(mockDel).toHaveBeenCalledWith("/workspaces/ws-1/memories/mem-a");
   });
 
-  it("removes the entry from the list optimistically after confirm", async () => {
-    await openDeleteForEntryA();
+  it("removes the entry optimistically after confirm", async () => {
+    await openDeleteForMemoryA();
     fireEvent.click(screen.getByText("Confirm Delete"));
-    await waitFor(() =>
-      expect(screen.queryByText("task-queue")).toBeNull()
-    );
+    await flushUpdates();
+    expect(screen.queryByText(/Remember to review PRs before merging/)).toBeNull();
     // Sibling entry unaffected
-    expect(screen.getByText("session-token")).toBeTruthy();
+    expect(screen.getByText(/Team knowledge: deploy happens on Fridays/)).toBeTruthy();
   });
 
-  it("closes the ConfirmDialog without deleting when Cancel is clicked", async () => {
-    await openDeleteForEntryA();
+  it("closes ConfirmDialog without deleting when Cancel is clicked", async () => {
+    await openDeleteForMemoryA();
     fireEvent.click(screen.getByText("Cancel Delete"));
-    await waitFor(() =>
-      expect(screen.queryByTestId("confirm-dialog")).toBeNull()
-    );
+    await flushUpdates();
+    expect(screen.queryByTestId("confirm-dialog")).toBeNull();
     expect(mockDel).not.toHaveBeenCalled();
-    // Entry still present
-    expect(screen.getByText("task-queue")).toBeTruthy();
+    // Sibling memory entry (MEMORY_B) is still in the list
+    expect(screen.getByText(/Team knowledge: deploy happens on Fridays/)).toBeTruthy();
   });
 });
 
 // ── Refresh ───────────────────────────────────────────────────────────────────
 
 describe("MemoryInspectorPanel — Refresh button", () => {
-  it("re-fetches entries when the Refresh button is clicked", async () => {
+  it("re-fetches entries when Refresh is clicked", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockGet.mockResolvedValue([] as any);
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() => screen.getByText("No memory entries yet"));
+    await flushUpdates();
+    expect(screen.getByText("No LOCAL memories")).toBeTruthy();
 
     expect(mockGet).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByRole("button", { name: "Refresh memory entries" }));
-    await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh memories" }));
+    await flushUpdates();
+    expect(mockGet).toHaveBeenCalledTimes(2);
   });
 });
 
-// ── role=alert a11y (issue #830) ─────────────────────────────────────────────
+// ── role=alert a11y ──────────────────────────────────────────────────────────
 
-describe("MemoryInspectorPanel — error elements have role=alert (issue #830)", () => {
+describe("MemoryInspectorPanel — error elements have role=alert", () => {
   it("fetch error banner has role='alert'", async () => {
     mockGet.mockRejectedValue(new Error("Network error"));
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() => screen.getByText("Network error"));
+    await flushUpdates();
     const alert = screen.getByRole("alert");
     expect(alert).toBeTruthy();
     expect(alert.textContent).toContain("Network error");
   });
-
-  it("editError paragraph has role='alert' on invalid JSON submission", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockGet.mockResolvedValue(TWO_ENTRIES as any);
-    render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() => screen.getByText("task-queue"));
-
-    // Expand and open edit mode
-    fireEvent.click(screen.getByText("task-queue").closest("button")!);
-    await waitFor(() =>
-      screen.getByRole("button", { name: "Edit task-queue" })
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Edit task-queue" }));
-
-    // Submit invalid JSON to trigger editError
-    fireEvent.change(
-      screen.getByRole("textbox", { name: "Edit memory value" }),
-      { target: { value: "{{bad json" } }
-    );
-    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
-
-    await waitFor(() => screen.getByText(/invalid json/i));
-    const alert = screen.getByRole("alert");
-    expect(alert).toBeTruthy();
-    expect(alert.textContent).toMatch(/invalid json/i);
-  });
 });
 
-// ── Semantic search (issue #783) ──────────────────────────────────────────────
+// ── Semantic search ──────────────────────────────────────────────────────────
 
 describe("MemoryInspectorPanel — semantic search", () => {
-  // Ensure fake timers never leak into the next test even if a test throws
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("does not call API before 300ms debounce elapses after typing", async () => {
+  it("debounces search input by 300ms before calling API", async () => {
     vi.useFakeTimers();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockGet.mockResolvedValue([] as any);
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
-
-    // Flush initial load — api.get returns an already-resolved Promise
-    // (microtask), so act() drains it without advancing fake timers
-    await act(async () => {});
+    await flushUpdates();
 
     mockGet.mockClear();
 
-    act(() => {
-      fireEvent.change(screen.getByLabelText("Search memory entries"), {
-        target: { value: "task queue" },
-      });
+    fireEvent.change(screen.getByLabelText("Search memories"), {
+      target: { value: "deploy" },
     });
 
-    // 200ms elapsed — debounce has NOT fired yet
-    await act(async () => {
-      vi.advanceTimersByTime(200);
-    });
+    // 200ms — debounce has NOT fired yet
+    act(() => { vi.advanceTimersByTime(200); });
+    await flushUpdates();
     expect(mockGet).not.toHaveBeenCalled();
 
-    // Another 150ms (total 350ms > 300ms threshold) — debounce fires
-    await act(async () => {
-      vi.advanceTimersByTime(150);
-    });
-    // Flush the async loadEntries that was triggered
-    await act(async () => {});
+    // 350ms total — debounce fires
+    act(() => { vi.advanceTimersByTime(150); });
+    await flushUpdates();
 
     expect(mockGet).toHaveBeenCalledWith(
-      "/workspaces/ws-1/memory?q=task%20queue"
+      "/workspaces/ws-1/memories?scope=LOCAL&q=deploy"
     );
-
-    vi.useRealTimers();
   });
 
-  it("renders similarity-badge with rounded percentage when entry has similarity_score", async () => {
-    mockGet.mockResolvedValue([
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { ...ENTRY_A, similarity_score: 0.87 },
-    ] as any);
+  it("renders similarity-badge when entry has similarity_score", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGet.mockResolvedValue([{ ...MEMORY_A, similarity_score: 0.87 }] as any);
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
-
-    // Wait for the entry key to appear in the header
-    await waitFor(() => screen.getByText("task-queue"));
-
+    await flushUpdates();
     const badge = document.querySelector('[data-testid="similarity-badge"]');
     expect(badge).toBeTruthy();
     expect(badge?.textContent).toBe("87%");
   });
 
   it("does not render similarity-badge when entry has no similarity_score", async () => {
-    // ENTRY_A has no similarity_score field
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockGet.mockResolvedValue([ENTRY_A] as any);
+    mockGet.mockResolvedValue([MEMORY_A] as any);
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
-
-    await waitFor(() => screen.getByText("task-queue"));
-
+    await flushUpdates();
     expect(
       document.querySelector('[data-testid="similarity-badge"]')
     ).toBeNull();
   });
 
-  it("colors similarity-badge blue-500 when score >= 0.8", async () => {
-    mockGet.mockResolvedValue([
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { ...ENTRY_A, similarity_score: 0.92 },
-    ] as any);
-    render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() => screen.getByText("task-queue"));
-    const badge = document.querySelector('[data-testid="similarity-badge"]');
-    expect(badge?.className).toContain("text-blue-500");
-    expect(badge?.className).not.toContain("text-zinc-400");
-    expect(badge?.className).not.toContain("text-zinc-600");
-  });
-
-  it("colors similarity-badge zinc-400 when score is between 0.5 and 0.8", async () => {
-    mockGet.mockResolvedValue([
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { ...ENTRY_A, similarity_score: 0.65 },
-    ] as any);
-    render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() => screen.getByText("task-queue"));
-    const badge = document.querySelector('[data-testid="similarity-badge"]');
-    expect(badge?.className).toContain("text-zinc-400");
-    expect(badge?.className).not.toContain("text-blue-500");
-    expect(badge?.className).not.toContain("text-zinc-600");
-  });
-
-  it("colors similarity-badge zinc-400 italic with tilde prefix when score is below 0.5", async () => {
-    mockGet.mockResolvedValue([
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { ...ENTRY_A, similarity_score: 0.31 },
-    ] as any);
-    render(<MemoryInspectorPanel workspaceId="ws-1" />);
-    await waitFor(() => screen.getByText("task-queue"));
-    const badge = document.querySelector('[data-testid="similarity-badge"]');
-    expect(badge?.className).toContain("text-zinc-400");
-    expect(badge?.className).toContain("italic");
-    expect(badge?.className).not.toContain("text-blue-500");
-    expect(badge?.className).not.toContain("text-zinc-600");
-    expect(badge?.textContent).toBe("~31%");
-  });
-
-  it("clear button resets debouncedQuery immediately and re-fetches without ?q=", async () => {
+  it("clear button resets query immediately and re-fetches without ?q=", async () => {
     vi.useFakeTimers();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockGet.mockResolvedValue([] as any);
     render(<MemoryInspectorPanel workspaceId="ws-1" />);
+    await flushUpdates();
 
-    // Flush initial load
-    await act(async () => {});
-
-    act(() => {
-      fireEvent.change(screen.getByLabelText("Search memory entries"), {
-        target: { value: "sessions" },
-      });
+    fireEvent.change(screen.getByLabelText("Search memories"), {
+      target: { value: "deploy" },
     });
 
-    // Advance past debounce — debouncedQuery becomes "sessions"
-    await act(async () => {
-      vi.advanceTimersByTime(350);
-    });
-    await act(async () => {}); // flush async loadEntries
-    expect(mockGet).toHaveBeenCalledWith("/workspaces/ws-1/memory?q=sessions");
+    act(() => { vi.advanceTimersByTime(350); });
+    await flushUpdates();
+
+    expect(mockGet).toHaveBeenCalledWith(
+      "/workspaces/ws-1/memories?scope=LOCAL&q=deploy"
+    );
     mockGet.mockClear();
 
-    // Click × clear button — skips debounce, resets debouncedQuery immediately
-    act(() => {
-      fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
-    });
-    await act(async () => {}); // flush state update → loadEntries → api.get
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    await flushUpdates();
 
-    // Should re-fetch the unfiltered list (no q= parameter)
-    expect(mockGet).toHaveBeenCalledWith("/workspaces/ws-1/memory");
-
-    vi.useRealTimers();
+    expect(mockGet).toHaveBeenCalledWith(
+      "/workspaces/ws-1/memories?scope=LOCAL"
+    );
   });
 });

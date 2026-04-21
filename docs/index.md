@@ -70,3 +70,4 @@ features:
 
 - [Deploy AI Agents on Fly.io — or Any Cloud — with One Config Change](/blog/deploy-anywhere) *(2026-04-17)*
 - [Give Your AI Agent a Real Browser: MCP + Chrome DevTools](/blog/browser-automation-ai-agents-mcp) *(2026-04-20)*
+- [Give Your AI Agent a Git Repository: Molecule AI + Cloudflare Artifacts](/blog/cloudflare-artifacts-molecule-ai) *(2026-04-21)*

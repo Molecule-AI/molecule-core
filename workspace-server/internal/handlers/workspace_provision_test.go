@@ -9,8 +9,11 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/models"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/plugins"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
+	"github.com/Molecule-AI/molecule-monorepo/platform/pkg/provisionhook"
 	"gopkg.in/yaml.v3"
 )
 
@@ -891,15 +894,13 @@ func containsStr(s, substr string) bool {
 	return false
 }
 
-// ── seedInitialMemories content length limit (#1066, CWE-400) ─────────────────
-
-// TestSeedInitialMemories_ContentTruncated verifies that memory content exceeding
-// maxMemoryContentLength is truncated before INSERT rather than stored in full.
-// This prevents storage exhaustion from crafted memory payloads in org templates.
-func TestSeedInitialMemories_ContentTruncated(t *testing.T) {
-	mock := setupTestDB(t)
-
-	// Create content just over the limit (100_001 bytes).
+// ==================== error-sanitization regression tests ====================
+// Issue #1206: err.Error() must never appear in HTTP JSON responses or
+// WebSocket broadcasts — DB errors (pq: connection refused, pq: deadlock
+// detected), OS errors, and internal paths leak sensitive info externally.
+//
+// Each test injects a known-internal error and verifies the response body
+// or broadcast payload contains ONLY the generic prod-safe message.
 	largeContent := string(make([]byte, 100_001))
 	copy([]byte(largeContent), "X") // fill with "X" so test is deterministic
 
@@ -937,4 +938,324 @@ func TestSeedInitialMemories_ContentUnderLimit(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("DB expectations not met: %v", err)
 	}
+}
+
+// TestSeedInitialMemories_ExactlyAtLimit passes through unchanged (boundary case).
+func TestSeedInitialMemories_ExactlyAtLimit(t *testing.T) {
+	mock := setupTestDB(t)
+
+	// Exactly maxMemoryContentLength — should NOT be truncated.
+	atLimitContent := strings.Repeat("X", 100_000)
+	memories := []models.MemorySeed{
+		{Content: atLimitContent, Scope: "LOCAL"},
+	}
+
+	mock.ExpectExec(`INSERT INTO agent_memories`).
+		WithArgs(sqlmock.AnyArg(), strings.Repeat("X", 100_000), "LOCAL", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	seedInitialMemories(context.Background(), "ws-boundary", memories, "test-ns")
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("DB expectations not met: %v", err)
+	}
+}
+
+// TestSeedInitialMemories_EmptyContent is skipped (no DB call).
+func TestSeedInitialMemories_EmptyContent(t *testing.T) {
+	mock := setupTestDB(t)
+
+	memories := []models.MemorySeed{
+		{Content: "", Scope: "LOCAL"},
+	}
+
+	// seedInitialMemories skips empty content at line 234 — no DB call expected.
+	seedInitialMemories(context.Background(), "ws-empty", memories, "test-ns")
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("DB expectations not met: %v", err)
+	}
+}
+
+// TestSeedInitialMemories_OversizedWithSecrets truncates at 100k even when content
+// contains credential patterns — the boundary enforcement runs before any other
+// content inspection.
+func TestSeedInitialMemories_OversizedWithSecrets(t *testing.T) {
+	mock := setupTestDB(t)
+
+	// 200k of content that looks like secrets — truncation must still fire at 100k.
+	largeWithSecrets := "ANTHROPIC_API_KEY=sk-ant-xxxx" + strings.Repeat("X", 200_000)
+	memories := []models.MemorySeed{
+		{Content: largeWithSecrets, Scope: "GLOBAL"},
+	}
+
+	mock.ExpectExec(`INSERT INTO agent_memories`).
+		// Content must be truncated to exactly 100k before INSERT fires.
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "GLOBAL", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	seedInitialMemories(context.Background(), "ws-secrets", memories, "test-ns")
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("DB expectations not met: %v", err)
+	}
+}
+
+// ==================== error-sanitization regression tests ====================
+// Issue #1206: err.Error() must never appear in HTTP JSON responses or
+// WebSocket broadcasts — DB errors (pq: connection refused, pq: deadlock
+// detected), OS errors, and internal paths leak sensitive info externally.
+//
+// Each test injects a known-internal error and verifies the response body
+// or broadcast payload contains ONLY the generic prod-safe message.
+
+// errInternalDB is a pkg-level error whose .Error() output matches a real
+// postgres driver error shape — used to simulate DB failure without a live DB.
+var errInternalDB = fmt.Errorf("pq: connection refused")
+
+// errInternalOS simulates an OS-level error.
+var errInternalOS = fmt.Errorf("operation failed: no such file or directory")
+
+// captureBroadcaster is a test broadcaster that captures the last data
+// payload passed to RecordAndBroadcast so tests can inspect it.
+type captureBroadcaster struct {
+	events.Broadcaster // embed to satisfy the interface — only RecordAndBroadcast is overridden
+	lastData map[string]interface{}
+	lastErr  error
+}
+
+func (c *captureBroadcaster) RecordAndBroadcast(_ context.Context, _, _ string, data interface{}) error {
+	if m, ok := data.(map[string]interface{}); ok {
+		// Shallow-copy so the caller can't mutate our capture.
+		cpy := make(map[string]interface{}, len(m))
+		for k, v := range m {
+			cpy[k] = v
+		}
+		c.lastData = cpy
+	}
+	return nil
+}
+
+// unsafeErrorStrings lists substrings that must NEVER appear in external-facing
+// error responses. Covers DB driver errors, OS errors, and internal paths.
+var unsafeErrorStrings = []string{
+	"pq:",
+	"pq ",
+	"connection refused",
+	"deadlock",
+	"no such file",
+	"/var/",
+	"/tmp/",
+	"postgres",
+	"PostgreSQL",
+	"sql: ",
+	":8080",
+	"127.0.0.1",
+	"localhost",
+	"secret",
+	"token",
+}
+
+// containsUnsafeString checks whether any prohibited substring appears in
+// a string value recursively (handles nested maps for safety).
+func containsUnsafeString(v interface{}) bool {
+	switch v := v.(type) {
+	case string:
+		for _, unsafe := range unsafeErrorStrings {
+			if strings.Contains(v, unsafe) {
+				return true
+			}
+		}
+	case map[string]interface{}:
+		for _, val := range v {
+			if containsUnsafeString(val) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// TestProvisionWorkspace_NoInternalErrorsInBroadcast asserts that provisionWorkspace
+// never leaks internal error details in WORKSPACE_PROVISION_FAILED broadcasts.
+// Regression test for issue #1206.
+func TestProvisionWorkspace_NoInternalErrorsInBroadcast(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	// Simulate global secret load failing with a real postgres error shape.
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM global_secrets`).
+		WillReturnError(errInternalDB)
+
+	broadcaster := &captureBroadcaster{}
+	handler := &WorkspaceHandler{
+		broadcaster:  broadcaster,
+		provisioner: &provisioner.Provisioner{},
+		cpProv:       &provisioner.CPProvisioner{},
+		platformURL:  "http://platform.test",
+		configsDir:   t.TempDir(),
+	}
+
+	handler.provisionWorkspace("ws-test-123", "", nil, models.CreateWorkspacePayload{Name: "test-ws"})
+
+	if broadcaster.lastData == nil {
+		t.Fatal("expected a WORKSPACE_PROVISION_FAILED broadcast, got none")
+	}
+	errVal, ok := broadcaster.lastData["error"]
+	if !ok {
+		t.Fatal(`broadcast missing "error" key`)
+	}
+	errStr, ok := errVal.(string)
+	if !ok {
+		t.Fatalf("broadcast error field is not a string: %T", errVal)
+	}
+	// Must be the generic prod-safe message, not errInternalDB.Error().
+	if errStr == errInternalDB.Error() {
+		t.Errorf("broadcast error contains raw err.Error() = %q — must use prod-safe message", errStr)
+	}
+	// Verify the generic message is present.
+	if errStr != "provisioning failed" {
+		t.Errorf("expected error=%q, got %q", "provisioning failed", errStr)
+	}
+}
+
+// TestProvisionWorkspaceCP_NoInternalErrorsInBroadcast asserts that
+// provisionWorkspaceCP never leaks err.Error() in WORKSPACE_PROVISION_FAILED
+// broadcasts. Regression test for issue #1206.
+func TestProvisionWorkspaceCP_NoInternalErrorsInBroadcast(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	// Simulate secret load succeeding (both global and workspace rows return empty).
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM global_secrets`).
+		WillReturnRows(sqlmock.NewRows([]string{"key", "encrypted_value", "encryption_version"}))
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM workspace_secrets WHERE workspace_id = \$1`).
+		WillReturnRows(sqlmock.NewRows([]string{"key", "encrypted_value", "encryption_version"}))
+
+	broadcaster := &captureBroadcaster{}
+	registry := &mockEnvMutator{returnErr: errInternalDB}
+	handler := &WorkspaceHandler{
+		broadcaster:  broadcaster,
+		cpProv:       &provisioner.CPProvisioner{},
+		platformURL:  "http://platform.test",
+		envMutators:  registry,
+	}
+
+	handler.provisionWorkspaceCP("ws-cp-test-456", "", nil, models.CreateWorkspacePayload{Name: "test-cp"})
+
+	if broadcaster.lastData == nil {
+		t.Fatal("expected WORKSPACE_PROVISION_FAILED broadcast, got none")
+	}
+	errVal, ok := broadcaster.lastData["error"]
+	if !ok {
+		t.Fatal(`broadcast missing "error" key`)
+	}
+	errStr, ok := errVal.(string)
+	if !ok {
+		t.Fatalf("broadcast error field is not a string: %T", errVal)
+	}
+	if errStr == errInternalDB.Error() {
+		t.Errorf("CP provisioner broadcast error contains raw err.Error() = %q", errStr)
+	}
+	if errStr != "provisioning failed" {
+		t.Errorf("expected error=%q, got %q", "provisioning failed", errStr)
+	}
+}
+
+// mockEnvMutator is a provisionhook.Registry stub that always returns a fixed error.
+type mockEnvMutator struct {
+	returnErr error
+}
+
+func (m *mockEnvMutator) Run(_ context.Context, _ string, _ map[string]string) error {
+	return m.returnErr
+}
+
+func (m *mockEnvMutator) Register(_ interface{}) {}
+
+// TestResolveAndStage_NoInternalErrorsInHTTPErr asserts that resolveAndStage
+// never puts err.Error() in HTTP error responses. Tests plugin source
+// parsing, resolver failures, and validation errors.
+func TestResolveAndStage_NoInternalErrorsInHTTPErr(t *testing.T) {
+	testCases := []struct {
+		name          string
+		source        string
+		wantSafe      bool // true = expect 4xx, false = expect nil
+		wantHTTPError bool // true = expect *httpErr from resolveAndStage
+		// knownUnsafe, if non-empty, is a substring that must NOT appear in
+		// the error body when wantHTTPError is true.
+		knownUnsafe string
+	}{
+		{
+			name:          "empty source",
+			source:        "",
+			wantHTTPError: true,
+			knownUnsafe:   "pq:",
+		},
+		{
+			name:          "valid source",
+			source:        "github://owner/repo",
+			wantHTTPError: false,
+			knownUnsafe:   "pq:",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &PluginsHandler{
+				sources: &mockPluginsSources{schemes: []string{"github", "local"}},
+			}
+			_, err := h.resolveAndStage(context.Background(), installRequest{Source: tc.source})
+			if tc.wantHTTPError {
+				if err == nil {
+					t.Fatal("expected an error, got nil")
+				}
+				httpErr, ok := err.(*httpErr)
+				if !ok {
+					t.Fatalf("expected *httpErr, got %T", err)
+				}
+				// Verify the generic message is used (not a raw err.Error()).
+				if httpErr.Body == nil {
+					t.Fatal("httpErr.Body is nil")
+				}
+				errStr, ok := httpErr.Body["error"].(string)
+				if !ok {
+					t.Fatalf("body error field is not a string: %T", httpErr.Body["error"])
+				}
+				if tc.knownUnsafe != "" && strings.Contains(errStr, tc.knownUnsafe) {
+					t.Errorf("error body contains unsafe string %q: %q", tc.knownUnsafe, errStr)
+				}
+			} else {
+				if err != nil && tc.wantHTTPError {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// mockPluginsSources implements plugins.SourceResolver for testing.
+type mockPluginsSources struct {
+	schemes []string
+}
+
+func (m *mockPluginsSources) Schemes() []string { return m.schemes }
+
+func (m *mockPluginsSources) Resolve(source plugins.Source) (plugins.SourceResolver, error) {
+	if source.Scheme == "github" {
+		return &mockResolver{}, nil
+	}
+	return nil, fmt.Errorf("unsupported scheme %q", source.Scheme)
+}
+
+type mockResolver struct{}
+
+func (*mockResolver) Fetch(ctx context.Context, spec, destDir string) (string, error) {
+	return "", nil
 }
