@@ -15,7 +15,7 @@
  *   - Polling: provisioning orgs schedule a 5s refresh (fake timers)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, waitFor, cleanup } from "@testing-library/react";
 
 // ── Hoisted mocks ────────────────────────────────────────────────────────────
 // vi.mock factories are hoisted above imports; any captured references must
@@ -127,9 +127,16 @@ describe("/orgs — auth guard", () => {
 describe("/orgs — error state", () => {
   it("shows error + Retry button when /cp/orgs fails", async () => {
     mockFetchSession.mockResolvedValue({ userId: "u-1" });
-    mockFetch.mockResolvedValueOnce(notOk(500, "db down"));
+    mockFetch.mockImplementationOnce(() =>
+      Promise.reject(new Error("GET /cp/orgs: 500"))
+    );
     render(<OrgsPage />);
     await vi.advanceTimersByTimeAsync(50);
+    // After the setTimeout(0, fetchOrgs) fires and the mockFetch rejection
+    // propagates, React's setError schedules a state update. runAllTimersAsync
+    // flushes any pending effects or state updates that depend on microtask
+    // completion.
+    await vi.runAllTimersAsync();
     expect(screen.getByText(/Error:/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /retry/i })).toBeTruthy();
   });

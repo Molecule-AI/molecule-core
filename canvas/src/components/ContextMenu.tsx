@@ -23,7 +23,10 @@ export function ContextMenu() {
   const setPanelTab = useCanvasStore((s) => s.setPanelTab);
   const nestNode = useCanvasStore((s) => s.nestNode);
   const contextNodeId = contextMenu?.nodeId ?? null;
-  const hasChildren = useCanvasStore((s) => contextNodeId ? s.nodes.some((n) => n.data.parentId === contextNodeId) : false);
+  const children = useCanvasStore((s) =>
+    contextNodeId ? s.nodes.filter((n) => n.data.parentId === contextNodeId) : []
+  );
+  const hasChildren = children.length > 0;
   const setPendingDelete = useCanvasStore((s) => s.setPendingDelete);
   const ref = useRef<HTMLDivElement>(null);
   const [actionLoading, setActionLoading] = useState(false);
@@ -164,7 +167,7 @@ export function ContextMenu() {
     // it survives ContextMenu unmount. Closing the menu here avoids the
     // prior race where the portal dialog's Confirm click was treated as
     // "outside" by the menu's outside-click handler.
-    setPendingDelete({ id: contextMenu.nodeId, name: contextMenu.nodeData.name, hasChildren });
+    setPendingDelete({ id: contextMenu.nodeId, name: contextMenu.nodeData.name, hasChildren, children: children.map(c => ({ id: c.id, name: c.data.name })) });
     closeContextMenu();
   }, [contextMenu, setPendingDelete, closeContextMenu]);
 
