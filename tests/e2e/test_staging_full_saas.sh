@@ -37,6 +37,12 @@
 #   E2E_RUN_ID                     Override the auto-generated suffix. CI
 #                                  should pass ${GITHUB_RUN_ID} so the
 #                                  org slug is grep-able in AWS later.
+#   E2E_MODE                       "full" (default) runs every section.
+#                                  "canary" runs a lean variant: one
+#                                  parent workspace, one A2A PONG, then
+#                                  teardown. Used by the 30-min cron
+#                                  workflow so each canary finishes in
+#                                  ~8 min instead of the full ~20.
 #
 # Exit codes:
 #   0  happy path
@@ -53,6 +59,11 @@ ADMIN_TOKEN="${MOLECULE_ADMIN_TOKEN:?MOLECULE_ADMIN_TOKEN required — from Rail
 RUNTIME="${E2E_RUNTIME:-hermes}"
 PROVISION_TIMEOUT_SECS="${E2E_PROVISION_TIMEOUT_SECS:-900}"
 RUN_ID_SUFFIX="${E2E_RUN_ID:-$(date +%H%M%S)-$$}"
+MODE="${E2E_MODE:-full}"
+case "$MODE" in
+  full|canary) ;;
+  *) echo "E2E_MODE must be 'full' or 'canary' (got: $MODE)" >&2; exit 2 ;;
+esac
 
 # Slug constraints from orgs.go: ^[a-z][a-z0-9-]{2,31}$.
 # Prefix with "e2e-" so test orgs are grep-able and auto-cleanup crons
@@ -112,6 +123,7 @@ log " Staging full-SaaS E2E"
 log "   CP:      $CP_URL"
 log "   Slug:    $SLUG"
 log "   Runtime: $RUNTIME"
+log "   Mode:    $MODE"
 log "   Timeout: ${PROVISION_TIMEOUT_SECS}s"
 log "═══════════════════════════════════════════════════════════════════"
 
@@ -160,17 +172,22 @@ while true; do
 done
 ok "Tenant provisioning complete"
 
-TENANT_URL=$(echo "$STATUS_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tenant_url') or d.get('url') or '')" 2>/dev/null || echo "")
+TENANT_URL=$(echo "$STATUS_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('url') or '')" 2>/dev/null || echo "")
 [ -z "$TENANT_URL" ] && TENANT_URL="https://$SLUG.moleculesai.app"
 log "    TENANT_URL=$TENANT_URL"
 
-# Tenant admin token — returned by provision-status for the
-# just-provisioned org so the test can call tenant admin endpoints
-# (POST /workspaces etc.) without depending on a workspace auth token.
-TENANT_ADMIN_TOKEN=$(echo "$STATUS_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('admin_token',''))" 2>/dev/null || echo "")
-[ -z "$TENANT_ADMIN_TOKEN" ] && fail "provision-status did not return admin_token"
-
-ORG_ID=$(echo "$STATUS_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('org_id',''))" 2>/dev/null || echo "")
+# Auth strategy for tenant calls: session cookie. The tenant platform's
+# session-auth middleware verifies the cookie against CP via
+# /cp/auth/tenant-member; a session that's a member of the org is
+# treated as admin on that tenant. Same cookie that authed /cp/orgs
+# above, so no separate token plumbing needed -- as long as the test
+# user is auto-added as owner of the freshly-created org (which is the
+# default behaviour of POST /cp/orgs).
+#
+# provision-status does not return org_id or admin_token today; both
+# were an assumption in an earlier draft. X-Molecule-Org-Id is derived
+# server-side from the session membership lookup, so the header is
+# unnecessary.
 
 # ─── 4. Wait for tenant TLS cert to be reachable ───────────────────────
 log "4/10 Waiting for tenant TLS / DNS propagation..."
@@ -190,8 +207,7 @@ tenant_call() {
   local method="$1"; shift
   local path="$1"; shift
   curl "${CURL_COMMON[@]}" -X "$method" "$TENANT_URL$path" \
-    -H "Authorization: Bearer $TENANT_ADMIN_TOKEN" \
-    -H "X-Molecule-Org-Id: $ORG_ID" \
+    -H "Cookie: molecule_cp_session=$SESSION_COOKIE" \
     "$@"
 }
 
@@ -203,18 +219,25 @@ PARENT_RESP=$(tenant_call POST /workspaces \
 PARENT_ID=$(echo "$PARENT_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 log "    PARENT_ID=$PARENT_ID"
 
-# ─── 6. Provision child (for delegation test) ──────────────────────────
-log "6/10 Provisioning child workspace..."
-CHILD_RESP=$(tenant_call POST /workspaces \
-  -H "Content-Type: application/json" \
-  -d "{\"name\":\"E2E Child\",\"runtime\":\"$RUNTIME\",\"tier\":2,\"model\":\"gpt-4o\",\"parent_id\":\"$PARENT_ID\"}")
-CHILD_ID=$(echo "$CHILD_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
-log "    CHILD_ID=$CHILD_ID"
+# ─── 6. Provision child (full mode only — for delegation test) ─────────
+CHILD_ID=""
+if [ "$MODE" = "full" ]; then
+  log "6/10 Provisioning child workspace..."
+  CHILD_RESP=$(tenant_call POST /workspaces \
+    -H "Content-Type: application/json" \
+    -d "{\"name\":\"E2E Child\",\"runtime\":\"$RUNTIME\",\"tier\":2,\"model\":\"gpt-4o\",\"parent_id\":\"$PARENT_ID\"}")
+  CHILD_ID=$(echo "$CHILD_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+  log "    CHILD_ID=$CHILD_ID"
+else
+  log "6/10 Canary mode — skipping child workspace (full mode only)"
+fi
 
-# ─── 7. Wait for both online ───────────────────────────────────────────
-log "7/10 Waiting for both workspaces to reach status=online..."
+# ─── 7. Wait for workspace(s) online ───────────────────────────────────
+log "7/10 Waiting for workspace(s) to reach status=online..."
 WS_DEADLINE=$(( $(date +%s) + 600 ))  # 10 min
-for wid in "$PARENT_ID" "$CHILD_ID"; do
+WS_TO_CHECK="$PARENT_ID"
+[ -n "$CHILD_ID" ] && WS_TO_CHECK="$WS_TO_CHECK $CHILD_ID"
+for wid in $WS_TO_CHECK; do
   while true; do
     if [ "$(date +%s)" -gt "$WS_DEADLINE" ]; then
       fail "Workspace $wid never reached online within 10 min"
@@ -264,44 +287,105 @@ if echo "$AGENT_TEXT" | grep -qiE "error|exception"; then
 fi
 ok "A2A parent round-trip succeeded: \"${AGENT_TEXT:0:80}\""
 
-# ─── 9. HMA memory write/read ──────────────────────────────────────────
-log "9/10 Writing + reading HMA memory on parent..."
-MEM_PAYLOAD=$(python3 -c "
+# ─── 9. HMA memory + peers + activity (full mode only) ────────────────
+if [ "$MODE" = "full" ]; then
+  log "9/10 Writing + reading HMA memory on parent..."
+  MEM_PAYLOAD=$(python3 -c "
 import json
 print(json.dumps({
     'content': 'E2E memory seed — run $SLUG',
     'scope': 'LOCAL'
 }))
 ")
-tenant_call POST "/workspaces/$PARENT_ID/memories" \
-  -H "Content-Type: application/json" \
-  -d "$MEM_PAYLOAD" >/dev/null || fail "memory POST failed"
-# Read back and confirm presence
-MEM_LIST=$(tenant_call GET "/workspaces/$PARENT_ID/memories?scope=LOCAL")
-if ! echo "$MEM_LIST" | grep -q "run $SLUG"; then
-  fail "HMA memory not readable after write. List: ${MEM_LIST:0:200}"
-fi
-ok "HMA memory write+read roundtripped"
+  tenant_call POST "/workspaces/$PARENT_ID/memories" \
+    -H "Content-Type: application/json" \
+    -d "$MEM_PAYLOAD" >/dev/null || fail "memory POST failed"
+  MEM_LIST=$(tenant_call GET "/workspaces/$PARENT_ID/memories?scope=LOCAL")
+  if ! echo "$MEM_LIST" | grep -q "run $SLUG"; then
+    fail "HMA memory not readable after write. List: ${MEM_LIST:0:200}"
+  fi
+  ok "HMA memory write+read roundtripped"
 
-# ─── 9b. Peers + activity smoke ────────────────────────────────────────
-log "9b.  Peer discovery + activity log smoke..."
-# Peers (uses workspace bearer — we don't have one here, so expect 401 and
-# just verify the endpoint responds at all rather than 404).
-set +e
-tenant_call GET "/registry/$PARENT_ID/peers" -o /dev/null -w "%{http_code}\n" 2>&1 | head -1 > /tmp/peers_code.txt
-set -e
-PEERS_CODE=$(cat /tmp/peers_code.txt)
-if [ "$PEERS_CODE" = "404" ]; then
-  fail "Peers endpoint missing (404) — route regression"
-fi
-ok "Peers endpoint reachable (HTTP $PEERS_CODE — 401 expected without ws token)"
+  log "9b.  Peer discovery + activity log smoke..."
+  set +e
+  tenant_call GET "/registry/$PARENT_ID/peers" -o /dev/null -w "%{http_code}\n" 2>&1 | head -1 > /tmp/peers_code.txt
+  set -e
+  PEERS_CODE=$(cat /tmp/peers_code.txt)
+  if [ "$PEERS_CODE" = "404" ]; then
+    fail "Peers endpoint missing (404) — route regression"
+  fi
+  ok "Peers endpoint reachable (HTTP $PEERS_CODE — 401 expected without ws token)"
 
-ACTIVITY=$(tenant_call GET "/activity?workspace_id=$PARENT_ID&limit=5" 2>/dev/null || echo '[]')
-ACTIVITY_COUNT=$(echo "$ACTIVITY" | python3 -c "import json,sys
+  ACTIVITY=$(tenant_call GET "/activity?workspace_id=$PARENT_ID&limit=5" 2>/dev/null || echo '[]')
+  ACTIVITY_COUNT=$(echo "$ACTIVITY" | python3 -c "import json,sys
 d=json.load(sys.stdin)
 print(len(d if isinstance(d, list) else d.get('events', [])))" 2>/dev/null || echo 0)
-log "    Activity events observed: $ACTIVITY_COUNT"
+  log "    Activity events observed: $ACTIVITY_COUNT"
+else
+  log "9/10 Canary mode — skipping HMA / peers / activity (full mode only)"
+fi
 
-# ─── 10. Cleanup runs via trap ────────────────────────────────────────
-log "10/10 All checks passed. Teardown runs via EXIT trap."
-ok "═══ STAGING FULL-SAAS E2E PASSED ═══"
+# ─── 10. Delegation mechanics (full mode + child exists) ──────────────
+# Verifies the proxy path that delegate_task uses under the hood:
+# parent → /workspaces/$CHILD_ID/a2a (X-Source-Workspace-Id: parent) →
+# child runtime → response routes back. Does NOT depend on LLM compliance
+# (the parent agent's tool-use behaviour is tested separately via
+# canvas-driven prompts). If the proxy mechanics are broken, no amount
+# of prompt-engineering on the parent will land a delegation; this
+# section pins the mechanics regression.
+if [ "$MODE" = "full" ] && [ -n "$CHILD_ID" ]; then
+  log "10/11 Delegation mechanics: parent → child via /workspaces/:id/a2a proxy"
+  DELEG_PAYLOAD=$(python3 -c "
+import json, uuid
+print(json.dumps({
+    'jsonrpc': '2.0',
+    'method': 'message/send',
+    'id': 'e2e-deleg-1',
+    'params': {
+        'message': {
+            'role': 'user',
+            'messageId': f'e2e-deleg-{uuid.uuid4().hex[:8]}',
+            'parts': [{'kind': 'text', 'text': 'Reply with exactly: CHILD_PONG'}]
+        }
+    }
+}))
+")
+  set +e
+  DELEG_RESP=$(curl "${CURL_COMMON[@]}" -X POST "$TENANT_URL/workspaces/$CHILD_ID/a2a" \
+    -H "Cookie: molecule_cp_session=$SESSION_COOKIE" \
+    -H "X-Source-Workspace-Id: $PARENT_ID" \
+    -H "Content-Type: application/json" \
+    -d "$DELEG_PAYLOAD")
+  DELEG_RC=$?
+  set -e
+  if [ $DELEG_RC -ne 0 ]; then
+    fail "Delegation A2A POST failed (rc=$DELEG_RC)"
+  fi
+  DELEG_TEXT=$(echo "$DELEG_RESP" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    parts = d.get('result', {}).get('parts', [])
+    print(parts[0].get('text', '') if parts else '')
+except Exception:
+    print('')
+" 2>/dev/null || echo "")
+  if [ -z "$DELEG_TEXT" ]; then
+    fail "Delegation returned no text. Raw: ${DELEG_RESP:0:200}"
+  fi
+  ok "Delegation proxy works (child responded: \"${DELEG_TEXT:0:60}\")"
+
+  # Verify activity log on child captured the delegation. The source
+  # workspace id is logged by the a2a_proxy when X-Source-Workspace-Id
+  # is present on the inbound request.
+  CHILD_ACT=$(tenant_call GET "/activity?workspace_id=$CHILD_ID&limit=20" 2>/dev/null || echo '[]')
+  if echo "$CHILD_ACT" | grep -q "$PARENT_ID"; then
+    ok "Child activity log records parent as source"
+  else
+    log "Child activity log did not reference parent (activity pipeline may be async — soft warning only)"
+  fi
+fi
+
+# ─── 11. Cleanup runs via trap ────────────────────────────────────────
+log "11/11 All checks passed. Teardown runs via EXIT trap."
+ok "═══ STAGING $MODE-SAAS E2E PASSED ═══"
