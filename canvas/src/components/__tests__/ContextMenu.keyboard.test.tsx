@@ -49,11 +49,8 @@ const mockStore = {
 };
 
 vi.mock("@/store/canvas", () => ({
-  // PR #1243 refactored delete flow: hoists confirmation to Canvas-level dialog
-  // via setPendingDelete, including hasChildren for correct warning text.
-  useCanvasStore: Object.assign(
-    vi.fn((selector: (s: typeof mockStore) => unknown) => selector(mockStore)),
-    { getState: () => mockStore }
+  useCanvasStore: vi.fn(
+    (selector: (s: typeof mockStore) => unknown) => selector(mockStore)
   ),
 }));
 
@@ -225,14 +222,11 @@ describe("ContextMenu — keyboard accessibility", () => {
     const items = screen.getAllByRole("menuitem");
     const deleteItem = items.find((el) => el.textContent?.includes("Delete"))!;
     fireEvent.click(deleteItem);
-    expect(mockStore.setPendingDelete).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "ws-1",
-        name: "Alpha Workspace",
-        hasChildren: false,
-        children: [],
-      })
-    );
+    expect(mockStore.setPendingDelete).toHaveBeenCalledWith({
+      id: "ws-1",
+      name: "Alpha Workspace",
+      hasChildren: false,
+    });
     expect(closeContextMenu).toHaveBeenCalled();
   });
 });

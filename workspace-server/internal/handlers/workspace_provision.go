@@ -247,10 +247,11 @@ func seedInitialMemories(ctx context.Context, workspaceID string, memories []mod
 			log.Printf("seedInitialMemories: truncated memory content for %s (scope=%s) from %d to %d bytes",
 				workspaceID, scope, len(mem.Content), maxMemoryContentLength)
 		}
+		redactedContent, _ := redactSecrets(workspaceID, content)
 		if _, err := db.DB.ExecContext(ctx, `
 			INSERT INTO agent_memories (workspace_id, content, scope, namespace)
 			VALUES ($1, $2, $3, $4)
-		`, workspaceID, redactSecrets(workspaceID, content), scope, awarenessNamespace); err != nil {
+		`, workspaceID, redactedContent, scope, awarenessNamespace); err != nil {
 			log.Printf("seedInitialMemories: failed to insert memory for %s (scope=%s): %v", workspaceID, scope, err)
 		}
 	}
@@ -333,10 +334,26 @@ func (h *WorkspaceHandler) buildProvisionerConfig(
 // provisioning continues — the workspace will get 401 on its first heartbeat
 // and can recover on the next restart.
 func (h *WorkspaceHandler) issueAndInjectToken(ctx context.Context, workspaceID string, cfg *provisioner.WorkspaceConfig) {
-	// Revoke any existing live tokens. If this fails we bail out rather than
-	// issuing a second live token whose plaintext we can't also deliver.
+	// Revoke any existing live tokens FIRST — this must run in both modes.
+	// In SaaS mode the revoke is load-bearing on re-provision: without it,
+	// the previous workspace instance's live token sits in the DB, and
+	// RegistryHandler.requireWorkspaceToken on the fresh instance's first
+	// /registry/register would reject it (live token exists → no
+	// bootstrap allowance, but the new workspace has no plaintext because
+	// the CP provisioner doesn't carry cfg.ConfigFiles across user-data).
+	// Revoking clears the gate so the register handler's bootstrap path
+	// can mint a fresh token and return the plaintext in the response.
 	if err := wsauth.RevokeAllForWorkspace(ctx, db.DB, workspaceID); err != nil {
 		log.Printf("Provisioner: failed to revoke existing tokens for %s: %v — skipping auth-token injection", workspaceID, err)
+		return
+	}
+
+	// SaaS mode skips the IssueToken + ConfigFiles write because both
+	// only make sense on the Docker provisioner's volume-mount delivery
+	// path. The register handler mints a fresh token on first successful
+	// register and returns the plaintext in the response body for the
+	// runtime to persist locally.
+	if saasMode() {
 		return
 	}
 
@@ -615,14 +632,13 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 	}
 
 	log.Printf("CPProvisioner: workspace %s started as machine %s via control plane", workspaceID, machineID)
-	// Issue token so the agent can authenticate on boot
-	token, tokenErr := wsauth.IssueToken(ctx, db.DB, workspaceID)
-	if tokenErr != nil {
-		log.Printf("CPProvisioner: failed to issue token for %s: %v", workspaceID, tokenErr)
-	} else {
-		// Don't log any prefix of the token. Earlier H1 regression showed
-		// this slice pattern (token[:8]) panics when a helper returns a
-		// short value. Length alone is enough to confirm a token issued.
-		log.Printf("CPProvisioner: issued auth token for workspace %s (len=%d)", workspaceID, len(token))
-	}
+	// Token issuance is deliberately deferred to the workspace's first
+	// /registry/register call. Minting here without also delivering the
+	// plaintext to the workspace (via user-data or a follow-up callback)
+	// would leave a live token in DB that the workspace has no copy of —
+	// RegistryHandler.requireWorkspaceToken would then 401 every
+	// /registry/register attempt because the workspace is no longer in the
+	// "no live tokens → bootstrap-allowed" state. The register handler
+	// already mints a token on first successful register and returns it in
+	// the response body for the workspace to persist.
 }

@@ -111,7 +111,7 @@ func (h *OrgTokenHandler) Revoke(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "token not found or already revoked"})
 		return
 	}
-	actor := orgTokenActor(c)
+	actor, _ := orgTokenActor(c)
 	log.Printf("orgtoken: revoked id=%s by=%s", id, actor)
 	c.JSON(http.StatusOK, gin.H{"revoked": id})
 }
