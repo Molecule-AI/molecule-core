@@ -96,7 +96,7 @@ func (h *AdminMemoriesHandler) Import(c *gin.Context) {
 
 	var entries []memoryImportEntry
 	if err := c.ShouldBindJSON(&entries); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON request body"})
 		return
 	}
 

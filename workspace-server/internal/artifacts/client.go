@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"time"
@@ -172,7 +173,11 @@ func (c *Client) do(ctx context.Context, method, path string, body, out interfac
 	if err != nil {
 		return fmt.Errorf("artifacts: request %s %s: %w", method, path, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("artifacts: response body close error: %v", closeErr)
+		}
+	}()
 
 	// Decode the Cloudflare v4 envelope. Cap at 1 MiB to prevent a
 	// malicious or runaway upstream response from exhausting memory.

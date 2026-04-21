@@ -256,7 +256,7 @@ func (h *MCPHandler) Call(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, mcpResponse{
 			JSONRPC: "2.0",
-			Error:   &mcpRPCError{Code: -32700, Message: "parse error: " + err.Error()},
+			Error:   &mcpRPCError{Code: -32700, Message: "parse error: invalid JSON request body"},
 		})
 		return
 	}
@@ -344,12 +344,12 @@ func (h *MCPHandler) dispatchRPC(ctx context.Context, workspaceID string, req mc
 			Arguments map[string]interface{} `json:"arguments"`
 		}
 		if err := json.Unmarshal(req.Params, &params); err != nil {
-			base.Error = &mcpRPCError{Code: -32602, Message: "invalid params: " + err.Error()}
+			base.Error = &mcpRPCError{Code: -32602, Message: "invalid params: malformed JSON"}
 			return base
 		}
 		text, err := h.dispatch(ctx, workspaceID, params.Name, params.Arguments)
 		if err != nil {
-			base.Error = &mcpRPCError{Code: -32000, Message: err.Error()}
+			base.Error = &mcpRPCError{Code: -32000, Message: "dispatch error"}
 			return base
 		}
 		base.Result = map[string]interface{}{
