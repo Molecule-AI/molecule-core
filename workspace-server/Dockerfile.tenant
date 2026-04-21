@@ -51,7 +51,16 @@ RUN apk add --no-cache ca-certificates git tzdata
 # entrypoint runs as root only long enough to set volume ownership,
 # then exec's as the 'canvas' user via su-exec / setpriv.
 # The Go platform itself drops privileges after init.
-RUN addgroup -g 1000 canvas && adduser -u 1000 -G canvas -s /bin/sh -D canvas
+#
+# node:20-alpine ships with uid/gid 1000 already taken by `node`. Delete
+# it first so we can recreate `canvas` at the same uid/gid without
+# conflict. Previously plain addgroup/adduser at 1000 failed with
+# "group 'node' in use" — blocked the tenant image build for hours
+# 2026-04-21. Picking a different uid would break mounted volumes
+# that expect 1000, so we keep the slot and rename the user.
+RUN deluser --remove-home node 2>/dev/null || true; \
+    delgroup node 2>/dev/null || true; \
+    addgroup -g 1000 canvas && adduser -u 1000 -G canvas -s /bin/sh -D canvas
 
 # Go platform binary
 COPY --from=go-builder /platform /platform
