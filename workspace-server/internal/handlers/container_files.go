@@ -142,10 +142,16 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 	if h.docker == nil {
 		return fmt.Errorf("docker not available")
 	}
+	// CWE-78/CWE-22: validate before use. Also switches to exec form
+	// ([]string{...}) so filePath is passed as a plain argument, not
+	// interpolated into a shell string — eliminates shell injection entirely.
+	if err := validateRelPath(filePath); err != nil {
+		return err
+	}
 
 	resp, err := h.docker.ContainerCreate(ctx, &container.Config{
 		Image: "alpine:latest",
-		Cmd:   []string{"rm", "-rf", "/configs/" + filePath},
+		Cmd:   []string{"rm", "-rf", "/configs", filePath},
 	}, &container.HostConfig{
 		Binds: []string{volumeName + ":/configs"},
 	}, nil, nil, "")
