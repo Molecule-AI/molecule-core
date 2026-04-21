@@ -67,15 +67,27 @@ func (h *TemplatesHandler) execInContainer(ctx context.Context, containerName st
 }
 
 // copyFilesToContainer creates a tar archive from a map of files and copies it into a container.
+// The destPath is prepended to each file name. File names must be relative and must not escape
+// destPath via ".." segments — otherwise the tar header name could escape the mounted volume.
 func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerName, destPath string, files map[string]string) error {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 
 	createdDirs := map[string]bool{}
 	for name, content := range files {
+		// Block absolute paths and traversal attempts at the archive-write boundary.
+		// Files are written inside destPath (typically /configs); anything that escapes
+		// via ".." or an absolute name could reach other volumes or system paths.
+		clean := filepath.Clean(name)
+		if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+			return fmt.Errorf("unsafe file path in archive: %s", name)
+		}
+		// Prepend destPath so relative paths land inside the volume mount.
+		archiveName := filepath.Join(destPath, name)
+
 		// Create parent directories in tar (deduplicated)
-		dir := filepath.Dir(name)
-		if dir != "." && !createdDirs[dir] {
+		dir := filepath.Dir(archiveName)
+		if dir != destPath && !createdDirs[dir] {
 			tw.WriteHeader(&tar.Header{
 				Typeflag: tar.TypeDir,
 				Name:     dir + "/",

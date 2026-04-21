@@ -62,6 +62,8 @@ func (h *TemplatesHandler) resolveTemplateDir(wsName string) string {
 }
 
 // validateRelPath checks that a relative path doesn't escape the target directory.
+// Rejects absolute paths (used by callers that append to /configs or /workspace) and
+// any path containing ".." that would escape the allowed root via traversal.
 func validateRelPath(relPath string) error {
 	clean := filepath.Clean(relPath)
 	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
