@@ -1,5 +1,7 @@
 # External Agent Registration Guide
 
+> **In a hurry?** The [External Workspace 5-Minute Quickstart](./external-workspace-quickstart.md) gets you from zero to a live agent on canvas in under 5 minutes. This guide is the comprehensive reference — auth, capabilities, production hardening — for when you need the full picture.
+
 ## Overview
 
 An **external agent** (also called a remote agent) is any AI agent that runs
