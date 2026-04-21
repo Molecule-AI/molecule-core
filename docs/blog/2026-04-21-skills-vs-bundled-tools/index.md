@@ -95,7 +95,7 @@ Here's how the comparison lands:
 
 If you want to evaluate Molecule AI's skills coverage, start here:
 
-→ [MCP browser automation guide](/docs/blog/browser-automation-ai-agents-mcp) — browser tools via Chrome DevTools Protocol, same capability as Hermes' built-in browser
+→ [MCP browser automation guide](/blog/browser-automation-ai-agents-mcp) — browser tools via Chrome DevTools Protocol, same capability as Hermes' built-in browser
 → [TTS and image generation skills](/docs/guides/skill-catalog) — community-contributed, versioned, swappable
 → [Org-scoped API keys](/docs/guides/org-api-keys.md) — production auth and audit
 
