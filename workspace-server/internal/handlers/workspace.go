@@ -23,8 +23,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// broadcasterLogger is the interface required by WorkspaceHandler for
+// broadcasting workspace events. *events.Broadcaster implements it; so does
+// the test double *captureBroadcaster used in workspace_provision_test.go.
+type broadcasterLogger interface {
+	RecordAndBroadcast(ctx context.Context, eventType, workspaceID string, payload interface{}) error
+}
+
 type WorkspaceHandler struct {
-	broadcaster *events.Broadcaster
+	broadcaster broadcasterLogger
 	provisioner *provisioner.Provisioner
 	cpProv      *provisioner.CPProvisioner
 	platformURL string
