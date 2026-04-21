@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/orgtoken"
 	"github.com/gin-gonic/gin"
 )
 
@@ -107,9 +108,18 @@ type putAllowlistRequest struct {
 
 // requireCallerOwnsOrg returns the caller's org workspace ID from the
 // request context, or "" if the caller is not an org-token holder.
-// Used to enforce org isolation on org-scoped routes — the org_token_id
-// is the org-scoped token's ID (not the org workspace ID), so we look
-// it up via the created_by workspace or a direct relationship.
+// Used to enforce org isolation on org-scoped routes.
+//
+// F1094 regression fix (#1200): previously this read created_by from
+// org_api_tokens, but created_by is a provenance label ("session",
+// "admin-token", "org-token:<prefix>") — never a UUID. The equality
+// check callerOrg != targetOrgID always failed, giving every org-token
+// caller a non-UUID string and causing 403 on every org-token request.
+//
+// Fix: read org_id column instead (populated at mint time by
+// POST /org/tokens via orgTokenActor). Pre-migration tokens and
+// ADMIN_TOKEN bootstrap tokens have org_id=NULL → callerOrg="" →
+// deny by default (safer than permitting cross-org access).
 //
 // Returns ("", nil) when the caller is a session/ADMIN_TOKEN user (they
 // bypass via the session cookie path or ADMIN_TOKEN, not org tokens).
@@ -122,19 +132,15 @@ func requireCallerOwnsOrg(c *gin.Context) (string, error) {
 	if !ok || tokID == "" {
 		return "", nil
 	}
-	// Look up the org workspace that owns this token.
-	// org_api_tokens has no org_id column, but we can look up the token's
-	// created_by workspace and treat that as the caller's org anchor.
-	var createdBy string
-	err := db.DB.QueryRowContext(c.Request.Context(),
-		`SELECT created_by FROM org_api_tokens WHERE id = $1`, tokID,
-	).Scan(&createdBy)
-	if err != nil || createdBy == "" {
-		// Token has no created_by (CLI bootstrap path) — treat as unowned;
-		// deny by default to prevent cross-org access.
-		return "", fmt.Errorf("token has no org anchor")
+	// Look up the token's org_id (populated at mint time by orgTokenActor).
+	// org_id is NULL for tokens minted before this migration or via
+	// ADMIN_TOKEN bootstrap — those callers get callerOrg="" and are denied.
+	orgID, err := orgtoken.OrgIDByTokenID(c.Request.Context(), db.DB, tokID)
+	if err != nil {
+		// DB error — deny by default rather than risk cross-org access.
+		return "", fmt.Errorf("allowlist: requireCallerOwnsOrg: %v", err)
 	}
-	return createdBy, nil
+	return orgID, nil
 }
 
 // requireOrgOwnership verifies the caller has authority over the target org.
