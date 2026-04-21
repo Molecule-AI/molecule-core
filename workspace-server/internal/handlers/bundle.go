@@ -35,7 +35,7 @@ func (h *BundleHandler) Export(c *gin.Context) {
 
 	b, err := bundle.Export(ctx, workspaceID, h.configsDir, h.docker)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "bundle not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -46,7 +46,7 @@ func (h *BundleHandler) Export(c *gin.Context) {
 func (h *BundleHandler) Import(c *gin.Context) {
 	var b bundle.Bundle
 	if err := c.ShouldBindJSON(&b); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid bundle"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 

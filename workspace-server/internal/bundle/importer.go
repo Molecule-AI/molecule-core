@@ -3,6 +3,7 @@ package bundle
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
@@ -50,11 +51,13 @@ func Import(
 		return result
 	}
 
-	_ = broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", wsID, map[string]interface{}{
+	if err := broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", wsID, map[string]interface{}{
 		"name":             b.Name,
 		"tier":             b.Tier,
 		"source_bundle_id": b.ID,
-	})
+	}); err != nil {
+		log.Printf("bundle import: failed to broadcast PROVISIONING event: %v", err)
+	}
 
 	// Build config files in memory for the provisioner
 	configFiles := buildBundleConfigFiles(b)
@@ -71,7 +74,9 @@ func Import(
 		}
 	}
 	// Store runtime in DB
-	_, _ = db.DB.ExecContext(ctx, `UPDATE workspaces SET runtime = $1 WHERE id = $2`, bundleRuntime, wsID)
+	if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET runtime = $1 WHERE id = $2`, bundleRuntime, wsID); err != nil {
+		log.Printf("bundle import: failed to set runtime for workspace %s: %v", wsID, err)
+	}
 
 	// Provision the container if provisioner is available
 	if prov != nil {

@@ -906,6 +906,7 @@ func containsStr(s, substr string) bool {
 // truncates content at maxMemoryContentLength before INSERT. Regression
 // test for the error-sanitization / memory-seed contract.
 func TestSeedInitialMemories_Truncation(t *testing.T) {
+	mock := setupTestDB(t)
 	largeContent := string(make([]byte, 100_001))
 	copy([]byte(largeContent), "X") // fill with "X" so test is deterministic
 
@@ -1095,7 +1096,9 @@ func TestProvisionWorkspace_NoInternalErrorsInBroadcast(t *testing.T) {
 	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM global_secrets`).
 		WillReturnError(errInternalDB)
 
-	broadcaster := &captureBroadcaster{}
+	broadcaster := &captureBroadcaster{
+		Broadcaster: events.Broadcaster{},
+	}
 	handler := &WorkspaceHandler{
 		broadcaster:  broadcaster,
 		provisioner: &provisioner.Provisioner{},
@@ -1143,7 +1146,9 @@ func TestProvisionWorkspaceCP_NoInternalErrorsInBroadcast(t *testing.T) {
 	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM workspace_secrets WHERE workspace_id = \$1`).
 		WillReturnRows(sqlmock.NewRows([]string{"key", "encrypted_value", "encryption_version"}))
 
-	broadcaster := &captureBroadcaster{}
+	broadcaster := &captureBroadcaster{
+		Broadcaster: events.Broadcaster{},
+	}
 	registry := &mockEnvMutator{returnErr: errInternalDB}
 	handler := &WorkspaceHandler{
 		broadcaster:  broadcaster,

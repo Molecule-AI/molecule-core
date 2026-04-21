@@ -247,7 +247,7 @@ func seedInitialMemories(ctx context.Context, workspaceID string, memories []mod
 			log.Printf("seedInitialMemories: truncated memory content for %s (scope=%s) from %d to %d bytes",
 				workspaceID, scope, len(mem.Content), maxMemoryContentLength)
 		}
-		redactedContent, _ := redactSecrets(workspaceID, content)
+redactedContent, _ := redactSecrets(workspaceID, content)
 		if _, err := db.DB.ExecContext(ctx, `
 			INSERT INTO agent_memories (workspace_id, content, scope, namespace)
 			VALUES ($1, $2, $3, $4)
