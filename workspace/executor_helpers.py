@@ -199,14 +199,26 @@ def read_delegation_results() -> str:
 # ========================================================================
 
 async def set_current_task(heartbeat: "HeartbeatLoop | None", task: str) -> None:
-    """Update current task on heartbeat and push immediately via platform API."""
+    """Update current task on heartbeat and push immediately via platform API.
+
+    Uses increment/decrement instead of binary 0/1 so agents can track
+    multiple concurrent tasks (#1408). Pushes immediately on both
+    increment and decrement to avoid phantom-busy (#1372).
+    """
     if heartbeat is not None:
-        heartbeat.current_task = task
-        heartbeat.active_tasks = 1 if task else 0
+        if task:
+            heartbeat.active_tasks = getattr(heartbeat, "active_tasks", 0) + 1
+            heartbeat.current_task = task
+        else:
+            heartbeat.active_tasks = max(0, getattr(heartbeat, "active_tasks", 0) - 1)
+            if heartbeat.active_tasks == 0:
+                heartbeat.current_task = ""
     workspace_id = os.environ.get("WORKSPACE_ID", "")
     platform_url = os.environ.get("PLATFORM_URL", "")
     if not (workspace_id and platform_url):
         return
+    active = getattr(heartbeat, "active_tasks", 0) if heartbeat is not None else (1 if task else 0)
+    cur_task = getattr(heartbeat, "current_task", task or "") if heartbeat is not None else (task or "")
     try:
         try:
             from platform_auth import auth_headers as _auth
@@ -217,8 +229,8 @@ async def set_current_task(heartbeat: "HeartbeatLoop | None", task: str) -> None
             f"{platform_url}/registry/heartbeat",
             json={
                 "workspace_id": workspace_id,
-                "current_task": task,
-                "active_tasks": 1 if task else 0,
+                "current_task": cur_task,
+                "active_tasks": active,
                 "error_rate": 0,
                 "sample_error": "",
                 "uptime_seconds": 0,
