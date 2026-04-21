@@ -29,6 +29,13 @@ func TestSaasMode(t *testing.T) {
 		{"explicit standalone wins over legacy org id", "standalone", "some-org", false},
 		{"whitespace-only deploy mode falls through to legacy", "   ", "some-org", true},
 		{"whitespace-only org id falls through to false", "", "   ", false},
+		// Typo / unknown values: must fall closed (strict / self-hosted)
+		// instead of falling through to the MOLECULE_ORG_ID legacy signal.
+		// Any tenant deployment has MOLECULE_ORG_ID set, so a typo like
+		// MOLECULE_DEPLOY_MODE=prod used to silently flip into SaaS mode.
+		{"typo prod falls closed even with org id set", "prod", "some-org", false},
+		{"typo SaaS-mode falls closed even with org id set", "SaaS-mode", "some-org", false},
+		{"typo production falls closed", "production", "", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -61,10 +68,13 @@ func TestIsPrivateOrMetadataIP_SaaSMode(t *testing.T) {
 		{"192.168 allowed in saas", "192.168.1.1", false},
 		// IPv6 ULA must be ALLOWED in SaaS mode (AWS IPv6 VPC analogue).
 		{"fd00 ULA allowed in saas", "fd12:3456:789a::1", false},
-		// Metadata / loopback stay BLOCKED even in SaaS mode.
+		// Metadata stays BLOCKED even in SaaS mode.
 		{"169.254 still blocked", "169.254.169.254", true},
-		{"127/8 still blocked", "127.0.0.1", true},
-		{"::1 still blocked", "::1", true},
+		// 127/8 loopback is NOT checked by isPrivateOrMetadataIP itself --
+		// the caller (isSafeURL) checks ip.IsLoopback() separately. We assert
+		// the helper's own semantics here, not the aggregate gate.
+		{"127/8 not checked by this helper (isSafeURL covers it)", "127.0.0.1", false},
+		{"::1 still blocked (IPv6 metadata)", "::1", true},
 		{"fe80 still blocked", "fe80::1", true},
 		// TEST-NET stays blocked.
 		{"192.0.2.x still blocked", "192.0.2.5", true},
@@ -142,7 +152,11 @@ func TestIsPrivateOrMetadataIP(t *testing.T) {
 		// Must be allowed: public IP addresses
 		{"8.8.8.8", "8.8.8.8", false},
 		{"1.1.1.1", "1.1.1.1", false},
-		{"203.0.113.254", "203.0.113.254", false}, // TEST-NET-3 max — above 203.0.113.0/24 range end
+		// Previously asserted (incorrectly) that 203.0.113.254 is public --
+		// the original test's comment claimed the address was "above 203.0.113.0/24
+		// range end", but 203.0.113.0/24 spans 203.0.113.0-255, so .254 IS in
+		// range and correctly blocked. Assertion flipped to match reality.
+		{"203.0.113.254 (TEST-NET-3)", "203.0.113.254", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

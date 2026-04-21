@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
@@ -35,25 +36,37 @@ type blockedRange struct {
 // trusted by construction.
 //
 // Resolution order:
-//  1. MOLECULE_DEPLOY_MODE — explicit operator-set flag ("saas" | "self-hosted").
-//     Prefer this for new deployments: the signal is unambiguous and can't
-//     collide with some future non-SaaS path that legitimately needs
-//     MOLECULE_ORG_ID.
-//  2. MOLECULE_ORG_ID presence — implicit legacy signal, kept so deployments
-//     that haven't yet adopted MOLECULE_DEPLOY_MODE keep working.
+//  1. MOLECULE_DEPLOY_MODE set — explicit operator flag is authoritative.
+//     Recognised values: "saas" → true. "self-hosted" / "selfhosted" /
+//     "standalone" → false. Any other non-empty value logs a warning and
+//     falls closed (false) so a typo like MOLECULE_DEPLOY_MODE=prod can't
+//     silently flip a self-hosted deployment into the relaxed SSRF posture.
+//  2. MOLECULE_DEPLOY_MODE unset — fall back to the MOLECULE_ORG_ID presence
+//     signal for deployments that predate the explicit flag.
 //
 // Self-hosted / single-container deployments set neither and keep the strict
 // blocklist.
 func saasMode() bool {
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv("MOLECULE_DEPLOY_MODE")))
-	switch mode {
-	case "saas":
-		return true
-	case "self-hosted", "selfhosted", "standalone":
-		return false
+	raw := os.Getenv("MOLECULE_DEPLOY_MODE")
+	trimmed := strings.TrimSpace(raw)
+	if trimmed != "" {
+		switch strings.ToLower(trimmed) {
+		case "saas":
+			return true
+		case "self-hosted", "selfhosted", "standalone":
+			return false
+		default:
+			// Warn-once so operators notice the typo without spamming logs.
+			saasModeWarnUnknownOnce.Do(func() {
+				log.Printf("saasMode: MOLECULE_DEPLOY_MODE=%q not recognised; falling back to strict (non-SaaS) mode. Valid values: saas | self-hosted.", raw)
+			})
+			return false
+		}
 	}
 	return strings.TrimSpace(os.Getenv("MOLECULE_ORG_ID")) != ""
 }
+
+var saasModeWarnUnknownOnce sync.Once
 
 type RegistryHandler struct {
 	broadcaster *events.Broadcaster

@@ -72,14 +72,14 @@ func TestValidate_HappyPath(t *testing.T) {
 	plaintext := "known-plaintext-for-test"
 	hash := sha256.Sum256([]byte(plaintext))
 
-	mock.ExpectQuery(`SELECT id, prefix FROM org_api_tokens`).
+	mock.ExpectQuery(`SELECT id, prefix, org_id FROM org_api_tokens`).
 		WithArgs(hash[:]).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).AddRow("tok-live", "abcd1234"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).AddRow("tok-live", "abcd1234", "org-happy"))
 	mock.ExpectExec(`UPDATE org_api_tokens SET last_used_at`).
 		WithArgs("tok-live").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	id, prefix, err := Validate(context.Background(), db, plaintext)
+	id, prefix, orgID, err := Validate(context.Background(), db, plaintext)
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
@@ -89,12 +89,15 @@ func TestValidate_HappyPath(t *testing.T) {
 	if prefix != "abcd1234" {
 		t.Errorf("prefix = %q, want abcd1234", prefix)
 	}
+	if orgID != "org-happy" {
+		t.Errorf("orgID = %q, want org-happy", orgID)
+	}
 }
 
 func TestValidate_EmptyPlaintextRejected(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
-	if _, _, err := Validate(context.Background(), db, ""); !errors.Is(err, ErrInvalidToken) {
+	if _, _, _, err := Validate(context.Background(), db, ""); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("empty plaintext should be ErrInvalidToken, got %v", err)
 	}
 }
@@ -110,7 +113,7 @@ func TestValidate_UnknownHashErrInvalid(t *testing.T) {
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnError(sql.ErrNoRows)
 
-	if _, _, err := Validate(context.Background(), db, "ghost"); !errors.Is(err, ErrInvalidToken) {
+	if _, _, _, err := Validate(context.Background(), db, "ghost"); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("unknown hash should be ErrInvalidToken, got %v", err)
 	}
 }
@@ -127,7 +130,7 @@ func TestValidate_RevokedTokenNotAccepted(t *testing.T) {
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnError(sql.ErrNoRows)
 
-	if _, _, err := Validate(context.Background(), db, "revoked-plaintext"); !errors.Is(err, ErrInvalidToken) {
+	if _, _, _, err := Validate(context.Background(), db, "revoked-plaintext"); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("revoked token should be ErrInvalidToken, got %v", err)
 	}
 }
