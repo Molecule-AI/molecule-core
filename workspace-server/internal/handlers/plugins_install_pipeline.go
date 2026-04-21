@@ -138,14 +138,16 @@ func (h *PluginsHandler) resolveAndStage(ctx context.Context, req installRequest
 		})
 	}
 
-	source, err := plugins.ParseSource(req.Source)
-	if err != nil {
-		return nil, newHTTPErr(http.StatusBadRequest, gin.H{"error": err.Error()})
+	// F1086 / #1206: ParseSource errors can include file paths, query
+	// parameters, and internal resolver state — never expose to caller.
+	return nil, newHTTPErr(http.StatusBadRequest, gin.H{"error": "invalid plugin source"})
 	}
 	resolver, err := h.sources.Resolve(source)
 	if err != nil {
+		// F1086 / #1206: include schemes so the caller can self-diagnose
+		// the fix, but never the raw error message.
 		return nil, newHTTPErr(http.StatusBadRequest, gin.H{
-			"error":             err.Error(),
+			"error":             "plugin resolution failed",
 			"available_schemes": h.sources.Schemes(),
 		})
 	}
@@ -153,7 +155,8 @@ func (h *PluginsHandler) resolveAndStage(ctx context.Context, req installRequest
 	// traversal attempts yield 400 rather than a resolver-level 502.
 	if source.Scheme == "local" {
 		if err := validatePluginName(source.Spec); err != nil {
-			return nil, newHTTPErr(http.StatusBadRequest, gin.H{"error": err.Error()})
+			// F1086 / #1206: path traversal / injection risk — generic message.
+			return nil, newHTTPErr(http.StatusBadRequest, gin.H{"error": "invalid plugin name"})
 		}
 	}
 
