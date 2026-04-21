@@ -83,8 +83,8 @@ Commit `d513a0ced549ef2be8903a7b4794256110ba1805` on staging (merged to main via
 
 | # | Credential | Value | Status |
 |---|------------|-------|--------|
-| 1 | ANTHROPIC_AUTH_TOKEN | `sk-cp-lHt-QFSyZwZxeo...KVw` | ⚠️ Revoked or inactive (404 on API call) |
-| 2 | GITHUB_TOKEN | `github_pat_11BPRRWQI0m...hsIJLIL` | ✅ Revoked (confirmed 401) |
+| 1 | ANTHROPIC_AUTH_TOKEN | `sk-cp-lHt...KVw` | ⚠️ Revoked or inactive (404 on API call) |
+| 2 | GITHUB_TOKEN | `github_pat_11...hsIJLIL` | ✅ Revoked (confirmed 401) |
 | 3 | ADMIN_TOKEN | `***REDACTED***` | Needs confirmation — treated as active until proven otherwise |
 
 ### Resolution
