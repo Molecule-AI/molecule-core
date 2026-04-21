@@ -83,12 +83,11 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 			return fmt.Errorf("unsafe file path in archive: %s", name)
 		}
 		// Prepend destPath so relative paths land inside the volume mount.
-		// Use cleaned name so validation (which checks clean) and usage stay consistent.
+		// Use the cleaned path to prevent traversal: if name = "../../../etc/passwd",
+		// clean = "../../etc/passwd" (platform-dependent), but either way the check
+		// above already rejected anything starting with "..". Defense-in-depth:
+		// also verify the result stays inside destPath.
 		archiveName := filepath.Join(destPath, clean)
-		// Defence-in-depth: ensure the joined path doesn't escape destPath.
-		// This guards against platform-specific filepath.Join behaviour where
-		// joining a relative name containing ".." with a destPath can still
-		// produce an absolute path outside the intended directory.
 		if !strings.HasPrefix(archiveName, destPath) && archiveName != destPath {
 			return fmt.Errorf("path escapes destination: %s", name)
 		}
@@ -162,9 +161,10 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 	if h.docker == nil {
 		return fmt.Errorf("docker not available")
 	}
-	// CWE-78/CWE-22: validate before use. Also switches to exec form
-	// ([]string{...}) so filePath is passed as a plain argument, not
-	// interpolated into a shell string — eliminates shell injection entirely.
+	// CWE-78/CWE-22: validate before use. The exec form ([]string{...})
+	// passes filePath as a plain argument — no shell, no injection.
+	// validateRelPath blocks absolute paths and ".." traversal so the
+	// concatenated path stays inside /configs at all times.
 	if err := validateRelPath(filePath); err != nil {
 		return err
 	}
