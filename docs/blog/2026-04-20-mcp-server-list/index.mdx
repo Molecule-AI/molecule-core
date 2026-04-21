@@ -1,0 +1,330 @@
+---
+title: "The Complete MCP Server List: Reference, Official, and Community (2026)"
+date: 2026-04-21
+slug: mcp-server-list
+description: "Full list of Model Context Protocol servers: reference implementations, official integrations, community servers, and server frameworks. Includes install commands and use-case guide."
+tags: [MCP, AI-agents, server-list, integrations]
+keywords: [MCP server list, MCP servers, Model Context Protocol, MCP integration, best MCP servers, MCP server examples, MCP framework]
+canonical: https://moleculesai.app/blog/mcp-server-list
+og_title: "The Complete MCP Server List (2026)"
+og_description: "Every Model Context Protocol server you need: reference, official, community, and frameworks. Install commands included."
+og_image: /assets/blog/2026-04-21-mcp-server-list-og.png
+twitter_card: summary_large_image
+author: Molecule AI
+---
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "The Complete MCP Server List: Reference, Official, and Community (2026)",
+  "description": "Full list of Model Context Protocol servers: reference implementations, official integrations, community servers, and server frameworks.",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-21",
+  "dateModified": "2026-04-21",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  },
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://moleculesai.app/blog/mcp-server-list"
+  }
+}
+</script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "What is an MCP server?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "An MCP server is a service that exposes tools, resources, or prompts to AI applications via the Model Context Protocol. MCP servers act as bridges between AI models and external systems like filesystems, databases, APIs, and web services."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I install an MCP server?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Most MCP servers are installed via a single command. TypeScript servers typically use npx (e.g., npx -y @modelcontextprotocol/server-filesystem). Python servers often use uvx (e.g., uvx mcp-server-git) or pip. Configure the server in your AI client's MCP settings file."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What's the difference between reference servers and official integrations?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Reference servers are official reference implementations that demonstrate MCP's capabilities — they are maintained by the MCP authors. Official integrations are MCP servers built by companies (GitHub, Google, etc.) to expose their platforms' APIs as MCP tools. Both are production-ready but serve different purposes."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I build my own MCP server?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. There are server frameworks for TypeScript (FastMCP, EasyMCP, MCP-Framework), Python (FastAPI-to-MCP, mxcp), Go (Foxy Contexts), and many other languages. These frameworks handle the MCP protocol so you can focus on your tool implementations."
+      }
+    }
+  ]
+}
+</script>
+
+# The Complete MCP Server List: Reference, Official, and Community (2026)
+
+The Model Context Protocol has a growing ecosystem of MCP servers — services that connect AI models to external tools, data, and platforms. The official MCP integration ecosystem spans reference implementations, enterprise integrations from major platforms, and community-contributed servers. This MCP server list covers every meaningful category: reference implementations, official integrations from major platforms, community servers, and the frameworks you can use to build your own MCP integration.
+
+Whether you're evaluating which MCP servers to connect to your AI agent pipeline, looking for a specific integration, or deciding where to invest in a custom MCP server — this list is the current state of the ecosystem.
+
+---
+
+## What is the Model Context Protocol? {#what-is-mcp}
+
+The Model Context Protocol (MCP) is an open standard for connecting AI applications to external systems. It works like a universal adapter: once an MCP server is configured, any MCP-compatible AI client can use its tools without custom integration code.
+
+MCP servers expose three capability types:
+- **Tools** — callable functions the AI can invoke (e.g., read a file, query a database, send a message)
+- **Resources** — structured data the AI can read (e.g., repository contents, API responses)
+- **Prompts** — reusable template scripts that guide AI behavior
+
+The MCP server list below covers all three. Most users care primarily about tools.
+
+---
+
+## Reference Servers — Official MCP Implementations {#reference-servers}
+
+The MCP authors maintain a set of reference servers that demonstrate the protocol's capabilities. These are the most broadly-compatible MCP servers and the best starting point if you're new to the ecosystem.
+
+| MCP server | What it does | Install command |
+|---|---|---|
+| **Fetch** | Fetches and converts web content for efficient LLM usage | `npx -y @modelcontextprotocol/server-fetch` |
+| **Filesystem** | Secure file read/write with configurable path restrictions | `npx -y @modelcontextprotocol/server-filesystem /allowed/path` |
+| **Git** | Read, search, and manipulate Git repositories | `uvx mcp-server-git` |
+| **Memory** | Knowledge graph-based persistent memory system | `npx -y @modelcontextprotocol/server-memory` |
+| **Sequential Thinking** | Dynamic, reflective problem-solving via structured thought chains | `npx -y @modelcontextprotocol/server-sequential-thinking` |
+| **Time** | Time and timezone conversion | `npx -y @modelcontextprotocol/server-time` |
+| **Everything** | Reference/test server with prompts, resources, and tools | `npx -y @modelcontextprotocol/server-everything` |
+
+The reference servers are TypeScript-based (npx) or Python-based (uvx/pip). Each implements a clean, focused capability. The Filesystem server is particularly useful for AI agents that need to work with local project files — you can restrict it to a specific directory tree and the AI agent gets controlled file access rather than a raw filesystem interface.
+
+For a complete MCP server list of the official reference implementations, see the [MCP examples page](https://modelcontextprotocol.io/examples.md).
+
+---
+
+## Official Integrations — Enterprise MCP Servers {#official-integrations}
+
+Major platforms have built MCP servers to expose their APIs as MCP tools. These official integrations are production-grade MCP servers maintained by the platform owners.
+
+### GitHub MCP Server
+
+Exposes repository management, issue tracking, PR workflows, and GitHub API access as MCP tools. Ideal for AI agents that review code, manage sprints, or automate DevOps workflows.
+
+```bash
+npx -y @modelcontextprotocol/server-github
+# Requires GITHUB_PERSONAL_ACCESS_TOKEN environment variable
+```
+
+**Use case:** AI agents that read CI results, comment on PRs, manage issues, or generate release notes from commit history.
+
+### Google Workspace MCP Server
+
+Connects to Google Drive, Calendar, Gmail, and other Google Workspace APIs. Enables AI agents to read documents, schedule events, and send emails through Google services.
+
+**Use case:** Personal AI assistants that need to interact with Google Workspace — reading shared documents, creating calendar events, drafting email replies.
+
+### AWS KB Retrieval MCP Server
+
+Provides retrieval capabilities from AWS Knowledge Bases. Enables AI agents to query enterprise knowledge bases hosted on AWS.
+
+**Use case:** Enterprise AI assistants that need to answer questions from internal AWS-hosted documentation.
+
+### Slack MCP Server
+
+Exposes Slack channel management, messaging, and workspace administration as MCP tools. AI agents can post updates, respond to mentions, and manage channels.
+
+**Use case:** AI agents that participate in team communication — posting standup summaries, responding to helpdesk channels, alerting on incidents.
+
+### PostgreSQL MCP Server
+
+Read-only database access via MCP. AI agents can query structured data from PostgreSQL databases without direct database credentials.
+
+**Use case:** AI agents that need to answer questions from live database data — sales dashboards, operational metrics, customer records.
+
+### Sentry MCP Server
+
+Retrieves error reports and issue data from Sentry. AI agents can fetch stack traces, error trends, and deployment impact analysis.
+
+**Use case:** AI agents that monitor application health and generate incident reports from Sentry data.
+
+For the full MCP server list across all official integrations, see the [MCP servers GitHub repository](https://github.com/modelcontextprotocol/servers).
+
+---
+
+## Server Frameworks — Build Your Own MCP Server {#server-frameworks}
+
+If you need an MCP server for a capability that doesn't exist yet, you can build one. A server framework handles the MCP protocol so you focus on your tool implementations.
+
+### TypeScript Frameworks
+
+| Framework | Description |
+|---|---|
+| **FastMCP** | High-performance TypeScript framework with decorator-based tool definitions |
+| **EasyMCP** | Simplified TypeScript MCP server creation — good for prototyping |
+| **MCP-Framework** | Elegant TypeScript framework with dependency injection and structured tool definitions |
+| **ModelFetch** | Runtime-agnostic TypeScript SDK for building MCP servers |
+| **Vercel MCP Adapter** | Serve MCP servers via Next.js, Nuxt, or Svelte deployments |
+
+**Example FastMCP server:**
+
+```typescript
+import { FastMCP } from 'fastmcp';
+
+const server = new FastMCP({
+  name: 'my-tools',
+  version: '1.0.0'
+});
+
+server.addTool({
+  name: 'get_weather',
+  description: 'Get weather for a city',
+  parameters: {
+    city: { type: 'string', required: true }
+  },
+  execute: async (args) => {
+    const data = await fetchWeather(args.city);
+    return { content: [{ type: 'text', text: JSON.stringify(data) }] };
+  }
+});
+
+server.start();
+```
+
+### Python Frameworks
+
+| Framework | Description |
+|---|---|
+| **FastAPI-to-MCP** | Auto-expose FastAPI endpoints as MCP tools |
+| **mxcp** | YAML/SQL/Python-based MCP server framework |
+| **MCP Plexus** | Multi-tenant, OAuth 2.1-aware MCP framework |
+
+**Example with FastAPI-to-MCP:**
+
+```python
+from fastapi import FastAPI
+from fastapi_to_mcp import expose_as_mcp
+
+app = FastAPI()
+
+@app.get("/weather/{city}")
+async def get_weather(city: str):
+    return {"city": city, "temp": 22}
+
+expose_as_mcp(app, name="weather-service")
+```
+
+### Other Language Frameworks
+
+- **Anubis MCP** (Elixir) — high-performance MCP implementation
+- **Foxy Contexts** (Go) — idiomatic Go MCP server building
+- **Quarkus MCP Server SDK** (Java) — enterprise Java MCP support
+- **Spring AI MCP Server** (Java) — Spring Boot auto-configuration
+- **Perl SDK** — MCP for Perl-based environments
+- **SAP ABAP MCP SDK** — ABAP-based enterprise environments
+
+Server frameworks are a key part of the MCP server list because they enable any team to extend the ecosystem for their specific needs.
+
+---
+
+## Community Registries and Discovery Tools {#community-registries}
+
+Beyond official sources, the MCP community has built several registries and tools for discovering and managing MCP servers:
+
+| Resource | Description |
+|---|---|
+| **MCP Registry** | Official centralized metadata repository for MCP servers — backed by Anthropic, GitHub, Microsoft, PulseMCP |
+| **Smithery** | Third-party MCP server marketplace with setup guides and one-click configuration |
+| **MCPServers.com** | Community directory of MCP servers with categorized listings |
+| **MCPHub** | MCP server discovery with community reviews and ratings |
+| **MCPRepository.com** | MCP server discovery and aggregation platform |
+| **mcp-get** | CLI tool for installing and managing MCP servers from the command line |
+| **mcp-cli** | CLI inspector for debugging MCP server connections |
+| **mcp-manager** | Web UI for managing MCP servers in Claude Desktop |
+
+The [official MCP Registry](https://github.com/modelcontextprotocol/registry) uses a standardized `server.json` format and includes namespace authentication via DNS verification — so an MCP server published as `io.github.username/server-name` is provably from that GitHub account.
+
+---
+
+## How to Install and Configure MCP Servers {#installing-mcp-servers}
+
+Most MCP servers require a single install command and a configuration entry in your AI client's MCP settings. For Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/files"]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "<YOUR_TOKEN>"
+      }
+    }
+  }
+}
+```
+
+For Python-based servers, use `uvx` (recommended) or `pip`:
+
+```bash
+# Using uvx (recommended)
+uvx mcp-server-git
+
+# Using pip
+pip install mcp-server-git
+python -m mcp_server_git
+```
+
+Each MCP server has its own configuration requirements. Environment variables for authentication tokens are common. Consult the server's documentation for specifics.
+
+---
+
+## Choosing the Right MCP Server {#choosing}
+
+With this complete MCP server list, how do you pick? A decision framework:
+
+**Start with reference servers** if you're building a general-purpose AI agent. Fetch, Filesystem, and Git cover the most common agent workflows — web research, file management, and version control.
+
+**Add official integrations** when your agent needs to interact with a specific platform. GitHub for DevOps agents, Slack for communication agents, PostgreSQL for data-query agents.
+
+**Build a custom MCP server** when you have proprietary data sources or internal tools that don't have an official integration. Use a server framework (FastMCP for TypeScript, FastAPI-to-MCP for Python) to expose your internal capabilities as MCP tools.
+
+**Use community registries** when you're exploring what's available. Smithery and MCPHub are good for discovering existing MCP servers before deciding to build.
+
+---
+
+## MCP Servers on Molecule AI — Enterprise Governance Built In {#mcp-servers-molecule-ai}
+
+When you connect MCP servers to AI agents in production, governance matters. Molecule AI provides enterprise controls for any MCP server in your agent pipelines:
+
+- **Credential scoping** — MCP server authentication tokens are managed by the platform, not held in agent memory
+- **Session isolation** — each workspace gets its own MCP server context; agents can't access another workspace's tool state
+- **Audit trails** — every MCP tool invocation is logged with workspace ID, timestamp, and parameters
+- **Access control** — specify which MCP servers are available per workspace, per agent role
+
+This applies to all MCP servers — not just browser automation. A GitHub MCP server, a PostgreSQL MCP server, a custom internal MCP server — all governed uniformly by the Molecule AI control plane.
+
+To get started with MCP servers on Molecule AI, see the [MCP server setup guide](/docs/guides/mcp-server-setup). For a complete walkthrough of connecting your first MCP server to an AI agent, see the [quickstart](/docs/quickstart). To understand how Molecule AI's control plane enforces governance across all MCP tool invocations, see the [architecture documentation](/docs/architecture/architecture).
+
+For a specific use case — browser automation via Chrome DevTools MCP — see our guide to [Browser Control for AI Agents: How Chrome DevTools MCP Works](/blog/chrome-devtools-mcp).
+
+---
+
+*The MCP server list above reflects the ecosystem as of 2026-04-21. MCP is an open standard — new servers and integrations are added regularly. Bookmark this page or follow the [MCP Registry](https://github.com/modelcontextprotocol/registry) for updates.*
