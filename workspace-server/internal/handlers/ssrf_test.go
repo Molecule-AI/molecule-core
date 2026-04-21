@@ -29,6 +29,13 @@ func TestSaasMode(t *testing.T) {
 		{"explicit standalone wins over legacy org id", "standalone", "some-org", false},
 		{"whitespace-only deploy mode falls through to legacy", "   ", "some-org", true},
 		{"whitespace-only org id falls through to false", "", "   ", false},
+		// Typo / unknown values: must fall closed (strict / self-hosted)
+		// instead of falling through to the MOLECULE_ORG_ID legacy signal.
+		// Any tenant deployment has MOLECULE_ORG_ID set, so a typo like
+		// MOLECULE_DEPLOY_MODE=prod used to silently flip into SaaS mode.
+		{"typo prod falls closed even with org id set", "prod", "some-org", false},
+		{"typo SaaS-mode falls closed even with org id set", "SaaS-mode", "some-org", false},
+		{"typo production falls closed", "production", "", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
