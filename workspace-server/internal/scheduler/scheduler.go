@@ -255,6 +255,7 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 				if _, execErr := db.DB.ExecContext(context.Background(), `UPDATE workspace_schedules SET next_run_at=$1, updated_at=now() WHERE id=$2`, nextTime, sched.ID); execErr != nil {
 					log.Printf("Scheduler: panic-recovery next_run_at UPDATE failed for schedule %s: %v", sched.ID, execErr)
 				}
+			}
 		}
 	}()
 

@@ -74,12 +74,12 @@ func TestValidate_HappyPath(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT id, prefix FROM org_api_tokens`).
 		WithArgs(hash[:]).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).AddRow("tok-live", "abcd1234", nil))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).AddRow("tok-live", "abcd1234"))
 	mock.ExpectExec(`UPDATE org_api_tokens SET last_used_at`).
 		WithArgs("tok-live").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	id, prefix, orgID, err := Validate(context.Background(), db, plaintext)
+	id, prefix, _, err := Validate(context.Background(), db, plaintext)
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}

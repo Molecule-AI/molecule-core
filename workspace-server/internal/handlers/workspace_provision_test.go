@@ -902,10 +902,11 @@ func containsStr(s, substr string) bool {
 // Each test injects a known-internal error and verifies the response body
 // or broadcast payload contains ONLY the generic prod-safe message.
 
-// TestSeedInitialMemories_Truncation verifies that seedInitialMemories
-// truncates content at maxMemoryContentLength before INSERT. Regression
-// test for the error-sanitization / memory-seed contract.
-func TestSeedInitialMemories_Truncation(t *testing.T) {
+// TestSeedInitialMemories_TruncatesOversizedContent_SingleCase is an alternative
+// single-case variant of the table-driven TestSeedInitialMemories_TruncatesOversizedContent
+// (line 538). Kept to cover the 100,001-byte regression path independently.
+func TestSeedInitialMemories_TruncatesOversizedContent_SingleCase(t *testing.T) {
+	mock := setupTestDB(t)
 	largeContent := string(make([]byte, 100_001))
 	copy([]byte(largeContent), "X") // fill with "X" so test is deterministic
 
@@ -1097,7 +1098,7 @@ func TestProvisionWorkspace_NoInternalErrorsInBroadcast(t *testing.T) {
 
 	broadcaster := &captureBroadcaster{}
 	handler := &WorkspaceHandler{
-		broadcaster:  broadcaster,
+		broadcaster:  (*events.Broadcaster)(broadcaster),
 		provisioner: &provisioner.Provisioner{},
 		cpProv:       &provisioner.CPProvisioner{},
 		platformURL:  "http://platform.test",
@@ -1146,7 +1147,7 @@ func TestProvisionWorkspaceCP_NoInternalErrorsInBroadcast(t *testing.T) {
 	broadcaster := &captureBroadcaster{}
 	registry := &mockEnvMutator{returnErr: errInternalDB}
 	handler := &WorkspaceHandler{
-		broadcaster:  broadcaster,
+		broadcaster:  (*events.Broadcaster)(broadcaster),
 		cpProv:       &provisioner.CPProvisioner{},
 		platformURL:  "http://platform.test",
 		envMutators:  registry,
@@ -1182,7 +1183,7 @@ func (m *mockEnvMutator) Run(_ context.Context, _ string, _ map[string]string) e
 	return m.returnErr
 }
 
-func (m *mockEnvMutator) Register(_ provisionhook.EnvMutator) {}
+func (m *mockEnvMutator) Register(_ interface{}) {}
 
 // TestResolveAndStage_NoInternalErrorsInHTTPErr asserts that resolveAndStage
 // never puts err.Error() in HTTP error responses. Tests plugin source
@@ -1260,8 +1261,6 @@ func (m *mockPluginsSources) Resolve(source plugins.Source) (plugins.SourceResol
 }
 
 type mockResolver struct{}
-
-func (*mockResolver) Scheme() string { return "" }
 
 func (*mockResolver) Fetch(ctx context.Context, spec, destDir string) (string, error) {
 	return "", nil
