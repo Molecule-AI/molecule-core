@@ -134,8 +134,7 @@ describe("/orgs — error state", () => {
       mockFetchSession.mockResolvedValue({ userId: "u-1" });
       mockFetch.mockResolvedValueOnce(notOk(500, "db down"));
       render(<OrgsPage />);
-      await new Promise((r) => setTimeout(r, 50));
-      expect(screen.getByText(/Error:/)).toBeTruthy();
+      await waitFor(() => expect(screen.getByText(/Error:/)).toBeTruthy());
       expect(screen.getByRole("button", { name: /retry/i })).toBeTruthy();
     } finally {
       vi.useFakeTimers();

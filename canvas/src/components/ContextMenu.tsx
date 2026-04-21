@@ -164,7 +164,10 @@ export function ContextMenu() {
     // it survives ContextMenu unmount. Closing the menu here avoids the
     // prior race where the portal dialog's Confirm click was treated as
     // "outside" by the menu's outside-click handler.
-    setPendingDelete({ id: contextMenu.nodeId, name: contextMenu.nodeData.name });
+    const hasChildren = !!useCanvasStore.getState().nodes.some(
+      (n) => n.data.parentId === contextMenu.nodeId
+    );
+    setPendingDelete({ id: contextMenu.nodeId, name: contextMenu.nodeData.name, hasChildren });
     closeContextMenu();
   }, [contextMenu, setPendingDelete, closeContextMenu]);
 
