@@ -226,6 +226,7 @@ describe("ContextMenu — keyboard accessibility", () => {
       id: "ws-1",
       name: "Alpha Workspace",
       hasChildren: false,
+      children: [],
     });
     expect(closeContextMenu).toHaveBeenCalled();
   });
