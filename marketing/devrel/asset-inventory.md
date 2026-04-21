@@ -98,6 +98,24 @@ Use this as the source of truth for what DevRel has produced this cycle, what's 
 
 ---
 
+## Launch Execution
+
+| File | Status | Notes |
+|---|---|---|
+| `marketing/drip/post-push-checklist.md` | 📦 STAGED | 6-phase sequencing: push → PR → docs → social → email → verify |
+| `marketing/drip/phase30-email-drip.md` | 📦 STAGED | 3-email CRM sequence (Day 1/3–4/7) with placeholders |
+| `marketing/community/hacker-news-launch.md` | 📦 STAGED | HN guide, 3 title options, post body template, comment responses |
+| `marketing/community/community-announcements.md` | 📦 STAGED | Discord + Slack + Reddit copy, channel-by-channel |
+
+## Sales Enablement
+
+| File | Status | Notes |
+|---|---|---|
+| `marketing/sales/phase30-sales-enablement.md` | 📦 STAGED | 4 competitive battlecards, 5 objection handlers, 3-min demo script |
+| `marketing/sales/phase30-one-pager.md` | 📦 STAGED | 1-page PDF-ready asset with feature table, pricing, quick-start |
+
+---
+
 ## Scripts & Helpers
 
 | File | Status | Notes |
@@ -119,9 +137,19 @@ Use this as the source of truth for what DevRel has produced this cycle, what's 
 - [ ] Review `docs/blog/2026-04-20-remote-workspaces/index.md` — final read before publish
 - [ ] Post `phase30-social-copy.md` — schedule X posts (all 4 versions) + LinkedIn post
 - [ ] Post `chrome-devtools-mcp-social-copy.md` — schedule alongside blog post
+- [ ] Schedule 3-email drip sequence after blog post is live
+- [ ] Submit or assign Hacker News post (see `hacker-news-launch.md`)
 
 ### Community Manager
 - [ ] Schedule social copy posts (see Marketing Lead row)
+- [ ] Post community announcements per `community-announcements.md`
+
+### Video Editor
+- [ ] Begin Phase 30 video assembly per `phase30-video-production.md`
+
+### Sales / Solutions Engineering
+- [ ] Review `phase30-sales-enablement.md` — customize talk tracks to seller voice
+- [ ] Review `phase30-one-pager.md` — replace link placeholders before distributing
 
 ### PMM
 - [ ] Confirm authoritative path for `marketing/social/phase30-launch-plan.md` (currently confirmed missing from internal repo)
