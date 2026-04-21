@@ -376,8 +376,13 @@ print(json.dumps({
 }))
 ")
   set +e
+  # Raw curl (not tenant_call) because this call carries an extra
+  # X-Source-Workspace-Id header. Must still send X-Molecule-Org-Id
+  # or TenantGuard 404s — previously missing, caused section 10 to
+  # fail rc=22 despite everything upstream being correct (2026-04-21).
   DELEG_RESP=$(curl "${CURL_COMMON[@]}" -X POST "$TENANT_URL/workspaces/$CHILD_ID/a2a" \
     -H "Authorization: Bearer $EFFECTIVE_TENANT_TOKEN" \
+    -H "X-Molecule-Org-Id: $ORG_ID" \
     -H "X-Source-Workspace-Id: $PARENT_ID" \
     -H "Content-Type: application/json" \
     -d "$DELEG_PAYLOAD")
