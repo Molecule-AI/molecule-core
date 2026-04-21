@@ -24,7 +24,7 @@ The `channel:<type>` caller prefix bypasses workspace hierarchy access checks (s
 |------|--------|---------|
 | `telegram` | ✅ Implemented | `go-telegram-bot-api/v5` |
 | `slack` | Planned | — |
-| `discord` | Planned | — |
+| `discord` | ✅ Implemented (PR #656) | native `net/http` |
 | `whatsapp` | Planned | — |
 
 To add a new adapter: implement `ChannelAdapter` in `workspace-server/internal/channels/`, register in `registry.go`. Everything else (CRUD API, Canvas UI, MCP tools) works automatically.
@@ -128,6 +128,43 @@ workspaces:
 The vars are resolved from (in order): `pm/.env` → org root `.env` → platform process env. If any required var is unresolved, the channel is skipped with a clear log message and the skip reason is surfaced in the import response (`channels_skipped` field).
 
 The platform calls `adapter.ValidateConfig()` upfront so unknown channel types or invalid configs fail fast. Insert is idempotent (`ON CONFLICT DO UPDATE`) so re-importing the same org refreshes the channel config.
+
+## Discord Setup
+
+### 1. Create a Discord Webhook
+1. Open your Discord server → **Edit Channel** (or create a new one) → **Integrations** → **Webhooks**
+2. Click **New Webhook** → name it → **Copy Webhook URL**
+3. The URL looks like: `https://discord.com/api/webhooks/<id>/<token>`
+
+### 2. Connect via Canvas
+1. Open the workspace in Canvas → **Channels** tab → **+ Connect**
+2. Paste the webhook URL
+3. **Connect Channel**
+
+### 3. Or connect via API
+```bash
+curl -X POST http://localhost:8080/workspaces/:id/channels \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "channel_type": "discord",
+    "config": {
+      "webhook_url": "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN"
+    }
+  }'
+```
+
+### 4. Register slash commands (for inbound)
+Discord uses Application Commands (slash commands) for inbound messages. Register them in your Discord server's **Integration** page, or use Discord's developer portal to create global commands. The adapter parses `/<command> <options>` and passes them to the workspace agent.
+
+### Inbound / Outbound
+| Direction | Mechanism |
+|---|---|
+| **Inbound** | Discord Interactions endpoint (slash commands, message components) → `ParseWebhook()` |
+| **Outbound** | Discord Incoming Webhooks → `SendMessage()` (2000-char chunking built in) |
+
+**Note:** No Discord bot token is required for outbound-only use — the webhook URL encodes channel + token. For inbound slash commands, you need a Discord Application with an Interactions endpoint URL pointed at `POST /webhooks/discord` on your platform.
+
+See `workspace-server/internal/channels/discord.go` for the full adapter implementation.
 
 ## Hot Reload
 
