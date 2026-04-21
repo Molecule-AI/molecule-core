@@ -124,9 +124,16 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 	if template == "" {
 		template = findTemplateByName(h.configsDir, wsName)
 	}
+	// SECURITY (CWE-22 / #1043): validate before joining into configsDir.
+	// resolveInsideRoot rejects absolute paths and ".." traversal, closing
+	// the gap that body.Template could exploit even when it starts empty
+	// or lowercase (stat guard bypass via directory name overlap).
 	if template != "" {
-		candidatePath := filepath.Join(h.configsDir, template)
-		if _, err := os.Stat(candidatePath); err == nil {
+		candidatePath, resolveErr := resolveInsideRoot(h.configsDir, template)
+		if resolveErr != nil {
+			log.Printf("Restart: invalid template path %q: %v", template, resolveErr)
+			template = "" // fall through to reuse existing volume
+		} else {
 			templatePath = candidatePath
 			configLabel = template
 		}
