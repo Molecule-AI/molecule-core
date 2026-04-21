@@ -56,6 +56,7 @@ type Token struct {
 	ID         string     `json:"id"`
 	Prefix     string     `json:"prefix"`
 	Name       string     `json:"name,omitempty"`
+	OrgID      string     `json:"org_id,omitempty"`
 	CreatedBy  string     `json:"created_by,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
@@ -66,10 +67,11 @@ type Token struct {
 // caller once and must be handed to the user verbatim — we cannot
 // recover it from the database.
 //
-// name and createdBy are both optional (nullable columns). Typical
-// use: name = "zapier integration", createdBy = current session
-// user_id.
-func Issue(ctx context.Context, db *sql.DB, name, createdBy string) (plaintext, id string, err error) {
+// name and orgID are both optional (nullable columns). createdBy
+// records provenance for audit. orgID is the caller's org workspace
+// ID and is used by requireCallerOwnsOrg to enforce org isolation
+// on org-scoped routes (#1200 / F1094).
+func Issue(ctx context.Context, db *sql.DB, name, createdBy, orgID string) (plaintext, id string, err error) {
 	buf := make([]byte, tokenPayloadBytes)
 	if _, err := rand.Read(buf); err != nil {
 		return "", "", fmt.Errorf("orgtoken: generate: %w", err)
@@ -79,10 +81,10 @@ func Issue(ctx context.Context, db *sql.DB, name, createdBy string) (plaintext, 
 	prefix := plaintext[:tokenPrefixLen]
 
 	err = db.QueryRowContext(ctx, `
-		INSERT INTO org_api_tokens (token_hash, prefix, name, created_by)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO org_api_tokens (token_hash, prefix, name, created_by, org_id)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id
-	`, hash[:], prefix, nullIfEmpty(name), nullIfEmpty(createdBy)).Scan(&id)
+	`, hash[:], prefix, nullIfEmpty(name), nullIfEmpty(createdBy), nullIfEmpty(orgID)).Scan(&id)
 	if err != nil {
 		return "", "", fmt.Errorf("orgtoken: persist: %w", err)
 	}
@@ -92,34 +94,45 @@ func Issue(ctx context.Context, db *sql.DB, name, createdBy string) (plaintext, 
 // Validate looks up a presented bearer, returns ErrInvalidToken on
 // any mismatch (bad bytes, revoked, deleted). On success, updates
 // last_used_at best-effort (the hot path — failure to update doesn't
-// fail the request) and returns the token id + display prefix for
-// audit logging.
+// fail the request) and returns the token id + display prefix + org_id
+// for audit logging and org isolation.
 //
 // Returning the prefix alongside the id lets callers produce audit
 // strings that match what users see in the UI (the plaintext prefix,
 // not the UUID). Keeps the "who did what" trail visually
 // correlatable to the revoke button in the token list.
-func Validate(ctx context.Context, db *sql.DB, plaintext string) (id, prefix string, err error) {
+//
+// The org_id is the workspace UUID of the org that owns this token.
+// May be empty for pre-migration tokens minted before #1212. Callers
+// that need org isolation should use requireCallerOwnsOrg (which does
+// a second lookup) rather than trusting an empty org_id here — this
+// avoids a breaking change to the Validate interface while still
+// populating the Gin context for callers that don't need it.
+func Validate(ctx context.Context, db *sql.DB, plaintext string) (id, prefix, orgID string, err error) {
 	if plaintext == "" {
-		return "", "", ErrInvalidToken
+		return "", "", "", ErrInvalidToken
 	}
 	hash := sha256.Sum256([]byte(plaintext))
+	var orgIDNull sql.NullString
 	queryErr := db.QueryRowContext(ctx, `
-		SELECT id, prefix FROM org_api_tokens
+		SELECT id, prefix, org_id FROM org_api_tokens
 		WHERE token_hash = $1 AND revoked_at IS NULL
-	`, hash[:]).Scan(&id, &prefix)
+	`, hash[:]).Scan(&id, &prefix, &orgIDNull)
 	if queryErr != nil {
 		// Collapse all failure shapes into ErrInvalidToken so the
 		// caller can't accidentally leak "row exists but revoked" vs
 		// "row never existed" via response shape.
-		return "", "", ErrInvalidToken
+		return "", "", "", ErrInvalidToken
+	}
+	if orgIDNull.Valid {
+		orgID = orgIDNull.String
 	}
 	// Best-effort last_used_at bump. Failure here is acceptable — the
 	// request is already authenticated; we don't want a transient DB
 	// blip to flip a 200 into a 500.
 	_, _ = db.ExecContext(ctx,
 		`UPDATE org_api_tokens SET last_used_at = now() WHERE id = $1`, id)
-	return id, prefix, nil
+	return id, prefix, orgID, nil
 }
 
 // List returns live (non-revoked) tokens newest-first. Safe to
@@ -130,8 +143,8 @@ func Validate(ctx context.Context, db *sql.DB, plaintext string) (id, prefix str
 // minting loop from O(N) pageloads in the admin UI.
 func List(ctx context.Context, db *sql.DB) ([]Token, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, prefix, COALESCE(name,''), COALESCE(created_by,''),
-		       created_at, last_used_at
+		SELECT id, prefix, COALESCE(name,''), COALESCE(org_id,''),
+		       COALESCE(created_by,''), created_at, last_used_at
 		FROM org_api_tokens
 		WHERE revoked_at IS NULL
 		ORDER BY created_at DESC
@@ -146,7 +159,7 @@ func List(ctx context.Context, db *sql.DB) ([]Token, error) {
 	for rows.Next() {
 		var t Token
 		var lastUsed sql.NullTime
-		if err := rows.Scan(&t.ID, &t.Prefix, &t.Name, &t.CreatedBy,
+		if err := rows.Scan(&t.ID, &t.Prefix, &t.Name, &t.OrgID, &t.CreatedBy,
 			&t.CreatedAt, &lastUsed); err != nil {
 			return nil, fmt.Errorf("orgtoken: scan: %w", err)
 		}
@@ -191,6 +204,25 @@ func HasAnyLive(ctx context.Context, db *sql.DB) (bool, error) {
 		return false, fmt.Errorf("orgtoken: has-any-live: %w", err)
 	}
 	return ok, nil
+}
+
+// OrgIDByTokenID looks up the org workspace ID for a token.
+// Used by requireCallerOwnsOrg to enforce org isolation on org-scoped
+// routes (#1200 / F1094). Returns ("", nil) when the token has no org_id
+// set (e.g. pre-migration tokens, ADMIN_TOKEN bootstrap tokens) — the
+// caller treats this as "deny by default".
+func OrgIDByTokenID(ctx context.Context, db *sql.DB, tokenID string) (string, error) {
+	var orgID sql.NullString
+	err := db.QueryRowContext(ctx,
+		`SELECT org_id FROM org_api_tokens WHERE id = $1`, tokenID,
+	).Scan(&orgID)
+	if err != nil {
+		return "", fmt.Errorf("orgtoken: org_id lookup: %w", err)
+	}
+	if !orgID.Valid || orgID.String == "" {
+		return "", nil // unanchored token — deny by default
+	}
+	return orgID.String, nil
 }
 
 func nullIfEmpty(s string) interface{} {

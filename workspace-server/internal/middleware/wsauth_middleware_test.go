@@ -459,6 +459,127 @@ func TestAdminAuth_InvalidBearer_Returns401(t *testing.T) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// F1097 regression — org-scoped token Validate() must also set org_id in context
+//
+// Before PR #1210 (fix/org-api-token-org-id-column), org tokens had no org_id
+// column so requireCallerOwnsOrg fell back to created_by lookup. After PR #1210,
+// requireCallerOwnsOrg queries org_api_tokens.org_id directly — but if
+// c.Set("org_id", ...) is never called, orgCallerID() always returns "" and
+// all token callers are denied org-scoped access even within their own org.
+//
+// The fix (wsauth_middleware.go): after orgtoken.Validate succeeds, also look up
+// the token's org_id column and set it in the context. This test verifies the
+// middleware sets org_id for a pre-fix token (org_id=NULL) and a post-fix
+// token (org_id="ws-org-1").
+// ────────────────────────────────────────────────────────────────────────────
+
+// orgTokenValidateQuery is matched for orgtoken.Validate().
+const orgTokenValidateQuery = "SELECT id, prefix, org_id::text FROM org_api_tokens"
+
+// orgTokenOrgIDQuery is matched for the org_id lookup added in the F1097 fix.
+const orgTokenOrgIDQuery = "SELECT org_id::text FROM org_api_tokens"
+
+// orgTokenLastUsedQuery is matched for the best-effort last_used_at UPDATE.
+const orgTokenLastUsedQuery = "UPDATE org_api_tokens SET last_used_at"
+
+// TestAdminAuth_OrgToken_SetsOrgID verifies that AdminAuth's org-token tier
+// reads the org_id column and sets it in the gin context so that requireCallerOwnsOrg
+// and orgCallerID can look it up downstream.
+func TestAdminAuth_OrgToken_SetsOrgID(t *testing.T) {
+	tests := []struct {
+		name          string
+		orgIDFromDB   interface{} // sqlmock row value: nil, "", or "ws-org-1"
+		wantOrgIDCtx  bool        // expect c.Get("org_id") to be set
+		wantOrgIDVal  string      // if set, expected value
+	}{
+		{
+			name:         "post-fix token has org_id set in context",
+			orgIDFromDB:  "ws-org-1",
+			wantOrgIDCtx: true,
+			wantOrgIDVal: "ws-org-1",
+		},
+		{
+			name:         "pre-fix token (org_id=NULL) — no org_id set in context",
+			orgIDFromDB:  nil,
+			wantOrgIDCtx: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockDB, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("sqlmock.New: %v", err)
+			}
+			defer mockDB.Close()
+
+			orgBearer := "valid-org-token"
+			orgTokenHash := sha256.Sum256([]byte(orgBearer))
+
+			// HasAnyLiveTokenGlobal: tokens exist.
+			mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+			// orgtoken.Validate: org token hash matches, returns id + prefix.
+			// Note: org tokens are checked BEFORE the workspace token path
+			// (ValidateAnyToken), so ValidateAnyToken is NOT called here.
+			mock.ExpectQuery(orgTokenValidateQuery).
+				WithArgs(orgTokenHash[:]).
+				WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
+					AddRow("tok-org-1", "tok-org-1", nil))
+
+			// Best-effort last_used_at UPDATE (after Validate).
+			mock.ExpectExec(orgTokenLastUsedQuery).
+				WithArgs("tok-org-1").
+				WillReturnResult(sqlmock.NewResult(0, 1))
+
+			// F1097 fix: org_id lookup. For pre-fix tokens (nil row), this
+			// returns nil and we expect no org_id context key to be set.
+			orgIDRows := sqlmock.NewRows([]string{"org_id"})
+			if tt.orgIDFromDB == nil {
+				orgIDRows = sqlmock.NewRows([]string{"org_id"}).AddRow(nil)
+			} else {
+				orgIDRows = sqlmock.NewRows([]string{"org_id"}).AddRow(tt.orgIDFromDB)
+			}
+			mock.ExpectQuery(orgTokenOrgIDQuery).
+				WithArgs("tok-org-1").
+				WillReturnRows(orgIDRows)
+
+			r := gin.New()
+			var gotOrgID string
+			var haveOrgID bool
+			r.GET("/admin/org/tokens", AdminAuth(mockDB), func(c *gin.Context) {
+				if v, ok := c.Get("org_id"); ok {
+					if s, ok := v.(string); ok {
+						gotOrgID = s
+						haveOrgID = true
+					}
+				}
+				c.JSON(http.StatusOK, gin.H{"ok": true})
+			})
+
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(http.MethodGet, "/admin/org/tokens", nil)
+			req.Header.Set("Authorization", "Bearer "+orgBearer)
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+			}
+			if haveOrgID != tt.wantOrgIDCtx {
+				t.Errorf("c.Get(\"org_id\") present = %v, want %v", haveOrgID, tt.wantOrgIDCtx)
+			}
+			if tt.wantOrgIDCtx && gotOrgID != tt.wantOrgIDVal {
+				t.Errorf("org_id = %q, want %q", gotOrgID, tt.wantOrgIDVal)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unmet sqlmock expectations: %v", err)
+			}
+		})
+	}
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Issue #170 regression — unauthenticated DELETE /workspaces/:id/secrets/:key
 //
 // Before this fix, the route was registered as:
