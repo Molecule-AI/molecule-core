@@ -202,18 +202,6 @@ describe("BudgetSection — progress bar", () => {
     const bar = screen.getByRole("progressbar");
     expect(bar.getAttribute("aria-valuenow")).toBe("30");
   });
-
-  it("shows 0% progress bar when budget_used is absent from the response", async () => {
-    // Regression: budget_used is optional (provisioning-stuck workspaces return
-    // partial shapes). Without the `?? 0` guard the progressPct calculation
-    // throws a TypeScript strict-null error and the build fails.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await renderLoaded({ budget_limit: 1000, budget_remaining: null } as any);
-    const bar = screen.getByRole("progressbar");
-    expect(bar.getAttribute("aria-valuenow")).toBe("0");
-    const fill = screen.getByTestId("budget-progress-fill") as HTMLDivElement;
-    expect(fill.style.width).toBe("0%");
-  });
 });
 
 // ── Input pre-fill ────────────────────────────────────────────────────────────

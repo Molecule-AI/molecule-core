@@ -52,9 +52,16 @@ from transcript_auth import transcript_authorized as _transcript_authorized
 
 
 async def main():  # pragma: no cover
-    workspace_id = os.environ.get("WORKSPACE_ID", "workspace-default")
+    workspace_id = os.environ.get("WORKSPACE_ID", "")
+    if not workspace_id:
+        raise SystemExit("FATAL: WORKSPACE_ID env var is not set. Aborting.")
     config_path = os.environ.get("WORKSPACE_CONFIG_PATH", "/configs")
-    platform_url = os.environ.get("PLATFORM_URL", "http://platform:8080")
+    # Docker-aware default — host.docker.internal resolves the platform service
+    # from inside the Docker network mesh; falls back to localhost for local dev.
+    if os.path.exists("/.dockerenv") or os.environ.get("DOCKER_VERSION"):
+        platform_url = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
+    else:
+        platform_url = os.environ.get("PLATFORM_URL", "http://localhost:8080")
     awareness_config = get_awareness_config()
 
     # 0. Initialise OpenTelemetry (no-op if packages not installed)

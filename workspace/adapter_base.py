@@ -229,7 +229,7 @@ class BaseAdapter(ABC):
         from builtin_tools.memory import commit_memory, search_memory
         from builtin_tools.sandbox import run_code
 
-        platform_url = os.environ.get("PLATFORM_URL", "http://platform:8080")
+        platform_url = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
 
         # Load plugins from per-workspace dir first, then shared fallback
         workspace_plugins_dir = os.path.join(config.config_path, "plugins")

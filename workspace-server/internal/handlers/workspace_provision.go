@@ -103,12 +103,16 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 	// never recovers. Failing fast here surfaces the cause to the operator.
 	if err := h.envMutators.Run(ctx, workspaceID, envVars); err != nil {
 		log.Printf("Provisioner: env mutator chain failed for %s: %v", workspaceID, err)
+		// F1086 / #1206: broadcast and db last_sample_error use generic messages —
+		// env mutator errors (missing tokens, vault paths, etc.) can include
+		// internal credential URIs and file paths that must not reach the caller.
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
 			"error": "plugin env mutator chain failed",
 		})
 		if _, dbErr := db.DB.ExecContext(ctx,
 			`UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
 			workspaceID, "plugin env mutator chain failed"); dbErr != nil {
+
 			log.Printf("Provisioner: failed to mark workspace %s as failed after mutator error: %v", workspaceID, dbErr)
 		}
 		return
@@ -175,11 +179,11 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 
 	url, err := h.provisioner.Start(ctx, cfg)
 	if err != nil {
-		// Persist the error text to last_sample_error so the canvas and
-		// GET /workspaces/:id expose something actionable — previously the
-		// provision failure was only logged + broadcast, leaving the DB
-		// row with an empty last_sample_error. Issue #117.
-		log.Printf("Provisioner: failed to start workspace %s: %v", workspaceID, err)
+		// F1086 / #1206: persist a generic message so the canvas and
+		// GET /workspaces/:id expose something actionable without leaking
+		// docker/error internals (image pull messages, volume paths, etc.).
+		errMsg := "workspace start failed"
+		log.Printf("Provisioner: %s for %s: %v", errMsg, workspaceID, err)
 		if _, dbErr := db.DB.ExecContext(ctx,
 			`UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
 			workspaceID, "workspace start failed"); dbErr != nil {
@@ -243,11 +247,10 @@ func seedInitialMemories(ctx context.Context, workspaceID string, memories []mod
 			log.Printf("seedInitialMemories: truncated memory content for %s (scope=%s) from %d to %d bytes",
 				workspaceID, scope, len(mem.Content), maxMemoryContentLength)
 		}
-		redactedContent, _ := redactSecrets(workspaceID, content)
 		if _, err := db.DB.ExecContext(ctx, `
 			INSERT INTO agent_memories (workspace_id, content, scope, namespace)
 			VALUES ($1, $2, $3, $4)
-		`, workspaceID, redactedContent, scope, awarenessNamespace); err != nil {
+		`, workspaceID, redactSecrets(workspaceID, content), scope, awarenessNamespace); err != nil {
 			log.Printf("seedInitialMemories: failed to insert memory for %s (scope=%s): %v", workspaceID, scope, err)
 		}
 	}
@@ -330,20 +333,6 @@ func (h *WorkspaceHandler) buildProvisionerConfig(
 // provisioning continues — the workspace will get 401 on its first heartbeat
 // and can recover on the next restart.
 func (h *WorkspaceHandler) issueAndInjectToken(ctx context.Context, workspaceID string, cfg *provisioner.WorkspaceConfig) {
-	// SaaS mode skip: the CP provisioner ships workspaces to a remote EC2
-	// via user-data and does not carry cfg.ConfigFiles across the wire, so
-	// any token we mint here never reaches the workspace. Minting it anyway
-	// would leave a live token in the DB with no plaintext on disk —
-	// RegistryHandler.requireWorkspaceToken then 401s every /registry/register
-	// attempt because the workspace has a live token on file (which trips
-	// bootstrap-allowed) but no way to present it. Defer to the register
-	// handler's own bootstrap-issuance path, which mints a token only after
-	// a successful first register and returns the plaintext in the response
-	// for the runtime to persist locally.
-	if saasMode() {
-		return
-	}
-
 	// Revoke any existing live tokens. If this fails we bail out rather than
 	// issuing a second live token whose plaintext we can't also deliver.
 	if err := wsauth.RevokeAllForWorkspace(ctx, db.DB, workspaceID); err != nil {
@@ -596,6 +585,8 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 	applyAgentGitIdentity(envVars, payload.Name)
 	if err := h.envMutators.Run(ctx, workspaceID, envVars); err != nil {
 		log.Printf("CPProvisioner: env mutator failed for %s: %v", workspaceID, err)
+		// F1086 / #1206: env mutator errors (missing tokens, vault paths) must not
+		// leak into last_sample_error — use generic message.
 		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
 				workspaceID, "plugin env mutator chain failed")
 		return
@@ -611,7 +602,10 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 
 	machineID, err := h.cpProv.Start(ctx, cfg)
 	if err != nil {
-		log.Printf("CPProvisioner: failed to start workspace %s: %v", workspaceID, err)
+		// F1086 / #1206: CP errors can include machine type, AMI IDs, VPC
+		// paths — use generic message for broadcast and last_sample_error.
+		errMsg := "workspace start failed"
+		log.Printf("CPProvisioner: %s for %s: %v", errMsg, workspaceID, err)
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
 			"error": "provisioning failed",
 		})
@@ -621,13 +615,14 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 	}
 
 	log.Printf("CPProvisioner: workspace %s started as machine %s via control plane", workspaceID, machineID)
-	// Token issuance is deliberately deferred to the workspace's first
-	// /registry/register call. Minting here without also delivering the
-	// plaintext to the workspace (via user-data or a follow-up callback)
-	// would leave a live token in DB that the workspace has no copy of —
-	// RegistryHandler.requireWorkspaceToken would then 401 every
-	// /registry/register attempt because the workspace is no longer in the
-	// "no live tokens → bootstrap-allowed" state. The register handler
-	// already mints a token on first successful register and returns it in
-	// the response body for the workspace to persist.
+	// Issue token so the agent can authenticate on boot
+	token, tokenErr := wsauth.IssueToken(ctx, db.DB, workspaceID)
+	if tokenErr != nil {
+		log.Printf("CPProvisioner: failed to issue token for %s: %v", workspaceID, tokenErr)
+	} else {
+		// Don't log any prefix of the token. Earlier H1 regression showed
+		// this slice pattern (token[:8]) panics when a helper returns a
+		// short value. Length alone is enough to confirm a token issued.
+		log.Printf("CPProvisioner: issued auth token for workspace %s (len=%d)", workspaceID, len(token))
+	}
 }

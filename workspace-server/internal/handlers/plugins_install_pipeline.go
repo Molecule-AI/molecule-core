@@ -144,6 +144,8 @@ func (h *PluginsHandler) resolveAndStage(ctx context.Context, req installRequest
 	}
 	resolver, err := h.sources.Resolve(source)
 	if err != nil {
+		// F1086 / #1206: include schemes so the caller can self-diagnose
+		// the fix, but never the raw error message.
 		return nil, newHTTPErr(http.StatusBadRequest, gin.H{
 			"error":             "failed to resolve plugin source",
 			"available_schemes": h.sources.Schemes(),

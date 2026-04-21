@@ -18,8 +18,14 @@ from platform_auth import auth_headers
 
 logger = logging.getLogger(__name__)
 
-PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://platform:8080")
-WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")
+if os.path.exists("/.dockerenv") or os.environ.get("DOCKER_VERSION"):
+    PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
+else:
+    PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://localhost:8080")
+_WORKSPACE_ID_raw = os.environ.get("WORKSPACE_ID")
+if not _WORKSPACE_ID_raw:
+    raise RuntimeError("WORKSPACE_ID environment variable is required but not set")
+WORKSPACE_ID = _WORKSPACE_ID_raw
 CONSOLIDATION_INTERVAL = float(os.environ.get("CONSOLIDATION_INTERVAL", "300"))  # 5 min
 CONSOLIDATION_THRESHOLD = int(os.environ.get("CONSOLIDATION_THRESHOLD", "10"))  # min memories before consolidating
 

@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
@@ -17,43 +16,6 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
 	"github.com/gin-gonic/gin"
 )
-
-// blockedRange is a named CIDR block so the conditional blocklist in
-// validateAgentURL reads as a slice of homogeneous values instead of
-// repeated anonymous struct literals.
-type blockedRange struct {
-	cidr  string
-	label string
-}
-
-// saasMode reports whether this tenant platform is running in SaaS cross-EC2
-// mode, where workspaces live on sibling EC2s in the same VPC and register
-// themselves by their RFC-1918 VPC-private IP (typically 172.31.x.x on AWS
-// default VPCs). In that shape, the SSRF hardening that blocks RFC-1918
-// addresses would reject every legitimate workspace registration — the
-// control plane provisioned these instances, so their intra-VPC URLs are
-// trusted by construction.
-//
-// Resolution order:
-//  1. MOLECULE_DEPLOY_MODE — explicit operator-set flag ("saas" | "self-hosted").
-//     Prefer this for new deployments: the signal is unambiguous and can't
-//     collide with some future non-SaaS path that legitimately needs
-//     MOLECULE_ORG_ID.
-//  2. MOLECULE_ORG_ID presence — implicit legacy signal, kept so deployments
-//     that haven't yet adopted MOLECULE_DEPLOY_MODE keep working.
-//
-// Self-hosted / single-container deployments set neither and keep the strict
-// blocklist.
-func saasMode() bool {
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv("MOLECULE_DEPLOY_MODE")))
-	switch mode {
-	case "saas":
-		return true
-	case "self-hosted", "selfhosted", "standalone":
-		return false
-	}
-	return strings.TrimSpace(os.Getenv("MOLECULE_ORG_ID")) != ""
-}
 
 type RegistryHandler struct {
 	broadcaster *events.Broadcaster
@@ -102,27 +64,18 @@ func validateAgentURL(rawURL string) error {
 	}
 	hostname := parsed.Hostname()
 
-	// Link-local / loopback / IPv6 metadata classes are blocked in every
-	// mode — they are never a legitimate agent URL and they cover the AWS/
-	// GCP/Azure IMDS endpoints. RFC-1918 ranges are conditionally blocked:
-	// in SaaS mode workspaces register with their VPC-private IP and the
-	// control plane is the source of truth for which instances exist, so
-	// allowing 10/8, 172.16/12, 192.168/16 is safe. In self-hosted mode
-	// we keep the strict blocklist — those deployments have no legitimate
-	// reason to accept private-range URLs from agents.
-	blockedRanges := []blockedRange{
+	blockedRanges := []struct {
+		cidr  string
+		label string
+	}{
 		{"169.254.0.0/16", "link-local address (cloud metadata endpoint)"},
 		{"127.0.0.0/8", "loopback address"},
+		{"10.0.0.0/8", "RFC-1918 private address"},
+		{"172.16.0.0/12", "RFC-1918 private address"},
+		{"192.168.0.0/16", "RFC-1918 private address"},
 		{"fe80::/10", "IPv6 link-local address (cloud metadata analogue)"},
 		{"::1/128", "IPv6 loopback address"},
-	}
-	if !saasMode() {
-		blockedRanges = append(blockedRanges,
-			blockedRange{"10.0.0.0/8", "RFC-1918 private address"},
-			blockedRange{"172.16.0.0/12", "RFC-1918 private address"},
-			blockedRange{"192.168.0.0/16", "RFC-1918 private address"},
-			blockedRange{"fc00::/7", "IPv6 ULA address (RFC-4193 private)"},
-		)
+		{"fc00::/7", "IPv6 ULA address (RFC-4193 private)"},
 	}
 
 	// Helper: check a single IP against the blocklist.
