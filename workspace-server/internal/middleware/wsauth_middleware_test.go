@@ -1341,3 +1341,129 @@ func TestAdminAuth_684_SpecificRoutes_NoBearer_Returns401(t *testing.T) {
 		})
 	}
 }
+
+// ── F1097 regression tests ─────────────────────────────────────────────────
+// AdminAuth must set "org_id" on the gin context after successfully validating
+// an org API token, so that callerOrg(c) in org_tokens.go can read it and
+// anchor newly minted tokens to the caller's org instead of NULL.
+//
+// Before the fix: c.Set("org_id", ...) was never called in AdminAuth →
+// returned "" → every canvas-minted token got org_id = NULL →
+// requireCallerOwnsOrg denied the token owner access to their own org.
+func TestAdminAuth_OrgToken_SetsOrgIDOnContext_F1097(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	orgToken := "org-api-token-with-known-org"
+	tokenHash := sha256.Sum256([]byte(orgToken))
+	tokenID := "tok-org-abc123"
+	callerOrgID := "11111111-1111-1111-1111-111111111111"
+
+	// AdminAuth checks HasAnyLiveTokenGlobal first (tokens exist).
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// orgtoken.Validate hits SELECT id, prefix FROM org_api_tokens
+	// WHERE token_hash = $1 AND revoked_at IS NULL.
+	mock.ExpectQuery(`SELECT id, prefix FROM org_api_tokens`).
+		WithArgs(tokenHash[:]).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).AddRow(tokenID, "tok_abc"))
+
+	// F1097 fix: AdminAuth then looks up org_id::text FROM org_api_tokens
+	// WHERE id = $1 and sets it on the gin context for callerOrg(c) to read.
+	mock.ExpectQuery(`SELECT org_id::text FROM org_api_tokens WHERE id = \$1`).
+		WithArgs(tokenID).
+		WillReturnRows(sqlmock.NewRows([]string{"org_id"}).AddRow(callerOrgID))
+
+	// Best-effort last_used_at UPDATE from orgtoken.Validate.
+	mock.ExpectExec(validateTokenUpdateQuery).
+		WithArgs(tokenID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	r := gin.New()
+	r.GET("/admin/secrets", AdminAuth(mockDB), func(c *gin.Context) {
+		// Assert org_id was set on the context.
+		val, ok := c.Get("org_id")
+		if !ok {
+			t.Error("F1097: org_id not set on gin context after org token validation")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "org_id missing"})
+			return
+		}
+		if val != callerOrgID {
+			t.Errorf("F1097: org_id = %q, want %q", val, callerOrgID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "wrong org_id"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/admin/secrets", nil)
+	req.Header.Set("Authorization", "Bearer "+orgToken)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("F1097: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("F1097: unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestAdminAuth_OrgToken_OrgIDNULL_SkipsOrgIDContext_F1097
+// If the org_api_tokens row exists but org_id IS NULL (e.g. pre-fix tokens
+// minted before the migration), AdminAuth must NOT panic or return an error —
+// it should simply skip setting the org_id key and proceed, so that callers
+// with pre-fix tokens are at worst denied new org-scoped access (fail-closed
+// on requireCallerOwnsOrg) rather than broken by a 500.
+func TestAdminAuth_OrgToken_OrgIDNULL_SkipsOrgIDContext_F1097(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	orgToken := "org-token-with-null-org"
+	tokenHash := sha256.Sum256([]byte(orgToken))
+	tokenID := "tok-null-org"
+
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	mock.ExpectQuery(`SELECT id, prefix FROM org_api_tokens`).
+		WithArgs(tokenHash[:]).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).AddRow(tokenID, "tok_null"))
+
+	// org_id column is NULL — query returns a NULL-scanned *string → skip setting.
+	mock.ExpectQuery(`SELECT org_id::text FROM org_api_tokens WHERE id = \$1`).
+		WithArgs(tokenID).
+		WillReturnRows(sqlmock.NewRows([]string{"org_id"}).AddRow(nil))
+
+	mock.ExpectExec(validateTokenUpdateQuery).
+		WithArgs(tokenID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	r := gin.New()
+	r.GET("/admin/secrets", AdminAuth(mockDB), func(c *gin.Context) {
+		// org_id must NOT be set for pre-fix NULL tokens.
+		if _, ok := c.Get("org_id"); ok {
+			t.Error("F1097 NULL path: org_id should NOT be set for NULL org_id tokens")
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/admin/secrets", nil)
+	req.Header.Set("Authorization", "Bearer "+orgToken)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("F1097 NULL path: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("F1097 NULL path: unmet sqlmock expectations: %v", err)
+	}
+}
