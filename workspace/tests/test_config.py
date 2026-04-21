@@ -244,3 +244,23 @@ def test_shared_context_from_yaml(tmp_path):
 
     cfg = load_config(str(tmp_path))
     assert cfg.shared_context == ["guidelines.md", "architecture.md"]
+
+
+def test_runtime_config_max_concurrent_tasks_default(tmp_path):
+    """runtime_config.max_concurrent_tasks defaults to 1 (single-task behavior)."""
+    config_yaml = tmp_path / "config.yaml"
+    config_yaml.write_text(yaml.dump({}))
+
+    cfg = load_config(str(tmp_path))
+    assert cfg.runtime_config.max_concurrent_tasks == 1
+
+
+def test_runtime_config_max_concurrent_tasks_override(tmp_path):
+    """runtime_config.max_concurrent_tasks can be set from YAML (#1408)."""
+    config_yaml = tmp_path / "config.yaml"
+    config_yaml.write_text(
+        yaml.dump({"runtime_config": {"max_concurrent_tasks": 3}})
+    )
+
+    cfg = load_config(str(tmp_path))
+    assert cfg.runtime_config.max_concurrent_tasks == 3

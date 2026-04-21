@@ -99,6 +99,12 @@ class RuntimeConfig:
     # Deprecated — use required_env + secrets API instead. Kept for backward compat.
     auth_token_env: str = ""
     auth_token_file: str = ""
+    max_concurrent_tasks: int = 1
+    """Per-workspace concurrency limit (#1408). Default 1 preserves single-task
+    behavior. Leaders handling both A2A delegations and crons can set higher
+    values. The platform column `workspaces.max_concurrent_tasks` (migration
+    037) is the authoritative source at runtime; this field is documentation
+    and can be used by tools that generate config.yaml files."""
 
 
 @dataclass
@@ -308,6 +314,7 @@ def load_config(config_path: Optional[str] = None) -> WorkspaceConfig:
             # Deprecated fields — kept for backward compat
             auth_token_env=runtime_raw.get("auth_token_env", ""),
             auth_token_file=runtime_raw.get("auth_token_file", ""),
+            max_concurrent_tasks=int(runtime_raw.get("max_concurrent_tasks", 1)),
         ),
         skills=raw.get("skills", []),
         plugins=raw.get("plugins", []),
