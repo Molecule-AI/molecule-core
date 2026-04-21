@@ -1095,7 +1095,7 @@ func TestProvisionWorkspace_NoInternalErrorsInBroadcast(t *testing.T) {
 	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM global_secrets`).
 		WillReturnError(errInternalDB)
 
-	broadcaster := &captureBroadcaster{}
+	broadcaster := &captureBroadcaster{broadcaster: events.NewBroadcaster(nil)}
 	handler := &WorkspaceHandler{
 		broadcaster:  broadcaster,
 		provisioner: &provisioner.Provisioner{},
@@ -1143,7 +1143,7 @@ func TestProvisionWorkspaceCP_NoInternalErrorsInBroadcast(t *testing.T) {
 	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM workspace_secrets WHERE workspace_id = \$1`).
 		WillReturnRows(sqlmock.NewRows([]string{"key", "encrypted_value", "encryption_version"}))
 
-	broadcaster := &captureBroadcaster{}
+	broadcaster := &captureBroadcaster{broadcaster: events.NewBroadcaster(nil)}
 	registry := &mockEnvMutator{returnErr: errInternalDB}
 	handler := &WorkspaceHandler{
 		broadcaster:  broadcaster,
