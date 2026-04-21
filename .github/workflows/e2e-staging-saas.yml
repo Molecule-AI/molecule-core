@@ -138,6 +138,6 @@ jobs:
             curl -sS -X DELETE "$MOLECULE_CP_URL/cp/admin/tenants/$slug" \
               -H "Authorization: Bearer $ADMIN_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "{\"confirm_token\":\"$slug\"}" >/dev/null || true
+              -d "{\"confirm\":\"$slug\"}" >/dev/null || true
           done
           exit 0
