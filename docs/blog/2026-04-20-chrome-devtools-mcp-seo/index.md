@@ -270,27 +270,29 @@ Compare this to n8n workflows: a human manually wires together a sequence of bro
 
 ## Getting Started with Molecule AI
 
-Molecule AI workspaces expose browser tools via the MCP protocol — no Puppeteer, no Selenium fleet, no per-session SaaS bill. The browser runs as a managed MCP session inside your workspace. You describe what you want in plain language; the agent drives the browser.
+To use browser automation in a Molecule AI workspace, you connect your own MCP server (such as the `ChromeDevToolsMCP` shown above) using Molecule AI's built-in MCP tool registration. The platform handles the WebSocket lifecycle and tool call routing — you bring the browser logic.
 
-To enable browser tools in a Molecule AI workspace, add them to your workspace configuration:
+**Configure the MCP server URL in your workspace:**
 
-```yaml
-# workspace-config.yaml
-mcp:
-  tools:
-    - browser_navigate
-    - dom_query
-    - page_screenshot
-    - network_intercept
-  session:
-    persistent: true      # maintain cookies + localStorage across calls
-    headless: true         # or false to see the browser window
-    debugging_port: 9222    # auto-assigned in Molecule AI cloud
+```bash
+# Set your browser MCP server endpoint via the platform API
+curl -X PATCH "${PLATFORM_URL}/workspaces/${WORKSPACE_ID}/config" \
+  -H "Authorization: Bearer ${WORKSPACE_TOKEN}" \
+  -d '{
+    "mcp_servers": {
+      "browser": {
+        "type": "streamable_http",
+        "url": "http://localhost:9223/mcp"
+      }
+    }
+  }'
 ```
 
-Three lines. No WebSocket management, no CDP command dispatch to write. The agent has a live browser session the moment the workspace starts.
+Or use the Canvas UI: Workspace → Config → MCP Servers → Add browser MCP server.
 
-Compare that to wiring Playwright into LangChain: you write async wrapper functions, handle `page.goto()` timeouts in the prompt, and debug failures by reading through decorator-stacked chain outputs. With Molecule AI and MCP, the browser is a first-class tool — typed, session-aware, and ready to use.
+**What Molecule AI provides:** WebSocket routing, tool call auth, session lifecycle, and the A2A bridge so your agent sees browser tools as native workspace tools. You bring the CDP bridge (or use the `ChromeDevToolsMCP` example above).
+
+**Compare that to wiring Playwright into LangChain:** you write async wrapper functions, handle `page.goto()` timeouts in the prompt, and debug failures by reading through decorator-stacked chain outputs. With Molecule AI and MCP, the browser is a first-class tool — typed, session-aware, and registered the same way as any other MCP tool.
 
 → [MCP Server Setup Guide](/docs/guides/mcp-server-setup)
 → [Quickstart: Deploy your first AI agent](/docs/quickstart)
