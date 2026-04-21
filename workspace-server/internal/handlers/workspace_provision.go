@@ -330,24 +330,26 @@ func (h *WorkspaceHandler) buildProvisionerConfig(
 // provisioning continues — the workspace will get 401 on its first heartbeat
 // and can recover on the next restart.
 func (h *WorkspaceHandler) issueAndInjectToken(ctx context.Context, workspaceID string, cfg *provisioner.WorkspaceConfig) {
-	// SaaS mode skip: the CP provisioner ships workspaces to a remote EC2
-	// via user-data and does not carry cfg.ConfigFiles across the wire, so
-	// any token we mint here never reaches the workspace. Minting it anyway
-	// would leave a live token in the DB with no plaintext on disk —
-	// RegistryHandler.requireWorkspaceToken then 401s every /registry/register
-	// attempt because the workspace has a live token on file (which trips
-	// bootstrap-allowed) but no way to present it. Defer to the register
-	// handler's own bootstrap-issuance path, which mints a token only after
-	// a successful first register and returns the plaintext in the response
-	// for the runtime to persist locally.
-	if saasMode() {
+	// Revoke any existing live tokens FIRST — this must run in both modes.
+	// In SaaS mode the revoke is load-bearing on re-provision: without it,
+	// the previous workspace instance's live token sits in the DB, and
+	// RegistryHandler.requireWorkspaceToken on the fresh instance's first
+	// /registry/register would reject it (live token exists → no
+	// bootstrap allowance, but the new workspace has no plaintext because
+	// the CP provisioner doesn't carry cfg.ConfigFiles across user-data).
+	// Revoking clears the gate so the register handler's bootstrap path
+	// can mint a fresh token and return the plaintext in the response.
+	if err := wsauth.RevokeAllForWorkspace(ctx, db.DB, workspaceID); err != nil {
+		log.Printf("Provisioner: failed to revoke existing tokens for %s: %v — skipping auth-token injection", workspaceID, err)
 		return
 	}
 
-	// Revoke any existing live tokens. If this fails we bail out rather than
-	// issuing a second live token whose plaintext we can't also deliver.
-	if err := wsauth.RevokeAllForWorkspace(ctx, db.DB, workspaceID); err != nil {
-		log.Printf("Provisioner: failed to revoke existing tokens for %s: %v — skipping auth-token injection", workspaceID, err)
+	// SaaS mode skips the IssueToken + ConfigFiles write because both
+	// only make sense on the Docker provisioner's volume-mount delivery
+	// path. The register handler mints a fresh token on first successful
+	// register and returns the plaintext in the response body for the
+	// runtime to persist locally.
+	if saasMode() {
 		return
 	}
 
