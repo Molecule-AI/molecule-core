@@ -47,7 +47,7 @@ Org-scoped keys give each integration its own credential with its own identity. 
 ### Mint a key via API
 
 ```bash
-curl -X POST https://platform.moleculeai.ai/org/tokens \
+curl -X POST https://platform.moleculesai.app/org/tokens \
   -H "Authorization: Bearer <your-session-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -70,7 +70,7 @@ The response contains the plaintext token — shown exactly once. Store it immed
 ### List active keys
 
 ```bash
-curl https://platform.moleculeai.ai/org/tokens \
+curl https://platform.moleculesai.app/org/tokens \
   -H "Authorization: Bearer <your-session-token>"
 ```
 
@@ -79,7 +79,7 @@ Returns key IDs, names, prefixes, and creation timestamps — no plaintext.
 ### Revoke a key immediately
 
 ```bash
-curl -X DELETE https://platform.moleculeai.ai/org/tokens/tok_01HXYZ... \
+curl -X DELETE https://platform.moleculesai.app/org/tokens/tok_01HXYZ... \
   -H "Authorization: Bearer <your-session-token>"
 ```
 
@@ -130,7 +130,7 @@ Navigate to **Settings → Org API Keys** in the Canvas to mint your first key, 
 
 Revoke and rotate at any time from the same screen.
 
-→ [Canvas → Settings → Org API Keys](https://canvas.moleculeai.ai)
+→ [Canvas → Settings → Org API Keys](https://canvas.moleculesai.app)
 → [Platform API Reference](/docs/api-protocol/platform-api)
 
 ---
