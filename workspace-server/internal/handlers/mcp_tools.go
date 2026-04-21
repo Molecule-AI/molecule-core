@@ -3,8 +3,7 @@ package handlers
 // mcp_tools.go — MCP bridge tool implementations.
 // Each tool* method handles one A2A tool: list_peers, get_workspace_info,
 // delegate_task, delegate_task_async, check_task_status, send_message_to_user,
-// commit_memory, recall_memory. Also contains URL resolution, SSRF checks,
-// and A2A response parsing helpers.
+// commit_memory, recall_memory. Also contains A2A URL resolution helpers.
 
 import (
 	"bytes"
@@ -14,9 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
