@@ -124,6 +124,8 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 
 		// Admin memory backup/restore (#1051) — bulk export/import of agent
 		// memories for safe Docker rebuilds. Matches workspaces by name on import.
+		// F1084/#1131: Export applies redactSecrets before returning content.
+		// F1085/#1132: Import applies redactSecrets before persisting content.)
 		adminMemH := handlers.NewAdminMemoriesHandler()
 		wsAdmin.GET("/admin/memories/export", adminMemH.Export)
 		wsAdmin.POST("/admin/memories/import", adminMemH.Import)

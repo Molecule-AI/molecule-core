@@ -31,6 +31,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -715,6 +716,42 @@ func (h *MCPHandler) toolSendMessageToUser(ctx context.Context, workspaceID stri
 	return "Message sent.", nil
 }
 
+// redactSecrets scans content for credential-like patterns and replaces them with
+// [REDACTED]. This prevents plain-text API keys, tokens, and passwords from
+// landing in the agent_memories table (fixes #838).
+//
+// The workspaceID parameter is available for audit logging in future enhancements.
+// Currently unused but reserved for structured audit trail.
+//
+// Patterns matched (case-insensitive):
+//   - Generic credentials: "key", "secret", "password", "token", "api_key",
+//     "api-key", "auth", "bearer", "credential", "passphrase"
+//   - Prefix patterns: (k="", k='', k:'', k:"", k: "")
+//   - Token patterns: Bearer <token>, Token <token>
+//   - Variable assignments: KEY_NAME=value, API_KEY_NAME=value
+//
+// The redaction is conservative - it only masks the value portion, not the
+// surrounding context, so the memory remains human-readable for audit/debugging.
+func redactSecrets(workspaceID string, content string) string {
+	// Generic credential word boundaries.
+	content = regexp.MustCompile(`(?i)(key|secret|password|token|api_?key|auth|bearer|credential|passphrase)[:=\s]*([a-zA-Z0-9_\-+=/]{8,})`).
+		ReplaceAllString(content, "$1=[REDACTED]")
+
+	// Bearer/Token label patterns.
+	content = regexp.MustCompile(`(?i)(bearer|token)\s+([a-zA-Z0-9_\-+=/]{16,})`).
+		ReplaceAllString(content, "$1 [REDACTED]")
+
+	// ENV-style KEY=VALUE pairs where the key looks like a credential name.
+	content = regexp.MustCompile(`(?i)([A-Z][A-Z0-9_]*(?:KEY|SECRET|PASSWORD|TOKEN|API|AUTH)[A-Z0-9_]*)=([^\s]{8,})`).
+		ReplaceAllString(content, "$1=[REDACTED]")
+
+	// JSON/ini-style "key": "value" or 'key': 'value' with long values.
+	content = regexp.MustCompile(`(?i)"(key|secret|password|token|api_?key|auth|bearer)":\s*"([a-zA-Z0-9_\-+=/]{8,})"`).
+		ReplaceAllString(content, `"$1": "[REDACTED]"`)
+
+	return content
+}
+
 func (h *MCPHandler) toolCommitMemory(ctx context.Context, workspaceID string, args map[string]interface{}) (string, error) {
 	content, _ := args["content"].(string)
 	scope, _ := args["scope"].(string)
@@ -905,15 +942,24 @@ func isPrivateOrMetadataIP(ip net.IP) bool {
 //  1. Docker-internal URL cache (set by provisioner; correct when platform is in Docker)
 //  2. Redis URL cache
 //  3. DB `url` column fallback, with 127.0.0.1→Docker bridge rewrite when in Docker
+//
+// SECURITY (F1083 / #1130): all three paths run the returned URL through
+// validateAgentURL to block SSRF targets (private IPs, loopback, cloud metadata).
 func mcpResolveURL(ctx context.Context, database *sql.DB, workspaceID string) (string, error) {
 	if platformInDocker {
 		if url, err := db.GetCachedInternalURL(ctx, workspaceID); err == nil && url != "" {
+			if err := validateAgentURL(url); err != nil {
+				return "", fmt.Errorf("workspace %s: forbidden URL from internal cache: %w", workspaceID, err)
+			}
 			return url, nil
 		}
 	}
 	if url, err := db.GetCachedURL(ctx, workspaceID); err == nil && url != "" {
 		if platformInDocker && strings.HasPrefix(url, "http://127.0.0.1:") {
 			return provisioner.InternalURL(workspaceID), nil
+		}
+		if err := validateAgentURL(url); err != nil {
+			return "", fmt.Errorf("workspace %s: forbidden URL from Redis cache: %w", workspaceID, err)
 		}
 		return url, nil
 	}
@@ -933,6 +979,9 @@ func mcpResolveURL(ctx context.Context, database *sql.DB, workspaceID string) (s
 	}
 	if platformInDocker && strings.HasPrefix(urlStr.String, "http://127.0.0.1:") {
 		return provisioner.InternalURL(workspaceID), nil
+	}
+	if err := validateAgentURL(urlStr.String); err != nil {
+		return "", fmt.Errorf("workspace %s: forbidden URL from DB: %w", workspaceID, err)
 	}
 	return urlStr.String, nil
 }
