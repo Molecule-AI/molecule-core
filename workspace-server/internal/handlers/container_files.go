@@ -155,6 +155,12 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 		return fmt.Errorf("docker not available")
 	}
 
+	// CWE-22: validate filePath before constructing the rm command so
+	// a path-traversal sequence cannot escape /configs.
+	if err := validateRelPath(filePath); err != nil {
+		return err
+	}
+
 	resp, err := h.docker.ContainerCreate(ctx, &container.Config{
 		Image: "alpine:latest",
 		Cmd:   []string{"rm", "-rf", "/configs/" + filePath},
