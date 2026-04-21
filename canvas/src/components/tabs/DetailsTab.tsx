@@ -189,7 +189,7 @@ export function DetailsTab({ workspaceId, data }: Props) {
             <Row label="Parent" value={data.parentId || "root"} mono />
             <Row label="Active Tasks" value={String(data.activeTasks)} />
             {data.status === "degraded" && (
-              <Row label="Error Rate" value={`${(data.lastErrorRate * 100).toFixed(0)}%`} />
+              <Row label="Error Rate" value={`${((data.lastErrorRate ?? 0) * 100).toFixed(0)}%`} />
             )}
             {isRestartable && (
               <div className="pt-2">
