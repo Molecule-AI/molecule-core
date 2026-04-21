@@ -52,9 +52,14 @@ from transcript_auth import transcript_authorized as _transcript_authorized
 
 
 async def main():  # pragma: no cover
-    workspace_id = os.environ.get("WORKSPACE_ID", "workspace-default")
+    workspace_id = os.environ.get("WORKSPACE_ID", "")
+    # Fail fast if WORKSPACE_ID is not injected by the provisioner.
+    # An empty ID would produce URLs like /workspaces/ (no ID) that the
+    # platform has no route for, causing silent 404s on every API call.
+    if not workspace_id:
+        raise SystemExit("FATAL: WORKSPACE_ID env var is not set — provisioner must inject it at container start. See issue #1124.")
     config_path = os.environ.get("WORKSPACE_CONFIG_PATH", "/configs")
-    platform_url = os.environ.get("PLATFORM_URL", "http://platform:8080")
+    platform_url = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
     awareness_config = get_awareness_config()
 
     # 0. Initialise OpenTelemetry (no-op if packages not installed)

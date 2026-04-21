@@ -21,8 +21,23 @@ import uuid
 
 import httpx
 
+def _resolve_platform_url() -> str:
+    """Resolve PLATFORM_URL at import time, with Docker-host detection.
+
+    host.docker.internal:8080 resolves from inside any Docker container to
+    the host machine running Docker Desktop or colima. It is the correct
+    default for the host-platform URL when running outside the Docker mesh.
+    """
+    if os.environ.get("PLATFORM_URL"):
+        return os.environ["PLATFORM_URL"]
+    # Detect Docker environment
+    if os.path.exists("/.dockerenv") or os.environ.get("DOCKER_VERSION"):
+        return "http://host.docker.internal:8080"
+    return "http://localhost:8080"
+
+
+PLATFORM_URL = _resolve_platform_url()
 WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")
-PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://platform:8080")
 
 
 async def discover(target_id: str) -> dict | None:
@@ -208,6 +223,9 @@ async def info():
 
 
 def main():
+    if not WORKSPACE_ID:
+        print("FATAL: WORKSPACE_ID env var is not set. Provisioner must inject it at container start. See issue #1124.", file=sys.stderr)
+        sys.exit(1)
     if len(sys.argv) < 2:
         print("Usage: a2a <command> [args]")
         print("Commands:")

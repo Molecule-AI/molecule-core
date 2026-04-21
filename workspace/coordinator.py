@@ -22,8 +22,15 @@ from policies.routing import build_team_routing_payload
 
 logger = logging.getLogger(__name__)
 
-PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://platform:8080")
+PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
 WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")
+
+# Fail fast if WORKSPACE_ID is not injected by the provisioner.
+# An empty ID produces URLs like /workspaces/ with no ID segment,
+# hitting a 404 on the platform's router and making all coordinator
+# calls silently fail. See issue #1124.
+if not WORKSPACE_ID:
+    raise SystemExit("FATAL: WORKSPACE_ID env var is not set — provisioner must inject it at container start. See issue #1124.")
 
 
 async def get_parent_context() -> list[dict]:

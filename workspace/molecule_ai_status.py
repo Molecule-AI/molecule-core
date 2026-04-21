@@ -23,7 +23,7 @@ import sys
 import httpx
 
 WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")
-PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://platform:8080")
+PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
 
 
 def set_status(task: str):

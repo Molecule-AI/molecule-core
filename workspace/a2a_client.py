@@ -15,7 +15,7 @@ from platform_auth import auth_headers
 logger = logging.getLogger(__name__)
 
 WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")
-PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://platform:8080")
+PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
 
 # Cache workspace ID → name mappings (populated by list_peers calls)
 _peer_names: dict[str, str] = {}

@@ -51,6 +51,7 @@ import os
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
 WORKSPACE_ID: str = os.environ.get("WORKSPACE_ID", "")
 
 # Module-level singleton — set by initialize_governance() at startup
