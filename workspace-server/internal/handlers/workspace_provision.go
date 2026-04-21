@@ -212,6 +212,12 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 // for the given workspace. Called during workspace creation and org import to
 // pre-populate memories from config/template. Non-fatal: each insert is
 // attempted independently and failures are logged. Issue #1050.
+// maxMemoryContentLength is the maximum allowed size for a single memory content
+// field. Content exceeding this limit is truncated to prevent storage exhaustion
+// (CWE-400) and OOM on read paths. The limit is intentionally generous — it fits
+// a ~64k context window worth of text — but small enough to prevent abuse.
+const maxMemoryContentLength = 100_000 // ~100 KiB of text
+
 func seedInitialMemories(ctx context.Context, workspaceID string, memories []models.MemorySeed, awarenessNamespace string) {
 	if len(memories) == 0 {
 		return
@@ -228,10 +234,19 @@ func seedInitialMemories(ctx context.Context, workspaceID string, memories []mod
 		if mem.Content == "" {
 			continue
 		}
+		// #1066: enforce content length limit to prevent storage exhaustion (CWE-400).
+		// Truncate oversized content rather than rejecting the whole insert so that
+		// template authors get a predictable fallback rather than a silent skip.
+		content := mem.Content
+		if len(content) > maxMemoryContentLength {
+			content = content[:maxMemoryContentLength]
+			log.Printf("seedInitialMemories: truncated memory content for %s (scope=%s) from %d to %d bytes",
+				workspaceID, scope, len(mem.Content), maxMemoryContentLength)
+		}
 		if _, err := db.DB.ExecContext(ctx, `
 			INSERT INTO agent_memories (workspace_id, content, scope, namespace)
 			VALUES ($1, $2, $3, $4)
-		`, workspaceID, mem.Content, scope, awarenessNamespace); err != nil {
+		`, workspaceID, content, scope, awarenessNamespace); err != nil {
 			log.Printf("seedInitialMemories: failed to insert memory for %s (scope=%s): %v", workspaceID, scope, err)
 		}
 	}
