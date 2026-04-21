@@ -39,7 +39,7 @@ func (h *WorkspaceHandler) BootstrapFailed(c *gin.Context) {
 	}
 	var req BootstrapFailedRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -70,7 +70,13 @@ func (h *WorkspaceHandler) BootstrapFailed(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db update failed"})
 		return
 	}
-	affected, _ := res.RowsAffected()
+	affected, err := res.RowsAffected()
+	if err != nil {
+		log.Printf("BootstrapFailed: RowsAffected error for %s: %v", id, err)
+		// Workspace likely already transitioned — treat as no-op like affected==0.
+		c.JSON(http.StatusOK, gin.H{"ok": true, "no_change": true})
+		return
+	}
 	if affected == 0 {
 		// Already transitioned out of provisioning — don't re-emit the
 		// event (would lie to the canvas). Return 200 so CP doesn't retry.

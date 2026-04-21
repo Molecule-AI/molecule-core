@@ -129,7 +129,7 @@ func (p *CPProvisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string,
 	if err != nil {
 		return "", fmt.Errorf("cp provisioner: send: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = $1 }()
 
 	// Cap body read at 64 KiB — the CP only ever returns small JSON
 	// responses; an unbounded read could be weaponized into log-flood
@@ -163,7 +163,7 @@ func (p *CPProvisioner) Stop(ctx context.Context, workspaceID string) error {
 	if err != nil {
 		return fmt.Errorf("cp provisioner: stop: %w", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return nil
 }
 
@@ -199,7 +199,7 @@ func (p *CPProvisioner) IsRunning(ctx context.Context, workspaceID string) (bool
 	if err != nil {
 		return true, fmt.Errorf("cp provisioner: status: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = $1 }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		// Don't leak the body — upstream errors may echo headers.
 		return true, fmt.Errorf("cp provisioner: status: unexpected %d", resp.StatusCode)
@@ -231,7 +231,7 @@ func (p *CPProvisioner) GetConsoleOutput(ctx context.Context, workspaceID string
 	if err != nil {
 		return "", fmt.Errorf("cp provisioner: console: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = $1 }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("cp provisioner: console: unexpected %d", resp.StatusCode)
 	}

@@ -48,7 +48,7 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 				if decErr != nil {
 					log.Printf("Provisioner: FATAL — failed to decrypt global secret %s (version=%d): %v — aborting provision of workspace %s", k, ver, decErr, workspaceID)
 					h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
-						"error": fmt.Sprintf("cannot decrypt global secret %s: %v", k, decErr),
+						"error": "failed to decrypt global secret",
 					})
 					db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', updated_at = now() WHERE id = $1`, workspaceID)
 					return
@@ -72,7 +72,7 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 				if decErr != nil {
 					log.Printf("Provisioner: FATAL — failed to decrypt workspace secret %s (version=%d) for %s: %v — aborting provision", k, ver, workspaceID, decErr)
 					h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
-						"error": fmt.Sprintf("cannot decrypt workspace secret %s: %v", k, decErr),
+						"error": "failed to decrypt workspace secret",
 					})
 					db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', updated_at = now() WHERE id = $1`, workspaceID)
 					return
@@ -104,11 +104,11 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 	if err := h.envMutators.Run(ctx, workspaceID, envVars); err != nil {
 		log.Printf("Provisioner: env mutator chain failed for %s: %v", workspaceID, err)
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
-			"error": err.Error(),
+			"error": "plugin env mutator chain failed",
 		})
 		if _, dbErr := db.DB.ExecContext(ctx,
 			`UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
-			workspaceID, err.Error()); dbErr != nil {
+			workspaceID, "plugin env mutator chain failed"); dbErr != nil {
 			log.Printf("Provisioner: failed to mark workspace %s as failed after mutator error: %v", workspaceID, dbErr)
 		}
 		return
@@ -182,11 +182,11 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 		log.Printf("Provisioner: failed to start workspace %s: %v", workspaceID, err)
 		if _, dbErr := db.DB.ExecContext(ctx,
 			`UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
-			workspaceID, err.Error()); dbErr != nil {
+			workspaceID, "workspace start failed"); dbErr != nil {
 			log.Printf("Provisioner: failed to mark workspace %s as failed: %v", workspaceID, dbErr)
 		}
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
-			"error": err.Error(),
+			"error": "workspace start failed",
 		})
 	} else if url != "" {
 		// Pre-store the host-accessible URL (http://127.0.0.1:<port>) so the A2A proxy can reach the container.
@@ -582,7 +582,11 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 	if err := h.envMutators.Run(ctx, workspaceID, envVars); err != nil {
 		log.Printf("CPProvisioner: env mutator failed for %s: %v", workspaceID, err)
 		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
-			workspaceID, err.Error())
+<<<<<<< HEAD
+			workspaceID, "plugin env mutator chain failed")
+=======
+			workspaceID, "provisioning failed")
+>>>>>>> f9fff93 (fix(security): replace err.Error() leaks with prod-safe messages (#1206))
 		return
 	}
 
@@ -598,10 +602,10 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 	if err != nil {
 		log.Printf("CPProvisioner: failed to start workspace %s: %v", workspaceID, err)
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
-			"error": err.Error(),
+			"error": "provisioning failed",
 		})
 		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
-			workspaceID, err.Error())
+			workspaceID, "provisioning failed")
 		return
 	}
 
