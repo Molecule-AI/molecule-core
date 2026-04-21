@@ -28,7 +28,7 @@ type PluginsHandler struct {
 	docker        *client.Client    // Docker client for container operations
 	restartFunc   func(string)      // auto-restart workspace after install/uninstall
 	runtimeLookup RuntimeLookup     // workspace_id → runtime (optional)
-	sources       *plugins.Registry // pluggable install sources (local, github, clawhub, …)
+	sources       plugins.SourceResolver // pluggable install sources (local, github, clawhub, …)
 }
 
 // NewPluginsHandler constructs a PluginsHandler with the default source
