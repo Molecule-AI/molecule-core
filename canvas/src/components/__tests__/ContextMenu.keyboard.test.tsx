@@ -223,6 +223,7 @@ describe("ContextMenu — keyboard accessibility", () => {
     const deleteItem = items.find((el) => el.textContent?.includes("Delete"))!;
     fireEvent.click(deleteItem);
     expect(mockStore.setPendingDelete).toHaveBeenCalledWith({
+      hasChildren: false,
       id: "ws-1",
       name: "Alpha Workspace",
     });
