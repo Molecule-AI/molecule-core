@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { api } from "@/lib/api";
 import { showToast } from "./Toaster";
+import { ConsoleModal } from "./ConsoleModal";
 
 /** Default provisioning timeout in milliseconds (2 minutes). */
 export const DEFAULT_PROVISION_TIMEOUT_MS = 120_000;
@@ -167,10 +168,16 @@ export function ProvisioningTimeout({
     }
   }, [confirmingCancel]);
 
+  const [consoleFor, setConsoleFor] = useState<string | null>(null);
   const handleViewLogs = useCallback((workspaceId: string) => {
-    // Open the terminal tab for this workspace so user can see logs
-    useCanvasStore.getState().selectNode(workspaceId);
-    useCanvasStore.getState().setPanelTab("terminal");
+    // Open the EC2 console modal — this is the boot-trace log, which
+    // is what the user actually wants to see when provisioning is
+    // stuck (the terminal tab is post-boot, useless if the agent
+    // runtime never started). The modal closes over itself if the
+    // request returns 501 (self-hosted / docker-compose deploys) —
+    // the user gets a clear "console output unavailable" message
+    // instead of a broken button.
+    setConsoleFor(workspaceId);
   }, []);
 
   if (timedOut.length === 0) return null;
@@ -270,6 +277,15 @@ export function ProvisioningTimeout({
           </div>
         </div>
       )}
+
+      {/* Console output modal — opens when the user clicks "View Logs" on
+          a stuck-provisioning banner. Fetches /workspaces/:id/console
+          which proxies to CP's ec2:GetConsoleOutput. */}
+      <ConsoleModal
+        workspaceId={consoleFor || ""}
+        open={consoleFor !== null}
+        onClose={() => setConsoleFor(null)}
+      />
     </div>
   );
 }
