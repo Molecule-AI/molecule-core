@@ -250,7 +250,7 @@ func (h *OrgHandler) Import(c *gin.Context) {
 		Template OrgTemplate `json:"template"` // or inline template
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -264,7 +264,7 @@ func (h *OrgHandler) Import(c *gin.Context) {
 		// letting an unauthenticated caller probe arbitrary filesystem paths.
 		resolved, err := resolveInsideRoot(h.orgDir, body.Dir)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid dir: %v", err)})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid org directory"})
 			return
 		}
 		orgBaseDir = resolved
@@ -279,11 +279,11 @@ func (h *OrgHandler) Import(c *gin.Context) {
 		// refactor. Fails loudly on missing / cyclic / escaping includes.
 		expanded, err := resolveYAMLIncludes(data, orgBaseDir)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("!include expansion failed: %v", err)})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "org template expansion failed"})
 			return
 		}
 		if err := yaml.Unmarshal(expanded, &tmpl); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid YAML: %v", err)})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid org template"})
 			return
 		}
 	} else if body.Template.Name != "" {

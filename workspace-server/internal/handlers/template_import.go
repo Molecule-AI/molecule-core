@@ -122,7 +122,7 @@ func (h *TemplatesHandler) Import(c *gin.Context) {
 		Files map[string]string `json:"files" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -140,7 +140,7 @@ func (h *TemplatesHandler) Import(c *gin.Context) {
 	}
 
 	if err := writeFiles(destDir, body.Files); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -164,7 +164,7 @@ func (h *TemplatesHandler) ReplaceFiles(c *gin.Context) {
 		Files map[string]string `json:"files" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -183,7 +183,7 @@ func (h *TemplatesHandler) ReplaceFiles(c *gin.Context) {
 	// Validate all paths first
 	for relPath := range body.Files {
 		if err := validateRelPath(relPath); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
 	}
@@ -227,7 +227,7 @@ func (h *TemplatesHandler) ReplaceFiles(c *gin.Context) {
 		}
 		os.MkdirAll(destDir, 0o755)
 		if err := writeFiles(destDir, body.Files); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "replaced", "workspace": workspaceID, "files": len(body.Files), "source": "template"})
