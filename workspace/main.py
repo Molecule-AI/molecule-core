@@ -124,6 +124,21 @@ async def main():  # pragma: no cover
     try:
         await adapter.setup(adapter_config)
         executor = await adapter.create_executor(adapter_config)
+
+        # 5b. Restore from pre-stop snapshot if one exists (GH#1391).
+        # The snapshot is scrubbed before being written, so secrets are
+        # already redacted — restore_state must not re-expose them.
+        from lib.pre_stop import read_snapshot
+        snapshot = read_snapshot()
+        if snapshot:
+            try:
+                adapter.restore_state(snapshot)
+                print(
+                    f"Pre-stop snapshot restored: task={snapshot.get('current_task', '')!r}, "
+                    f"uptime={snapshot.get('uptime_seconds', 0)}s"
+                )
+            except Exception as restore_err:
+                print(f"Warning: snapshot restore failed (continuing): {restore_err}")
     except Exception:
         # heartbeat hasn't started yet but may have async tasks pending
         if hasattr(heartbeat, "stop"):
@@ -543,6 +558,18 @@ async def main():  # pragma: no cover
     try:
         await server.serve()
     finally:
+        # 10d. Pre-stop serialization — GH#1391.
+        # Capture in-memory state before the container exits so it survives
+        # intentional pause and unplanned restart. All content is scrubbed
+        # via lib.snapshot_scrub before being written to the config volume.
+        try:
+            from lib.pre_stop import build_snapshot, write_snapshot
+            adapter_state = adapter.pre_stop_state() if adapter else {}
+            snapshot = build_snapshot(heartbeat, adapter_state)
+            write_snapshot(snapshot)
+        except Exception as pre_stop_err:
+            print(f"Warning: pre-stop serialization failed (continuing): {pre_stop_err}")
+
         # Cancel initial prompt if still running
         if initial_prompt_task and not initial_prompt_task.done():
             initial_prompt_task.cancel()
