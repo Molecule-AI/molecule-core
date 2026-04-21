@@ -64,7 +64,7 @@ func refreshEnvFromCP() error {
 	if err != nil {
 		return fmt.Errorf("do request: %w", err)
 	}
-	defer func() { _ = $1 }()
+	defer func() { _ = resp.Body.Close() }()
 
 	// 64 KiB cap — the CP only returns small JSON blobs here. An
 	// unbounded read would be weaponizable if a compromised upstream
