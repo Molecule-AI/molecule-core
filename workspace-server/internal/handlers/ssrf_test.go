@@ -127,6 +127,8 @@ func TestIsPrivateOrMetadataIP_IPv6(t *testing.T) {
 }
 
 func TestIsPrivateOrMetadataIP(t *testing.T) {
+	t.Setenv("MOLECULE_DEPLOY_MODE", "")
+	t.Setenv("MOLECULE_ORG_ID", "")
 	cases := []struct {
 		name  string
 		ipStr string
@@ -173,6 +175,8 @@ func TestIsPrivateOrMetadataIP(t *testing.T) {
 }
 
 func TestIsSafeURL(t *testing.T) {
+	t.Setenv("MOLECULE_DEPLOY_MODE", "")
+	t.Setenv("MOLECULE_ORG_ID", "")
 	cases := []struct {
 		name    string
 		rawURL  string
