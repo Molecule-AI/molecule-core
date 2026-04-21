@@ -78,15 +78,18 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 		// Block absolute paths and traversal attempts at the archive-write boundary.
 		// Files are written inside destPath (typically /configs); anything that escapes
 		// via ".." or an absolute name could reach other volumes or system paths.
+		// CWE-22: reject absolute paths and path-traversal sequences
+		// before using the name in the tar header.
 		clean := filepath.Clean(name)
-		if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
-			return fmt.Errorf("unsafe file path in archive: %s", name)
+		if filepath.IsAbs(clean) || strings.Contains(clean, "..") {
+			return fmt.Errorf("path traversal blocked: %s", name)
 		}
-		// Prepend destPath so relative paths land inside the volume mount.
-		archiveName := filepath.Join(destPath, name)
+		// Use the safe, cleaned name joined with destPath so the tar
+		// header Name is always a relative path inside destPath.
+		safeName := filepath.Join(destPath, clean)
 
 		// Create parent directories in tar (deduplicated)
-		dir := filepath.Dir(archiveName)
+		dir := filepath.Dir(safeName)
 		if dir != destPath && !createdDirs[dir] {
 			tw.WriteHeader(&tar.Header{
 				Typeflag: tar.TypeDir,
@@ -98,7 +101,7 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 
 		data := []byte(content)
 		header := &tar.Header{
-			Name: archiveName,
+			Name: safeName,
 			Mode: 0644,
 			Size: int64(len(data)),
 		}
