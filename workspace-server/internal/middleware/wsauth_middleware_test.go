@@ -474,7 +474,7 @@ func TestAdminAuth_InvalidBearer_Returns401(t *testing.T) {
 // ────────────────────────────────────────────────────────────────────────────
 
 // orgTokenValidateQuery is matched for orgtoken.Validate().
-const orgTokenValidateQuery = "SELECT id, prefix FROM org_api_tokens"
+const orgTokenValidateQuery = "SELECT id, prefix, org_id FROM org_api_tokens"
 
 // orgTokenOrgIDQuery is matched for the org_id lookup added in the F1097 fix.
 const orgTokenOrgIDQuery = "SELECT org_id::text FROM org_api_tokens"
@@ -525,8 +525,8 @@ func TestAdminAuth_OrgToken_SetsOrgID(t *testing.T) {
 			// (ValidateAnyToken), so ValidateAnyToken is NOT called here.
 			mock.ExpectQuery(orgTokenValidateQuery).
 				WithArgs(orgTokenHash[:]).
-				WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).
-					AddRow("tok-org-1", "tok-org-1"))
+				WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
+					AddRow("tok-org-1", "tok-org-1", nil))
 
 			// Best-effort last_used_at UPDATE (after Validate).
 			mock.ExpectExec(orgTokenLastUsedQuery).

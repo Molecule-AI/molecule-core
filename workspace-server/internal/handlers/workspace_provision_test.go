@@ -570,7 +570,7 @@ func TestSeedInitialMemories_TruncatesOversizedContent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mock.ExpectExpectations()
+			mock.ExpectationsWereMet()
 			workspaceID := "ws-trunc-" + tt.name
 			content := strings.Repeat("X", tt.contentLen)
 			memories := []models.MemorySeed{{Content: content, Scope: "LOCAL"}}
@@ -624,7 +624,7 @@ func TestSeedInitialMemories_RedactsSecrets(t *testing.T) {
 // unrecognized scope value are silently skipped (not inserted).
 func TestSeedInitialMemories_InvalidScopeSkipped(t *testing.T) {
 	mock := setupTestDB(t)
-	mock.ExpectExpectations() // no DB calls expected for invalid scope
+	mock.ExpectationsWereMet() // no DB calls expected for invalid scope
 
 	memories := []models.MemorySeed{
 		{Content: "this should be skipped", Scope: "NOT_A_REAL_SCOPE"},
@@ -641,7 +641,7 @@ func TestSeedInitialMemories_InvalidScopeSkipped(t *testing.T) {
 // is handled without error (no DB calls).
 func TestSeedInitialMemories_EmptyMemoriesNil(t *testing.T) {
 	mock := setupTestDB(t)
-	mock.ExpectExpectations()
+	mock.ExpectationsWereMet()
 
 	seedInitialMemories(context.Background(), "ws-nil", nil, "test-ns")
 
@@ -901,6 +901,13 @@ func containsStr(s, substr string) bool {
 //
 // Each test injects a known-internal error and verifies the response body
 // or broadcast payload contains ONLY the generic prod-safe message.
+
+// TestSeedInitialMemories_ContentTruncation verifies that content exceeding
+// maxMemoryContentLength is silently truncated before INSERT so the DB never
+// receives oversized rows.
+func TestSeedInitialMemories_ContentTruncation(t *testing.T) {
+	mock := setupTestDB(t)
+
 	largeContent := string(make([]byte, 100_001))
 	copy([]byte(largeContent), "X") // fill with "X" so test is deterministic
 
@@ -1255,6 +1262,8 @@ func (m *mockPluginsSources) Resolve(source plugins.Source) (plugins.SourceResol
 }
 
 type mockResolver struct{}
+
+func (*mockResolver) Scheme() string { return "github" }
 
 func (*mockResolver) Fetch(ctx context.Context, spec, destDir string) (string, error) {
 	return "", nil
