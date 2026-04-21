@@ -389,7 +389,15 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 			sched.Name, sched.ID, nextErr)
 	}
 
-	_, err := db.DB.ExecContext(ctx, `
+	// F1089: use a dedicated context with its own 5s deadline for the
+	// post-fire UPDATE. The outer ctx (fireCtx) may be cancelled if the
+	// HTTP call timed out or the server is shutting down; using it here
+	// would silently skip the UPDATE and leave next_run_at stale, causing
+	// the schedule to be immediately re-fired on the next tick.
+	updateCtx, updateCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer updateCancel()
+
+	_, err := db.DB.ExecContext(updateCtx, `
 		UPDATE workspace_schedules
 		SET last_run_at = now(),
 		    next_run_at = COALESCE($2, next_run_at),
@@ -400,7 +408,7 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 		WHERE id = $1
 	`, sched.ID, nextRunPtr, lastStatus, lastError)
 	if err != nil {
-		log.Printf("Scheduler: update error for %s: %v", sched.ID, err)
+		log.Printf("Scheduler: post-fire update error for %s [%s]: %v", sched.ID, sched.Name, err)
 	}
 
 	// Log a dedicated cron_run activity entry with schedule metadata so the
