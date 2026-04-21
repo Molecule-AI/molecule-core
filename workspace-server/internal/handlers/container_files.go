@@ -73,9 +73,19 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 
 	createdDirs := map[string]bool{}
 	for name, content := range files {
+		// CWE-22: reject absolute paths and path-traversal sequences
+		// before using the name in the tar header.
+		clean := filepath.Clean(name)
+		if filepath.IsAbs(clean) || strings.Contains(clean, "..") {
+			return fmt.Errorf("path traversal blocked: %s", name)
+		}
+		// Use the safe, cleaned name joined with destPath so the tar
+		// header Name is always a relative path inside destPath.
+		safeName := filepath.Join(destPath, clean)
+
 		// Create parent directories in tar (deduplicated)
-		dir := filepath.Dir(name)
-		if dir != "." && !createdDirs[dir] {
+		dir := filepath.Dir(safeName)
+		if dir != destPath && !createdDirs[dir] {
 			tw.WriteHeader(&tar.Header{
 				Typeflag: tar.TypeDir,
 				Name:     dir + "/",
@@ -86,7 +96,7 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 
 		data := []byte(content)
 		header := &tar.Header{
-			Name: name,
+			Name: safeName,
 			Mode: 0644,
 			Size: int64(len(data)),
 		}
@@ -141,6 +151,12 @@ func (h *TemplatesHandler) writeViaEphemeral(ctx context.Context, volumeName str
 func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, filePath string) error {
 	if h.docker == nil {
 		return fmt.Errorf("docker not available")
+	}
+
+	// CWE-22: validate filePath before constructing the rm command so
+	// a path-traversal sequence cannot escape /configs.
+	if err := validateRelPath(filePath); err != nil {
+		return err
 	}
 
 	resp, err := h.docker.ContainerCreate(ctx, &container.Config{
