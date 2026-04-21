@@ -268,6 +268,10 @@ export function DetailsTab({ workspaceId, data }: Props) {
       <Section title={`Peers (${peers.length})`}>
         {peersError ? (
           <p className="text-xs text-red-400">{peersError}</p>
+        ) : peers.length === 0 && data.status !== "online" && data.status !== "degraded" ? (
+          <p className="text-xs text-zinc-500">
+            Peers are only discoverable while the workspace is online.
+          </p>
         ) : peers.length === 0 ? (
           <p className="text-xs text-zinc-500">No reachable peers</p>
         ) : (
