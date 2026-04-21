@@ -73,9 +73,17 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 
 	createdDirs := map[string]bool{}
 	for name, content := range files {
+		// Block absolute paths and traversal attempts at the archive-write boundary (CWE-22).
+		clean := filepath.Clean(name)
+		if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+			return fmt.Errorf("unsafe file path in archive: %s", name)
+		}
+		// Prepend destPath so relative paths land inside the volume mount.
+		archiveName := filepath.Join(destPath, name)
+
 		// Create parent directories in tar (deduplicated)
-		dir := filepath.Dir(name)
-		if dir != "." && !createdDirs[dir] {
+		dir := filepath.Dir(archiveName)
+		if dir != destPath && dir != "." && !createdDirs[dir] {
 			tw.WriteHeader(&tar.Header{
 				Typeflag: tar.TypeDir,
 				Name:     dir + "/",
@@ -86,7 +94,7 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 
 		data := []byte(content)
 		header := &tar.Header{
-			Name: name,
+			Name: archiveName,
 			Mode: 0644,
 			Size: int64(len(data)),
 		}
