@@ -48,6 +48,7 @@ export function Tooltip({ text, children }: Props) {
   }, []);
 
   const onBlur = useCallback(() => {
+    clearTimeout(timerRef.current);
     setShow(false);
   }, []);
 

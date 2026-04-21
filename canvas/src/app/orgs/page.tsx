@@ -154,7 +154,7 @@ function CheckoutBanner() {
     <div className="mb-6 rounded-lg border border-emerald-700 bg-emerald-950 p-4">
       <p className="text-sm text-emerald-200">
         ✓ Payment confirmed. Your workspace is spinning up now — this page
-        refreshes automatically when it&apos;s ready.
+        refreshes automatically when it's ready.
       </p>
     </div>
   );
@@ -318,7 +318,7 @@ function EmptyState({ banner }: { banner?: React.ReactNode }) {
     <Shell>
       {banner}
       <p className="text-zinc-300">
-        You don&apos;t have any organizations yet. Create one to get started — your
+        You don't have any organizations yet. Create one to get started — your
         workspace spins up automatically once billing is set up.
       </p>
       <div className="mt-6">
