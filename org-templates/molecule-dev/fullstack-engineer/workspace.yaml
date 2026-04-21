@@ -1,0 +1,16 @@
+name: Fullstack Engineer
+role: >-
+  Owns molecule-core end-to-end: Go platform layer (REST handlers,
+  WebSocket hub, workspace provisioner, A2A proxy) AND the Next.js
+  canvas layer (workspace nodes, edge wiring, Zustand store).
+  Bridges backend + frontend for cross-cutting features.
+tier: 3
+model: opus
+files_dir: fullstack-engineer
+plugins: [molecule-hitl, molecule-skill-code-review, molecule-security-scan, molecule-skill-llm-judge, molecule-compliance]
+idle_interval_seconds: 600
+schedules:
+  - name: Hourly pick up work
+    cron_expr: "8 * * * *"
+    enabled: true
+    prompt_file: schedules/hourly-pick-up-work.md

@@ -1,0 +1,23 @@
+name: SRE Engineer
+role: >-
+  Owns the infrastructure layer between code and production.
+  Docker images, CI/CD, migrations, deploy pipeline, monitoring,
+  DNS & networking, secrets management. Makes sure what engineers
+  build actually deploys, runs, stays healthy, and recovers.
+tier: 3
+model: opus
+files_dir: sre-engineer
+plugins: [molecule-hitl, molecule-skill-code-review, molecule-freeze-scope]
+channels:
+  - type: telegram
+    config:
+      bot_token: ${TELEGRAM_BOT_TOKEN}
+      chat_id: ${TELEGRAM_CHAT_ID}
+    enabled: true
+idle_interval_seconds: 600
+schedules:
+  - name: Hourly infra health check
+    cron_expr: "32 * * * *"
+    enabled: true
+    prompt_file: schedules/hourly-infra-health-check.md
+idle_prompt_file: idle-prompt.md
