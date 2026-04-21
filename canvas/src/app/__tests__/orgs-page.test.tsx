@@ -15,7 +15,7 @@
  *   - Polling: provisioning orgs schedule a 5s refresh (fake timers)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, waitFor } from "@testing-library/react";
 
 // ── Hoisted mocks ────────────────────────────────────────────────────────────
 // vi.mock factories are hoisted above imports; any captured references must
@@ -112,10 +112,12 @@ afterEach(() => {
 
 describe("/orgs — auth guard", () => {
   it("redirects to login when session is null", async () => {
+    vi.useRealTimers();
     mockFetchSession.mockResolvedValueOnce(null);
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
-    expect(mockRedirectToLogin).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(mockRedirectToLogin).toHaveBeenCalled();
+    });
     // Must not attempt to fetch /cp/orgs before auth is established
     expect(mockFetch).not.toHaveBeenCalledWith(
       expect.stringContaining("/cp/orgs"),
@@ -126,22 +128,26 @@ describe("/orgs — auth guard", () => {
 
 describe("/orgs — error state", () => {
   it("shows error + Retry button when /cp/orgs fails", async () => {
-    mockFetchSession.mockResolvedValue({ userId: "u-1" });
+    vi.useRealTimers();
+    mockFetchSession.mockResolvedValueOnce({ userId: "u-1" });
     mockFetch.mockResolvedValueOnce(notOk(500, "db down"));
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
-    expect(screen.getByText(/Error:/)).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByText(/Error:/)).toBeTruthy();
+    });
     expect(screen.getByRole("button", { name: /retry/i })).toBeTruthy();
   });
 });
 
 describe("/orgs — empty list", () => {
   it("renders EmptyState with CreateOrgForm when user has zero orgs", async () => {
-    mockFetchSession.mockResolvedValue({ userId: "u-1" });
+    vi.useRealTimers();
+    mockFetchSession.mockResolvedValueOnce({ userId: "u-1" });
     mockFetch.mockResolvedValueOnce(okJson({ orgs: [] }));
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
-    expect(screen.getByText(/don't have any organizations/i)).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByText(/don't have any organizations/i)).toBeTruthy();
+    });
     expect(screen.getByRole("button", { name: /create organization/i })).toBeTruthy();
   });
 });
@@ -150,7 +156,8 @@ describe("/orgs — CTAs by status", () => {
   const session = { userId: "u-1" };
 
   it("running → Open link targets {slug}.moleculesai.app", async () => {
-    mockFetchSession.mockResolvedValue(session);
+    vi.useRealTimers();
+    mockFetchSession.mockResolvedValueOnce(session);
     mockFetch.mockResolvedValueOnce(
       okJson({
         orgs: [
@@ -167,13 +174,15 @@ describe("/orgs — CTAs by status", () => {
       })
     );
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
-    const link = screen.getByRole("link", { name: /open/i }) as HTMLAnchorElement;
-    expect(link.href).toBe("https://acme.moleculesai.app/");
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: /open/i });
+      expect(link.getAttribute("href")).toBe("https://acme.moleculesai.app/");
+    });
   });
 
   it("awaiting_payment → Complete payment link to /pricing?org=<slug>", async () => {
-    mockFetchSession.mockResolvedValue(session);
+    vi.useRealTimers();
+    mockFetchSession.mockResolvedValueOnce(session);
     mockFetch.mockResolvedValueOnce(
       okJson({
         orgs: [
@@ -190,15 +199,15 @@ describe("/orgs — CTAs by status", () => {
       })
     );
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
-    const link = screen.getByRole("link", {
-      name: /complete payment/i,
-    }) as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe("/pricing?org=beta-co");
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: /complete payment/i });
+      expect(link.getAttribute("href")).toBe("/pricing?org=beta-co");
+    });
   });
 
   it("failed → mailto support link", async () => {
-    mockFetchSession.mockResolvedValue(session);
+    vi.useRealTimers();
+    mockFetchSession.mockResolvedValueOnce(session);
     mockFetch.mockResolvedValueOnce(
       okJson({
         orgs: [
@@ -215,19 +224,19 @@ describe("/orgs — CTAs by status", () => {
       })
     );
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
-    const link = screen.getByRole("link", {
-      name: /contact support/i,
-    }) as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe("mailto:support@moleculesai.app");
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: /contact support/i });
+      expect(link.getAttribute("href")).toBe("mailto:support@moleculesai.app");
+    });
   });
 });
 
 describe("/orgs — post-checkout banner", () => {
   it("renders CheckoutBanner when ?checkout=success and scrubs the URL", async () => {
+    vi.useRealTimers();
     setLocation("https://moleculesai.app/orgs?checkout=success");
     const replaceState = vi.spyOn(window.history, "replaceState");
-    mockFetchSession.mockResolvedValue({ userId: "u-1" });
+    mockFetchSession.mockResolvedValueOnce({ userId: "u-1" });
     mockFetch.mockResolvedValueOnce(
       okJson({
         orgs: [
@@ -244,8 +253,9 @@ describe("/orgs — post-checkout banner", () => {
       })
     );
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
-    expect(screen.getByText(/Payment confirmed/i)).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByText(/Payment confirmed/i)).toBeTruthy();
+    });
     // URL must be rewritten to drop the ?checkout flag so reload doesn't re-show the banner
     expect(replaceState).toHaveBeenCalled();
     const callArgs = replaceState.mock.calls[0];
@@ -253,27 +263,31 @@ describe("/orgs — post-checkout banner", () => {
   });
 
   it("does NOT render CheckoutBanner without ?checkout=success", async () => {
-    mockFetchSession.mockResolvedValue({ userId: "u-1" });
+    vi.useRealTimers();
+    mockFetchSession.mockResolvedValueOnce({ userId: "u-1" });
     mockFetch.mockResolvedValueOnce(okJson({ orgs: [] }));
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
-    expect(screen.getByText(/don't have any organizations/i)).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByText(/don't have any organizations/i)).toBeTruthy();
+    });
     expect(screen.queryByText(/Payment confirmed/i)).toBeNull();
   });
 });
 
 describe("/orgs — fetch includes credentials + timeout signal", () => {
   it("/cp/orgs fetch is called with credentials:include and an AbortSignal", async () => {
-    mockFetchSession.mockResolvedValue({ userId: "u-1" });
+    vi.useRealTimers();
+    mockFetchSession.mockResolvedValueOnce({ userId: "u-1" });
     mockFetch.mockResolvedValueOnce(okJson({ orgs: [] }));
     render(<OrgsPage />);
-    await vi.advanceTimersByTimeAsync(50);
-    const callArgs = mockFetch.mock.calls.find((c) =>
-      String(c[0]).includes("/cp/orgs")
-    );
-    expect(callArgs).toBeDefined();
-    expect(callArgs![1]).toMatchObject({ credentials: "include" });
-    expect(callArgs![1].signal).toBeInstanceOf(AbortSignal);
+    await waitFor(() => {
+      const callArgs = mockFetch.mock.calls.find((c) =>
+        String(c[0]).includes("/cp/orgs")
+      );
+      expect(callArgs).toBeDefined();
+      expect(callArgs![1]).toMatchObject({ credentials: "include" });
+      expect(callArgs![1].signal).toBeInstanceOf(AbortSignal);
+    });
   });
 });
 
