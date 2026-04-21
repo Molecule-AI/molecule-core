@@ -168,7 +168,18 @@ print('')
 done
 ok "Tenant provisioning complete"
 
-TENANT_URL="https://$SLUG.moleculesai.app"
+# Derive tenant domain from CP hostname so the same harness works in
+# both prod (api.moleculesai.app → moleculesai.app) and staging
+# (staging-api.moleculesai.app → staging.moleculesai.app). Override
+# via MOLECULE_TENANT_DOMAIN for local/self-hosted.
+CP_HOST=$(echo "$CP_URL" | sed -E 's#^https?://##; s#/.*$##')
+case "$CP_HOST" in
+  api.*)         DERIVED_DOMAIN="${CP_HOST#api.}" ;;
+  staging-api.*) DERIVED_DOMAIN="staging.${CP_HOST#staging-api.}" ;;
+  *)             DERIVED_DOMAIN="$CP_HOST" ;;
+esac
+TENANT_DOMAIN="${MOLECULE_TENANT_DOMAIN:-$DERIVED_DOMAIN}"
+TENANT_URL="https://$SLUG.$TENANT_DOMAIN"
 log "    TENANT_URL=$TENANT_URL"
 
 # ─── 3. Retrieve per-tenant admin token ────────────────────────────────
