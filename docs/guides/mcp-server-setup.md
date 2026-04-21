@@ -1,5 +1,9 @@
 # MCP Server Setup Guide
 
+> **Cloud-ready:** The MCP server also works with your Molecule AI cloud org at
+> [moleculesai.app](https://moleculesai.app). Set `MOLECULE_URL` to your org URL and
+> authenticate with your org API key — no local platform required.
+
 The Molecule AI MCP server lets any MCP-compatible AI agent manage workspaces, agents, secrets, memory, schedules, channels, and more through the platform API. It works with Claude Code, Cursor, and any other tool that speaks the MCP protocol.
 
 ## Quick Start
@@ -243,3 +247,9 @@ The MCP server handles auth automatically when configured with the correct `MOLE
 | "401 Unauthorized" | Token expired or revoked — create a new one |
 | Tools not showing | Run `npx @molecule-ai/mcp-server` standalone to check for errors |
 | Stale data | MCP server doesn't cache — check platform directly |
+
+## Try it on the cloud platform
+
+Don't want to run a local platform? Configure the MCP server with your cloud org at
+[moleculesai.app](https://moleculesai.app) instead. See the
+[Quickstart](/docs/quickstart) for setup instructions.

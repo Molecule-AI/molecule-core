@@ -98,6 +98,7 @@ No changes to agent code, tool definitions, or orchestration logic. Swap `CONTAI
 - **Self-hosting?** Leave `CONTAINER_BACKEND` unset. Docker is the default — nothing to configure.
 - **On Fly, small team?** Set `CONTAINER_BACKEND=flyio` with `FLY_API_TOKEN` and `FLY_WORKSPACE_APP`. Workspaces become Fly Machines in your own Fly account.
 - **Building a SaaS product on Molecule AI?** Set `MOLECULE_ORG_ID` at tenant launch. The control plane provisioner activates automatically. No Fly credentials on the tenant, ever.
+- **Want the simplest path?** Sign up at [moleculesai.app](https://moleculesai.app) — your agents run on our infrastructure, no backend configuration needed.
 
 **Pick your backend. Deploy your agents.**
 

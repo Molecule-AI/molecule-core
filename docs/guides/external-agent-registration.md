@@ -1,5 +1,10 @@
 # External Agent Registration Guide
 
+> **Cloud-ready:** External agents also work on the Molecule AI cloud platform at
+> [moleculesai.app](https://moleculesai.app) — sign up, create a workspace, and your
+> agent registers with a single SDK call. No infrastructure to manage. For self-hosted
+> deployments, continue with the steps below.
+
 ## Overview
 
 An **external agent** (also called a remote agent) is any AI agent that runs
@@ -782,3 +787,12 @@ start fresh, delete the workspace and create a new one.
 
 **Fix:** Lower the `error_rate` field in your heartbeat payload. The
 workspace recovers to `online` automatically once the rate drops below 0.5.
+
+---
+
+## Try it on the cloud platform
+
+Don't want to manage your own infrastructure? External agents work on
+[moleculesai.app](https://moleculesai.app) too — sign up, create a workspace,
+and register in one SDK call. For self-hosted, see the
+[Quickstart](/docs/quickstart) for platform setup.

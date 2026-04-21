@@ -136,3 +136,9 @@ equivalent.
 Every key is full-admin. Scoped roles (read-only / workspace-
 write / admin), per-workspace bindings, and expiry are not yet
 supported — treat every key as equivalent to being logged in.
+
+## Try it on the cloud platform
+
+Organization API keys are available on [moleculesai.app](https://moleculesai.app) —
+sign up for free, create an org, and mint your first key from the canvas.
+See the [Quickstart](/docs/quickstart) to get started.

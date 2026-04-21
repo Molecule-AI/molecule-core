@@ -1,5 +1,8 @@
 # Quickstart Guide
 
+> **Cloud option:** Prefer to skip the setup? [Sign up at moleculesai.app](https://moleculesai.app)
+> — self-serve, no infrastructure required. The steps below cover self-hosted setup.
+
 This path is aligned to the current repository and current UI. It gets you from clone to a live workspace on the canvas without assuming any extra platform wrapper.
 
 ## Prerequisites
