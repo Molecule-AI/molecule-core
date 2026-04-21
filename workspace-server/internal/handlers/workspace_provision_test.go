@@ -816,3 +816,64 @@ func TestSeedInitialMemories_ContentUnderLimit(t *testing.T) {
 		t.Errorf("DB expectations not met: %v", err)
 	}
 }
+
+// TestSeedInitialMemories_ExactlyAtLimit passes through unchanged (boundary case).
+func TestSeedInitialMemories_ExactlyAtLimit(t *testing.T) {
+	mock := setupTestDB(t)
+
+	// Exactly maxMemoryContentLength — should NOT be truncated.
+	atLimitContent := strings.Repeat("X", 100_000)
+	memories := []models.MemorySeed{
+		{Content: atLimitContent, Scope: "LOCAL"},
+	}
+
+	mock.ExpectExec(`INSERT INTO agent_memories`).
+		WithArgs(sqlmock.AnyArg(), strings.Repeat("X", 100_000), "LOCAL", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	seedInitialMemories(context.Background(), "ws-boundary", memories, "test-ns")
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("DB expectations not met: %v", err)
+	}
+}
+
+// TestSeedInitialMemories_EmptyContent is skipped (no DB call).
+func TestSeedInitialMemories_EmptyContent(t *testing.T) {
+	mock := setupTestDB(t)
+
+	memories := []models.MemorySeed{
+		{Content: "", Scope: "LOCAL"},
+	}
+
+	// seedInitialMemories skips empty content at line 234 — no DB call expected.
+	seedInitialMemories(context.Background(), "ws-empty", memories, "test-ns")
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("DB expectations not met: %v", err)
+	}
+}
+
+// TestSeedInitialMemories_OversizedWithSecrets truncates at 100k even when content
+// contains credential patterns — the boundary enforcement runs before any other
+// content inspection.
+func TestSeedInitialMemories_OversizedWithSecrets(t *testing.T) {
+	mock := setupTestDB(t)
+
+	// 200k of content that looks like secrets — truncation must still fire at 100k.
+	largeWithSecrets := "ANTHROPIC_API_KEY=sk-ant-xxxx" + strings.Repeat("X", 200_000)
+	memories := []models.MemorySeed{
+		{Content: largeWithSecrets, Scope: "GLOBAL"},
+	}
+
+	mock.ExpectExec(`INSERT INTO agent_memories`).
+		// Content must be truncated to exactly 100k before INSERT fires.
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "GLOBAL", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	seedInitialMemories(context.Background(), "ws-secrets", memories, "test-ns")
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("DB expectations not met: %v", err)
+	}
+}
