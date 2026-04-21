@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useCanvasStore } from "@/store/canvas";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -17,14 +17,32 @@ export function BatchActionBar() {
 
   const [pending, setPending] = useState<BatchAction>(null);
   const [busy, setBusy] = useState(false);
+  // Retry survivorship (QA pr-949 follow-up): when a batch action partial-fails
+  // and leaves a single survivor id, the default `count < 2` gate unmounts the
+  // bar and forces per-node context-menu retry. Track "active failure" so the
+  // bar stays mounted with a single item and the user can click the same action
+  // button to retry without re-selecting. Resets on success or Escape/clear.
+  const [hasFailedBatch, setHasFailedBatch] = useState(false);
 
   const count = selectedNodeIds.size;
-  if (count < 2) return null;
+  // Reset failure flag when the user clears selection (Escape / ✕ button).
+  useEffect(() => {
+    if (count === 0 && hasFailedBatch) setHasFailedBatch(false);
+  }, [count, hasFailedBatch]);
 
+  // Hide when nothing is selected. Hide for single-node selection UNLESS a
+  // partial-failure left a survivor awaiting retry.
+  if (count === 0) return null;
+  if (count < 2 && !hasFailedBatch) return null;
+
+  // Message copy must handle both multi (count >= 2) and single-survivor retry
+  // (count === 1 && hasFailedBatch). Use a helper so we render singular form
+  // only when there is exactly one survivor to act on.
+  const plural = (n: number) => (n === 1 ? "workspace" : "workspaces");
   const confirmMessages: Record<NonNullable<BatchAction>, string> = {
-    restart: `Restart ${count} workspace${count !== 1 ? "s" : ""}? Each will briefly go offline while it restarts.`,
-    pause:   `Pause ${count} workspace${count !== 1 ? "s" : ""}? Their containers will be stopped.`,
-    delete:  `Permanently delete ${count} workspace${count !== 1 ? "s" : ""}? This cannot be undone.`,
+    restart: `Restart ${count} ${plural(count)}? Each will briefly go offline while it restarts.`,
+    pause:   `Pause ${count} ${plural(count)}? Their containers will be stopped.`,
+    delete:  `Permanently delete ${count} ${plural(count)}? This cannot be undone.`,
   };
 
   const confirmLabels: Record<NonNullable<BatchAction>, string> = {
@@ -40,10 +58,18 @@ export function BatchActionBar() {
       if (pending === "restart") await batchRestart();
       if (pending === "pause")   await batchPause();
       if (pending === "delete")  await batchDelete();
-      showToast(`${pending.charAt(0).toUpperCase() + pending.slice(1)} applied to ${count} workspace${count !== 1 ? "s" : ""}`, "success");
+      // Reaching here means every store call fulfilled (the store throws on
+      // any partial failure), so `count` is the actual success count.
+      showToast(`${pending.charAt(0).toUpperCase() + pending.slice(1)} applied to ${count} ${plural(count)}`, "success");
+      setHasFailedBatch(false);
       clearSelection();
-    } catch {
-      showToast(`Batch ${pending} failed`, "error");
+    } catch (e) {
+      const msg = e instanceof Error && e.message ? e.message : `Batch ${pending} failed`;
+      showToast(msg, "error");
+      // Leave the failed IDs selected (the store preserved them) so the user
+      // can retry without re-selecting, and set hasFailedBatch so the bar
+      // stays mounted even if a single survivor remains.
+      setHasFailedBatch(true);
     } finally {
       setBusy(false);
       setPending(null);
