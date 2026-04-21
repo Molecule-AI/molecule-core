@@ -5,7 +5,7 @@
 
 ---
 
-*Last updated: 2026-04-21T07:10Z by Core Platform Lead (post-restart session)*
+*Last updated: 2026-04-21T07:30Z by Core Platform Lead — QA Round 18 findings documented, PR status clarified*
 
 ---
 
@@ -30,7 +30,61 @@ Full audit saved to TEAM memory id `abc58b47`.
 
 ---
 
-## F1088 Credential Exposure — CLOSED (2026-04-21 ~07:10Z update)
+## QA Round 18 — orgs-page Test Regression (FIXED on main, pending staging port)
+
+**Severity:** Medium
+**SHA tested:** `ce33da5` (PR #1257 branch merge with staging)
+**Status:** Regression identified in PR #1255, fixed on main, not yet on staging
+
+### Findings
+
+| Finding | Status |
+|---------|--------|
+| Canvas tests: 53 passed, **1 FAILED** | orgs-page.test.tsx line 133 — `vi.useRealTimers()` + raw `setTimeout(50)` without `act()` |
+| PR #1257 conflict | MERGEABLE, approved — but closed without merge; fix is on main/staging via `a66f889` |
+| PR #1255 regression | Introduced orgs-page test flakiness — +18/-2 in orgs-page.test.tsx |
+
+### orgs-page Test Regression — Root Cause
+
+PR #1255 (`e885fa1`) regressed the timer fix from PR #1235. It replaced the correct pattern:
+```typescript
+// CORRECT (from PR #1235):
+await waitFor(() => expect(mockRedirectToLogin).toHaveBeenCalled());
+```
+With the broken pattern:
+```typescript
+// REGRESSION (from PR #1255):
+vi.useRealTimers();
+try {
+  render(<OrgsPage />);
+  await new Promise((r) => setTimeout(r, 50));  // raw setTimeout without act() ❌
+  expect(mockRedirectToLogin).toHaveBeenCalled();
+```
+Also added duplicate `afterEach(cleanup())` alongside PR #1235's `afterEach(vi.restoreTimers())` — conflict between timer management strategies.
+
+### Resolution
+
+**Main:** Fixed in `674384b` (PR #1313) — wraps all 10 affected `vi.advanceTimersByTimeAsync(50)` calls in `act(async () => { await vi.advanceTimersByTimeAsync(50); })`. All 813 canvas tests pass on main.
+
+**Staging:** Regression NOT yet fixed — `origin/staging` (`72d825f`) is 13 commits behind main and doesn't include `674384b`. Running canvas tests on staging would still show the failure.
+
+**Action needed:** Cherry-pick or port the orgs-page test fix from `674384b` to staging so both branches are aligned. Alternatively, merge staging → main to advance staging and then fast-forward.
+
+### PR #1257 and #1255 — Both Closed Without Merge (Content Applied Elsewhere)
+
+| PR | Intended Fix | Actually Applied Via |
+|----|-------------|---------------------|
+| #1257 (+18/-2): templates.go:299 + workspace_restart.go:129 `validateRelPath`/`resolveInsideRoot` | `a66f889` (PR #1261) — on both main and staging ✅ |
+| #1255 (+7603/-178): CWE-22 in container_files.go | `ce2491e` (staging) + `674384b` (main) ✅ |
+| #1255 canvas/orgs-page test regression | `674384b` (main only, not staging) ⚠️ |
+
+Both PRs are **safely closed** — their security content landed through other PRs. The canvas test regression is the only remaining gap, and it's fixed on main.
+
+### Merge Order Decision — Resolved
+
+No decision needed. Both PRs closed without merge. Security fixes are on both branches via other commits. The canvas test regression fix needs to be ported to staging (one commit: the orgs-page test changes in `674384b`).
+
+
 
 **All prior F1088 entries below remain valid. Summary of current state:**
 
