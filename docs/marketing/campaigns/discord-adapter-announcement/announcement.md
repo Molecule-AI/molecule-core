@@ -97,4 +97,73 @@ Docs: docs/agent-runtime/social-channels
 
 ---
 
-*Draft by Content Marketer 2026-04-20 — for Social Media Brand review before publishing*
+---
+
+## Reddit / HN — Day 2 Campaign
+
+**Status:** Ready for review and push. Blog post URL TBD — fill before posting.
+
+---
+
+### r/LocalLLaMA — Post Title
+
+> Molecule AI Discord adapter: connect any AI agent workspace to Discord with one webhook URL
+
+### r/LocalLLaMA — Body
+
+Molecule AI workspaces can now connect to Discord.
+
+Here's what makes this different from a typical bot integration:
+
+Traditional Discord bot setup requires: Developer Portal app, OAuth2, Gateway connection, intent configuration, message-reading permissions, rate limit handling.
+
+The Molecule AI Discord adapter requires: **one webhook URL**.
+
+That's the only credential. It encodes the channel and bot tokens. You paste it in the Canvas Channels tab. Done.
+
+What you get:
+- Slash commands (`/ask`, `/status`, `/help`) route directly to your workspace agent — no message reading, no polling
+- Agent responses post back to the Discord channel automatically
+- 2,000-character chunking handled without code
+- Works in servers and in DMs
+
+The webhook token is never logged — errors surface as generic messages, not URL fragments (security fix shipped in PR #659).
+
+This is the same adapter interface that handles Telegram. New channels add one implementation, and the full CRUD API, Canvas UI, and MCP tools work automatically.
+
+**Setup:** Canvas → Workspace → Channels tab → + Connect → Discord → paste webhook URL.
+
+Docs → [Social Channels guide](https://github.com/Molecule-AI/molecule-core/blob/main/docs/agent-runtime/social-channels.md)
+
+GitHub → [PR #656 — Discord adapter](https://github.com/Molecule-AI/molecule-core/pull/656)
+
+---
+
+### Hacker News — Post Title
+
+> Show HN — Molecule AI Discord adapter: one webhook, full agent interaction in Discord
+
+### Hacker News — Body
+
+Show HN: Molecule AI workspaces can now connect to Discord.
+
+Most Discord bot integrations require creating an app in the Developer Portal, handling the Gateway connection, configuring intents and permissions, and managing rate limits — before your agent can say hello in a channel.
+
+The Molecule AI approach uses two standard Discord primitives:
+
+- **Incoming Webhooks** for outbound messages — you give the workspace a webhook URL, that's the only credential, the agent can send to any channel
+- **Discord Interactions** for inbound slash commands — users type `/ask what's the deployment status?`, the adapter reconstructs it as plain text and routes it to your workspace agent
+
+No Gateway. No message-reading permissions. No long-polling.
+
+Slash commands are the interface. The agent decides what to do. Your Discord server is the front-end your team already lives in.
+
+The security model is deliberate: webhook tokens are never logged. This was hardened in PR #659 after a security review.
+
+Setup is under a minute: Canvas → Channels tab → + Connect → Discord → paste your webhook URL.
+
+Demo + full docs: https://github.com/Molecule-AI/molecule-core/blob/main/docs/agent-runtime/social-channels.md
+
+---
+
+*Draft by Content Marketer 2026-04-21 — Day 2 campaign. Fill blog URL before posting. Coordinate with Social Media Brand on timing.*
