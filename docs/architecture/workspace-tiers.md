@@ -45,7 +45,19 @@ Used for DevOps agents, system administration, and orchestrator agents that need
 - From A2A's perspective, **all tiers look identical** — same protocol, same Agent Card, same message format
 - Tier changes take effect on next restart
 
+## Remote Agents and Phase 30
+
+The tier model applies to platform-provisioned (Docker) workspaces. **Remote agents** — those running on Fly Machines, developer laptops, cloud VMs, or air-gapped infrastructure — are external to the Docker network and use a different security model.
+
+Phase 30 introduced remote agent workspaces with:
+- **Per-workspace bearer tokens** — cryptographic identity for every remote agent, scoped to a single workspace. See [Remote Workspaces Architecture](/docs/architecture/remote-workspaces.md) for the full token lifecycle.
+- **Cross-network A2A proxy** — remote agents communicate via the platform proxy, not Docker networking.
+- **Tier compatibility** — remote agents can be assigned a tier hint (`T2`/`T3`/`T4`) for resource limit signaling, but enforcement is handled through the per-workspace bearer token model, not container flags.
+
+For self-hosted production agents on Fly Machines, use **T2 or T3** as the tier hint — T4 is not recommended for Firecracker microVMs. See [Remote Workspaces Architecture](/docs/architecture/remote-workspaces.md) for the registration flow.
+
 ## Related Docs
 
 - [Provisioner](./provisioner.md) — How tiers affect deployment
 - [Architecture](./architecture.md) — Where tiers fit in the system
+- [Remote Workspaces Architecture](/docs/architecture/remote-workspaces.md) — Phase 30 remote agents, bearer tokens, cross-network A2A
