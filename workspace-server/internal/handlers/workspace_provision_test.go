@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/models"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/plugins"
@@ -901,9 +902,21 @@ func containsStr(s, substr string) bool {
 //
 // Each test injects a known-internal error and verifies the response body
 // or broadcast payload contains ONLY the generic prod-safe message.
-	largeContent := string(make([]byte, 100_001))
-	copy([]byte(largeContent), "X") // fill with "X" so test is deterministic
 
+// TestSeedInitialMemories_ContentAtLimitTruncates exercises the 100_000-byte
+// content truncation guard in seedInitialMemories — a 100_001-byte input
+// must persist as exactly 100_000 bytes of "X".
+func TestSeedInitialMemories_ContentAtLimitTruncates(t *testing.T) {
+	origDB := db.DB
+	sqldb, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer sqldb.Close()
+	db.DB = sqldb
+	t.Cleanup(func() { db.DB = origDB })
+
+	largeContent := strings.Repeat("X", 100_001)
 	memories := []models.MemorySeed{
 		{Content: largeContent, Scope: "LOCAL"},
 	}

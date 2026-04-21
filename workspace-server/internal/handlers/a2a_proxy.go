@@ -779,29 +779,78 @@ func isSafeURL(rawURL string) error {
 	return nil
 }
 
-// isPrivateOrMetadataIP returns true for RFC-1918 private, carrier-grade NAT,
-// link-local, and cloud metadata ranges.
+// isPrivateOrMetadataIP returns true for cloud-metadata / loopback / link-local
+// ranges (always) and RFC-1918 / IPv6 ULA ranges (self-hosted only).
+//
+// In SaaS cross-EC2 mode (see saasMode() in registry.go) the tenant platform
+// and its workspaces share a VPC, so workspaces register with their
+// VPC-private IP — typically 172.31.x.x on AWS default VPCs. Blocking RFC-1918
+// unconditionally would reject every legitimate registration. Cloud metadata
+// (169.254.0.0/16, fe80::/10), loopback, and TEST-NET ranges stay blocked in
+// both modes; they are never a legitimate agent URL.
+//
+// Both IPv4 and IPv6 are checked. The previous implementation returned false
+// for every non-IPv4 input, which meant a registered `[::1]` or `[fe80::…]`
+// URL would bypass the SSRF gate entirely.
 func isPrivateOrMetadataIP(ip net.IP) bool {
-	var privateRanges = []net.IPNet{
-		{IP: net.ParseIP("10.0.0.0"), Mask: net.CIDRMask(8, 32)},
-		{IP: net.ParseIP("172.16.0.0"), Mask: net.CIDRMask(12, 32)},
-		{IP: net.ParseIP("192.168.0.0"), Mask: net.CIDRMask(16, 32)},
-		{IP: net.ParseIP("169.254.0.0"), Mask: net.CIDRMask(16, 32)},
-		{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)},
-		{IP: net.ParseIP("192.0.2.0"), Mask: net.CIDRMask(24, 32)},
-		{IP: net.ParseIP("198.51.100.0"), Mask: net.CIDRMask(24, 32)},
-		{IP: net.ParseIP("203.0.113.0"), Mask: net.CIDRMask(24, 32)},
+	// Always blocked — IPv4 cloud metadata + network-test ranges.
+	metadataRangesV4 := []string{
+		"169.254.0.0/16",  // link-local / IMDSv1-v2
+		"100.64.0.0/10",   // CGNAT — reachable via some VPC configs, not a legit agent URL
+		"192.0.2.0/24",    // TEST-NET-1
+		"198.51.100.0/24", // TEST-NET-2
+		"203.0.113.0/24",  // TEST-NET-3
 	}
-	ip = ip.To4()
-	if ip == nil {
+	// Always blocked — IPv6 cloud-metadata / loopback equivalents.
+	metadataRangesV6 := []string{
+		"::1/128",       // loopback
+		"fe80::/10",     // link-local (IMDS analogue)
+		"::ffff:0:0/96", // IPv4-mapped loopback (defence-in-depth; To4() below usually normalises first)
+	}
+	// RFC-1918 private — blocked in self-hosted, allowed in SaaS.
+	rfc1918RangesV4 := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+	}
+	// RFC-4193 ULA — IPv6 analogue of RFC-1918. Same SaaS-mode treatment.
+	ulaRangesV6 := []string{
+		"fc00::/7",
+	}
+
+	contains := func(cidrs []string, target net.IP) bool {
+		for _, c := range cidrs {
+			_, n, err := net.ParseCIDR(c)
+			if err != nil {
+				continue
+			}
+			if n.Contains(target) {
+				return true
+			}
+		}
 		return false
 	}
-	for _, r := range privateRanges {
-		if r.Contains(ip) {
+
+	// Prefer IPv4 semantics when the input is an IPv4 address encoded in any
+	// form (raw v4, ::ffff:a.b.c.d, etc.) — To4() normalises all of them.
+	if ip4 := ip.To4(); ip4 != nil {
+		if contains(metadataRangesV4, ip4) {
 			return true
 		}
+		if saasMode() {
+			return false
+		}
+		return contains(rfc1918RangesV4, ip4)
 	}
-	return false
+
+	// True IPv6 path.
+	if contains(metadataRangesV6, ip) {
+		return true
+	}
+	if saasMode() {
+		return false
+	}
+	return contains(ulaRangesV6, ip)
 }
 
 // readUsageMap extracts input_tokens / output_tokens from the "usage" key of m.

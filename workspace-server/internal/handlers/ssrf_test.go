@@ -7,6 +7,114 @@ import (
 
 // isSafeURL is defined in mcp.go.
 // isPrivateOrMetadataIP is defined in mcp.go.
+// saasMode is defined in registry.go.
+
+// TestSaasMode covers the env-resolution ladder so a self-hosted
+// operator can't accidentally flip into SaaS mode by leaving a stale
+// MOLECULE_ORG_ID around, and an explicit MOLECULE_DEPLOY_MODE wins
+// over the legacy implicit signal.
+func TestSaasMode(t *testing.T) {
+	cases := []struct {
+		name       string
+		deployMode string
+		orgID      string
+		want       bool
+	}{
+		{"both unset", "", "", false},
+		{"legacy org id only", "", "7b2179dc-8cc6-4581-a3c6-c8bff4481086", true},
+		{"explicit saas", "saas", "", true},
+		{"explicit saas overrides missing org", "SaaS", "", true}, // case-insensitive
+		{"explicit self-hosted wins over legacy org id", "self-hosted", "some-org", false},
+		{"explicit selfhosted wins over legacy org id", "selfhosted", "some-org", false},
+		{"explicit standalone wins over legacy org id", "standalone", "some-org", false},
+		{"whitespace-only deploy mode falls through to legacy", "   ", "some-org", true},
+		{"whitespace-only org id falls through to false", "", "   ", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("MOLECULE_DEPLOY_MODE", tc.deployMode)
+			t.Setenv("MOLECULE_ORG_ID", tc.orgID)
+			if got := saasMode(); got != tc.want {
+				t.Errorf("saasMode() = %v, want %v (MOLECULE_DEPLOY_MODE=%q MOLECULE_ORG_ID=%q)",
+					got, tc.want, tc.deployMode, tc.orgID)
+			}
+		})
+	}
+}
+
+// TestIsPrivateOrMetadataIP_SaaSMode covers the SaaS-mode relaxation:
+// RFC-1918 and ULA ranges are allowed, but metadata / loopback / TEST-NET
+// classes stay blocked in every mode. Regression guard for the core
+// SaaS provisioning fix (issue: workspaces register with their VPC
+// private IP, which is 172.31.x.x on AWS default VPCs).
+func TestIsPrivateOrMetadataIP_SaaSMode(t *testing.T) {
+	t.Setenv("MOLECULE_DEPLOY_MODE", "saas")
+	t.Setenv("MOLECULE_ORG_ID", "")
+	cases := []struct {
+		name  string
+		ipStr string
+		want  bool
+	}{
+		// RFC-1918 must be ALLOWED in SaaS mode.
+		{"172.31 allowed in saas", "172.31.44.78", false},
+		{"10/8 allowed in saas", "10.0.0.5", false},
+		{"192.168 allowed in saas", "192.168.1.1", false},
+		// IPv6 ULA must be ALLOWED in SaaS mode (AWS IPv6 VPC analogue).
+		{"fd00 ULA allowed in saas", "fd12:3456:789a::1", false},
+		// Metadata / loopback stay BLOCKED even in SaaS mode.
+		{"169.254 still blocked", "169.254.169.254", true},
+		{"127/8 still blocked", "127.0.0.1", true},
+		{"::1 still blocked", "::1", true},
+		{"fe80 still blocked", "fe80::1", true},
+		// TEST-NET stays blocked.
+		{"192.0.2.x still blocked", "192.0.2.5", true},
+		{"198.51.100.x still blocked", "198.51.100.5", true},
+		{"203.0.113.x still blocked", "203.0.113.5", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ip := net.ParseIP(tc.ipStr)
+			if ip == nil {
+				t.Fatalf("ParseIP(%q) returned nil", tc.ipStr)
+			}
+			if got := isPrivateOrMetadataIP(ip); got != tc.want {
+				t.Errorf("isPrivateOrMetadataIP(%s) = %v, want %v", tc.ipStr, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestIsPrivateOrMetadataIP_IPv6 covers the IPv6 gap the previous
+// implementation had — it returned false for every IPv6 literal
+// unconditionally, which would let a registered [::1] or [fe80::…]
+// URL bypass the SSRF check entirely.
+func TestIsPrivateOrMetadataIP_IPv6(t *testing.T) {
+	t.Setenv("MOLECULE_DEPLOY_MODE", "")
+	t.Setenv("MOLECULE_ORG_ID", "")
+	cases := []struct {
+		name  string
+		ipStr string
+		want  bool
+	}{
+		{"::1 loopback blocked", "::1", true},
+		{"fe80 link-local blocked", "fe80::1", true},
+		{"fe80 link-local with mac blocked", "fe80::a00:27ff:fe00:1", true},
+		{"fc00 ULA blocked (non-saas)", "fc00::1", true},
+		{"fd00 ULA blocked (non-saas)", "fd12::1", true},
+		{"public v6 allowed", "2606:4700:4700::1111", false}, // 1.1.1.1 v6
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ip := net.ParseIP(tc.ipStr)
+			if ip == nil {
+				t.Fatalf("ParseIP(%q) returned nil", tc.ipStr)
+			}
+			if got := isPrivateOrMetadataIP(ip); got != tc.want {
+				t.Errorf("isPrivateOrMetadataIP(%s) = %v, want %v", tc.ipStr, got, tc.want)
+			}
+		})
+	}
+}
 
 func TestIsPrivateOrMetadataIP(t *testing.T) {
 	cases := []struct {
