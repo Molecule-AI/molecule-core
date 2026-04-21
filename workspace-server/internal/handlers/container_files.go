@@ -18,6 +18,18 @@ import (
 // maxExecOutput limits container exec output to 5MB to prevent OOM.
 const maxExecOutput = 5 * 1024 * 1024
 
+// validateRelPath checks that a relative path doesn't escape the target
+// directory via ".." or an absolute path. Used by deleteViaEphemeral and
+// copyFilesToContainer to validate user-supplied file paths before they're
+// interpolated into Docker commands or tar headers.
+func validateRelPath(relPath string) error {
+	clean := filepath.Clean(relPath)
+	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+		return fmt.Errorf("path traversal blocked: %s", relPath)
+	}
+	return nil
+}
+
 // findContainer finds a running container for the workspace.
 // Checks provisioner name, full ID, and DB workspace name (same candidates as terminal handler).
 func (h *TemplatesHandler) findContainer(ctx context.Context, workspaceID string) string {
