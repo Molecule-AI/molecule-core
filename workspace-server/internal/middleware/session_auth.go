@@ -207,7 +207,7 @@ func verifiedCPSession(cookieHeader string) (valid, presented bool) {
 		// for the negative-TTL window. Next request retries.
 		return false, true
 	}
-	defer func() { _ = $1 }()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		sessionCachePut(key, false)
