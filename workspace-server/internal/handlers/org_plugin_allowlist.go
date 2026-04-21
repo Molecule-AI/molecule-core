@@ -107,9 +107,11 @@ type putAllowlistRequest struct {
 
 // requireCallerOwnsOrg returns the caller's org workspace ID from the
 // request context, or "" if the caller is not an org-token holder.
-// Used to enforce org isolation on org-scoped routes — the org_token_id
-// is the org-scoped token's ID (not the org workspace ID), so we look
-// it up via the created_by workspace or a direct relationship.
+// Used to enforce org isolation on org-scoped routes.
+//
+// For org-token callers, looks up org_api_tokens.org_id (the root workspace
+// that owns this token). Tokens created before the org_id column was added
+// have org_id = NULL and are treated as un-owned — access is denied.
 //
 // Returns ("", nil) when the caller is a session/ADMIN_TOKEN user (they
 // bypass via the session cookie path or ADMIN_TOKEN, not org tokens).
@@ -122,19 +124,19 @@ func requireCallerOwnsOrg(c *gin.Context) (string, error) {
 	if !ok || tokID == "" {
 		return "", nil
 	}
-	// Look up the org workspace that owns this token.
-	// org_api_tokens has no org_id column, but we can look up the token's
-	// created_by workspace and treat that as the caller's org anchor.
-	var createdBy string
+	// Look up the org workspace that owns this token via org_api_tokens.org_id.
+	// org_id is NULL for pre-fix tokens (created before migration 036); those
+	// are denied to enforce org isolation rather than allowing cross-org access.
+	var orgID *string
 	err := db.DB.QueryRowContext(c.Request.Context(),
-		`SELECT created_by FROM org_api_tokens WHERE id = $1`, tokID,
-	).Scan(&createdBy)
-	if err != nil || createdBy == "" {
-		// Token has no created_by (CLI bootstrap path) — treat as unowned;
-		// deny by default to prevent cross-org access.
+		`SELECT org_id::text FROM org_api_tokens WHERE id = $1`, tokID,
+	).Scan(&orgID)
+	if err != nil || orgID == nil || *orgID == "" {
+		// Token has no org_id (pre-fix or bootstrap path) — deny by default
+		// to prevent cross-org access.
 		return "", fmt.Errorf("token has no org anchor")
 	}
-	return createdBy, nil
+	return *orgID, nil
 }
 
 // requireOrgOwnership verifies the caller has authority over the target org.

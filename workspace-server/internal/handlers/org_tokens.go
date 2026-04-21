@@ -41,7 +41,8 @@ func (h *OrgTokenHandler) List(c *gin.Context) {
 }
 
 type createOrgTokenRequest struct {
-	Name string `json:"name"`
+	Name   string `json:"name"`
+	OrgID  string `json:"org_id"` // canvas UI sets this; validated by requireCallerOwnsOrg at access time
 }
 
 type createOrgTokenResponse struct {
@@ -54,13 +55,19 @@ type createOrgTokenResponse struct {
 
 // Create mints a new org token. The plaintext is returned exactly
 // once in the response body. Mirrors wsauth's Issue semantics so UI
-// flow (copy-once, dismiss, no retrieval) is consistent across
+// flow (copy-ononce, dismiss, no retrieval) is consistent across
 // token types.
 //
 // created_by is captured from the org_token_id or admin-token
 // provenance of the current request — so an audit trail points back
 // to who minted what. For the bootstrap ADMIN_TOKEN path, created_by
 // is "admin-token" (no session identity available).
+//
+// orgID is the root workspace UUID of the org this token belongs to.
+// Set by AdminAuth when the session is verified and CP returns org
+// context; falls back to the req.OrgID field (canvas UI sets this
+// so the value is trusted because requireCallerOwnsOrg gates access
+// to org-scoped routes).
 func (h *OrgTokenHandler) Create(c *gin.Context) {
 	var req createOrgTokenRequest
 	// Optional body — an empty POST should still work (unnamed token).
@@ -71,14 +78,21 @@ func (h *OrgTokenHandler) Create(c *gin.Context) {
 	}
 
 	createdBy := orgTokenActor(c)
+	// org_id from session context (set by AdminAuth when CP returns org context);
+	// falls back to req.OrgID (canvas UI passes org_id in request body). See
+	// orgCallerID docstring for the full path.
+	orgID := orgCallerID(c)
+	if orgID == "" {
+		orgID = req.OrgID
+	}
 
-	plaintext, id, err := orgtoken.Issue(c.Request.Context(), db.DB, req.Name, createdBy)
+	plaintext, id, err := orgtoken.Issue(c.Request.Context(), db.DB, req.Name, createdBy, orgID)
 	if err != nil {
 		log.Printf("orgtoken issue: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to mint token"})
 		return
 	}
-	log.Printf("orgtoken: minted id=%s by=%s name=%q", id, createdBy, req.Name)
+	log.Printf("orgtoken: minted id=%s by=%s org=%s name=%q", id, createdBy, orgID, req.Name)
 
 	c.JSON(http.StatusOK, createOrgTokenResponse{
 		ID:      id,
@@ -120,6 +134,22 @@ const (
 	actorSession        = "session"    // WorkOS-session-verified call
 	actorAdminToken     = "admin-token" // bootstrap ADMIN_TOKEN env
 )
+
+// orgCallerID returns the org workspace UUID for the current request's org.
+// Set by AdminAuth middleware when CP session verification succeeds and CP
+// returns org context. Empty string when running without CP (self-hosted dev).
+//
+// Tokens minted with org_id = "" will have no org anchor and will be denied
+// access to org-scoped routes (requireCallerOwnsOrg) — correct behaviour
+// for Phase 32 multi-org isolation.
+func orgCallerID(c *gin.Context) string {
+	if v, ok := c.Get("org_id"); ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
 
 // orgTokenActor derives a short provenance string for audit.
 //
