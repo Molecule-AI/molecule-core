@@ -768,3 +768,51 @@ func containsStr(s, substr string) bool {
 	}
 	return false
 }
+
+// ── seedInitialMemories content length limit (#1066, CWE-400) ─────────────────
+
+// TestSeedInitialMemories_ContentTruncated verifies that memory content exceeding
+// maxMemoryContentLength is truncated before INSERT rather than stored in full.
+// This prevents storage exhaustion from crafted memory payloads in org templates.
+func TestSeedInitialMemories_ContentTruncated(t *testing.T) {
+	mock := setupTestDB(t)
+
+	// Create content just over the limit (100_001 bytes).
+	largeContent := string(make([]byte, 100_001))
+	copy([]byte(largeContent), "X") // fill with "X" so test is deterministic
+
+	memories := []models.MemorySeed{
+		{Content: largeContent, Scope: "LOCAL"},
+	}
+
+	mock.ExpectExec(`INSERT INTO agent_memories`).
+		// content arg is $2; it must be exactly 100_000 bytes.
+		WithArgs(sqlmock.AnyArg(), strings.Repeat("X", 100_000), "LOCAL", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	seedInitialMemories(context.Background(), "ws-1066-test", memories, "test-ns")
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("DB expectations not met: %v\n"+
+			"INSERT should fire with truncated 100_000-byte content, not 100_001-byte", err)
+	}
+}
+
+// TestSeedInitialMemories_ContentUnderLimit passes through unchanged.
+func TestSeedInitialMemories_ContentUnderLimit(t *testing.T) {
+	mock := setupTestDB(t)
+
+	memories := []models.MemorySeed{
+		{Content: "short content", Scope: "TEAM"},
+	}
+
+	mock.ExpectExec(`INSERT INTO agent_memories`).
+		WithArgs(sqlmock.AnyArg(), "short content", "TEAM", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	seedInitialMemories(context.Background(), "ws-1066-under", memories, "test-ns")
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("DB expectations not met: %v", err)
+	}
+}
