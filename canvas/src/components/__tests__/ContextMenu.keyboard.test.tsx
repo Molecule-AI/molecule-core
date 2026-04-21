@@ -49,8 +49,11 @@ const mockStore = {
 };
 
 vi.mock("@/store/canvas", () => ({
-  useCanvasStore: vi.fn(
-    (selector: (s: typeof mockStore) => unknown) => selector(mockStore)
+  // PR #1243 refactored delete flow: hoists confirmation to Canvas-level dialog
+  // via setPendingDelete, including hasChildren for correct warning text.
+  useCanvasStore: Object.assign(
+    vi.fn((selector: (s: typeof mockStore) => unknown) => selector(mockStore)),
+    { getState: () => mockStore }
   ),
 }));
 
