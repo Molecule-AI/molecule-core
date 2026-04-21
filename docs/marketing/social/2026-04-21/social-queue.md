@@ -96,6 +96,7 @@ UTM: `?utm_source=linkedin&utm_medium=social&utm_campaign=fly-deploy-anywhere`
 - Chrome DevTools MCP (Day 1): ✅ copy approved — blocked on X API v2 + LinkedIn credentials (manual post required today 2026-04-21)
 - Fly.io Deploy Anywhere (Day 3): ✅ copy approved — blocked on credentials
 - Org-scoped API Keys (Day 5): ✅ copy approved — blocked on credentials
-- Discord adapter Day 2 Reddit + HN: ✅ copy approved in GH #1383 — two versions ready (Community Manager + Social Media Brand), manual browser post required today 2026-04-21
+- Discord adapter Day 2 Reddit + HN: ✅ Reddit/HN copy committed PR #1432 → `marketing/community/community-announcements.md`. Two versions ready (Community Manager + Social Media Brand). Manual browser post required — no agent has browser tools.
+- Cloudflare Artifacts Day 4: ✅ PMM positioned — workflow durability / git-native outputs angle. Social copy drafted: `docs/marketing/campaigns/2026-04-21/cloudflare-artifacts/social-copy.md` (SHA 66734e4f on staging). Awaiting Social Media Brand review + asset coordination with DevRel.
 - Fleet diagram: `marketing/assets/phase30-fleet-diagram.png`
 - Backend comparison card: `docs/marketing/campaigns/fly-deploy-anywhere/assets/backend-comparison-card.svg`
