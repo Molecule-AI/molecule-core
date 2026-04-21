@@ -50,13 +50,11 @@ func Import(
 		return result
 	}
 
-	if err := broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", wsID, map[string]interface{}{
+	_ = broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", wsID, map[string]interface{}{
 		"name":             b.Name,
 		"tier":             b.Tier,
 		"source_bundle_id": b.ID,
-	}); err != nil {
-		// Log but don't fail the import
-	}
+	})
 
 	// Build config files in memory for the provisioner
 	configFiles := buildBundleConfigFiles(b)
@@ -73,9 +71,7 @@ func Import(
 		}
 	}
 	// Store runtime in DB
-	if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET runtime = $1 WHERE id = $2`, bundleRuntime, wsID); err != nil {
-		// Log but don't fail the import
-	}
+	_ = db.DB.ExecContext(ctx, `UPDATE workspaces SET runtime = $1 WHERE id = $2`, bundleRuntime, wsID)
 
 	// Provision the container if provisioner is available
 	if prov != nil {
