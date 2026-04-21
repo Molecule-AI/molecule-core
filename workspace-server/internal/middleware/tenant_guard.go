@@ -39,12 +39,23 @@ const flyReplaySrcHeader = "Fly-Replay-Src"
 const tenantOrgIDHeader = "X-Molecule-Org-Id"
 
 // tenantGuardAllowlist is the set of paths that MUST remain accessible even in
-// tenant mode without the org header (health checks, Prometheus scrapes).
+// tenant mode without the org header (health checks, Prometheus scrapes,
+// workspace → platform boot signals).
 // Exact-match — no prefix semantics — to avoid accidentally exposing admin
 // routes via e.g. "/health/debug/admin".
+//
+// /registry/register and /registry/heartbeat are workspace-initiated boot
+// signals. Workspace EC2s are provisioned by the control plane with
+// PLATFORM_URL but no MOLECULE_ORG_ID env var, so the runtime's httpx
+// calls can't attach X-Molecule-Org-Id. Tenant SG already scopes these
+// ports to the VPC CIDR; the registry handlers themselves enforce
+// workspace-scoped bearer auth via wsauth.HasAnyLiveToken. Allowlisting
+// here only bypasses the cross-org routing check, not auth.
 var tenantGuardAllowlist = map[string]struct{}{
-	"/health":  {},
-	"/metrics": {},
+	"/health":             {},
+	"/metrics":            {},
+	"/registry/register":  {},
+	"/registry/heartbeat": {},
 }
 
 // TenantGuard returns a Gin middleware configured from the MOLECULE_ORG_ID env

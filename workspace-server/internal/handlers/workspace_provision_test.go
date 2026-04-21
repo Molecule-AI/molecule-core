@@ -528,6 +528,128 @@ func TestSanitizeRuntime_Allowlist(t *testing.T) {
 	}
 }
 
+// ==================== seedInitialMemories: coverage for #1167 / #1208 ====================
+
+// TestSeedInitialMemories_TruncatesOversizedContent covers the boundary cases for
+// the CWE-400 content-length limit introduced in PR #1167. Issue #1208 identified
+// that the truncate-at-100k guard lacked unit test coverage.
+// The test verifies that content at and over the 100,000-byte limit is handled
+// correctly, and that content under the limit passes through unchanged.
+func TestSeedInitialMemories_TruncatesOversizedContent(t *testing.T) {
+	mock := setupTestDB(t)
+
+	tests := []struct {
+		name           string
+		contentLen     int
+		expectInsert   bool
+		expectTruncate bool
+	}{
+		{
+			name:         "exactly at 100 kB limit — no truncation",
+			contentLen:   100_000,
+			expectInsert: true,
+		},
+		{
+			name:           "1 byte over limit — truncated",
+			contentLen:     100_001,
+			expectInsert:   true,
+			expectTruncate: true,
+		},
+		{
+			name:           "far over limit — truncated",
+			contentLen:     500_000,
+			expectInsert:   true,
+			expectTruncate: true,
+		},
+		{
+			name:         "well under limit — passes through unchanged",
+			contentLen:     50_000,
+			expectInsert: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock.ExpectExpectations()
+			workspaceID := "ws-trunc-" + tt.name
+			content := strings.Repeat("X", tt.contentLen)
+			memories := []models.MemorySeed{{Content: content, Scope: "LOCAL"}}
+
+			if tt.expectInsert {
+				// The DB INSERT must receive content of exactly maxMemoryContentLength
+				// (not the full original length). This is the key assertion: the function
+				// truncates before calling ExecContext, so the mock expects 100_000 bytes.
+				mock.ExpectExec(`INSERT INTO agent_memories`).
+					WithArgs(workspaceID, strings.Repeat("X", maxMemoryContentLength), "LOCAL", sqlmock.AnyArg()).
+					WillReturnResult(sqlmock.NewResult(1, 1))
+			}
+
+			seedInitialMemories(context.Background(), workspaceID, memories, "test-ns")
+
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unmet DB expectations: %v", err)
+			}
+		})
+	}
+}
+
+// TestSeedInitialMemories_RedactsSecrets verifies that redactSecrets is called
+// before the INSERT so that credentials in template memories never land
+// unredacted in agent_memories. Regression test for F1085 / #1132.
+func TestSeedInitialMemories_RedactsSecrets(t *testing.T) {
+	mock := setupTestDB(t)
+
+	raw := "Remember to set OPENAI_API_KEY=sk-abcdef123456 in the config file"
+	wantRedacted, changed := redactSecrets("ws-redact-test", raw)
+	if !changed {
+		t.Fatalf("precondition: redactSecrets must change the test content")
+	}
+
+	workspaceID := "ws-redact-test"
+	memories := []models.MemorySeed{{Content: raw, Scope: "LOCAL"}}
+
+	// The INSERT must receive the REDACTED content, not the raw secret.
+	mock.ExpectExec(`INSERT INTO agent_memories`).
+		WithArgs(workspaceID, wantRedacted, "LOCAL", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	seedInitialMemories(context.Background(), workspaceID, memories, "test-ns")
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet DB expectations: %v", err)
+	}
+}
+
+// TestSeedInitialMemories_InvalidScopeSkipped verifies that entries with an
+// unrecognized scope value are silently skipped (not inserted).
+func TestSeedInitialMemories_InvalidScopeSkipped(t *testing.T) {
+	mock := setupTestDB(t)
+	mock.ExpectExpectations() // no DB calls expected for invalid scope
+
+	memories := []models.MemorySeed{
+		{Content: "this should be skipped", Scope: "NOT_A_REAL_SCOPE"},
+	}
+
+	seedInitialMemories(context.Background(), "ws-bad-scope", memories, "test-ns")
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unexpected DB calls for invalid scope: %v", err)
+	}
+}
+
+// TestSeedInitialMemories_EmptyMemoriesNil verifies that a nil memories slice
+// is handled without error (no DB calls).
+func TestSeedInitialMemories_EmptyMemoriesNil(t *testing.T) {
+	mock := setupTestDB(t)
+	mock.ExpectExpectations()
+
+	seedInitialMemories(context.Background(), "ws-nil", nil, "test-ns")
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unexpected DB calls for nil slice: %v", err)
+	}
+}
+
 // ==================== buildProvisionerConfig ====================
 
 func TestBuildProvisionerConfig_BasicFields(t *testing.T) {

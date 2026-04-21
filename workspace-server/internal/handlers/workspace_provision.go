@@ -246,7 +246,7 @@ func seedInitialMemories(ctx context.Context, workspaceID string, memories []mod
 		if _, err := db.DB.ExecContext(ctx, `
 			INSERT INTO agent_memories (workspace_id, content, scope, namespace)
 			VALUES ($1, $2, $3, $4)
-		`, workspaceID, content, scope, awarenessNamespace); err != nil {
+		`, workspaceID, redactSecrets(workspaceID, content), scope, awarenessNamespace); err != nil {
 			log.Printf("seedInitialMemories: failed to insert memory for %s (scope=%s): %v", workspaceID, scope, err)
 		}
 	}
