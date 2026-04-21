@@ -18,6 +18,16 @@ import (
 // maxExecOutput limits container exec output to 5MB to prevent OOM.
 const maxExecOutput = 5 * 1024 * 1024
 
+// validateRelPath checks that a relative path is safe to use inside a
+// bind-mounted directory. Blocks absolute paths and ".." traversal.
+func validateRelPath(filePath string) error {
+	clean := filepath.Clean(filePath)
+	if filepath.IsAbs(clean) || strings.Contains(clean, "..") {
+		return fmt.Errorf("unsafe path: %s", filePath)
+	}
+	return nil
+}
+
 // findContainer finds a running container for the workspace.
 // Checks provisioner name, full ID, and DB workspace name (same candidates as terminal handler).
 func (h *TemplatesHandler) findContainer(ctx context.Context, workspaceID string) string {
