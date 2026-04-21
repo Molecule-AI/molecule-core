@@ -66,6 +66,16 @@ func (h *TemplatesHandler) execInContainer(ctx context.Context, containerName st
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+// validateRelPath checks that a relative path is safe to use inside a
+// bind-mounted directory. Blocks absolute paths and ".." traversal.
+func validateRelPath(filePath string) error {
+	cleaned := filepath.Clean(filePath)
+	if filepath.IsAbs(cleaned) || strings.Contains(cleaned, "..") {
+		return fmt.Errorf("unsafe path: %s", filePath)
+	}
+	return nil
+}
+
 // copyFilesToContainer creates a tar archive from a map of files and copies it into a container.
 // The destPath is prepended to each file name. File names must be relative and must not escape
 // destPath via ".." segments — otherwise the tar header name could escape the mounted volume.
@@ -82,8 +92,14 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 		if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
 			return fmt.Errorf("unsafe file path in archive: %s", name)
 		}
-		// Prepend destPath so relative paths land inside the volume mount.
-		archiveName := filepath.Join(destPath, name)
+		// CWE-22: use the cleaned path (not the raw name) in the tar header.
+		// raw name = "../../../etc/passwd" would pass the ".." check on some platforms
+		// but clean = "../../etc/passwd" — the tar header must use the clean path.
+		archiveName := filepath.Join(destPath, clean)
+		// Defense-in-depth: verify the joined result stays inside destPath.
+		if !strings.HasPrefix(archiveName, destPath) && archiveName != destPath {
+			return fmt.Errorf("path escapes destination: %s", name)
+		}
 
 		// Create parent directories in tar (deduplicated)
 		dir := filepath.Dir(archiveName)
