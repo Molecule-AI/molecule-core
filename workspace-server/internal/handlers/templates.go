@@ -62,10 +62,26 @@ func (h *TemplatesHandler) resolveTemplateDir(wsName string) string {
 }
 
 // validateRelPath checks that a relative path doesn't escape the target directory.
+// Validates both the input and the post-join result to catch traversal attacks
+// where Join resolves ".." after the check (e.g. "foo/../../../etc").
 func validateRelPath(relPath string) error {
 	clean := filepath.Clean(relPath)
 	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
 		return fmt.Errorf("path traversal blocked: %s", relPath)
+	}
+	return nil
+}
+
+// validateRelPathJoined is like validateRelPath but also checks the post-join result.
+func validateRelPathJoined(relPath, destDir string) error {
+	clean := filepath.Clean(relPath)
+	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+		return fmt.Errorf("path traversal blocked (pre-join): %s", relPath)
+	}
+	joined := filepath.Join(destDir, clean)
+	joinedClean := filepath.Clean(joined)
+	if filepath.IsAbs(joinedClean) || strings.HasPrefix(joinedClean, "..") {
+		return fmt.Errorf("path traversal blocked (post-join): relPath=%s joined=%s", relPath, joined)
 	}
 	return nil
 }

@@ -73,9 +73,18 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 
 	createdDirs := map[string]bool{}
 	for name, content := range files {
+		// ---- CWE-22: re-validate after filepath.Join (post-fix for #1434) ----
+		// Callers are supposed to validate before passing names in, but the tar header
+		// uses the raw name so we guard against a name like "foo/../../../etc" that
+		// could slip through.  Clean then check for traversal.
+		cleanArchiveName := filepath.Clean(name)
+		if filepath.IsAbs(cleanArchiveName) || strings.HasPrefix(cleanArchiveName, "..") {
+			return fmt.Errorf("path traversal blocked in copyFilesToContainer: %s", name)
+		}
+
 		// Create parent directories in tar (deduplicated)
-		dir := filepath.Dir(name)
-		if dir != "." && !createdDirs[dir] {
+		dir := filepath.Dir(cleanArchiveName)
+		if dir != "." && dir != "/" && !createdDirs[dir] {
 			tw.WriteHeader(&tar.Header{
 				Typeflag: tar.TypeDir,
 				Name:     dir + "/",
@@ -86,7 +95,7 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 
 		data := []byte(content)
 		header := &tar.Header{
-			Name: name,
+			Name: cleanArchiveName, // use cleaned name in tar header (CWE-22 fix)
 			Mode: 0644,
 			Size: int64(len(data)),
 		}
