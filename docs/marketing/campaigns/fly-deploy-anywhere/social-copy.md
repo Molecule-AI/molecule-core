@@ -98,12 +98,15 @@ Full breakdown of all three backends, with env var reference tables, in the blog
 
 ## Image / Visual Recommendations
 
-| Platform | Asset | Description |
+| Platform | Asset | File |
 |---|---|---|
 | X/LinkedIn | Architecture diagram | Canvas → Tenant Platform → Control Plane API → Fly Machines. Clean, labeled boxes. |
-| X/LinkedIn | Comparison table card | 3 backends: Docker / Fly Machines / Control Plane. Use case + credential owner. Dark background. |
+| X/LinkedIn | Comparison table card | `assets/backend-comparison-card.svg` |
 | X (thread) | Env var code card | Three env vars, clean syntax highlight. "Three lines. Done." |
 | X/LinkedIn | "Before vs After" | Left: one backend (Docker). Right: three backends (Docker + Fly + Control Plane). Shows expansion. |
+
+**Generated assets available in `docs/marketing/campaigns/fly-deploy-anywhere/assets/`:**
+- `backend-comparison-card.svg` — 3 backend comparison with env vars, use cases, credential ownership
 
 ---
 

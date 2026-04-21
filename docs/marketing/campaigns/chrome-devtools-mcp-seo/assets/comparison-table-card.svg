@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 340">
+  <defs>
+    <style>
+      .bg { fill: #0d1117; }
+      .card { fill: #161b22; stroke: #30363d; stroke-width: 1.5; rx: 12; }
+      .header-bg { fill: #1c2128; }
+      .row-alt { fill: #1c2128; }
+      .header-text { font-family: system-ui, sans-serif; fill: #f0f6fc; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
+      .cell-text { font-family: 'JetBrains Mono', 'Fira Code', monospace; fill: #c9d1d9; font-size: 12px; }
+      .cell-label { font-family: system-ui, sans-serif; fill: #c9d1d9; font-size: 12px; }
+      .cell-sm { font-family: system-ui, sans-serif; fill: #8b949e; font-size: 11px; }
+      .badge { rx: 4; }
+      .badge-green { fill: #238636; }
+      .badge-yellow { fill: #9e6a03; }
+      .badge-blue { fill: #1f6feb; }
+      .badge-red { fill: #da3633; }
+      .title { font-family: system-ui, sans-serif; fill: #f0f6fc; font-size: 18px; font-weight: 700; }
+      .subtitle { font-family: system-ui, sans-serif; fill: #8b949e; font-size: 12px; }
+      .highlight { font-family: system-ui, sans-serif; fill: #58a6ff; font-size: 12px; font-weight: 700; }
+      .col-header { font-family: system-ui, sans-serif; fill: #8b949e; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    </style>
+  </defs>
+
+  <rect width="800" height="340" class="bg"/>
+
+  <!-- Title -->
+  <text x="400" y="30" text-anchor="middle" class="title">Browser Automation for AI Agents — 3 Approaches</text>
+  <text x="400" y="48" text-anchor="middle" class="subtitle">Setup effort, session management, and cost compared</text>
+
+  <!-- Table -->
+  <rect x="40" y="65" width="720" height="250" class="card"/>
+
+  <!-- Header row -->
+  <rect x="40" y="65" width="720" height="36" class="header-bg"/>
+  <text x="60" y="86" class="header-text">Approach</text>
+  <text x="280" y="86" class="col-header">Setup</text>
+  <text x="420" y="86" class="col-header">Session Mgmt</text>
+  <text x="560" y="86" class="col-header">Cost</text>
+  <text x="700" y="86" class="col-header">For</text>
+
+  <!-- Divider -->
+  <line x1="40" y1="101" x2="760" y2="101" stroke="#30363d" stroke-width="1"/>
+
+  <!-- Row 1: Custom Playwright -->
+  <rect x="40" y="101" width="720" height="58" class="row-alt"/>
+  <text x="60" y="125" class="cell-label" font-weight="600">Custom Puppeteer / Playwright</text>
+  <text x="60" y="141" class="cell-sm">DIY Python wrapper</text>
+
+  <text x="280" y="128" class="highlight">High</text>
+  <text x="280" y="143" class="cell-sm">Write + maintain wrapper</text>
+
+  <text x="420" y="128" class="highlight">DIY</text>
+  <text x="420" y="143" class="cell-sm">You handle timeouts, retries</text>
+
+  <rect x="555" y="115" width="80" height="20" class="badge badge-green"/>
+  <text x="595" y="129" text-anchor="middle" fill="white" font-family="system-ui" font-size="11" font-weight="600">Free</text>
+  <text x="555" y="155" class="cell-sm">your infra</text>
+
+  <text x="700" y="128" class="cell-sm">Self-hosters</text>
+
+  <!-- Row 2: SaaS Browser API -->
+  <rect x="40" y="159" width="720" height="58"/>
+  <text x="60" y="183" class="cell-label" font-weight="600">SaaS Browser API</text>
+  <text x="60" y="199" class="cell-sm">Browserbase, Steel, Scale</text>
+
+  <text x="280" y="186" class="highlight">Low</text>
+  <text x="280" y="201" class="cell-sm">Managed by vendor</text>
+
+  <text x="420" y="186" class="highlight">Managed</text>
+  <text x="420" y="201" class="cell-sm">Vendor handles sessions</text>
+
+  <rect x="555" y="173" width="80" height="20" class="badge badge-yellow"/>
+  <text x="595" y="187" text-anchor="middle" fill="white" font-family="system-ui" font-size="11" font-weight="600">Per-session</text>
+  <text x="555" y="213" class="cell-sm">varies by vendor</text>
+
+  <text x="700" y="186" class="cell-sm">Quick prototypes</text>
+
+  <!-- Row 3: Molecule AI + MCP — highlighted -->
+  <rect x="40" y="217" width="720" height="58" fill="#1f2d3d" rx="0"/>
+  <rect x="40" y="217" width="720" height="58" fill="#1c2a3a"/>
+  <rect x="40" y="217" width="3" height="58" fill="#58a6ff"/>
+  <text x="60" y="241" fill="#58a6ff" font-family="system-ui" font-size="13" font-weight="700">Molecule AI + MCP ✓</text>
+  <text x="60" y="257" class="cell-sm">Built into Molecule AI workspace</text>
+
+  <text x="280" y="242" fill="#3fb950" font-family="system-ui" font-size="13" font-weight="700">Low</text>
+  <text x="280" y="257" class="cell-sm">3-line YAML config</text>
+
+  <text x="420" y="242" fill="#3fb950" font-family="system-ui" font-size="13" font-weight="700">Agent-native</text>
+  <text x="420" y="257" class="cell-sm">persistent session, no human wiring</text>
+
+  <rect x="555" y="229" width="80" height="20" class="badge badge-blue"/>
+  <text x="595" y="243" text-anchor="middle" fill="white" font-family="system-ui" font-size="11" font-weight="600">Free*</text>
+  <text x="555" y="269" class="cell-sm">self-hosted / standard tier</text>
+
+  <text x="700" y="242" class="cell-sm">Production AI agents</text>
+
+  <!-- Footer note -->
+  <text x="400" y="298" text-anchor="middle" class="cell-sm">* Free when self-hosted. SaaS pricing varies by Molecule AI plan. MCP is open source.</text>
+
+  <!-- Molecule AI label -->
+  <text x="760" y="82" text-anchor="end" fill="#58a6ff" font-family="system-ui" font-size="10" font-weight="600">RECOMMENDED</text>
+</svg>
