@@ -57,7 +57,7 @@ jobs:
     name: Platform (Go)
     needs: changes
     if: needs.changes.outputs.platform == 'true'
-    runs-on: [self-hosted, macos, arm64]
+    runs-on: ubuntu-latest  # EMERGENCY: self-hosted runner offline — TEMPORARY OVERRIDE
     defaults:
       run:
         working-directory: workspace-server
@@ -93,7 +93,7 @@ jobs:
     name: Canvas (Next.js)
     needs: changes
     if: needs.changes.outputs.canvas == 'true'
-    runs-on: [self-hosted, macos, arm64]
+    runs-on: ubuntu-latest  # EMERGENCY: self-hosted runner offline — TEMPORARY OVERRIDE
     defaults:
       run:
         working-directory: canvas
@@ -119,19 +119,12 @@ jobs:
     name: Shellcheck (E2E scripts)
     needs: changes
     if: needs.changes.outputs.scripts == 'true'
-    runs-on: [self-hosted, macos, arm64]
+    runs-on: ubuntu-latest  # EMERGENCY: self-hosted runner offline — TEMPORARY OVERRIDE
     steps:
       - uses: actions/checkout@v4
       - name: Run shellcheck on tests/e2e/*.sh
-        # `ludeeus/action-shellcheck` is a Docker action (Linux-only). We rely
-        # on shellcheck being pre-installed on the self-hosted runner instead.
-        run: |
-          if ! command -v shellcheck >/dev/null 2>&1; then
-            echo "::error::shellcheck is not installed on the runner"
-            exit 1
-          fi
-          find tests/e2e -type f -name '*.sh' -print0 \
-            | xargs -0 shellcheck --severity=warning
+        # EMERGENCY: using Docker action since self-hosted runner is offline.
+        uses: ludeeus/action-shellcheck@master
 
   canvas-deploy-reminder:
     name: Canvas Deploy Reminder
@@ -181,24 +174,18 @@ jobs:
     name: Python Lint & Test
     needs: changes
     if: needs.changes.outputs.python == 'true'
-    runs-on: [self-hosted, macos, arm64]
+    runs-on: ubuntu-latest  # EMERGENCY: self-hosted runner offline — TEMPORARY OVERRIDE
     defaults:
       run:
         working-directory: workspace
     steps:
       - uses: actions/checkout@v4
-      # setup-python@v5 cannot write to /Users/runner (GitHub-hosted path) on
-      # the self-hosted macOS arm64 runner (user: <runner-user>) and also hits
-      # EACCES on /usr/local/bin due to macOS SIP. Skip it — Homebrew installs
-      # Python 3.11 at /opt/homebrew/opt/python@3.11 which is already on PATH.
-      - name: Verify Python 3.11 (Homebrew)
-        run: |
-          export PATH="/opt/homebrew/opt/python@3.11/bin:/opt/homebrew/bin:$PATH"
-          python3.11 --version
-          echo "/opt/homebrew/opt/python@3.11/bin" >> "$GITHUB_PATH"
-          echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
-      - run: pip3.11 install -r requirements.txt pytest pytest-asyncio pytest-cov
-      - run: python3.11 -m pytest --tb=short -q --cov=. --cov-report=term-missing
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt pytest pytest-asyncio pytest-cov
+      - run: python -m pytest --tb=short -q --cov=. --cov-report=term-missing
 
       # SDK + plugin validation moved to standalone repo:
       # github.com/Molecule-AI/molecule-sdk-python
