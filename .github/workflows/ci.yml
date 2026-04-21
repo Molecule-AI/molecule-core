@@ -6,13 +6,21 @@ on:
   pull_request:
     branches: [main, staging]
 
+# Cancel in-progress CI runs when a new commit arrives on the same ref.
+# This prevents multiple stale runs from queuing behind each other and
+# monopolising the self-hosted macOS arm64 runner.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Detect which paths changed so downstream jobs can skip when only
-  # docs/markdown files were modified. Uses git diff (no Docker — works
-  # on macOS self-hosted runners unlike dorny/paths-filter).
+  # docs/markdown files were modified. Uses plain `git diff` — no macOS
+  # dependency, so this runs on ubuntu-latest to free the self-hosted
+  # macOS arm64 runner for jobs that genuinely need it.
   changes:
     name: Detect changes
-    runs-on: [self-hosted, macos, arm64]
+    runs-on: ubuntu-latest
     outputs:
       platform: ${{ steps.check.outputs.platform }}
       canvas: ${{ steps.check.outputs.canvas }}
