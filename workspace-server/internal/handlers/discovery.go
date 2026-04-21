@@ -64,8 +64,17 @@ func (h *DiscoveryHandler) Discover(c *gin.Context) {
 // requires the X-Workspace-ID header up front, but kept to preserve the
 // original code path 1:1 in case the requirement is relaxed.
 func discoverHostPeer(ctx context.Context, c *gin.Context, targetID string) {
-	if url, err := db.GetCachedURL(ctx, targetID); err == nil {
-		c.JSON(http.StatusOK, gin.H{"id": targetID, "url": url})
+	if cachedURL, err := db.GetCachedURL(ctx, targetID); err == nil {
+		// SSRF defence-in-depth: validate cached URL before returning it.
+		// A previously-cached value could have been written before this
+		// check existed, or a DB row could have been updated with a
+		// malicious URL while the stale cache entry remained.
+		if err := isSafeURL(cachedURL); err != nil {
+			log.Printf("discoverHostPeer: SSRF check failed for cached URL %s (targetID=%s): %v", cachedURL, targetID, err)
+			c.JSON(http.StatusForbidden, gin.H{"error": "workspace URL is not publicly routable"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"id": targetID, "url": cachedURL})
 		return
 	}
 
@@ -98,6 +107,15 @@ func discoverHostPeer(ctx context.Context, c *gin.Context, targetID string) {
 
 	if !url.Valid || url.String == "" {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "workspace has no URL", "status": status})
+		return
+	}
+
+	// SSRF defence-in-depth: validate the resolved URL before returning it.
+	// The DB stores user-supplied URLs which must not point to internal IPs,
+	// cloud metadata endpoints, or loopback addresses.
+	if err := isSafeURL(url.String); err != nil {
+		log.Printf("discoverHostPeer: SSRF check failed for DB URL %s (targetID=%s, resolvedID=%s): %v", url.String, targetID, resolvedID, err)
+		c.JSON(http.StatusForbidden, gin.H{"error": "workspace URL is not publicly routable"})
 		return
 	}
 

@@ -618,3 +618,76 @@ func TestDiscoverHostPeer_Smoke_Success(t *testing.T) {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 }
+
+// ==================== discoverHostPeer — SSRF validation ====================
+
+func TestDiscoverHostPeer_SSRF_RejectsLoopbackIP_DBPath(t *testing.T) {
+	// Regression test for GH#1484: discoverHostPeer must not return URLs
+	// pointing to loopback/private IPs, even when they are stored in the DB.
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	// Simulate a DB record with a loopback URL — a malicious or misconfigured
+	// workspace registration pointing at the cloud metadata endpoint.
+	mock.ExpectQuery(`SELECT url, status, forwarded_to FROM workspaces WHERE id =`).
+		WithArgs("ws-loopback").
+		WillReturnRows(sqlmock.NewRows([]string{"url", "status", "forwarded_to"}).
+			AddRow("http://127.0.0.1:8080/internal/api", "online", nil))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	discoverHostPeer(context.Background(), c, "ws-loopback")
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for loopback URL from DB, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if resp["error"] != "workspace URL is not publicly routable" {
+		t.Errorf("expected SSRF rejection error, got %v", resp["error"])
+	}
+}
+
+func TestDiscoverHostPeer_SSRF_RejectsPrivateIP_DBPath(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	// RFC-1918 private IP (10.x.x.x) — must be blocked.
+	mock.ExpectQuery(`SELECT url, status, forwarded_to FROM workspaces WHERE id =`).
+		WithArgs("ws-private").
+		WillReturnRows(sqlmock.NewRows([]string{"url", "status", "forwarded_to"}).
+			AddRow("http://10.0.0.5/admin/secrets", "online", nil))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	discoverHostPeer(context.Background(), c, "ws-private")
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for private IP URL from DB, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDiscoverHostPeer_SSRF_RejectsMetadataIP_DBPath(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	// 169.254.0.0/16 link-local — used by cloud metadata services (AWS, GCP, Azure).
+	mock.ExpectQuery(`SELECT url, status, forwarded_to FROM workspaces WHERE id =`).
+		WithArgs("ws-metadata").
+		WillReturnRows(sqlmock.NewRows([]string{"url", "status", "forwarded_to"}).
+			AddRow("http://169.254.169.254/latest/meta-data/", "online", nil))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	discoverHostPeer(context.Background(), c, "ws-metadata")
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for cloud metadata IP URL from DB, got %d: %s", w.Code, w.Body.String())
+	}
+}
