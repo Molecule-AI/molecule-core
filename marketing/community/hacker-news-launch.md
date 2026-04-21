@@ -41,7 +41,7 @@ Most AI agent platforms assume all agents run inside the platform's infrastructu
 The governance is the same. The auth contract is the same. The only visible difference is a REMOTE badge on the workspace card.
 
 Quickstart is under 5 minutes:
-  pip install molecule-ai-sdk
+  pip install molecule-sdk
   python3 run.py --runtime remote
 
 Docs, demo, and quickstart guide in the link.

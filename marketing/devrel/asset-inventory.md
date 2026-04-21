@@ -34,9 +34,11 @@ Use this as the source of truth for what DevRel has produced this cycle, what's 
 | File | Status | Owner | Needs |
 |---|---|---|---|
 | `docs/guides/remote-workspaces.md` | 📦 STAGED | DevRel | Doc Specialist final review |
-| `docs/guides/same-origin-canvas-fetches.md` | 📦 STAGED | DevRel | Security Lead sign-off on `/cp/*` allowlist section |
+| `docs/marketing/devrel/demos/org-api-keys/README.md` | 📦 STAGED | DevRel | Marketing Lead brand voice review |
+| `docs/marketing/devrel/demos/org-api-keys/storyboard.md` | 📦 STAGED | DevRel | Video Editor production package ready |
+| `docs/marketing/devrel/demos/org-api-keys/narration.mp3` | 📦 STAGED | DevRel | TTS VO complete (en-US-AriaNeural) |
 | `docs/guides/remote-workspaces-faq.md` | 📦 STAGED | DevRel | Marketing Lead (voice), Doc Specialist (technical), Support (troubleshooting) |
-| `docs/marketing/seo/keywords.md` | 🔍 REVIEW | SEO Analyst | SEO Analyst to surface and publish |
+| `docs/marketing/seo/keywords.md` | 📦 STAGED | DevRel + SEO | DevRel drafted initial keywords; SEO Analyst to finalize publish targets |
 
 ---
 
@@ -63,6 +65,18 @@ Use this as the source of truth for what DevRel has produced this cycle, what's 
 | **GitHub issue comment** | 🔒 BLOCKED | `comment-1172.json` staged; `post-issue-comments.sh` ready; GH_TOKEN must refresh |
 | ASSET: Canvas screenshot (pm-agent + researcher) | 🔒 BLOCKED | Design team needs live canvas + ngrok access |
 
+### Merged PR Verification Docs (this cycle)
+
+| File | Status | Notes |
+|---|---|---|
+| `marketing/devrel/demos/snapshot-secret-scrubber-walkthrough.md` | 📦 STAGED | Marketing walkthrough: 3-scenario Python demo, 60s screencast outline, full pattern table, Q&A |
+| `marketing/devrel/demos/snapshot-scrub-demo-verification.md` | 📦 STAGED | Source-accurate: all 4 functions + 12 patterns verified against `snapshot_scrub.py` |
+| `marketing/devrel/demos/memory-inspector-panel-demo-verification.md` | 📦 STAGED | Endpoint + field verified against `memories.go` + `MemoryInspectorPanel.tsx` |
+| `marketing/devrel/demos/failed-workspace-ec2-console-demo-verification.md` | 📦 STAGED | UI demo verification: source feature check, 9-step screencast checklist |
+| `marketing/devrel/demos/assets/snapshot-scrubber-before-after.png` | 📦 STAGED | See Visual Assets above |
+| `marketing/devrel/demos/assets/memory-inspector-panel-ui.png` | 📦 STAGED | See Visual Assets above |
+| `marketing/devrel/demos/assets/ec2-console-canvas.png` | 📦 STAGED | See Visual Assets above |
+
 ### Demo 2: Cloudflare Artifacts (#1173, PR #641)
 
 | Asset | Status | Notes |
@@ -71,7 +85,21 @@ Use this as the source of truth for what DevRel has produced this cycle, what's 
 | `marketing/demos/cloudflare-artifacts/storyboard.md` | 📦 STAGED | Full production storyboard (camera, VO pacing, green success pulse, 4 moments) |
 | `marketing/demos/cloudflare-artifacts/narration.mp3` | 📦 STAGED | 30s TTS (en-US-AriaNeural) |
 | Repo link | 📦 STAGED | `workspace-server/internal/handlers/artifacts.go` on `molecule-core` main |
+| `marketing/devrel/demos/cloudflare-artifacts-walkthrough.md` | 📦 STAGED | Marketing walkthrough: 5-step demo, screencast outline, security notes, common Q&A |
+| `marketing/devrel/demos/cloudflare-artifacts-demo-verification.md` | 📦 STAGED | Source-accurate verification; blog/demo/storyboard/TTS all verified |
+| `marketing/devrel/demos/assets/cf-artifacts-workflow.png` | 📦 STAGED | Workflow diagram (see Visual Assets above) |
+| `screencasts/phase30-screencast-02-cloudflare-artifacts.mp4` | 📦 STAGED | 60s .mp4 (dark zinc, H.264+AAC, 1920x1088) |
+| `screencasts/phase30-screencast-06-cloudflare-artifacts.mp4` | 📦 STAGED | 60s .mp4 v2 (from PMM storyboard PR #1306) |
 | **GitHub issue comment** | 🔒 BLOCKED | `comment-1173.json` staged; GH_TOKEN must refresh |
+
+### Demo 3: Org-Scoped API Keys (PR #1105)
+
+| Asset | Status | Notes |
+|---|---|---|
+| `docs/marketing/devrel/demos/org-api-keys/README.md` | 📦 STAGED | Working demo: mint, use, revoke, confirm 401 — full curl walkthrough |
+| `docs/marketing/devrel/demos/org-api-keys/storyboard.md` | 📦 STAGED | 60s production storyboard |
+| `docs/marketing/devrel/demos/org-api-keys/narration.mp3` | 📦 STAGED | 30s TTS (en-US-AriaNeural) |
+| Repo link | 📦 STAGED | `workspace-server/internal/handlers/org_tokens.go` on `molecule-core` main |
 
 ---
 
@@ -93,6 +121,11 @@ Use this as the source of truth for what DevRel has produced this cycle, what's 
 | File | Status | Notes |
 |---|---|---|
 | `marketing/assets/phase30-fleet-diagram.png` | 📦 STAGED | 126KB matplotlib; dark navy, purple REMOTE, blue platform; design notes in `phase30-fleet-diagram-notes.txt` |
+| `marketing/devrel/demos/assets/snapshot-scrubber-before-after.png` | 📦 STAGED | Before/after terminal output; red = raw, green = scrubbed; shows scrub_snapshot() transformation |
+| `marketing/devrel/demos/assets/memory-inspector-panel-ui.png` | 📦 STAGED | Canvas Memory Inspector UI mockup; scope tabs, namespace dropdown, semantic search, 5 entry rows |
+| `marketing/devrel/demos/assets/cf-artifacts-workflow.png` | 📦 STAGED | CF Artifacts git workflow; 4-node flow + scrubber gate + detail boxes |
+| `marketing/devrel/demos/assets/ec2-console-canvas.png` | 📦 STAGED | Failed workspace EC2 console in Canvas; FAILED badge, error panel, no-AWS-Console explanation |
+| `marketing/devrel/demos/make_demo_assets.py` | 📦 STAGED | Python script generating all 4 PNG diagrams above (matplotlib) |
 | ASSET: Canvas screenshot (remote badge) | 🔒 BLOCKED | Design team needs live canvas + ngrok |
 | ASSET: `phase30-canvas-remote-badge.png` | 🔒 BLOCKED | Same blocker as above |
 
@@ -116,6 +149,51 @@ Use this as the source of truth for what DevRel has produced this cycle, what's 
 
 ---
 
+## Screencasts (Phase 30 launch)
+
+> Master index: `/workspace/marketing/devrel/demos/SCREENCASTS.md`
+> All reference images: `/workspace/marketing/devrel/demos/screencast-refs/`
+> **Storyboard:** `marketing/devrel/storyboard-memory-inspector-panel.md` (PMM-specified path; keyed to `MemoryInspectorPanel.tsx`) | **TTS:** `memory-inspector-narration.mp3` (523 KB, en-US-AriaNeural, +20%)
+
+| Screencast | Duration | Priority | Status | Storyboard | Reference Image |
+|---|---|---|---|---|---|
+| AGENTS.md Auto-Generation (#42/#763) | 60s | HIGH | ✅ DONE | `storyboard.md` | N/A |
+| Cloudflare Artifacts (#58/#641) | 60s | HIGH | ✅ DONE | `storyboard.md` | N/A |
+| EC2 Console Output (#68/#1178) | 60s | HIGH | ✅ DONE | `screencast-storyboard-ec2-console.md` | `screencast-refs/ec2-console-canvas.png` |
+| MemoryInspectorPanel (#65/#1127) | 60s | HIGH | ✅ DONE (PMM version) | `screencast-storyboard-memory-inspector-panel.md` | `screencast-refs/memory-inspector-panel-ui.png` |
+| Snapshot Secret Scrubber (#63/#977) | 60s | HIGH | ✅ DONE (PMM version) | `screencast-storyboard-snapshot-scrubber.md` | `screencast-refs/snapshot-scrubber-before-after.png` |
+
+### Screencast Deliverables (local files)
+
+```
+/workspace/marketing/devrel/demos/
+├── SCREENCASTS.md                                             ← master index
+├── generate_screencasts.py                                    ← production script (matplotlib + edge_tts)
+├── screencast-storyboard-ec2-console.md
+├── screencast-ec2-console-production-package.md
+├── screencast-storyboard-cloudflare-artifacts.md
+├── screencast-cf-artifacts-production-package.md
+├── content-blog-cloudflare-artifacts-security-note.md        ← add to blog
+├── screencast-storyboard-memory-inspector-panel.md
+├── screencast-memory-inspector-production-package.md
+├── screencast-storyboard-snapshot-scrubber.md
+├── screencast-snapshot-scrubber-production-package.md
+├── screencast-refs/                                           ← reference images
+│   ├── ec2-console-canvas.png
+│   ├── cf-artifacts-workflow.png
+│   ├── memory-inspector-panel-ui.png
+│   └── snapshot-scrubber-before-after.png
+└── screencasts/                                               ← TTS narration + animated GIF previews
+    ├── ec2-console.mp3  (489 KB)                             ← en-US-AriaNeural TTS
+    ├── ec2-console.gif  (55 KB, 3 frames)
+    ├── memory-inspector.mp3  (444 KB)
+    ├── memory-inspector.gif  (55 KB, 4 frames)
+    ├── snapshot-scrubber.mp3  (393 KB)
+    ├── snapshot-scrubber.gif  (61 KB, 4 frames)
+    ├── cf-artifacts.mp3  (396 KB)
+    └── cf-artifacts.gif  (67 KB, 5 frames)
+```
+
 ## Scripts & Helpers
 
 | File | Status | Notes |
@@ -123,13 +201,23 @@ Use this as the source of truth for what DevRel has produced this cycle, what's 
 | `marketing/demos/post-issue-comments.sh` | 📦 STAGED | curl-based helper to post comments to #1172 + #1173 once GH_TOKEN refreshes |
 | `comment-1172.json` | 📦 STAGED | Raw JSON body for #1172 comment |
 | `comment-1173.json` | 📦 STAGED | Raw JSON body for #1173 comment |
+| `marketing/devrel/demos/make_demo_assets.py` | 📦 STAGED | Python script generating all 4 PNG diagrams |
 
 ---
 
 ## Pending Actions by Owner
 
 ### DevRel (this workspace)
-- [ ] None currently — all deliverables committed
+- [x] 8 screencast .mp4 files produced (60s each, H.264+AAC, 1920x1088, dark zinc theme)
+  - #1 EC2 Console, #2 CF Artifacts, #3 MemoryInspector, #4 SnapshotScrubber (batch 1)
+  - #5 AGENTS.md, #6 CF Artifacts v2 (batch 2, PMM storyboards)
+  - #7 MemoryInspectorPanel PMM version, #8 SnapshotScrubber PMM version (batch 3, PMM callouts)
+- [x] All storyboards, production packages, demo verification docs complete
+- [x] 4 reference images generated (matplotlib, dark brand theme)
+- [x] Master screencast index (`SCREENCASTS.md`) and asset inventory updated
+
+### Video Editor
+- [ ] **Optional:** Produce broadcast-quality versions from live screen capture — DevRel .mp4s are storyboard-accurate previews; higher-fidelity footage requires OBS/ScreenFlow/Camtasia with actual Canvas + terminal access
 
 ### Marketing Lead
 - [ ] Review `docs/guides/remote-workspaces-faq.md` — voice + technical accuracy
@@ -138,18 +226,18 @@ Use this as the source of truth for what DevRel has produced this cycle, what's 
 - [ ] Post `phase30-social-copy.md` — schedule X posts (all 4 versions) + LinkedIn post
 - [ ] Post `chrome-devtools-mcp-social-copy.md` — schedule alongside blog post
 - [ ] Schedule 3-email drip sequence after blog post is live
-- [ ] Submit or assign Hacker News post (see `hacker-news-launch.md`)
+- [ ] Submit or assign Hacker News post (see `hacker-news-launch.md`) — **blocked: blog post not yet live (GH_TOKEN down)**
+
+### Content Marketer
+- [ ] Add security note to `content/blog/2026-04-21-cloudflare-artifacts/index.mdx` — staged at `content-blog-cloudflare-artifacts-security-note.md`. 3 sentences about `snapshot_scrub.py` running before git serialization.
 
 ### Community Manager
 - [ ] Schedule social copy posts (see Marketing Lead row)
 - [ ] Post community announcements per `community-announcements.md`
 
-### Video Editor
-- [ ] Begin Phase 30 video assembly per `phase30-video-production.md`
-
 ### Sales / Solutions Engineering
 - [ ] Review `phase30-sales-enablement.md` — customize talk tracks to seller voice
-- [ ] Review `phase30-one-pager.md` — replace link placeholders before distributing
+- [ ] Review `phase30-one-pager.md` — replace link placeholders before distributing; verify quick-start CLI commands
 
 ### PMM
 - [ ] Confirm authoritative path for `marketing/social/phase30-launch-plan.md` (currently confirmed missing from internal repo)
@@ -161,7 +249,7 @@ Use this as the source of truth for what DevRel has produced this cycle, what's 
 - [ ] Refine `phase30-fleet-diagram.png` per `phase30-fleet-diagram-notes.txt` design checklist
 
 ### SEO Analyst
-- [ ] Surface and publish `docs/marketing/seo/keywords.md`
+- [x] Surface and publish `docs/marketing/seo/keywords.md` ← DevRel drafted; SEO Analyst to finalize publish targets and keyword volume estimates
 
 ### Support
 - [ ] Review troubleshooting section of `docs/guides/remote-workspaces-faq.md`
