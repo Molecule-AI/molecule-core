@@ -85,7 +85,7 @@ Commit `d513a0ced549ef2be8903a7b4794256110ba1805` on staging (merged to main via
 |---|------------|-------|--------|
 | 1 | ANTHROPIC_AUTH_TOKEN | `sk-cp-lHt-QFSyZwZxeo...KVw` | ⚠️ Revoked or inactive (404 on API call) |
 | 2 | GITHUB_TOKEN | `github_pat_11BPRRWQI0m...hsIJLIL` | ✅ Revoked (confirmed 401) |
-| 3 | ADMIN_TOKEN | `HlgeMb8LjQLXg/B4y8hYzhbCQlg5LNu0oEa4IjShARE=` | Needs confirmation — treated as active until proven otherwise |
+| 3 | ADMIN_TOKEN | `***REDACTED***` | Needs confirmation — treated as active until proven otherwise |
 
 ### Resolution
 
@@ -103,9 +103,9 @@ The commit itself fixed the problem by replacing hardcoded defaults with env-var
 
 | # | Credential | Value (redacted reference) | Service |
 |---|------------|------------------------------|---------|
-| 1 | ANTHROPIC_AUTH_TOKEN | `sk-cp-lHt-QFSyZwZxeo_fMbmLUX3VgHOwbKGMXUZb6PS2U15D3fqjDB2qPh1OVEzvfvWs9CgcrUpyU7C682uVT_8GBy9RFLaFzBcdLkKdVcPX4yj9UaXNTH82KVw` | MiniMax API (api.minimax.io/anthropic) |
-| 2 | GITHUB_TOKEN | `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` | GitHub (fine-grained PAT, scope unknown) |
-| 3 | ADMIN_TOKEN | `HlgeMb8LjQLXg/B4y8hYzhbCQlg5LNu0oEa4IjShARE=` | Platform admin authentication |
+| 1 | ANTHROPIC_AUTH_TOKEN | `***REDACTED***` | MiniMax API (api.minimax.io/anthropic) |
+| 2 | GITHUB_TOKEN | `***REDACTED***` | GitHub (fine-grained PAT, scope unknown) |
+| 3 | ADMIN_TOKEN | `***REDACTED***` | Platform admin authentication |
 
 ### Affected Files
 
@@ -150,9 +150,9 @@ The commit itself fixed the problem by replacing hardcoded defaults with env-var
 
 **Step 1 — Create credentials manifest (`creds.txt`) [NOT NEEDED]:**
 ```
-HlgeMb8LjQLXg/B4y8hYzhbCQlg5LNu0oEa4IjShARE=
-sk-cp-lHt-QFSyZwZxeo_fMbmLUX3VgHOwbKGMXUZb6PS2U15D3fqjDB2qPh1OVEzvfvWs9CgcrUpyU7C682uVT_8GBy9RFLaFzBcdLkKdVcPX4yj9UaXNTH82KVw
-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
+***REDACTED***
+***REDACTED***
+***REDACTED***
 ```
 
 **Step 2 — Clean origin/main:**
