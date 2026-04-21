@@ -116,8 +116,8 @@ Org API keys sit in a defined priority hierarchy:
 
 | Tier | Auth method | Use case |
 |---|---|---|
-| 0 | Lazy bootstrap | Only active when no org tokens and no `ADMIN_TOKEN` exist |
-| 1 | WorkOS session | Human users authenticated via the Canvas |
+| 0 | Lazy bootstrap | Only active when no workspace tokens exist globally AND `ADMIN_TOKEN` is unset |
+| 1 | WorkOS session | Human users authenticated via the Canvas (browser cookie, no bearer needed) |
 | 2a | Org API token | New org-scoped keys — primary path for service integrations |
 | 2b | `ADMIN_TOKEN` env var | Break-glass for operators and CLI tooling |
 | 3 | Workspace tokens | Deprecated — use org tokens instead |
