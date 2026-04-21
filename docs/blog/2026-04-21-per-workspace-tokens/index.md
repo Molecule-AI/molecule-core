@@ -48,7 +48,7 @@ This is the same principle behind least-privilege access in human IAM — but ap
 
 ## The secrets pull flow
 
-Agents don't just use the bearer token for API calls — they also use it to pull their own secrets from the platform at boot. This is the `GET /workspaces/:id/secrets/values` endpoint:
+Agents don't just use the bearer token for API calls — they also use it to pull their own secrets from the platform at boot. This is the `GET /workspaces/:id/secrets` endpoint:
 
 ```python
 secrets = client.pull_secrets()
@@ -63,7 +63,7 @@ The agent's API keys never travel over the registration channel. They stay in th
 2. The secrets are retrieved on an authenticated channel every time the agent boots
 3. If the token is revoked, the next pull attempt returns 401 — the agent knows immediately
 
-The second point means secrets can be rotated without redeploying the agent. If you rotate `OPENAI_API_KEY` in the platform UI, every agent that pulls from `/secrets/values` picks up the new key on its next boot. No agent config files to touch.
+The second point means secrets can be rotated without redeploying the agent. If you rotate `OPENAI_API_KEY` in the platform UI, every agent that pulls from `/secrets` picks up the new key on its next boot. No agent config files to touch.
 
 ---
 

@@ -64,7 +64,7 @@ Laptop (remote agent)                Molecule AI Platform
   │  POST /registry/register  ────────────► │  ← admin token (one-time)
   │  ←─ auth_token (256-bit)  ◄────────── │  ← shown once, saved to disk
   │                                        │
-  │  GET /workspaces/:id/secrets/values     │  ← bearer: auth_token
+  │  GET /workspaces/:id/secrets              │  ← bearer: auth_token
   │  POST /registry/heartbeat  (30s loop)  │
   │  GET  /workspaces/:id/state  (30s loop)│
   │                                        │
@@ -130,7 +130,7 @@ The agent appears on the canvas with a **purple REMOTE badge** within seconds. F
 | Phase | What shipped | Endpoint |
 |---|---|---|
 | 30.1 | Workspace auth tokens | `POST /registry/register`, `POST /registry/heartbeat` |
-| 30.2 | Token-gated secrets pull | `GET /workspaces/:id/secrets/values` |
+| 30.2 | Token-gated secrets pull | `GET /workspaces/:id/secrets` |
 | 30.3 | Plugin tarball download (remote install) | `GET /plugins/:name/download` |
 | 30.4 | Workspace state polling (no WebSocket needed) | `GET /workspaces/:id/state` |
 | 30.5 | A2A proxy enforces caller token | `POST /workspaces/:id/a2a` |

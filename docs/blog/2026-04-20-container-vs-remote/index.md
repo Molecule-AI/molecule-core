@@ -89,4 +89,4 @@ The canvas, the org hierarchy, the A2A relationships, and the audit trail all su
 
 → [Remote Workspaces Guide →](/docs/guides/remote-workspaces.md)
 → [External Agent Registration →](/docs/guides/external-agent-registration.md)
-→ [Phase 30 Announcement →](/docs/blog/2026-04-20-remote-workspaces)
+→ [Phase 30 Announcement →](/blog/remote-ai-agents)

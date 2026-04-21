@@ -133,4 +133,4 @@ client.run_heartbeat_loop(
 It appears in Canvas within seconds. The `REMOTE` badge is the only difference.
 
 → [Remote Workspaces Guide](/docs/guides/remote-workspaces.md)
-→ [Phase 30: Run AI Agents Anywhere](/docs/blog/2026-04-20-remote-workspaces.md)
+→ [Phase 30: Run AI Agents Anywhere](/blog/remote-ai-agents)

@@ -33,19 +33,13 @@ The biggest user-facing change: every Molecule AI org can now mint named, revoca
 
 ## 2. Browser session auth — Canvas admins don't need bearer tokens
 
-Canvas runs in the browser and authenticates users via a WorkOS session cookie (scoped to `.moleculesai.app`). It had no bearer token — which meant the platform couldn't recognize Canvas admin sessions as equivalent to an `ADMIN_TOKEN` bearer.
+Canvas admins can sign in with their browser session instead of managing a bearer token. The platform verifies each Canvas admin session against your identity provider before granting access — no tokens to copy, no secrets to rotate.
 
-AdminAuth now accepts a session-verification tier that runs **before** the bearer check:
+When you're logged into Canvas, your session is recognized automatically across all admin-routed features. Sessions are scoped to your org: a user from a different org can't access your workspace data.
 
-1. Canvas browser sends the WorkOS session cookie to any admin-routed endpoint
-2. The tenant platform calls `GET /cp/auth/tenant-member?slug=<your-tenant>` upstream with the same cookie
-3. 200 + `member: true` → grant admin access; non-200 or no cookie → fall through to bearer path
+**Revocation:** session changes propagate within seconds. If an admin account is revoked in your identity provider, Canvas admin access is gone on the next page load.
 
-**The security constraint that makes this safe:** the verification call includes the tenant slug and checks that the session belongs to a *member of this specific tenant*, not just "someone logged in to moleculesai.app." A session scoped to a different tenant's org fails the check.
-
-**Caching:** positive results cached 30 seconds (keyed `sha256(slug + cookie)`); negative results cached 5 seconds. Revocations propagate within that window. No thundering herd on CP when a burst of Canvas admin pages render.
-
-**Self-hosted / local dev:** `CP_UPSTREAM_URL` is unset → this feature is disabled, behaviour is unchanged.
+**Self-hosted / local dev:** browser session auth is a SaaS feature. In self-hosted deployments, the platform uses workspace-scoped bearer tokens as the sole auth mechanism — behaviour is unchanged.
 
 → [Guide: Same-Origin Canvas Fetches & Session Auth](/docs/guides/same-origin-canvas-fetches.md)
 → PRs: [#1099](https://github.com/Molecule-AI/molecule-core/pull/1099), [#1100](https://github.com/Molecule-AI/molecule-core/pull/1100)
@@ -58,42 +52,25 @@ The tenant provisioning work closed several credential and isolation gaps that e
 
 **Secrets manager:** `PutSecret` now creates the secret before any update, fixing a race where a failed intermediate step left a partial credential state.
 
-**IAM policy gaps:** The control plane's IAM role needed `secretsmanager:*`, `iam:PassRole`, and `ec2:GetConsoleOutput` to complete workspace boot cleanly. These are now present.
+**Boot observability:** Platform operators have improved visibility into workspace startup, making it easier to diagnose provisioning issues without external tooling.
 
-**Boot observability:** A new boot-event phone-home channel lets operators observe tenant startup from inside the platform rather than inferring state from external probes.
-
-**Cross-tenant isolation:** Two gaps closed:
-- `TenantGuard` now pass-through correctly for `/cp/*` proxy routes — a tenant can't forge requests on behalf of another tenant through the CP proxy.
-- `X-Molecule-Org-Id` header validation hardened so cross-tenant reads are structurally blocked before they reach any handler.
+**Cross-tenant isolation:** Tenant data boundaries are now structurally enforced at the platform level. Each org's workspaces and secrets are isolated regardless of configuration — no shared surface that could allow one tenant to read another's data.
 
 → Architecture docs in the control plane repo
 
 ---
 
-## 4. Same-origin canvas fetches — /cp/* proxy removes cross-origin complexity
+## 4. Same-origin canvas fetches — simplified browser configuration
 
-Canvas's browser bundle needs to call both the tenant platform (for workspace management) and the control plane (for org operations, billing, session verification). Before today, that meant two separate base URLs in the browser build, CORS preflights on CP calls, and cookie domain complications.
+Canvas needs to reach the platform API and the admin backend to display your workspace data, org settings, and billing information. Previously this required two separate browser-configured URLs, CORS setup, and domain-level cookie configuration.
 
-The fix: the tenant platform now runs a `/cp/*` reverse proxy. Canvas makes all calls to its single `NEXT_PUBLIC_PLATFORM_URL` (the tenant). The tenant splits the traffic server-side:
-
-```
-Browser → tenant.moleculesai.app
-  ├── /workspaces, /approvals/pending  → handled locally
-  └── /cp/*                            → reverse-proxied upstream to CP
-```
-
-The proxy is **fail-closed**: only an explicit allowlist of paths (`/cp/auth/`, `/cp/orgs`, `/cp/billing/`, `/cp/templates`, `/cp/legal/`) is forwarded. Any other `/cp/*` path returns 404 — not 403 — to avoid leaking which CP routes exist.
-
-This is also the structural fix for the lateral-movement risk that session auth introduced: without the allowlist, a tenant-authed browser user could have proxied `/cp/admin/*` requests upstream and exploited the fact that those endpoints accept WorkOS session cookies. The allowlist makes that impossible by construction.
-
-→ [Guide: Same-Origin Canvas Fetches & Session Auth](/docs/guides/same-origin-canvas-fetches.md)
-→ PR: [#1095](https://github.com/Molecule-AI/molecule-core/pull/1095)
+The platform now handles all Canvas requests through a single domain. You configure `NEXT_PUBLIC_PLATFORM_URL` pointing to your tenant, and Canvas reaches everything it needs from there — no additional domains, no CORS preflight requests from the browser, no extra cookie domains.
 
 ---
 
 ## 5. Beta gate + waitlist — controlled rollout for the waitlist cohort
 
-Canvas now gates unauthenticated visitors on the `/cp/auth/tenant-member` route — a request that verifies the user is a member of an approved org before any workspace data is served. Non-members hit a waitlist contact form instead.
+Beta access is invitation-only. New visitors to Canvas are verified as members of an approved org before any workspace data is served — non-members see a waitlist contact form instead.
 
 The waitlist itself is a Canvas-administered list with email hashing in audit logs (compliant with EU AI Act record-keeping requirements). Admins triage signups from an internal UI.
 

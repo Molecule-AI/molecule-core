@@ -86,9 +86,9 @@ Org API keys give every tool call an attributable actor: workspace ID, org ID, t
 
 Without that layer, you're running the server's full access surface against whatever your agent does, with no visibility and no emergency exit.
 
-→ [Chrome DevTools MCP + Molecule AI Governance →](/docs/blog/chrome-devtools-mcp)
+→ [Chrome DevTools MCP + Molecule AI Governance →](/blog/chrome-devtools-mcp)
 → [Org API Keys →](/docs/guides/org-api-keys)
-→ [Plugin Allowlist Governance →](/docs/guides/plugin-allowlist)
+→ [Plugin System Overview →](/docs/guides/mcp-server-setup)
 
 ---
 

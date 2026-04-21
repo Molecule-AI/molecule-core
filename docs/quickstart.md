@@ -16,8 +16,8 @@ This path is aligned to the current repository and current UI. It gets you from 
 ## Step 1: Clone the repository
 
 ```bash
-git clone https://github.com/Molecule-AI/molecule-monorepo.git
-cd molecule-monorepo
+git clone https://github.com/Molecule-AI/molecule-core.git
+cd molecule-core
 ```
 
 ## Step 2: Start the shared infrastructure
@@ -152,7 +152,7 @@ The response includes your bearer token — save it now. It is shown only once.
 ```bash
 AGENT_TOKEN="the-token-from-step-2"
 
-curl "$PLATFORM/workspaces/$WORKSPACE_ID/secrets/values" \
+curl "$PLATFORM/workspaces/$WORKSPACE_ID/secrets" \
   -H "Authorization: Bearer $AGENT_TOKEN"
 ```
 
@@ -257,7 +257,7 @@ client.run_heartbeat_loop(
 The agent appears in Canvas within seconds with a purple `REMOTE` badge. From there, it's indistinguishable from a Docker workspace for operational purposes.
 
 → [Remote Workspaces Guide](/docs/guides/remote-workspaces.md)
-→ [Fleet Visibility Guide](/docs/blog/2026-04-21-fleet-visibility.md)
+→ [Fleet Visibility Guide](/blog/heterogeneous-agent-fleet-visibility)
 
 ## Troubleshooting
 
