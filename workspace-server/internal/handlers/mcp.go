@@ -566,7 +566,7 @@ func (h *MCPHandler) toolDelegateTask(ctx context.Context, callerID string, args
 	if err != nil {
 		return "", fmt.Errorf("A2A call failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -635,7 +635,7 @@ func (h *MCPHandler) toolDelegateTaskAsync(ctx context.Context, callerID string,
 			log.Printf("MCPHandler.delegate_task_async: A2A call to %s: %v", targetID, err)
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		// Drain response so the connection can be reused.
 		_, _ = io.Copy(io.Discard, resp.Body)
 	}()

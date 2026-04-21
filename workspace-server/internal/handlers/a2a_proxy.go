@@ -288,7 +288,7 @@ func (h *WorkspaceHandler) proxyA2ARequest(ctx context.Context, workspaceID stri
 	if err != nil {
 		return h.handleA2ADispatchError(ctx, workspaceID, callerID, body, a2aMethod, err, durationMs, logActivity)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = $1 }()
 
 	// Read agent response (capped at 10MB).
 	// #689: Do() succeeded, which means the target received the request and sent
