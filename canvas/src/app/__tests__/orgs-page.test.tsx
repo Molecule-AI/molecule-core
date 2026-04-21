@@ -98,10 +98,6 @@ afterEach(() => {
   cleanup();
 });
 
-afterEach(() => {
-  cleanup();
-});
-
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("/orgs — auth guard", () => {
