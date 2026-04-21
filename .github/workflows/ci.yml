@@ -1,1 +1,204 @@
-"name: CI\n\non:\n  push:\n    branches: [main, staging]\n  pull_request:\n    branches: [main, staging]\n\nconcurrency:\n  group: ci-${{ github.ref }}\n  cancel-in-progress: false\n\njobs:\n  # Detect which paths changed so downstream jobs can skip when only\n  # docs/markdown files were modified. Uses plain `git diff` \u2014 no macOS\n  # dependency, so this runs on ubuntu-latest to free the self-hosted\n  # macOS arm64 runner for jobs that genuinely need it.\n  changes:\n    name: Detect changes\n    runs-on: ubuntu-latest\n    outputs:\n      platform: ${{ steps.check.outputs.platform }}\n      canvas: ${{ steps.check.outputs.canvas }}\n      python: ${{ steps.check.outputs.python }}\n      scripts: ${{ steps.check.outputs.scripts }}\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n      - id: check\n        run: |\n          # For push events: diff against previous commit (handles merge commits)\n          # For PR events: diff against the base branch\n          if [ \"${{ github.event_name }}\" = \"pull_request\" ]; then\n            BASE=\"${{ github.event.pull_request.base.sha }}\"\n          else\n            BASE=\"${{ github.event.before }}\"\n          fi\n          # Fallback: if BASE is empty or all zeros (new branch), run everything\n          if [ -z \"$BASE\" ] || echo \"$BASE\" | grep -qE '^0+$'; then\n            echo \"platform=true\" >> \"$GITHUB_OUTPUT\"\n            echo \"canvas=true\" >> \"$GITHUB_OUTPUT\"\n            echo \"python=true\" >> \"$GITHUB_OUTPUT\"\n            echo \"scripts=true\" >> \"$GITHUB_OUTPUT\"\n            exit 0\n          fi\n          DIFF=$(git diff --name-only \"$BASE\" HEAD 2>/dev/null || echo \".github/workflows/ci.yml\")\n          echo \"platform=$(echo \"$DIFF\" | grep -qE '^workspace-server/|^\\.github/workflows/ci\\.yml$' && echo true || echo false)\" >> \"$GITHUB_OUTPUT\"\n          echo \"canvas=$(echo \"$DIFF\" | grep -qE '^canvas/|^\\.github/workflows/ci\\.yml$' && echo true || echo false)\" >> \"$GITHUB_OUTPUT\"\n          echo \"python=$(echo \"$DIFF\" | grep -qE '^workspace/|^\\.github/workflows/ci\\.yml$' && echo true || echo false)\" >> \"$GITHUB_OUTPUT\"\n          echo \"scripts=$(echo \"$DIFF\" | grep -qE '^tests/e2e/|^scripts/|^\\.github/workflows/ci\\.yml$' && echo true || echo false)\" >> \"$GITHUB_OUTPUT\"\n\n  platform-build:\n    name: Platform (Go)\n    needs: changes\n    if: needs.changes.outputs.platform == 'true'\n    runs-on: [self-hosted, macos, arm64]\n    defaults:\n      run:\n        working-directory: workspace-server\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-go@v5\n        with:\n          go-version: 'stable'\n      - run: go mod download\n      - run: go build ./cmd/server\n      # CLI (molecli) moved to standalone repo: github.com/Molecule-AI/molecule-cli\n      - run: go vet ./...\n      - name: Run golangci-lint\n        uses: golangci/golangci-lint-action@v9\n        with:\n          version: latest\n          working-directory: workspace-server\n          args: --timeout 3m\n        continue-on-error: true  # Warn but don't block until codebase is clean\n      - name: Run tests with race detection and coverage\n        run: go test -race -coverprofile=coverage.out ./...\n      - name: Check coverage baseline\n        run: |\n          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')\n          echo \"Total coverage: ${COVERAGE}%\"\n          THRESHOLD=25\n          awk \"BEGIN{if ($COVERAGE < $THRESHOLD) exit 1}\" || {\n            echo \"::error::Coverage ${COVERAGE}% is below the ${THRESHOLD}% threshold\"\n            exit 1\n          }\n\n  canvas-build:\n    name: Canvas (Next.js)\n    needs: changes\n    if: needs.changes.outputs.canvas == 'true'\n    runs-on: [self-hosted, macos, arm64]\n    defaults:\n      run:\n        working-directory: canvas\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: '22'\n      - run: rm -f package-lock.json && npm install\n      - run: npm run build\n      - name: Run tests\n        run: npx vitest run\n\n  # MCP Server + SDK removed from CI \u2014 now in standalone repos:\n  # - github.com/Molecule-AI/molecule-mcp-server (npm CI)\n  # - github.com/Molecule-AI/molecule-sdk-python (PyPI CI)\n\n  # e2e-api job moved to .github/workflows/e2e-api.yml (issue #458).\n  # It now has workflow-level concurrency (cancel-in-progress: false) so\n  # new pushes queue the E2E run rather than cancelling it at the run level.\n\n  shellcheck:\n    name: Shellcheck (E2E scripts)\n    needs: changes\n    if: needs.changes.outputs.scripts == 'true'\n    runs-on: [self-hosted, macos, arm64]\n    steps:\n      - uses: actions/checkout@v4\n      - name: Run shellcheck on tests/e2e/*.sh\n        # `ludeeus/action-shellcheck` is a Docker action (Linux-only). We rely\n        # on shellcheck being pre-installed on the self-hosted runner instead.\n        run: |\n          if ! command -v shellcheck >/dev/null 2>&1; then\n            echo \"::error::shellcheck is not installed on the runner\"\n            exit 1\n          fi\n          find tests/e2e -type f -name '*.sh' -print0 \\\n            | xargs -0 shellcheck --severity=warning\n\n  canvas-deploy-reminder:\n    name: Canvas Deploy Reminder\n    runs-on: [self-hosted, macos, arm64]\n    needs: [changes, canvas-build]\n    # Only fires on direct pushes to main (i.e. after staging\u2192main promotion).\n    if: needs.changes.outputs.canvas == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'\n    permissions:\n      # Required to post commit comments via the GitHub API.\n      contents: write\n    steps:\n      - name: Post deploy reminder as commit comment\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n          COMMIT_SHA: ${{ github.sha }}\n          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\n        run: |\n          # Write body to a temp file \u2014 avoids backtick escaping in shell.\n          cat > /tmp/deploy-reminder.md << 'BODY'\n          ## Canvas build passed \u2705 \u2014 deploy required\n\n          The `publish-canvas-image` workflow is now building a fresh Docker image\n          (`ghcr.io/molecule-ai/canvas:latest`) in the background.\n\n          Once it completes (~3\u20135 min), apply on the host machine with:\n          ```bash\n          cd <runner-workspace>\n          git pull origin main\n          docker compose pull canvas && docker compose up -d canvas\n          ```\n\n          If you need to rebuild from local source instead (e.g. testing unreleased\n          changes or a new `NEXT_PUBLIC_*` URL), use:\n          ```bash\n          docker compose build canvas && docker compose up -d canvas\n          ```\n          BODY\n          printf '\\n> Posted automatically by CI \u00b7 commit `%s` \u00b7 [build log](%s)\\n' \\\n            \"$COMMIT_SHA\" \"$RUN_URL\" >> /tmp/deploy-reminder.md\n\n          gh api \\\n            --method POST \\\n            \"repos/${{ github.repository }}/commits/${{ github.sha }}/comments\" \\\n            --field \"body=@/tmp/deploy-reminder.md\"\n\n  python-lint:\n    name: Python Lint & Test\n    needs: changes\n    if: needs.changes.outputs.python == 'true'\n    runs-on: [self-hosted, macos, arm64]\n    defaults:\n      run:\n        working-directory: workspace\n    steps:\n      - uses: actions/checkout@v4\n      # setup-python@v5 cannot write to /Users/runner (GitHub-hosted path) on\n      # the self-hosted macOS arm64 runner (user: <runner-user>) and also hits\n      # EACCES on /usr/local/bin due to macOS SIP. Skip it \u2014 Homebrew installs\n      # Python 3.11 at /opt/homebrew/opt/python@3.11 which is already on PATH.\n      - name: Verify Python 3.11 (Homebrew)\n        run: |\n          export PATH=\"/opt/homebrew/opt/python@3.11/bin:/opt/homebrew/bin:$PATH\"\n          python3.11 --version\n          echo \"/opt/homebrew/opt/python@3.11/bin\" >> \"$GITHUB_PATH\"\n          echo \"/opt/homebrew/bin\" >> \"$GITHUB_PATH\"\n      - run: pip3.11 install -r requirements.txt pytest pytest-asyncio pytest-cov\n      - run: python3.11 -m pytest --tb=short -q --cov=. --cov-report=term-missing\n\n      # SDK + plugin validation moved to standalone repo:\n      # github.com/Molecule-AI/molecule-sdk-python\n"
+name: CI
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+
+# Queue new CI runs when a commit arrives on the same ref.
+# New runs queue instead of cancelling each other — prevents
+# the single self-hosted macOS arm64 runner from being monopolised.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Detect which paths changed so downstream jobs can skip when only
+  # docs/markdown files were modified. Uses plain `git diff` — no macOS
+  # dependency, so this runs on ubuntu-latest to free the self-hosted
+  # macOS arm64 runner for jobs that genuinely need it.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      platform: ${{ steps.check.outputs.platform }}
+      canvas: ${{ steps.check.outputs.canvas }}
+      python: ${{ steps.check.outputs.python }}
+      scripts: ${{ steps.check.outputs.scripts }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: check
+        run: |
+          # For push events: diff against previous commit (handles merge commits)
+          # For PR events: diff against the base branch
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          # Fallback: if BASE is empty or all zeros (new branch), run everything
+          if [ -z "$BASE" ] || echo "$BASE" | grep -qE '^0+$'; then
+            echo "platform=true" >> "$GITHUB_OUTPUT"
+            echo "canvas=true" >> "$GITHUB_OUTPUT"
+            echo "python=true" >> "$GITHUB_OUTPUT"
+            echo "scripts=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          DIFF=$(git diff --name-only "$BASE" HEAD 2>/dev/null || echo ".github/workflows/ci.yml")
+          echo "platform=$(echo "$DIFF" | grep -qE '^workspace-server/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "canvas=$(echo "$DIFF" | grep -qE '^canvas/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "python=$(echo "$DIFF" | grep -qE '^workspace/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "scripts=$(echo "$DIFF" | grep -qE '^tests/e2e/|^scripts/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  platform-build:
+    name: Platform (Go)
+    needs: changes
+    if: needs.changes.outputs.platform == 'true'
+    runs-on: [self-hosted, macos, arm64]
+    defaults:
+      run:
+        working-directory: workspace-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+      - run: go mod download
+      - run: go build ./cmd/server
+      # CLI (molecli) moved to standalone repo: github.com/Molecule-AI/molecule-cli
+      - run: go vet ./...
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          working-directory: workspace-server
+          args: --timeout 3m
+        continue-on-error: true  # Warn but don't block until codebase is clean
+      - name: Run tests with race detection and coverage
+        run: go test -race -coverprofile=coverage.out ./...
+      - name: Check coverage baseline
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Total coverage: ${COVERAGE}%"
+          THRESHOLD=25
+          awk "BEGIN{if ($COVERAGE < $THRESHOLD) exit 1}" || {
+            echo "::error::Coverage ${COVERAGE}% is below the ${THRESHOLD}% threshold"
+            exit 1
+          }
+
+  canvas-build:
+    name: Canvas (Next.js)
+    needs: changes
+    if: needs.changes.outputs.canvas == 'true'
+    runs-on: [self-hosted, macos, arm64]
+    defaults:
+      run:
+        working-directory: canvas
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: rm -f package-lock.json && npm install
+      - run: npm run build
+      - name: Run tests
+        run: npx vitest run
+
+  # MCP Server + SDK removed from CI — now in standalone repos:
+  # - github.com/Molecule-AI/molecule-mcp-server (npm CI)
+  # - github.com/Molecule-AI/molecule-sdk-python (PyPI CI)
+
+  # e2e-api job moved to .github/workflows/e2e-api.yml (issue #458).
+  # It now has workflow-level concurrency (cancel-in-progress: false) so
+  # new pushes queue the E2E run rather than cancelling it at the run level.
+
+  shellcheck:
+    name: Shellcheck (E2E scripts)
+    needs: changes
+    if: needs.changes.outputs.scripts == 'true'
+    runs-on: [self-hosted, macos, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run shellcheck on tests/e2e/*.sh
+        # `ludeeus/action-shellcheck` is a Docker action (Linux-only). We rely
+        # on shellcheck being pre-installed on the self-hosted runner instead.
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            echo "::error::shellcheck is not installed on the runner"
+            exit 1
+          fi
+          find tests/e2e -type f -name '*.sh' -print0 \
+            | xargs -0 shellcheck --severity=warning
+
+  canvas-deploy-reminder:
+    name: Canvas Deploy Reminder
+    runs-on: [self-hosted, macos, arm64]
+    needs: [changes, canvas-build]
+    # Only fires on direct pushes to main (i.e. after staging→main promotion).
+    if: needs.changes.outputs.canvas == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      # Required to post commit comments via the GitHub API.
+      contents: write
+    steps:
+      - name: Post deploy reminder as commit comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # Write body to a temp file — avoids backtick escaping in shell.
+          cat > /tmp/deploy-reminder.md << 'BODY'
+          ## Canvas build passed ✅ — deploy required
+
+          The `publish-canvas-image` workflow is now building a fresh Docker image
+          (`ghcr.io/molecule-ai/canvas:latest`) in the background.
+
+          Once it completes (~3–5 min), apply on the host machine with:
+          ```bash
+          cd <runner-workspace>
+          git pull origin main
+          docker compose pull canvas && docker compose up -d canvas
+          ```
+
+          If you need to rebuild from local source instead (e.g. testing unreleased
+          changes or a new `NEXT_PUBLIC_*` URL), use:
+          ```bash
+          docker compose build canvas && docker compose up -d canvas
+          ```
+          BODY
+          printf '\n> Posted automatically by CI · commit `%s` · [build log](%s)\n' \
+            "$COMMIT_SHA" "$RUN_URL" >> /tmp/deploy-reminder.md
+
+          gh api \
+            --method POST \
+            "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+            --field "body=@/tmp/deploy-reminder.md"
+
+  python-lint:
+    name: Python Lint & Test
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: [self-hosted, macos, arm64]
+    defaults:
+      run:
+        working-directory: workspace
+    steps:
+      - uses: actions/checkout@v4
+      # setup-python@v5 cannot write to /Users/runner (GitHub-hosted path) on
+      # the self-hosted macOS arm64 runner (user: <runner-user>) and also hits
+      # EACCES on /usr/local/bin due to macOS SIP. Skip it — Homebrew installs
+      # Python 3.11 at /opt/homebrew/opt/python@3.11 which is already on PATH.
+      - name: Verify Python 3.11 (Homebrew)
+        run: |
+          export PATH="/opt/homebrew/opt/python@3.11/bin:/opt/homebrew/bin:$PATH"
+          python3.11 --version
+          echo "/opt/homebrew/opt/python@3.11/bin" >> "$GITHUB_PATH"
+          echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+      - run: pip3.11 install -r requirements.txt pytest pytest-asyncio pytest-cov
+      - run: python3.11 -m pytest --tb=short -q --cov=. --cov-report=term-missing
+
+      # SDK + plugin validation moved to standalone repo:
+      # github.com/Molecule-AI/molecule-sdk-python
