@@ -311,7 +311,7 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 
 	msgID := fmt.Sprintf("cron-%s-%s", short(sched.ID, 8), uuid.New().String()[:8])
 
-	a2aBody, _ := json.Marshal(map[string]interface{}{
+	a2aBody, marshalErr := json.Marshal(map[string]interface{}{
 		"method": "message/send",
 		"params": map[string]interface{}{
 			"message": map[string]interface{}{
@@ -321,6 +321,9 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 			},
 		},
 	})
+	if marshalErr != nil {
+		log.Printf("[scheduler] failed to marshal A2A body for '%s': %v", sched.Name, marshalErr)
+	}
 
 	log.Printf("Scheduler: firing '%s' → workspace %s", sched.Name, short(sched.WorkspaceID, 12))
 
@@ -369,11 +372,13 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 		}
 	} else if lastStatus == "ok" {
 		// Non-empty success — reset the counter
-		db.DB.ExecContext(ctx, `
+		if _, resetErr := db.DB.ExecContext(ctx, `
 			UPDATE workspace_schedules
 			SET consecutive_empty_runs = 0,
 			    updated_at = now()
-			WHERE id = $1`, sched.ID)
+			WHERE id = $1`, sched.ID); resetErr != nil {
+			log.Printf("[scheduler] failed to reset consecutive_empty_runs for '%s': %v", sched.Name, resetErr)
+		}
 	}
 
 	nextRun, nextErr := ComputeNextRun(sched.CronExpr, sched.Timezone, time.Now())
@@ -413,20 +418,25 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 
 	// Log a dedicated cron_run activity entry with schedule metadata so the
 	// history endpoint can query by schedule_id.
-	cronMeta, _ := json.Marshal(map[string]interface{}{
+	cronMeta, cronMetaErr := json.Marshal(map[string]interface{}{
 		"schedule_id":   sched.ID,
 		"schedule_name": sched.Name,
 		"cron_expr":     sched.CronExpr,
 		"prompt":        truncate(sched.Prompt, 200),
 	})
+	if cronMetaErr != nil {
+		log.Printf("[scheduler] failed to marshal cron metadata for '%s': %v", sched.Name, cronMetaErr)
+	}
 	// #152: persist lastError into error_detail on the activity_logs row
 	// so GET /workspaces/:id/schedules/:id/history can surface why a run
 	// failed (previously dropped — history returned status without any
 	// error context, making root-cause debugging impossible).
-	_, _ = db.DB.ExecContext(ctx, `
+	if _, actErr := db.DB.ExecContext(ctx, `
 		INSERT INTO activity_logs (workspace_id, activity_type, source_id, method, summary, request_body, status, error_detail, created_at)
 		VALUES ($1, 'cron_run', NULL, 'cron', $2, $3::jsonb, $4, $5, now())
-	`, sched.WorkspaceID, "Cron: "+sched.Name, string(cronMeta), lastStatus, lastError)
+	`, sched.WorkspaceID, "Cron: "+sched.Name, string(cronMeta), lastStatus, lastError); actErr != nil {
+		log.Printf("[scheduler] failed to write activity log for '%s': %v", sched.Name, actErr)
+	}
 
 	if s.broadcaster != nil {
 		s.broadcaster.RecordAndBroadcast(ctx, "CRON_EXECUTED", sched.WorkspaceID, map[string]interface{}{
@@ -474,7 +484,7 @@ func (s *Scheduler) recordSkipped(ctx context.Context, sched scheduleRow, active
 	// Advance next_run_at + bump run_count so the liveness view reflects
 	// that we're still ticking. last_status='skipped', last_error carries
 	// the reason for operators debugging via the schedule history API.
-	_, _ = db.DB.ExecContext(ctx, `
+	if _, skipErr := db.DB.ExecContext(ctx, `
 		UPDATE workspace_schedules
 		SET last_run_at = now(),
 		    next_run_at = COALESCE($2, next_run_at),
@@ -483,19 +493,26 @@ func (s *Scheduler) recordSkipped(ctx context.Context, sched scheduleRow, active
 		    last_error = $3,
 		    updated_at = now()
 		WHERE id = $1
-	`, sched.ID, nextRunPtr, reason)
+	`, sched.ID, nextRunPtr, reason); skipErr != nil {
+		log.Printf("[scheduler] failed to update skipped schedule '%s': %v", sched.Name, skipErr)
+	}
 
-	cronMeta, _ := json.Marshal(map[string]interface{}{
+	cronMeta, cronMetaErr := json.Marshal(map[string]interface{}{
 		"schedule_id":   sched.ID,
 		"schedule_name": sched.Name,
 		"cron_expr":     sched.CronExpr,
 		"skipped":       true,
 		"active_tasks":  activeTasks,
 	})
-	_, _ = db.DB.ExecContext(ctx, `
+	if cronMetaErr != nil {
+		log.Printf("[scheduler] failed to marshal skipped cron metadata for '%s': %v", sched.Name, cronMetaErr)
+	}
+	if _, actErr := db.DB.ExecContext(ctx, `
 		INSERT INTO activity_logs (workspace_id, activity_type, source_id, method, summary, request_body, status, error_detail, created_at)
 		VALUES ($1, 'cron_run', NULL, 'cron', $2, $3::jsonb, 'skipped', $4, now())
-	`, sched.WorkspaceID, "Cron skipped: "+sched.Name, string(cronMeta), reason)
+	`, sched.WorkspaceID, "Cron skipped: "+sched.Name, string(cronMeta), reason); actErr != nil {
+		log.Printf("[scheduler] failed to write skipped activity log for '%s': %v", sched.Name, actErr)
+	}
 
 	if s.broadcaster != nil {
 		_ = s.broadcaster.RecordAndBroadcast(ctx, "CRON_SKIPPED", sched.WorkspaceID, map[string]interface{}{

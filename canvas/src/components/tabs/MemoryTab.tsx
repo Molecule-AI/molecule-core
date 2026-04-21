@@ -14,6 +14,7 @@ interface MemoryEntry {
   updated_at: string;
 }
 
+// NEXT_PUBLIC_AWARENESS_URL should be set in production — see .env.example
 const AWARENESS_BASE_URL =
   process.env.NEXT_PUBLIC_AWARENESS_URL || "http://localhost:37800";
 

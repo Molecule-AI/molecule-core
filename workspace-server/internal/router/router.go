@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -605,13 +606,22 @@ func findPluginsDir(configsDir string) string {
 			entries, _ := os.ReadDir(c)
 			for _, e := range entries {
 				if e.IsDir() {
-					abs, _ := filepath.Abs(c)
+					abs, err := filepath.Abs(c)
+					if err != nil {
+						log.Printf("[router] filepath.Abs failed for %q: %v", c, err)
+						continue
+					}
 					return abs
 				}
 			}
 		}
 	}
-	abs, _ := filepath.Abs(filepath.Join(configsDir, "..", "plugins"))
+	fallback := filepath.Join(configsDir, "..", "plugins")
+	abs, err := filepath.Abs(fallback)
+	if err != nil {
+		log.Printf("[router] filepath.Abs failed for %q: %v", fallback, err)
+		return fallback
+	}
 	return abs
 }
 
@@ -623,7 +633,11 @@ func findOrgDir(configsDir string) string {
 	}
 	for _, c := range candidates {
 		if info, err := os.Stat(c); err == nil && info.IsDir() {
-			abs, _ := filepath.Abs(c)
+			abs, err := filepath.Abs(c)
+			if err != nil {
+				log.Printf("[router] filepath.Abs failed for %q: %v", c, err)
+				continue
+			}
 			return abs
 		}
 	}
