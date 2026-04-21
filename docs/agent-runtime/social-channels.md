@@ -24,7 +24,7 @@ The `channel:<type>` caller prefix bypasses workspace hierarchy access checks (s
 |------|--------|---------|
 | `telegram` | ✅ Implemented | `go-telegram-bot-api/v5` |
 | `slack` | Planned | — |
-| `discord` | Planned | — |
+| `discord` | ✅ Implemented | Incoming Webhooks + Discord Interactions |
 | `whatsapp` | Planned | — |
 
 To add a new adapter: implement `ChannelAdapter` in `workspace-server/internal/channels/`, register in `registry.go`. Everything else (CRUD API, Canvas UI, MCP tools) works automatically.
@@ -178,6 +178,89 @@ send_channel_message({ workspace_id, channel_id, text })             // outbound
 test_channel({ workspace_id, channel_id })                           // test connection
 ```
 
+## Discord Setup
+
+Discord uses **Incoming Webhooks** for outbound messages and **Discord Interactions** (slash commands) for inbound — no bot token required for basic outbound-only setup.
+
+### 1. Create a webhook in Discord
+
+1. Open your Discord server → **Edit Channel** (⚙️) → **Integrations** → **Create Webhook**
+2. Name it (e.g., "Molecule AI Agent") and copy the webhook URL
+3. Webhook URL format: `https://discord.com/api/webhooks/{id}/{token}`
+
+### 2. Connect via Canvas
+
+1. Open the workspace in Canvas → **Channels** tab → **+ Connect**
+2. Select **Discord** → paste the webhook URL
+3. **Connect Channel**
+
+### 3. Or connect via API
+
+```bash
+curl -X POST http://localhost:8080/workspaces/:id/channels \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "channel_type": "discord",
+    "config": {
+      "webhook_url": "https://discord.com/api/webhooks/123456789/abcdefgh"
+    }
+  }'
+```
+
+### 4. Enable slash commands (inbound)
+
+To receive slash commands from Discord:
+
+1. Go to the **Discord Developer Portal** → your application → **Slash Commands** → **Create**
+2. Add commands like `/status`, `/help`, `/delegate`
+3. In your Interactions endpoint URL, point to `POST /webhooks/discord` on your platform
+4. The platform verifies the signature at the router layer before calling `ParseWebhook`
+
+### 5. Slash command routing flow
+
+```
+Discord user types: /status production
+    ↓ Discord POSTs to your Interactions URL
+ParseWebhook() extracts: text="/status production", user=alice
+    ↓ routed via ProxyA2ARequest(ctx, workspaceID, body, "channel:discord", true)
+Your agent receives the message
+    ↓ processes + responds
+SendMessage() POSTs JSON {"content": "..."} to the webhook URL
+    ↓
+Alice sees the response in Discord
+```
+
+### Key behaviors
+
+- **Long messages auto-split** at Discord's 2000-char hard limit — breaks at word/newline boundaries
+- **Type 1 (PING)** payloads return `nil, nil` — handler must respond with `{"type": 1}` to pass Discord's endpoint verification
+- **Type 2 (slash command)** / **Type 3 (button)** payloads are extracted as `/command option1 option2`
+- Prefers `member.user` (guild context) over `user` (DM context) for username resolution
+- 1 MiB body cap on incoming webhook payloads — DoS guard, not a functional limit
+- **Webhook token protection** — HTTP errors do not log the full webhook URL (contains the token)
+
+### Discord adapter interface
+
+```go
+type DiscordAdapter struct{}
+
+func (d *DiscordAdapter) Type() string        { return "discord" }
+func (d *DiscordAdapter) DisplayName() string { return "Discord" }
+
+// ValidateConfig checks for a valid Discord Incoming Webhook URL
+func (d *DiscordAdapter) ValidateConfig(config map[string]interface{}) error
+
+// SendMessage posts text to the configured webhook (chatID is ignored — destination is in URL)
+func (d *DiscordAdapter) SendMessage(ctx context.Context, config map[string]interface{}, chatID string, text string) error
+
+// ParseWebhook handles Discord Interactions POSTs
+// Returns nil, nil for PING (type 1); returns InboundMessage for slash commands (type 2/3)
+func (d *DiscordAdapter) ParseWebhook(c *gin.Context, config map[string]interface{}) (*InboundMessage, error)
+
+// StartPolling returns nil — Discord uses the Interactions webhook endpoint, not polling
+func (d *DiscordAdapter) StartPolling(ctx context.Context, config map[string]interface{}, handler MessageHandler) error
+```
+
 ## Telegram-Specific Implementation Notes
 
 - **Bot instance cache** (`sync.RWMutex`) avoids `getMe` API call on every send.
@@ -195,6 +278,7 @@ test_channel({ workspace_id, channel_id })                           // test con
 | `workspace-server/internal/channels/adapter.go` | `ChannelAdapter` interface |
 | `workspace-server/internal/channels/registry.go` | Adapter registry |
 | `workspace-server/internal/channels/telegram.go` | Telegram implementation |
+| `workspace-server/internal/channels/discord.go` | Discord implementation |
 | `workspace-server/internal/channels/manager.go` | Orchestrator with hot reload |
 | `workspace-server/internal/handlers/channels.go` | REST API + webhook |
 | `workspace-server/migrations/016_workspace_channels.sql` | DB schema |
