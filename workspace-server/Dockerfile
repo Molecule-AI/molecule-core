@@ -32,5 +32,9 @@ COPY workspace-server/migrations /migrations
 COPY --from=templates /workspace-configs-templates /workspace-configs-templates
 COPY --from=templates /org-templates /org-templates
 COPY --from=templates /plugins /plugins
+# Non-root runtime — platform binary doesn't need root; dropping privileges
+# prevents container escape attacks from reaching host UID 0.
+RUN addgroup -g 1000 platform && adduser -u 1000 -G platform -s /bin/sh -D platform
 EXPOSE 8080
+USER platform
 CMD ["/platform"]

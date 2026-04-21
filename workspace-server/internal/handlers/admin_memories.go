@@ -117,7 +117,16 @@ func (h *AdminMemoriesHandler) Import(c *gin.Context) {
 			continue
 		}
 
-		// 2. Check for duplicate (same workspace + content + scope)
+		// F1085 / #1132: scrub credential patterns before persistence so that
+		// imported memories with secrets don't bypass SAFE-T1201 (#838).
+		// Must run BEFORE the dedup check so the redacted content is what
+		// gets stored — otherwise re-importing the same backup would produce
+		// a duplicate with different (original, unredacted) content.
+		content, _ := redactSecrets(workspaceID, entry.Content)
+
+		// 2. Check for duplicate (same workspace + content + scope) using
+		// the redacted content so that two backups with the same original
+		// secret (same placeholder output) are treated as duplicates.
 		var exists bool
 		// F1085 / #1132: scrub credential patterns before persistence. Must run
 		// BEFORE the dedup check so the redacted content is what gets stored —
