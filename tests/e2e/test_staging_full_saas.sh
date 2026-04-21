@@ -142,12 +142,17 @@ while true; do
     fail "Tenant provisioning timed out after ${PROVISION_TIMEOUT_SECS}s (last: $LAST_STATUS)"
   fi
   LIST_JSON=$(admin_call GET /cp/admin/orgs 2>/dev/null || echo '{"orgs":[]}')
+  # NOTE: /cp/admin/orgs exposes 'instance_status' (from org_instances.status),
+  # NOT 'status'. Field was bug-fixed 2026-04-21 after harness timed out on a
+  # fully-provisioned tenant because the polled field was always ''. The
+  # admin handler struct intentionally has no top-level `status` — the org
+  # row's status is derivable via instance_status for ops.
   STATUS=$(echo "$LIST_JSON" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 for o in d.get('orgs', []):
     if o.get('slug') == '$SLUG':
-        print(o.get('status', ''))
+        print(o.get('instance_status', ''))
         sys.exit(0)
 print('')
 " 2>/dev/null || echo "")
