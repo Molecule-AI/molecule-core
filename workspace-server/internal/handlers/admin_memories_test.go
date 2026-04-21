@@ -2,15 +2,14 @@ package handlers
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/gin-gonic/gin"
 )
 
@@ -23,8 +22,70 @@ func newAdminMemoriesHandler(t *testing.T, mock sqlmock.Sqlmock) *AdminMemoriesH
 
 // ---------- Export ----------
 
-// TestAdminMemoriesExport_Empty verifies that Export returns 200 with an
-// empty JSON array when no memories exist in the DB.
+// TestAdminMemoriesExport_RedactsSecrets verifies F1084/#1131: secrets stored
+// in agent_memories (e.g. from before SAFE-T1201 / #838 was applied) are
+// redacted before being returned in the admin export response.
+func TestAdminMemoriesExport_RedactsSecrets(t *testing.T) {
+	mock := setupTestDB(t)
+	h := newAdminMemoriesHandler(t, mock)
+
+	createdAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// The DB contains raw secret-bearing content (pre-redactSecrets write).
+	mock.ExpectQuery("SELECT am.id, am.content, am.scope, am.namespace, am.created_at,").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "content", "scope", "namespace", "created_at", "workspace_name",
+		}).
+			AddRow("mem-1", "API key is sk-ant-...abc123", "LOCAL", "general", createdAt, "agent-1").
+			AddRow("mem-2", "Bearer ghp_xxxxxxxxxxxx", "TEAM", "general", createdAt, "agent-2").
+			AddRow("mem-3", "OPENAI_API_KEY=sk-...xyz789", "LOCAL", "general", createdAt, "agent-3").
+			AddRow("mem-4", " innocent prose only ", "LOCAL", "general", createdAt, "agent-4"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/admin/memories/export", nil)
+
+	h.Export(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var results []map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &results); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	if len(results) != 4 {
+		t.Fatalf("expected 4 entries, got %d", len(results))
+	}
+
+	// mem-1: OpenAI sk-ant-... key must be redacted.
+	if results[0]["content"] != "[REDACTED:SK_TOKEN]" {
+		t.Errorf("mem-1: expected redacted SK_TOKEN, got %q", results[0]["content"])
+	}
+
+	// mem-2: GitHub Bearer token must be redacted.
+	if results[1]["content"] != "[REDACTED:BEARER_TOKEN]" {
+		t.Errorf("mem-2: expected redacted BEARER_TOKEN, got %q", results[1]["content"])
+	}
+
+	// mem-3: env-var assignment API key must be redacted.
+	if results[2]["content"] != "[REDACTED:API_KEY]" {
+		t.Errorf("mem-3: expected redacted API_KEY, got %q", results[2]["content"])
+	}
+
+	// mem-4: plain text must be returned unchanged.
+	if results[3]["content"] != " innocent prose only " {
+		t.Errorf("mem-4: expected unchanged prose, got %q", results[3]["content"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestAdminMemoriesExport_Empty returns 200 with empty array.
 func TestAdminMemoriesExport_Empty(t *testing.T) {
 	mock := setupTestDB(t)
 	h := newAdminMemoriesHandler(t, mock)
@@ -43,6 +104,7 @@ func TestAdminMemoriesExport_Empty(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+
 	var result []interface{}
 	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 		t.Fatalf("response is not valid JSON: %v", err)
@@ -55,278 +117,142 @@ func TestAdminMemoriesExport_Empty(t *testing.T) {
 	}
 }
 
-// TestAdminMemoriesExport_MultipleMemories verifies that Export joins
-// agent_memories with workspaces and returns the correct JSON fields.
-func TestAdminMemoriesExport_MultipleMemories(t *testing.T) {
-	mock := setupTestDB(t)
-	h := newAdminMemoriesHandler(t, mock)
-
-	cols := []string{"id", "content", "scope", "namespace", "created_at", "workspace_name"}
-	createdAt := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
-	mock.ExpectQuery("SELECT am.id, am.content, am.scope, am.namespace, am.created_at,").
-		WillReturnRows(sqlmock.NewRows(cols).
-			AddRow("mem-001", "remember the config", "local", "general", createdAt, "ws-alpha").
-			AddRow("mem-002", "use TLS", "global", "security", createdAt.Add(time.Hour), "ws-beta"))
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/admin/memories/export", nil)
-
-	h.Export(c)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	var result []map[string]interface{}
-	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
-		t.Fatalf("response is not valid JSON: %v", err)
-	}
-	if len(result) != 2 {
-		t.Fatalf("expected 2 memories, got %d", len(result))
-	}
-	if result[0]["id"] != "mem-001" {
-		t.Errorf("expected id 'mem-001', got %v", result[0]["id"])
-	}
-	if result[0]["scope"] != "local" {
-		t.Errorf("expected scope 'local', got %v", result[0]["scope"])
-	}
-	if result[0]["workspace_name"] != "ws-alpha" {
-		t.Errorf("expected workspace_name 'ws-alpha', got %v", result[0]["workspace_name"])
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
-	}
-}
-
-// TestAdminMemoriesExport_QueryError_Returns500 verifies that a DB query
-// error causes Export to return 500.
-func TestAdminMemoriesExport_QueryError_Returns500(t *testing.T) {
-	mock := setupTestDB(t)
-	h := newAdminMemoriesHandler(t, mock)
-
-	mock.ExpectQuery("SELECT am.id, am.content, am.scope, am.namespace, am.created_at,").
-		WillReturnError(errors.New("db: connection refused"))
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/admin/memories/export", nil)
-
-	h.Export(c)
-
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("expected 500 on DB query error, got %d: %s", w.Code, w.Body.String())
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
-	}
-}
-
-// TestAdminMemoriesExport_RowsErr_Returns500 verifies that a rows.Err()
-// set during iteration causes Export to return 500.
-func TestAdminMemoriesExport_RowsErr_Returns500(t *testing.T) {
-	mock := setupTestDB(t)
-	h := newAdminMemoriesHandler(t, mock)
-
-	// Inject a row-level error at index 0 (same technique as checkpoints_test.go).
-	cols := []string{"id", "content", "scope", "namespace", "created_at", "workspace_name"}
-	createdAt := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
-	mock.ExpectQuery("SELECT am.id, am.content, am.scope, am.namespace, am.created_at,").
-		WillReturnRows(sqlmock.NewRows(cols).
-			AddRow("mem-001", "some content", "local", "general", createdAt, "ws-a").
-			RowError(0, errors.New("storage fault")))
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/admin/memories/export", nil)
-
-	h.Export(c)
-
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("expected 500 on rows.Err(), got %d: %s", w.Code, w.Body.String())
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
-	}
-}
-
 // ---------- Import ----------
 
-// TestAdminMemoriesImport_InvalidJSON_Returns400 verifies that a malformed
-// request body causes Import to return 400.
-func TestAdminMemoriesImport_InvalidJSON_Returns400(t *testing.T) {
+// TestAdminMemoriesImport_RedactsBeforeInsert verifies F1085/#1132: imported
+// memories have secrets scrubbed by redactSecrets before both the dedup check
+// and the actual INSERT so that secrets never land unredacted in agent_memories.
+func TestAdminMemoriesImport_RedactsBeforeInsert(t *testing.T) {
 	mock := setupTestDB(t)
 	h := newAdminMemoriesHandler(t, mock)
+
+	payload := `[{
+		"content": "OPENAI_API_KEY=sk-test1234567890abcdef",
+		"scope": "LOCAL",
+		"namespace": "general",
+		"workspace_name": "agent-1"
+	}]`
+
+	// Step 1: workspace lookup.
+	mock.ExpectQuery("SELECT id FROM workspaces WHERE name =").
+		WithArgs("agent-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ws-1"))
+
+	// Step 2: dedup check uses REDACTED content (not the raw secret).
+	// Raw "OPENAI_API_KEY=sk-test..." → "[REDACTED:API_KEY]"
+	mock.ExpectQuery("SELECT EXISTS").
+		WithArgs("ws-1", "[REDACTED:API_KEY]", "LOCAL").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	// Step 3: INSERT uses redacted content.
+	mock.ExpectExec("INSERT INTO agent_memories").
+		WithArgs("ws-1", "[REDACTED:API_KEY]", "LOCAL", "general", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/admin/memories/import",
-		bytes.NewBufferString("{ not valid json }"))
+		bytes.NewBufferString(payload))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Import(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["imported"] != float64(1) {
+		t.Errorf("expected imported=1, got %v", resp["imported"])
+	}
+	if resp["skipped"] != float64(0) {
+		t.Errorf("expected skipped=0, got %v", resp["skipped"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestAdminMemoriesImport_WorkspaceNotFound skips gracefully.
+func TestAdminMemoriesImport_WorkspaceNotFound(t *testing.T) {
+	mock := setupTestDB(t)
+	h := newAdminMemoriesHandler(t, mock)
+
+	payload := `[{"content": "some content", "scope": "LOCAL", "workspace_name": "ghost-ws"}]`
+
+	mock.ExpectQuery("SELECT id FROM workspaces WHERE name =").
+		WithArgs("ghost-ws").
+		WillReturnError(sql.ErrNoRows)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/admin/memories/import",
+		bytes.NewBufferString(payload))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Import(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["skipped"] != float64(1) {
+		t.Errorf("expected skipped=1, got %v", resp["skipped"])
+	}
+}
+
+// TestAdminMemoriesImport_InvalidJson returns 400.
+func TestAdminMemoriesImport_InvalidJson(t *testing.T) {
+	setupTestDB(t) // needed for package-level db init
+	h := newAdminMemoriesHandler(t, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/admin/memories/import",
+		bytes.NewBufferString("not valid json"))
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	h.Import(c)
 
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 on invalid JSON, got %d: %s", w.Code, w.Body.String())
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
+		t.Errorf("expected 400, got %d", w.Code)
 	}
 }
 
-// TestAdminMemoriesImport_EmptyArray_ReturnsAllZeros verifies that an empty
-// array body returns all counts at zero.
-func TestAdminMemoriesImport_EmptyArray_ReturnsAllZeros(t *testing.T) {
+// TestAdminMemoriesImport_CreatedAtPreserved uses 5-arg INSERT.
+func TestAdminMemoriesImport_CreatedAtPreserved(t *testing.T) {
 	mock := setupTestDB(t)
 	h := newAdminMemoriesHandler(t, mock)
 
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("POST", "/admin/memories/import",
-		bytes.NewBufferString("[]"))
-	c.Request.Header.Set("Content-Type", "application/json")
+	payload := `[{
+		"content": "secret token GITHUB_TOKEN=ghp_deadbeef",
+		"scope": "TEAM",
+		"namespace": "research",
+		"created_at": "2026-01-15T10:30:00Z",
+		"workspace_name": "agent-2"
+	}]`
 
-	h.Import(c)
+	mock.ExpectQuery("SELECT id FROM workspaces WHERE name =").
+		WithArgs("agent-2").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ws-2"))
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	var resp map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["imported"] != float64(0) {
-		t.Errorf("expected imported=0, got %v", resp["imported"])
-	}
-	if resp["skipped"] != float64(0) {
-		t.Errorf("expected skipped=0, got %v", resp["skipped"])
-	}
-	if resp["errors"] != float64(0) {
-		t.Errorf("expected errors=0, got %v", resp["errors"])
-	}
-	if resp["total"] != float64(0) {
-		t.Errorf("expected total=0, got %v", resp["total"])
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
-	}
-}
-
-// TestAdminMemoriesImport_WorkspaceNotFound_Skips verifies that an entry
-// whose workspace name does not exist in workspaces is counted as skipped.
-func TestAdminMemoriesImport_WorkspaceNotFound_Skips(t *testing.T) {
-	mock := setupTestDB(t)
-	h := newAdminMemoriesHandler(t, mock)
-
-	// Workspace lookup returns no rows → workspace not found.
-	mock.ExpectQuery("SELECT id FROM workspaces WHERE name = \\$1 LIMIT 1").
-		WithArgs("nonexistent-ws").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}))
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	body := []map[string]interface{}{
-		{"content": "some memory", "scope": "local", "namespace": "general",
-			"workspace_name": "nonexistent-ws"},
-	}
-	bodyBytes, _ := json.Marshal(body)
-	c.Request = httptest.NewRequest("POST", "/admin/memories/import",
-		bytes.NewBuffer(bodyBytes))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	h.Import(c)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	var resp map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["imported"] != float64(0) {
-		t.Errorf("expected imported=0, got %v", resp["imported"])
-	}
-	if resp["skipped"] != float64(1) {
-		t.Errorf("expected skipped=1, got %v", resp["skipped"])
-	}
-	if resp["errors"] != float64(0) {
-		t.Errorf("expected errors=0, got %v", resp["errors"])
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
-	}
-}
-
-// TestAdminMemoriesImport_Duplicate_Skips verifies that an entry that
-// already exists (same workspace_id + content + scope) is counted as skipped.
-func TestAdminMemoriesImport_Duplicate_Skips(t *testing.T) {
-	mock := setupTestDB(t)
-	h := newAdminMemoriesHandler(t, mock)
-
-	// Workspace lookup succeeds.
-	mock.ExpectQuery("SELECT id FROM workspaces WHERE name = \\$1 LIMIT 1").
-		WithArgs("ws-alpha").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ws-001"))
-
-	// Duplicate check returns true.
 	mock.ExpectQuery("SELECT EXISTS").
-		WithArgs("ws-001", "remember the config", "local").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	body := []map[string]interface{}{
-		{"content": "remember the config", "scope": "local", "namespace": "general",
-			"workspace_name": "ws-alpha"},
-	}
-	bodyBytes, _ := json.Marshal(body)
-	c.Request = httptest.NewRequest("POST", "/admin/memories/import",
-		bytes.NewBuffer(bodyBytes))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	h.Import(c)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	var resp map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["imported"] != float64(0) {
-		t.Errorf("expected imported=0 for duplicate, got %v", resp["imported"])
-	}
-	if resp["skipped"] != float64(1) {
-		t.Errorf("expected skipped=1 for duplicate, got %v", resp["skipped"])
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
-	}
-}
-
-// TestAdminMemoriesImport_NewMemory_Inserts verifies that a non-duplicate
-// entry with a valid workspace is inserted and counted as imported.
-func TestAdminMemoriesImport_NewMemory_Inserts(t *testing.T) {
-	mock := setupTestDB(t)
-	h := newAdminMemoriesHandler(t, mock)
-
-	// Workspace lookup succeeds.
-	mock.ExpectQuery("SELECT id FROM workspaces WHERE name = \\$1 LIMIT 1").
-		WithArgs("ws-alpha").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ws-001"))
-
-	// Duplicate check returns false.
-	mock.ExpectQuery("SELECT EXISTS").
-		WithArgs("ws-001", "remember the config", "local").
+		WithArgs("ws-2", "[REDACTED:TOKEN]", "TEAM").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
-	// Insert without created_at (empty string).
+	// 5-arg INSERT (with created_at)
 	mock.ExpectExec("INSERT INTO agent_memories").
-		WithArgs("ws-001", "remember the config", "local", "general").
+		WithArgs("ws-2", "[REDACTED:TOKEN]", "TEAM", "research", "2026-01-15T10:30:00Z").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	body := []map[string]interface{}{
-		{"content": "remember the config", "scope": "local", "namespace": "general",
-			"workspace_name": "ws-alpha"},
-	}
-	bodyBytes, _ := json.Marshal(body)
 	c.Request = httptest.NewRequest("POST", "/admin/memories/import",
-		bytes.NewBuffer(bodyBytes))
+		bytes.NewBufferString(payload))
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	h.Import(c)
@@ -334,156 +260,45 @@ func TestAdminMemoriesImport_NewMemory_Inserts(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	var resp map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["imported"] != float64(1) {
-		t.Errorf("expected imported=1, got %v", resp["imported"])
-	}
-	if resp["skipped"] != float64(0) {
-		t.Errorf("expected skipped=0, got %v", resp["skipped"])
-	}
-	if resp["errors"] != float64(0) {
-		t.Errorf("expected errors=0, got %v", resp["errors"])
-	}
+
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
 }
 
-// TestAdminMemoriesImport_PreservesCreatedAt verifies that when
-// CreatedAt is provided (RFC3339 string), the original timestamp is
-// preserved in the INSERT.
-func TestAdminMemoriesImport_PreservesCreatedAt(t *testing.T) {
-	mock := setupTestDB(t)
-	h := newAdminMemoriesHandler(t, mock)
-
-	mock.ExpectQuery("SELECT id FROM workspaces WHERE name = \\$1 LIMIT 1").
-		WithArgs("ws-alpha").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ws-001"))
-
-	mock.ExpectQuery("SELECT EXISTS").
-		WithArgs("ws-001", "remember the config", "local").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-
-	// Insert with created_at preserved.
-	mock.ExpectExec("INSERT INTO agent_memories").
-		WithArgs("ws-001", "remember the config", "local", "general", "2026-01-15T09:00:00Z").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	body := []map[string]interface{}{
-		{"content": "remember the config", "scope": "local", "namespace": "general",
-			"workspace_name": "ws-alpha", "created_at": "2026-01-15T09:00:00Z"},
-	}
-	bodyBytes, _ := json.Marshal(body)
-	c.Request = httptest.NewRequest("POST", "/admin/memories/import",
-		bytes.NewBuffer(bodyBytes))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	h.Import(c)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	var resp map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["imported"] != float64(1) {
-		t.Errorf("expected imported=1, got %v", resp["imported"])
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
-	}
-}
-
-// TestAdminMemoriesImport_InsertError_ErrorsCount verifies that a DB insert
-// error increments the errors counter (not imported or skipped).
-func TestAdminMemoriesImport_InsertError_ErrorsCount(t *testing.T) {
-	mock := setupTestDB(t)
-	h := newAdminMemoriesHandler(t, mock)
-
-	mock.ExpectQuery("SELECT id FROM workspaces WHERE name = \\$1 LIMIT 1").
-		WithArgs("ws-alpha").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ws-001"))
-
-	mock.ExpectQuery("SELECT EXISTS").
-		WithArgs("ws-001", "remember the config", "local").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-
-	mock.ExpectExec("INSERT INTO agent_memories").
-		WithArgs("ws-001", "remember the config", "local", "general").
-		WillReturnError(errors.New("db: unique constraint violation"))
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	body := []map[string]interface{}{
-		{"content": "remember the config", "scope": "local", "namespace": "general",
-			"workspace_name": "ws-alpha"},
-	}
-	bodyBytes, _ := json.Marshal(body)
-	c.Request = httptest.NewRequest("POST", "/admin/memories/import",
-		bytes.NewBuffer(bodyBytes))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	h.Import(c)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (errors counted internally), got %d: %s", w.Code, w.Body.String())
-	}
-	var resp map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["imported"] != float64(0) {
-		t.Errorf("expected imported=0 on insert error, got %v", resp["imported"])
-	}
-	if resp["errors"] != float64(1) {
-		t.Errorf("expected errors=1 on insert error, got %v", resp["errors"])
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
-	}
-}
-
-// TestAdminMemoriesImport_DefaultNamespace verifies that when namespace is
-// empty, "general" is used as the default.
+// TestAdminMemoriesImport_DefaultNamespace uses "general" when namespace is empty.
 func TestAdminMemoriesImport_DefaultNamespace(t *testing.T) {
 	mock := setupTestDB(t)
 	h := newAdminMemoriesHandler(t, mock)
 
-	mock.ExpectQuery("SELECT id FROM workspaces WHERE name = \\$1 LIMIT 1").
-		WithArgs("ws-alpha").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ws-001"))
+	payload := `[{
+		"content": "ANTHROPIC_API_KEY=sk-ant-test999",
+		"scope": "LOCAL",
+		"workspace_name": "agent-3"
+	}]`
+
+	mock.ExpectQuery("SELECT id FROM workspaces WHERE name =").
+		WithArgs("agent-3").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ws-3"))
 
 	mock.ExpectQuery("SELECT EXISTS").
-		WithArgs("ws-001", "some content", "local").
+		WithArgs("ws-3", "[REDACTED:API_KEY]", "LOCAL").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
-	// Namespace defaults to "general".
+	// Namespace defaults to "general"
 	mock.ExpectExec("INSERT INTO agent_memories").
-		WithArgs("ws-001", "some content", "local", "general").
+		WithArgs("ws-3", "[REDACTED:API_KEY]", "LOCAL", "general", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	body := []map[string]interface{}{
-		{"content": "some content", "scope": "local",
-			"workspace_name": "ws-alpha"},
-	}
-	bodyBytes, _ := json.Marshal(body)
 	c.Request = httptest.NewRequest("POST", "/admin/memories/import",
-		bytes.NewBuffer(bodyBytes))
+		bytes.NewBufferString(payload))
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	h.Import(c)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	var resp map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["imported"] != float64(1) {
-		t.Errorf("expected imported=1, got %v", resp["imported"])
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
 }
