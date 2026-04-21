@@ -131,6 +131,133 @@ That design lets the platform improve the backend memory boundary without forcin
 
 This matters because Molecule AI wants hierarchy to remain operationally real, not cosmetic.
 
+
+## Remote Agent Registration (External Workspaces)
+
+External workspaces run outside the platform's Docker infrastructure — on your laptop, a cloud VM, an on-prem server, or a CI/CD agent. They register via the platform API and send heartbeats to stay live on the canvas.
+
+### How it differs from Docker workspaces
+
+| | Docker workspace | External workspace |
+|---|---|---|
+| Provisioning | Platform spins up a container | You provide the machine; platform just tracks it |
+| Liveness | Docker health sweep | Heartbeat TTL (90s offline threshold) |
+| Registration | Automatic at container start | Manual: `POST /workspaces` + `POST /registry/register` |
+| Token | Inherited from container env | Minted at registration, shown once |
+| Secrets | Baked in image or env var | Pulled from platform at boot via `GET /workspaces/:id/secrets/values` |
+
+### Registration flow
+
+**1. Create the workspace:**
+
+```bash
+curl -X POST http://localhost:8080/workspaces \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-remote-agent",
+    "runtime": "external",
+    "external": true,
+    "url": "https://my-agent.example.com/a2a",
+    "parent_id": "ws-pm-123"
+  }'
+```
+
+Returns `{ "id": "ws-xyz", "platform_url": "http://localhost:8080" }`.
+
+**2. Register the agent with the platform:**
+
+```bash
+curl -X POST http://localhost:8080/registry/register \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <admin-token>" \
+  -d '{
+    "workspace_id": "ws-xyz",
+    "name": "my-remote-agent",
+    "description": "Runs on a cloud VM in us-east-1",
+    "skills": ["research", "summarization"],
+    "url": "https://my-agent.example.com/a2a"
+  }'
+```
+
+The platform returns a 256-bit bearer token — save it, it is shown only once.
+
+**3. Pull secrets at boot:**
+
+```bash
+curl http://localhost:8080/workspaces/ws-xyz/secrets/values \
+  -H "Authorization: Bearer <your-token>"
+```
+
+Returns `{ "ANTHROPIC_API_KEY": "...", "OPENAI_API_KEY": "..." }`. No credentials baked into images or env files.
+
+**4. Send heartbeats every 30 seconds:**
+
+```bash
+curl -X POST http://localhost:8080/registry/heartbeat \
+  -H "Authorization: Bearer <your-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workspace_id": "ws-xyz",
+    "status": "online",
+    "task": "analyzing Q1 sales data",
+    "error_rate": 0.0
+  }'
+```
+
+If the platform misses two consecutive heartbeats, the workspace shows offline on the canvas.
+
+**5. A2A with `X-Workspace-ID` header:**
+
+When sending A2A messages to sibling or parent workspaces, include the header so the platform can verify mutual auth:
+
+```bash
+curl -X POST http://localhost:8080/workspaces/ws-pm-123/a2a \
+  -H "Authorization: Bearer <your-token>" \
+  -H "X-Workspace-ID: ws-xyz" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "status_report", "payload": {...}}'
+```
+
+### Behind NAT — Cloudflare Tunnel / ngrok
+
+If the agent machine has no public IP, use an outbound tunnel:
+
+```bash
+# ngrok
+ngrok http 8000 --url https://my-agent.ngrok.io
+
+# Cloudflare Tunnel
+cloudflared tunnel run --token <token>
+
+# Register the tunnel URL (not localhost)
+curl -X POST http://localhost:8080/registry/update-card \
+  -H "Authorization: Bearer <your-token>" \
+  -d '{"workspace_id": "ws-xyz", "url": "https://my-agent.ngrok.io/a2a"}'
+```
+
+The agent initiates the outbound WebSocket to the platform — no inbound ports need to be opened on the firewall.
+
+### Revocation and re-registration
+
+To revoke and re-register:
+
+```bash
+# Delete the workspace
+curl -X DELETE http://localhost:8080/workspaces/ws-xyz \
+  -H "Authorization: Bearer <admin-token>"
+
+# Create fresh (new workspace_id, new token)
+```
+
+Re-registration with the same `workspace_id` does not issue a new token — use the token saved from first registration.
+
+### Related docs
+
+- Full step-by-step: [External Agent Registration Guide](../guides/external-agent-registration.md)
+- Tutorial with CI/CD examples: [Register a Remote Agent](../tutorials/register-remote-agent.md)
+- API reference: [Registry and Heartbeat](../api-protocol/registry-and-heartbeat.md)
+
 ## A2A And Registration
 
 Each workspace exposes an A2A server, builds an Agent Card, and registers with the platform. The platform is used for:
