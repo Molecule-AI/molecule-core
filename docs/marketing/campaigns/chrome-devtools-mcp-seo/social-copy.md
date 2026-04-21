@@ -1,134 +1,113 @@
-# Social Copy — Chrome DevTools MCP SEO Campaign
-## Blog Post: "Give Your AI Agent a Real Browser: MCP + Chrome DevTools"
-**URL:** /blog/browser-automation-ai-agents-mcp
-**Date:** 2026-04-20
-**Author:** Content Marketer (draft — for Social Media Brand review + publish)
-**Status:** DRAFT — pending Marketing Lead review
+# Chrome DevTools MCP — Social Copy
+Campaign: chrome-devtools-mcp-seo | Blog PR: docs#49
+Publish day: TBD (Day 1, separate from fly-deploy-anywhere)
+Status: Draft — pending Marketing Lead approval
 
 ---
 
-## X / Twitter Thread
+## X (Twitter) — Primary thread (5 posts)
 
-**Post 1 (Hook):**
-> AI agents are great at reasoning.
-They're terrible at clicking through a website.
+### Post 1 — Hook (P0 keyword: `AI agent browser control`)
+Your AI agent just made a purchase on your behalf.
 
-The moment a task needs a real browser — forms, dynamic content, pages with no API — most agents hit a wall.
+What did it buy? From where? With which account?
 
-We fixed that. 🧵
+Most agents operate in a black box. Browser DevTools MCP makes the browser a first-class
+tool — with org-level audit attribution on every action.
 
----
-
-**Post 2 (What we built):**
-> Molecule AI agents now control Chrome directly via MCP + Chrome DevTools Protocol.
-
-No Puppeteer wrappers.
-No per-session SaaS pricing.
-No human manually sequencing browser steps.
-
-The agent decides when to navigate, extract, screenshot — just like a human would.
-
-Code snippet:
-```python
-agent = Agent(
-    mcp_tools=browser.tools(),  # CDP over MCP
-)
-agent.run("Extract pricing from competitor.com")
-```
+→ [link: docs blog post]
 
 ---
 
-**Post 3 (Why it matters):**
-> MCP gives AI models typed, structured tool calls — not buried prompts.
+### Post 2 — Problem framing (P0 keyword: `MCP browser automation`)
+Browser automation for AI agents usually means: give the agent your credentials, hope it
+doesn't go somewhere unexpected, and check the logs after.
 
-Browser automation via MCP means:
-→ Session persistence (cookies survive across calls)
-→ Streaming responses (no timeout on page loads)
-→ Agent decides the sequence, not a human wiring workflow nodes
+That's not a governance model. That's a trust fall.
 
----
+Molecule AI's MCP governance layer for Chrome DevTools MCP gives you:
+→ Which agent accessed which session
+→ What it did (navigate, fill, screenshot, submit)
+→ Audit trail with org API key attribution
 
-**Post 4 (Use cases):**
-> What can you actually do with a browser-wielding AI agent?
+One org API key prefix per integration. Instant revocation.
 
-• Competitive intelligence pipelines — agent visits sites, extracts data, writes summaries
-• Automated UI regression testing — describe expected state in plain language
-• AI-assisted data entry for legacy web UIs
-• Real-time price monitoring with Slack alerts
-
-All from the same MCP toolset.
+→ [link: docs blog post]
 
 ---
 
-**Post 5 (CTA):**
-> Molecule AI workspaces ship browser automation out of the box.
+### Post 3 — Use case, concrete (P0 keyword: `browser automation AI agents`)
+Real things teams use Chrome DevTools MCP for in production:
 
-Free, self-hostable. GitHub below.
+• Automated Lighthouse audits on every PR — agent runs the audit, reports the score, flags regressions
+• Visual regression detection — agent screenshots key pages, diffs against baseline, opens tickets on drift
+• Auth scraping — agent reads the authenticated state from an existing browser session
 
-→ [github.com/Molecule-AI/molecule-core](https://github.com/Molecule-AI/molecule-core)
+The governance layer means your security team can see all three in the audit trail.
 
-*Full tutorial + code examples in the blog post.*
-
----
-
-## LinkedIn Post
-
-**Single post:**
-
-AI agents can reason, plan, and call APIs — but put a dynamic website in front of them and they stall.
-
-The problem isn't the model. It's the tooling.
-
-Most teams solve this one of two ways:
-→ Write custom Playwright wrappers and pray the prompt doesn't drift
-→ Pay per-session for a SaaS browser API
-
-Both are the wrong direction.
-
-We built browser automation directly into Molecule AI workspaces via MCP + Chrome DevTools Protocol. The agent gets a live browser session with typed tool calls — it decides when to navigate, query, screenshot, and interact. No human wiring the sequence.
-
-Three lines of YAML config. No SaaS dependency. No Selenium fleet to manage.
-
-Code example, four real-world use cases, and the full MCP → CDP bridge breakdown in the blog post.
-
-→ [Read: "Give Your AI Agent a Real Browser: MCP + Chrome DevTools"](https://github.com/Molecule-AI/molecule-core/blob/main/docs/blog/2026-04-20-chrome-devtools-mcp-seo/index.md)
-
-#AIagents #MCP #browserautomation #Python #LangChain
+→ [link: docs blog post]
 
 ---
 
-## Image / Visual Recommendations
+### Post 4 — Competitive / positioning (P0 keyword: `MCP governance layer`)
+The MCP protocol lets you connect any compatible tool to any compatible agent.
 
-| Platform | Asset | File |
-|---|---|---|
-| X/LinkedIn | Diagram: MCP bridge | `assets/mcp-bridge-diagram.svg` |
-| X (thread) | Comparison card | `assets/comparison-table-card.svg` |
-| X/LinkedIn | Code card | Create from blog post code snippet: `agent = Agent(mcp_tools=browser.tools())` |
-| X/LinkedIn | CTA graphic | "Your AI agent just got a browser." + GitHub link |
+What's been missing: visibility into what the agent actually *did* with that access.
 
-**Generated assets available in `docs/marketing/campaigns/chrome-devtools-mcp-seo/assets/`:**
-- `mcp-bridge-diagram.svg` — AI Agent → MCP → CDP → Chrome architecture diagram
-- `comparison-table-card.svg` — 3-approach comparison (Custom vs SaaS vs Molecule AI)
+Molecule AI's MCP governance layer adds:
+• Per-action audit logging with org API key attribution
+• Token-scoped Chrome sessions — no credential sharing across agents
+• Instant revocation without redeployment
 
----
-
-## Hashtag Set
-#AIagents #MCP #BrowserAutomation #Python #DeveloperTools #AIautomation #LangChain #CrewAI
+→ [link: docs blog post]
 
 ---
 
-## Campaign UTM Tags
-Append `?utm_source=twitter&utm_medium=social&utm_campaign=chrome-devtools-mcp-seo` to all links in social posts.
+### Post 5 — CTA
+Chrome DevTools MCP ships today with Molecule AI Phase 30.
+
+If you're running AI agents that interact with web UIs — there's a governance story
+you need to have ready before your security team asks.
+
+→ [link: docs blog post]
 
 ---
 
-## Publishing Schedule
-| Platform | When | Notes |
-|---|---|---|
-| X thread | Blog publish day, 9am PT | 5 posts, one every 20–30 min |
-| LinkedIn | Blog publish day, 11am PT | Single post, same day as thread |
-| LinkedIn comment replies | +24h | Engage with early comments |
+## LinkedIn — Single post
+
+**Title:** Why your AI agent's browser access needs a governance layer
+
+**Body:**
+
+Your AI agent can use a browser. That's useful. But "useful" isn't a security posture.
+
+When an agent operates inside a browser — filling forms, reading session state, navigating authenticated flows — most platforms give you two options: trust it completely, or don't let it near the browser at all.
+
+Molecule AI's Chrome DevTools MCP integration adds a third option: visibility with control.
+
+Here's what "governance layer" actually means in this context:
+
+→ Every browser action is logged with the org API key prefix that made the call. You know which agent touched what session, every time.
+
+→ Chrome sessions are token-scoped. Agent A's session is not Agent B's session. No credential cross-contamination.
+
+→ Revocation is instant. One API call, the key stops working, the session closes. No redeploy.
+
+→ Audit trails are exportable. Your security team can review them without a custom logging pipeline.
+
+This is the difference between "the agent can use a browser" and "the agent's browser access is auditable, attributable, and revocable."
+
+Chrome DevTools MCP is available now on all Molecule AI deployments.
+
+→ [link: docs blog post]
 
 ---
 
-*Draft by Content Marketer 2026-04-20 — for Social Media Brand review before publishing*
+## Campaign notes
+
+**Audience:** Developer / DevOps (X), Enterprise platform engineers (LinkedIn)
+**Tone:** Technical credibility, not hype. Lead with the governance gap, not the feature.
+**Differentiation:** Org API key audit attribution — this is the claim competitors can't match.
+**Use case pairings:** X → Lighthouse / visual regression (developer pain), LinkedIn → governance / compliance (enterprise buyer concern)
+**Hashtags:** #MCP #AIAgents #AgenticAI #MoleculeAI
+**Coordination:** Do NOT post on same day as fly-deploy-anywhere. Suggested spacing: Chrome DevTools MCP Day 1, Fly Day 3–5.
