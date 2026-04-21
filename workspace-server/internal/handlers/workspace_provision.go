@@ -104,11 +104,11 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 	if err := h.envMutators.Run(ctx, workspaceID, envVars); err != nil {
 		log.Printf("Provisioner: env mutator chain failed for %s: %v", workspaceID, err)
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
-			"error": err.Error(),
+			"error": "provisioning failed",
 		})
 		if _, dbErr := db.DB.ExecContext(ctx,
 			`UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
-			workspaceID, err.Error()); dbErr != nil {
+			workspaceID, "provisioning failed"); dbErr != nil {
 			log.Printf("Provisioner: failed to mark workspace %s as failed after mutator error: %v", workspaceID, dbErr)
 		}
 		return
@@ -182,11 +182,11 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 		log.Printf("Provisioner: failed to start workspace %s: %v", workspaceID, err)
 		if _, dbErr := db.DB.ExecContext(ctx,
 			`UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
-			workspaceID, err.Error()); dbErr != nil {
+			workspaceID, "provisioning failed"); dbErr != nil {
 			log.Printf("Provisioner: failed to mark workspace %s as failed: %v", workspaceID, dbErr)
 		}
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
-			"error": err.Error(),
+			"error": "provisioning failed",
 		})
 	} else if url != "" {
 		// Pre-store the host-accessible URL (http://127.0.0.1:<port>) so the A2A proxy can reach the container.
@@ -567,7 +567,7 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 	if err := h.envMutators.Run(ctx, workspaceID, envVars); err != nil {
 		log.Printf("CPProvisioner: env mutator failed for %s: %v", workspaceID, err)
 		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
-			workspaceID, err.Error())
+			workspaceID, "provisioning failed")
 		return
 	}
 
@@ -583,10 +583,10 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 	if err != nil {
 		log.Printf("CPProvisioner: failed to start workspace %s: %v", workspaceID, err)
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
-			"error": err.Error(),
+			"error": "provisioning failed",
 		})
 		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
-			workspaceID, err.Error())
+			workspaceID, "provisioning failed")
 		return
 	}
 
