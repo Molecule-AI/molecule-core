@@ -75,7 +75,7 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 
 	createdDirs := map[string]bool{}
 	for name, content := range files {
-// CWE-22: clean the path before any archive-write operation. A ".."
+		// CWE-22: clean the path before any archive-write operation. A ".."
 		// segment in name could otherwise escape the mounted volume; an absolute
 		// path could target an unrelated location in the container filesystem.
 		clean := filepath.Clean(name)
@@ -84,6 +84,13 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 		}
 		// Prepend destPath so relative paths land inside the volume mount.
 		archiveName := filepath.Join(destPath, clean)
+		// Defence-in-depth: ensure the joined path doesn't escape destPath.
+		// This guards against platform-specific filepath.Join behaviour where
+		// joining a relative name containing ".." with a destPath can still
+		// produce an absolute path outside the intended directory.
+		if !strings.HasPrefix(archiveName, destPath) && archiveName != destPath {
+			return fmt.Errorf("path escapes destination: %s", name)
+		}
 
 		// Create parent directories in tar (deduplicated)
 		dir := filepath.Dir(archiveName)
