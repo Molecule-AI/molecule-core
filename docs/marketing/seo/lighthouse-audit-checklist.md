@@ -5,11 +5,12 @@
 **Posts to audit:**
 1. `docs/blog/2026-04-17-deploy-anywhere/` — Fly Machines backend launch ⚠️ Source audit done, live Lighthouse pending deploy
 2. `docs/blog/2026-04-20-chrome-devtools-mcp/` — Browser automation via MCP ✅ **SOURCE AUDIT COMPLETE** (see `2026-04-21-chrome-devtools-mcp-lighthouse-audit.md`). BLOCKED: page not deployed, OG image missing.
-3. `docs/blog/2026-04-20-remote-workspaces/` — Remote Agent Workspaces (PR #1157, merged 2026-04-20T23:56Z) ✅ RESOLVED
-4. `docs/blog/2026-04-20-agent-billing-attribution/` — Billing Attribution (pending — brief ready)
-5. `docs/blog/2026-04-20-fly-machines-ai-hosting/` — Fly Machines blog (pending — brief ready)
-6. `docs/blog/2026-04-21-cross-network-federation/` — Cross-Network Federation (pending — brief ready)
-7. `docs/blog/2026-04-21-remote-agent-platform/` — Remote Agent Platform anchor (pending — brief ready)
+3. `docs/blog/2026-04-20-mcp-server-list/` — MCP server ecosystem guide ✅ **SOURCE AUDIT COMPLETE** (see `2026-04-21-mcp-server-list-lighthouse-audit.md`). BLOCKED: page not deployed, OG image missing, JSON-LD missing.
+4. `docs/blog/2026-04-20-remote-workspaces/` — Remote Agent Workspaces (PR #1157, merged 2026-04-20T23:56Z) ✅ RESOLVED
+5. `docs/blog/2026-04-20-agent-billing-attribution/` — Billing Attribution (pending — brief ready)
+6. `docs/blog/2026-04-20-fly-machines-ai-hosting/` — Fly Machines blog (pending — brief ready)
+7. `docs/blog/2026-04-21-cross-network-federation/` — Cross-Network Federation (pending — brief ready)
+8. `docs/blog/2026-04-21-remote-agent-platform/` — Remote Agent Platform anchor (pending — brief ready)
 
 ---
 
