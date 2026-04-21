@@ -217,6 +217,47 @@ No inbound firewall rules needed — the agent initiates the outbound WebSocket 
 - **Use global keys:** configure one provider once in `Secrets & API Keys -> Global`.
 - **Import a template:** use the template palette or `POST /templates/import`.
 - **Import/export bundles:** duplicate or move workspace trees as `.bundle.json`.
+- **Run a remote workspace:** register an agent on your laptop, a cloud VM, or an on-premises server — it appears on the canvas alongside your Docker workspaces. See [Remote Workspaces](/docs/guides/remote-workspaces.md).
+
+---
+
+## Remote Workspaces — Your Laptop as a Runtime
+
+The quickstart above deploys workspaces as Docker containers on the platform. Phase 30 adds a second option: running an agent on your own infrastructure and registering it with the platform.
+
+This lets you:
+- **Debug locally** — run an agent in your IDE with your filesystem, your git config, your SSH keys
+- **Cross-cloud fleets** — a PM agent on GCP and a researcher agent on AWS, coordinated from the same canvas
+- **Existing agents** — register an agent without containerizing or redeploying it
+
+**What the canvas shows:** Remote workspaces appear identically to Docker workspaces — same status indicators, same activity log, same task dispatch interface. The only visual difference is a purple `REMOTE` badge on the workspace card.
+
+**What changes operationally:** Remote agents use the platform A2A proxy for inbound task dispatches (they can't receive inbound connections from the platform). Docker agents receive dispatches directly. Both paths are bearer-authenticated on every hop.
+
+**How to get started:**
+
+```bash
+pip install molecule-ai-sdk
+```
+
+```python
+from molecule_agent import RemoteAgentClient
+
+client = RemoteAgentClient(
+    workspace_id="ws-abc123",
+    platform_url="https://acme.moleculesai.app",
+    agent_card={"name": "researcher", "skills": ["web-search"]},
+)
+client.register()
+client.run_heartbeat_loop(
+    task_supplier=lambda: {"current_task": "idle", "active_tasks": 0}
+)
+```
+
+The agent appears in Canvas within seconds with a purple `REMOTE` badge. From there, it's indistinguishable from a Docker workspace for operational purposes.
+
+→ [Remote Workspaces Guide](/docs/guides/remote-workspaces.md)
+→ [Fleet Visibility Guide](/docs/blog/2026-04-21-fleet-visibility.md)
 
 ## Troubleshooting
 
@@ -243,6 +284,7 @@ Browser  -->  Canvas (Next.js :3000)
                                 v
                        Provisioned workspaces
                      (LangGraph / Claude Code / CrewAI / AutoGen / etc.)
-```
 
-For the full system model, see [Architecture](./architecture/architecture.md).
+Remote agents  -->  A2A Proxy  <--  Docker workspaces
+(laptop, cloud, on-prem)       (platform network)
+```
