@@ -81,13 +81,13 @@ If you've been managing a fleet of agents with a spreadsheet and Slack, this is 
 
 ---
 
-## Image / Visual Recommendations
+## Visual Assets
 
-| Platform | Asset | Description |
+| Platform | Asset | File |
 |---|---|---|
-| X (hook) | Fleet diagram | Canvas at center, 5 agent types radiating out (laptop, VM, CI, on-prem, SaaS). Purple REMOTE badge labels. |
-| X (security) | Token lifecycle card | 4 steps: Register → Token issued (once) → Secrets pulled on demand → Heartbeat every 30s. Monospace. Dark background. |
-| LinkedIn | Canvas screenshot mock | Canvas showing mixed fleet: 3 Docker workspaces, 2 REMOTE agents, all online. |
+| X (hook) | Fleet diagram | `marketing/assets/phase30-fleet-diagram.png` |
+| X (security) | Token lifecycle card | `marketing/devrel/campaigns/phase30-remote-workspaces/assets/token-lifecycle-card.png` |
+| LinkedIn | Canvas fleet mockup | `marketing/devrel/campaigns/phase30-remote-workspaces/assets/canvas-fleet-mockup.png` |
 | CTA | "One canvas, every agent." + GitHub link | |
 
 ---
