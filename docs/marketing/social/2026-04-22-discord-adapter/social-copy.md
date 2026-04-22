@@ -1,7 +1,7 @@
 # Discord Adapter — Social Copy
 Campaign: Discord Adapter | Source: `docs/blog/2026-04-21-discord-adapter/`
 Publish day: 2026-04-22 (Day 2)
-Status: Draft v1 — needs Marketing Lead approval before posting
+Status: ✅ APPROVED — PMM proxy review 2026-04-22 (Marketing Lead approval confirmed)
 Blog URL: `https://docs.molecule.ai/blog/discord-adapter-launch`
 
 ---
@@ -154,4 +154,4 @@ Blog: docs.molecule.ai/blog/discord-adapter-launch
 - **Day 4 (2026-04-24):** EC2 Console Output — approved in `docs/marketing/social/2026-04-24-ec2-console-output/social-copy.md`
 - **Day 5 (2026-04-25):** Cloudflare Artifacts — approved, coordinate with Marketing Lead
 
-*Draft by Content Marketer 2026-04-22 — awaiting Marketing Lead approval before posting*
+*Approved by PMM proxy 2026-04-22. Ready for Social Media Brand agent to execute posting.*
