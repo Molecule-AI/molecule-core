@@ -24,7 +24,7 @@ env:
 
 jobs:
   build-and-push:
-    runs-on: [self-hosted, macos, arm64]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,7 +35,7 @@ jobs:
         # the Go module has a `replace` directive pointing at /plugin inside
         # the image. Pre-repo-split the plugin lived in the monorepo; the
         # 2026-04-18 restructure moved it out but didn't add this clone step
-        # — which is why publish has been failing since then.
+        # — which is why publish was failing after that restructure.
         #
         # Uses a fine-grained PAT (PLUGIN_REPO_PAT) because the plugin repo
         # is private and the default GITHUB_TOKEN is scoped to THIS repo.
@@ -48,26 +48,15 @@ jobs:
           path: molecule-ai-plugin-github-app-auth
           token: ${{ secrets.PLUGIN_REPO_PAT || secrets.GITHUB_TOKEN }}
 
-      - name: Configure GHCR auth
-        shell: bash
-        env:
-          GHCR_USER: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -eu
-          mkdir -p "${RUNNER_TEMP}/docker-config"
-          GHCR_AUTH=$(printf '%s:%s' "${GHCR_USER}" "${GHCR_TOKEN}" | base64)
-          umask 077
-          printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "${GHCR_AUTH}" > "${RUNNER_TEMP}/docker-config/config.json"
-          echo "DOCKER_CONFIG=${RUNNER_TEMP}/docker-config" >> "${GITHUB_ENV}"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          platforms: linux/amd64
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
 
       - name: Compute tags
         id: tags

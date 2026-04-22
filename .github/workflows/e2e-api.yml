@@ -37,11 +37,14 @@ concurrency:
 jobs:
   e2e-api:
     name: E2E API Smoke Test
-    runs-on: [self-hosted, macos, arm64]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
-    # `services:` is Linux-only on self-hosted runners — we start postgres
-    # and redis via `docker run` instead. Ports 15432/16379 avoid collision
-    # with anything the host may already have on the standard ports.
+    # Postgres + Redis run as sibling containers via `docker run`. Could
+    # switch to a `services:` block now that we're on Linux, but the
+    # explicit start-and-wait gives us pg_isready / PING readiness checks
+    # that match the 30-tick timeouts the rest of the job expects. Ports
+    # 15432/16379 avoid collision with anything the host may already have
+    # on the standard ports.
     env:
       DATABASE_URL: postgres://dev:dev@localhost:15432/molecule?sslmode=disable
       REDIS_URL: redis://localhost:16379
