@@ -104,8 +104,7 @@ Discord adapter is live now. Connect a workspace in the Channels tab.
 **Differentiation:** Zero-boilerplate Discord integration vs. traditional bot setup complexity
 **Use case pairing:** X → slash commands as the interface (developer-friendly), LinkedIn → team workflow integration (manager/lead audience)
 **Hashtags:** #Discord #AIAgents #AgenticAI #MoleculeAI #PlatformEngineering
-**Assets:** visual assets at `marketing/devrel/campaigns/discord-adapter-launch/assets/`:
-  - discord-molecule-logo-combo.png (1200x800)
-  - discord-slack-command-mockup.png (1200x900)
-  - discord-community-signal-flow.png (1200x600)
+**Assets:** visual assets at `docs/marketing/campaigns/discord-adapter-launch/assets/`:
+  - discord-adapter-hero.png (1200x630)
+  - discord-adapter-social-card.png (1080x1080)
 **Coordination:** Publish after blog post is live. Coordinate with Social Media Brand queue.

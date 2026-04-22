@@ -115,7 +115,9 @@ Browse the full list with runnable code examples:
 **Audience:** Developers (X), Platform engineers / DevRel (LinkedIn)
 **Tone:** Practical, inventory-focused. Lead with the breadth and variety of the ecosystem. Governance is the differentiator — mention it in post 4 and LinkedIn.
 **Differentiation:** MCP is open, but MCP + org-level governance + workspace-scoped access is Molecule AI-specific. Don't just list servers — emphasize the org security layer.
-**Suggested image:** A visual showing the MCP server ecosystem: browser, GitHub, Slack, filesystem, AWS as connected nodes, with Molecule AI at the center. Alt-text: "Molecule AI MCP server ecosystem showing 20+ integrations (browser, GitHub, Slack, AWS, filesystem) connected to a Molecule AI workspace with org-level governance layer"
+**Suggested image:** `docs/marketing/campaigns/mcp-server-list/assets/mcp-server-list-hero.png` (1200x630)
+Alt-text: "Molecule AI MCP server ecosystem showing 20+ integrations (browser, GitHub, Slack, AWS, filesystem) connected to a Molecule AI workspace with org-level governance layer"
+Social card: `docs/marketing/campaigns/mcp-server-list/assets/mcp-server-list-social-card.png` (1080x1080)
 **Hashtags:** #MCP #AIAgents #AgenticAI #MoleculeAI #PlatformEngineering
 **Coordination:** Publish after blog goes live. Coordinate with Marketing Lead on timing. Suggested spacing: Day 2 of MCP launch week (after Chrome DevTools MCP Day 1).
 **Social Media Brand status:** Copy ready for manual execution by a human with X/LinkedIn access.
