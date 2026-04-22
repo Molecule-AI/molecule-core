@@ -6,7 +6,7 @@ since the a2a SDK is a heavy external dependency.
 
 import sys
 from types import ModuleType
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 
 def _make_a2a_mocks():
@@ -107,6 +107,66 @@ def _make_langchain_mocks():
 
     sys.modules["langchain_core"] = langchain_core_mod
     sys.modules["langchain_core.tools"] = langchain_core_tools_mod
+
+
+def _make_httpx_mock_module():
+    """Return a module-like httpx stub whose AsyncClient() returns a
+    properly-configured async context-manager mock.
+
+    Tests that patch ``a2a_tools.httpx.AsyncClient`` are intercepted here so
+    the per-test ``AsyncMock`` configured in the patch is returned when
+    ``httpx.AsyncClient()`` is called inside a2a_tools.py functions.
+
+    The stub also registers ``httpx`` in sys.modules so that
+    ``from a2a_tools import httpx`` resolves to the stub (not the real httpx)
+    when the real httpx is not installed.
+    """
+    httpx_mod = ModuleType("httpx")
+    httpx_mod.__name__ = "httpx"
+
+    def _make_async_client_mock():
+        """Return an async-context-manager mock that yields an AsyncMock client."""
+        client = AsyncMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        return client
+
+    class _AsyncClient:
+        """Callable whose instances act as async context managers.
+
+        ``async with _AsyncClient() as client:`` yields an AsyncMock client.
+        The per-test patch target (e.g. patch(...,
+        return_value=_configured_client)) is captured on the *class* attribute
+        so the same mock instance is returned every time the patch is hit.
+        """
+        mock_client = None  # set by test patches on the class instance
+
+        def __call__(self, *args, **kwargs):
+            # Each call returns a fresh async-context-manager mock so that
+            # multiple httpx.AsyncClient() calls in the same test (e.g.
+            # report_activity fires two POSTs) each get an independent client.
+            client = AsyncMock()
+            client.__aenter__ = AsyncMock(return_value=client)
+            client.__aexit__ = AsyncMock(return_value=False)
+            # Apply any per-call patch configured on the class (e.g.
+            # mock.return_value = configured_response set by the test patch).
+            if self.mock_client is not None:
+                return self.mock_client
+            return client
+
+        async def __aenter__(self):
+            c = AsyncMock()
+            c.__aenter__ = AsyncMock(return_value=c)
+            c.__aexit__ = AsyncMock(return_value=False)
+            return c
+
+        async def __aexit__(self, *args):
+            return False
+
+    httpx_mod.AsyncClient = _AsyncClient()
+    httpx_mod.__dict__["AsyncClient"] = httpx_mod.AsyncClient
+
+    return httpx_mod
 
 
 def _make_tools_mocks():
@@ -213,6 +273,14 @@ def _make_tools_mocks():
     sys.modules["builtin_tools.audit"] = tools_audit_mod
     sys.modules["builtin_tools.hitl"] = tools_hitl_mod
     sys.modules["builtin_tools.security"] = _sec_mod
+
+    # httpx mock — replace the real httpx (if installed) with our stub so that
+    # every code path inside a2a_tools.py that calls httpx.AsyncClient() gets
+    # an async-context-manager mock. Tests that patch a2a_tools.httpx.AsyncClient
+    # will have their AsyncMock returned when the class is instantiated.
+    httpx_mod = _make_httpx_mock_module()
+    sys.modules["httpx"] = httpx_mod
+    tools_a2a_mod.httpx = httpx_mod
 
 
 def _make_claude_agent_sdk_mock():
