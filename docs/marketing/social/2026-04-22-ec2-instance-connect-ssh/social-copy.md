@@ -115,7 +115,14 @@ EC2 Instance Connect SSH is live now for all CP-provisioned workspaces.
 
 ---
 
-## Visual Asset Specifications
+## Visual Asset Specifications — ASSETS READY
+
+**Architecture diagram: ✅ generated**
+- `docs/marketing/campaigns/ec2-instance-connect-ssh/assets/eice-architecture-diagram.png` (129KB, dark theme)
+- Shows: Canvas → Platform → AWS STS/EIC → EC2 Instance full path
+- Covers: IAM policy check, STS temp key push, EIC audit log, optional direct curl path
+
+**Terminal demo GIF — pending** (requires live Canvas + workspace)
 
 1. **Terminal demo GIF** — Canvas Terminal tab showing bash prompt inside an EC2 workspace:
    - Canvas UI with a workspace node selected

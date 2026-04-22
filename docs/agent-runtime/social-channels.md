@@ -23,8 +23,8 @@ The `channel:<type>` caller prefix bypasses workspace hierarchy access checks (s
 | Type | Status | Library |
 |------|--------|---------|
 | `telegram` | ✅ Implemented | `go-telegram-bot-api/v5` |
+| `discord` | ✅ Implemented | Built-in (webhook only, no bot account) |
 | `slack` | Planned | — |
-| `discord` | Planned | — |
 | `whatsapp` | Planned | — |
 
 To add a new adapter: implement `ChannelAdapter` in `workspace-server/internal/channels/`, register in `registry.go`. Everything else (CRUD API, Canvas UI, MCP tools) works automatically.
@@ -178,6 +178,42 @@ send_channel_message({ workspace_id, channel_id, text })             // outbound
 test_channel({ workspace_id, channel_id })                           // test connection
 ```
 
+## Discord Setup
+
+### Outbound: send messages to a Discord channel
+
+1. Create a Discord Incoming Webhook — channel settings → Integrations → Webhooks → New Webhook
+2. Copy the webhook URL
+3. In Canvas: workspace → **Channels** tab → **+ Connect** → **Discord** → paste the URL
+
+Or via API:
+```bash
+curl -X POST http://localhost:8080/workspaces/:id/channels \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "channel_type": "discord",
+    "config": {
+      "webhook_url": "https://discord.com/api/webhooks/123456789/abcdefghijklmnop"
+    }
+  }'
+```
+
+Long responses are auto-chunked to Discord's 2,000-character limit.
+
+### Inbound: receive slash commands
+
+Point your Discord app's **Interactions Endpoint URL** at `POST /webhooks/discord` on your platform. Discord handles signature verification; the platform verifies at the router layer before the adapter sees the payload. Slash command name and options are reconstructed as plain text and forwarded to your workspace agent.
+
+**No bot account, no Gateway, no OAuth.** The webhook URL is the only credential.
+
+### Security
+
+Webhook tokens are never logged. HTTP errors are logged without the URL. See [PR #659](https://github.com/Molecule-AI/molecule-core/pull/659) for the security hardening details.
+
+### Multi-server
+
+Unlike Telegram's bot-token model, Discord webhooks are per-channel. To reach multiple channels or servers, add a separate channel entry for each webhook URL. Each entry can have its own allowlist.
+
 ## Telegram-Specific Implementation Notes
 
 - **Bot instance cache** (`sync.RWMutex`) avoids `getMe` API call on every send.
@@ -195,6 +231,7 @@ test_channel({ workspace_id, channel_id })                           // test con
 | `workspace-server/internal/channels/adapter.go` | `ChannelAdapter` interface |
 | `workspace-server/internal/channels/registry.go` | Adapter registry |
 | `workspace-server/internal/channels/telegram.go` | Telegram implementation |
+| `workspace-server/internal/channels/discord.go` | Discord implementation (webhook-only, PR #656) |
 | `workspace-server/internal/channels/manager.go` | Orchestrator with hot reload |
 | `workspace-server/internal/handlers/channels.go` | REST API + webhook |
 | `workspace-server/migrations/016_workspace_channels.sql` | DB schema |
