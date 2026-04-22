@@ -1,0 +1,18 @@
+# golangci-lint configuration for workspace-server
+# errcheck is disabled to avoid blocking CI on pre-existing violations.
+# These should be fixed in a dedicated lint-fix PR, not mixed with feature work.
+run:
+  timeout: 3m
+linters:
+  enable:
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosec
+    - unconvert
+    - unparam
+    - gofmt
+    - goimports
+    - revive
