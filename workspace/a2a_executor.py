@@ -411,8 +411,13 @@ class LangGraphA2AExecutor(AgentExecutor):
                 #   immediately as the response (a2a_client.py reads .parts[0].text).
                 # Streaming: yielded as the last SSE event in the stream.
                 msg = new_agent_text_message(final_text, task_id=task_id, context_id=context_id)
-                if tool_trace:
-                    msg.metadata = {"tool_trace": tool_trace}
+                # Attach tool_trace via metadata when supported. Guarded with
+                # hasattr because some test mocks return a plain string here.
+                if tool_trace and hasattr(msg, "metadata"):
+                    try:
+                        msg.metadata = {"tool_trace": tool_trace}
+                    except (AttributeError, TypeError):
+                        pass
                 await event_queue.enqueue_event(msg)
                 _result = final_text
 
