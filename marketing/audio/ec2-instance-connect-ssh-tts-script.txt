@@ -1,0 +1,25 @@
+# TTS Script — EC2 Instance Connect SSH
+**Blog:** docs.molecule.ai/blog/ec2-instance-connect-ssh
+**Duration:** ~60s at ~150 wpm
+**Date:** 2026-04-22
+**Author:** Content Marketer (auto-generated)
+
+---
+
+When an AI agent workspace fails to boot, you need a shell.
+
+Before EC2 Instance Connect Endpoint: open an inbound SSH port, or set up a bastion host. Neither fits a self-serve platform where the person debugging isn't always the person who owns the networking.
+
+Now: open the Terminal tab. Bash prompt appears. Nothing to configure.
+
+Molecule AI's Terminal tab routes through AWS EC2 Instance Connect Endpoint — for CP-provisioned workspaces. The tunnel is signed by the AWS API on demand. It exists only for the duration of the session. No inbound ports. No long-lived credentials.
+
+Platform engineers get a shell. Security teams get CloudTrail records.
+
+Standard SSH. AWS-signed. Ephemeral.
+
+The path: Canvas WebSocket goes to the molecule server, which calls AWS EC2 Instance Connect SSH, which opens a tunnel to the EC2 Instance Connect Endpoint, which connects to your EC2 instance and runs docker exec bash. AWS CLI version 2 handles the EICE WebSocket handshake and signed credential injection. No native SDK needed. The tenant image adds about one megabyte via the APK package manager.
+
+EIC Endpoint requires two IAM permissions on the molecule-cp role: ec2-instance-connect:SendSSHPublicKey, and ec2-instance-connect:OpenTunnel. Both are scoped with an AWS resource tag so the permission applies only to instances Molecule AI provisioned. One EIC Endpoint per VPC. Create it once.
+
+If your team runs deployments in AWS and needs a shell without managing SSH keys, this is what you're looking for.
