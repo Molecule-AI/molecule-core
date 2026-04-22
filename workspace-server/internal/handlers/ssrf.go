@@ -213,7 +213,7 @@ func validateRelPath(filePath string) error {
 		return fmt.Errorf("empty or dot-only path not allowed")
 	}
 	clean := filepath.Clean(filePath)
-// Reject absolute paths (Unix / or Windows C:\).
+	// Reject absolute paths (Unix / or Windows C:\).
 	if filepath.IsAbs(clean) {
 		return fmt.Errorf("path traversal or absolute path not allowed: %s", filePath)
 	}

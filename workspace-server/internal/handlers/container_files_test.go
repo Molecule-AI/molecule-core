@@ -29,7 +29,7 @@ func TestValidateRelPath(t *testing.T) {
 		{"trailing dotdot", "../", true},
 		{"embedded dotdot", "foo/../bar", true},
 		{"dotdot middle", "a/b/../../c", true},
-		{"path ends in ..", "foo/..", false}, // Clean() resolves to "foo" — no .. left after clean
+		{"path ends in ..", "foo/..", true}, // raw contains ".." → reject (even if Clean() resolves it away)
 		{"bare ..", "..", true},
 
 		// Absolute: must be rejected
