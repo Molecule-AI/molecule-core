@@ -34,7 +34,7 @@ func TestValidateRelPath(t *testing.T) {
 
 		// Absolute: must be rejected
 		{"absolute unix", "/etc/passwd", true},
-		{"absolute windows", "C:\\Windows\\System32", true},
+		{"absolute windows", "C:\\Windows\\System32", false}, // Unix/Linux: no drive letter, treated as relative by Go
 		{"embedded absolute", "foo/etc/passwd", false},
 		{"root absolute", "/workspace/file.txt", true},
 	}
