@@ -5,11 +5,28 @@
 
 ---
 
-*Last updated: 2026-04-22T15:27Z by Infra-SRE — PR #1582 MERGEABLE ✅ (BEST PATH); ⚠️ PR #1583 CWE-78 regression confirmed (container_files.go:174 exec form reverted); PR #1588 regression guard opened; ✅ PR #1542 SSRF bypass is SAFE (CP-QA APPROVED, narrow scope); GH_TOKEN RESTORED ✅ — git push working; branch ship/security-fixes-to-main-0516 pushed and clean*
+*Last updated: 2026-04-22T16:32Z by Infra-SRE — AUTO-MERGE ENABLED on PR #1498 ✅ (enabled 16:12:05Z); CI failing on hongming-m1-mini runners (Go + Python); new CI run queued on sha 307859dd; SDK Lead relay COMPLETE (all commits already on main); plugin-dev repos 1-5 DON'T EXIST; PR #1582 remains BEST PATH fallback*
 
 ---
 
-## P0 — Platform Incident Cycle Update (2026-04-22T15:27Z)
+## P0 — Platform Incident Cycle Update (2026-04-22T16:32Z)
+
+### Auto-Merge Enabled on PR #1498 ✅ | CI Blocked by Runner Corruption
+
+**Status:** PR #1498 has auto-merge enabled (enabled 16:12:05Z via gh CLI with App token). CI is **failing** on self-hosted runners due to corruption (hongming-m1-mini-2: Go build failure, hongming-m1-mini: Python test failure). A new CI run is queued on commit `307859dd` (terminal IPv6 fix, PR #1579) with `Platform (Go)` job waiting.
+
+**Remaining path to merge:** CI must pass → auto-merge fires automatically. No manual intervention available — branch protection requires 1 human approving review (bot cannot self-approve) and all status checks must pass.
+
+**Runner fix required (needs SSH — this workspace has no access):**
+```
+# hongming-m1-mini-2 (Go cache corruption → Platform (Go) failure):
+rm -rf ~/go/pkg/mod ~/Library/Caches/go-build && go mod download
+# hongming-m1-mini (Python sqlalchemy missing → Python Lint & Test failure):
+pip3.11 install sqlalchemy
+```
+
+### SDK Lead Relay — COMPLETE ✅
+All SDK/MCP commits already on origin/main. molecule-plugin-dev-1 through -5 repos do not exist (404). molecule-tenant-proxy verified clean earlier.
 
 ### GH_TOKEN Restored ✅
 
