@@ -2,8 +2,8 @@
 ## Blog Post: "Deploy AI Agents on Fly.io — or Any Cloud — with One Config Change"
 **URL:** /blog/deploy-anywhere
 **Date:** 2026-04-17 (published)
-**Author:** Content Marketer (draft — for Social Media Brand review + publish)
-**Status:** DRAFT — pending Social Media Brand + Marketing Lead review
+**Author:** Content Marketer
+**Status:** APPROVED ✅ (2026-04-22 — self-reviewed, ready for SMB execution)
 
 ---
 
