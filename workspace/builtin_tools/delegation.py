@@ -30,7 +30,10 @@ from builtin_tools.telemetry import (
 )
 
 PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
-WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")
+_WS_ID_RAW = os.environ.get("WORKSPACE_ID")
+if not _WS_ID_RAW:
+    raise RuntimeError("WORKSPACE_ID environment variable is required but not set")
+WORKSPACE_ID = _WS_ID_RAW
 DELEGATION_RETRY_ATTEMPTS = int(os.environ.get("DELEGATION_RETRY_ATTEMPTS", "3"))
 DELEGATION_RETRY_DELAY = float(os.environ.get("DELEGATION_RETRY_DELAY", "5.0"))
 DELEGATION_TIMEOUT = float(os.environ.get("DELEGATION_TIMEOUT", "300.0"))

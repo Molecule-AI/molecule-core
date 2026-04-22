@@ -55,7 +55,10 @@ logger = logging.getLogger(__name__)
 AUDIT_LOG_PATH: str = os.environ.get(
     "AUDIT_LOG_PATH", "/var/log/molecule/audit.jsonl"
 )
-WORKSPACE_ID: str = os.environ.get("WORKSPACE_ID", "")
+_WS_ID_RAW = os.environ.get("WORKSPACE_ID")
+if not _WS_ID_RAW:
+    raise RuntimeError("WORKSPACE_ID environment variable is required but not set")
+WORKSPACE_ID: str = _WS_ID_RAW
 
 # Protects the open() + write() sequence; prevents interleaved JSON lines
 # when multiple async tasks run in the same event-loop thread.

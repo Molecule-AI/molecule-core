@@ -51,7 +51,10 @@ import os
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
-WORKSPACE_ID: str = os.environ.get("WORKSPACE_ID", "")
+_WS_ID_RAW = os.environ.get("WORKSPACE_ID")
+if not _WS_ID_RAW:
+    raise RuntimeError("WORKSPACE_ID environment variable is required but not set")
+WORKSPACE_ID: str = _WS_ID_RAW
 
 # Module-level singleton — set by initialize_governance() at startup
 _adapter: Optional["GovernanceAdapter"] = None
