@@ -70,9 +70,11 @@ func TestTerminalConnect_KI005_RejectsUnauthorizedCrossWorkspace(t *testing.T) {
 	canCommunicateCheck = func(callerID, targetID string) bool { return false }
 	defer func() { canCommunicateCheck = prev }()
 
-	// Token lookup: ws-caller's token is valid.
-	rows := sqlmock.NewRows([]string{"workspace_id"}).AddRow("ws-caller")
-	mock.ExpectQuery("SELECT workspace_id FROM workspace_tokens").
+	// Token lookup: ValidateToken queries workspace_auth_tokens for token hash,
+	// JOINs with workspaces, and checks revoked_at + status. Return id + workspace_id.
+	// ValidateToken then verifies workspace_id == callerID (ws-caller) → passes.
+	rows := sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("token-123", "ws-caller")
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id.*FROM workspace_auth_tokens t.*JOIN workspaces`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(rows)
 
@@ -195,6 +197,7 @@ func TestTerminalConnect_KI005_SkipsCheckWithoutHeader(t *testing.T) {
 // token also results in a non-200 response (falls through to Docker auth).
 // ValidateAnyToken returns error → CanCommunicate is never called.
 func TestTerminalConnect_KI005_RejectsInvalidToken(t *testing.T) {
+	mock := setupTestDB(t)
 	canCommunicateCalled := false
 	prev := canCommunicateCheck
 	canCommunicateCheck = func(callerID, targetID string) bool {
@@ -202,6 +205,12 @@ func TestTerminalConnect_KI005_RejectsInvalidToken(t *testing.T) {
 		return true
 	}
 	defer func() { canCommunicateCheck = prev }()
+
+	// ValidateToken queries workspace_auth_tokens with the token hash.
+	// No rows returned = ErrInvalidToken → 401.
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id.*FROM workspace_auth_tokens t.*JOIN workspaces`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}))
 
 	h := NewTerminalHandler(nil)
 	w := httptest.NewRecorder()
@@ -216,22 +225,28 @@ func TestTerminalConnect_KI005_RejectsInvalidToken(t *testing.T) {
 	if canCommunicateCalled {
 		t.Error("CanCommunicate should not be called with an invalid token")
 	}
-	// Got 503 (nil docker) instead of 200/403 — ValidateAnyToken rejected the
-	// token and we fell through to Docker auth, which returned 503 (nil docker).
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("invalid token: got %d, want 503 nil-docker (%s)", w.Code, w.Body.String())
+	// #1609 fix: ValidateToken rejects the invalid token → 401.
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("invalid token: got %d, want 401 (%s)", w.Code, w.Body.String())
 	}
 }
 
 // TestTerminalConnect_KI005_AllowsSiblingWorkspace tests the sibling path:
 // two workspaces with the same parent ID should be allowed to communicate.
 func TestTerminalConnect_KI005_AllowsSiblingWorkspace(t *testing.T) {
+	mock := setupTestDB(t)
 	prev := canCommunicateCheck
 	canCommunicateCheck = func(callerID, targetID string) bool {
 		// Simulate sibling: same parent
 		return callerID == "ws-pm" && targetID == "ws-dev"
 	}
 	defer func() { canCommunicateCheck = prev }()
+
+	// ValidateToken must succeed for ws-pm's token.
+	rows := sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("token-456", "ws-pm")
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id.*FROM workspace_auth_tokens t.*JOIN workspaces`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(rows)
 
 	h := NewTerminalHandler(nil)
 	w := httptest.NewRecorder()
@@ -243,9 +258,44 @@ func TestTerminalConnect_KI005_AllowsSiblingWorkspace(t *testing.T) {
 
 	h.HandleConnect(c)
 
-	// CanCommunicate returned true → reached Docker path → 503 nil-docker
+	// ValidateToken passed (ws-pm token) + CanCommunicate returned true → reached Docker path → 503 nil-docker
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("sibling access: got %d, want 503 nil-docker (%s)", w.Code, w.Body.String())
+	}
+}
+
+// TestTerminalConnect_KI005_TokenMustMatchClaimedWorkspace is the regression test for
+// GH#756 / #1609: a caller with a valid token for workspace A must NOT be able to
+// forge X-Workspace-ID: B and access B's terminal. ValidateAnyToken accepted any
+// valid org token; the fix uses ValidateToken(callerID, tok) which verifies the
+// token belongs to the claimed X-Workspace-ID.
+func TestTerminalConnect_KI005_TokenMustMatchClaimedWorkspace(t *testing.T) {
+	mock := setupTestDB(t)
+	prev := canCommunicateCheck
+	canCommunicateCheck = func(callerID, targetID string) bool {
+		return true // Simulate sibling/parent relationship
+	}
+	defer func() { canCommunicateCheck = prev }()
+
+	// The attacker (ws-attacker) has a valid token, but claims X-Workspace-ID: ws-victim.
+	// ValidateToken(ws-victim, attacker-token) looks up the token hash and finds it belongs
+	// to ws-attacker (not ws-victim) → ErrInvalidToken → 401.
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id.*FROM workspace_auth_tokens t.*JOIN workspaces`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("token-attack", "ws-attacker"))
+
+	h := NewTerminalHandler(nil)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-victim"}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/ws-victim/terminal", nil)
+	c.Request.Header.Set("X-Workspace-ID", "ws-victim")
+	c.Request.Header.Set("Authorization", "Bearer attacker-valid-token")
+
+	h.HandleConnect(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("token-workspace mismatch: got %d, want 401 (%s)", w.Code, w.Body.String())
 	}
 }
 
