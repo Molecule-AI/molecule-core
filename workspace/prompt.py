@@ -1,5 +1,6 @@
 """Build the system prompt for the workspace agent."""
 
+import os
 from pathlib import Path
 
 from skill_loader.loader import LoadedSkill
@@ -25,6 +26,24 @@ async def get_peer_capabilities(platform_url: str, workspace_id: str) -> list[di
     return []
 
 
+async def get_platform_instructions(platform_url: str, workspace_id: str) -> str:
+    """Fetch resolved platform instructions (global + team + workspace scope)."""
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{platform_url}/instructions/resolve",
+                params={"workspace_id": workspace_id},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("instructions", "")
+    except Exception as e:
+        print(f"Warning: could not fetch platform instructions: {e}")
+    return ""
+
+
 def build_system_prompt(
     config_path: str,
     workspace_id: str,
@@ -34,6 +53,7 @@ def build_system_prompt(
     plugin_rules: list[str] | None = None,
     plugin_prompts: list[str] | None = None,
     parent_context: list[dict] | None = None,
+    platform_instructions: str = "",
 ) -> str:
     """Build the complete system prompt.
 
@@ -49,6 +69,12 @@ def build_system_prompt(
     - Default: system-prompt.md
     """
     parts = []
+
+    # Platform instructions (global → team → workspace scope) go first so
+    # they take highest precedence in the context window.
+    if platform_instructions:
+        parts.append("# Platform Instructions\n")
+        parts.append(platform_instructions)
 
     # Load prompt files in order
     files_to_load = list(prompt_files or [])
