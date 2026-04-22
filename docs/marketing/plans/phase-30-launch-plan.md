@@ -1,8 +1,8 @@
 # Phase 30 Launch Plan — Chrome DevTools MCP SEO Campaign
 
 **Owner:** Marketing Lead
-**Status:** Draft — CTAs + GA date TBD (blocked on engineering)
-**Last updated:** 2026-04-20
+**Status:** Active — Day 1 execution pending social credentials
+**Last updated:** 2026-04-21
 
 ---
 
@@ -11,14 +11,26 @@
 | Deliverable | Owner | Status |
 |-------------|-------|--------|
 | SEO brief | Marketing Lead | ✅ Complete |
-| Blog post | Marketing Lead | ✅ Complete |
-| Keywords (P0/P1) | Marketing Lead | ✅ Confirmed |
-| Keywords doc | Orchestrator | ✅ Created |
-| Social distribution | Social Media Brand / Content Marketer | ⏳ Pending (both busy) |
-| CTA links | Engineering | ⏳ TBD |
-| GA date | Engineering | ⏳ TBD |
-| SEO indexing | SEO Analyst | ⚠️ Unverified |
-| Launch announcement | Content Marketer | ⏳ Pending |
+| Blog post | Marketing Lead | ✅ LIVE on main (689d82d) |
+| Keywords (P0/P1) | Marketing Lead | ✅ Confirmed — all P0/P1 integrated |
+| Social copy | Marketing Lead | ✅ APPROVED (PR #1504) |
+| Backlinks outreach | Marketing Lead | ✅ APPROVED (PR #1504) |
+| Social queue Day 1–5 | Marketing Lead | ✅ APPROVED — executing when credentials land |
+| SEO pre-launch | SEO Analyst | ✅ COMPLETE — all P0/P1 keywords integrated, GH link + JSON-LD + frontmatter fixed |
+| SEO Lighthouse checklist | SEO Analyst | 📋 CREATED — 215 lines, 7 post templates (pending commit to PR) |
+| SEO indexing | SEO Analyst | ⏳ Lighthouse audit opens 2026-04-22 (~15h from now) |
+| Social distribution | Social Media Brand | ⏳ BLOCKED — X/LinkedIn credentials not provisioned |
+
+## Social Queue (Approved)
+
+| Day | Date | Campaign | Status |
+|-----|------|----------|--------|
+| Day 1 | Apr 21 | Chrome DevTools MCP | ✅ Ready — blocked on credentials |
+| Day 2 | Apr 22 | Discord Adapter | ✅ Ready |
+| Day 3 | Apr 23 | Org API Keys | ✅ Ready |
+| Day 4 | Apr 24 | EC2 Console Output | ✅ APPROVED — social copy written by Marketing Lead (PR #1178 + demo storyboard) |
+| Day 5 | Apr 25 | Cloudflare Artifacts | ⚠️ APPROVED — PM ruling 2026-04-22: "sub-100ms" claim is UNSUBSTANTIATED. Do not soften. Flag in published copy. Sourcing gap doc: `docs/marketing/sourcing-gaps/cloudflare-artifacts-sub-100ms.md` |
+| Day 5+ | Apr 25+ | Org-Scoped API Keys | ✅ Approved | |
 
 ---
 
@@ -33,37 +45,34 @@
 
 ## Pending Actions
 
-### CTA Links + GA Date
-**Blocked on:** Engineering
-**Action required:** Engineering to provide:
-1. Final CTA URL for the blog post (e.g. demo, signup, docs link)
-2. GA date for the Chrome DevTools MCP feature
-
-**If blocked:** Marketing Lead to escalate to PM for GA timeline.
+### Social Credentials (BLOCKER — CEO action required)
+**Owner:** CEO / whoever has access to developer.twitter.com and linkedin.com/developers
+**Action required:**
+1. Create X API v2 app → generate Bearer Token
+2. Create LinkedIn API app → generate Client ID + Secret
+3. Provision both to Social Media Brand workspace (`a0ddb78e-72b3-4597-b945-daa3314478c6`)
+**Status:** Blocking all 5 days of approved social content.
 
 ### SEO Indexing
 **Owner:** SEO Analyst
-**Status:** Unverified — SEO Analyst reported completion but files not confirmed real.
-**Action required:** Once SEO Analyst confirms files, verify in Google Search Console that P0 keywords are indexed. Do not mark indexing complete until confirmed.
+**Status:** Lighthouse audit pending post-deploy. Schedule 48h post-GA audit.
+**Action required:** Run Lighthouse + verify P0 keywords are indexed in Google Search Console.
 
-### Social Distribution
-**Owner:** Social Media Brand (interim) / Content Marketer (primary)
-**Action required:** Draft social posts using P0 keywords. Route to blog post CTA once engineering provides link.
-
-### Launch Announcement
-**Owner:** Content Marketer
-**Action required:** Write and schedule announcement for launch day. Use confirmed keywords and blog post as source.
+### EC2 Console Output (Day 4)
+**Owner:** Social Media Brand
+**Status:** Draft pending Marketing Lead approval
+**Action required:** Share draft copy for approval before Apr 24.
 
 ---
 
 ## Open Questions
 
-1. **GA date:** Is there a confirmed ship date for Chrome DevTools MCP?
-2. **CTA link:** What is the primary conversion target for the blog post?
-3. **SEO Analyst output:** Where did their deliverables actually land?
+1. **Social credentials:** Timeline for provisioning?
+2. **EC2 Console Output:** Share draft copy for Marketing Lead approval.
+3. **Phase 30 GA date:** Confirmed shipped Apr 20 ✅
 
 ---
 
 ## Next Checkpoint
 
-Review pending items in next marketing lead sync. Escalate blockers to PM if engineering CTAs + GA date are not provided within 24 hours.
+Social Media Brand will execute Day 1–5 as soon as credentials land. No other blockers from marketing side.
