@@ -364,6 +364,19 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		adminAuth.DELETE("/admin/secrets/:key", sechGlobal.DeleteGlobal)
 	}
 
+	// Platform instructions — configurable rules with global/team/workspace scope.
+	// Admin endpoints for CRUD; workspace-facing resolve endpoint for agent bootstrap.
+	{
+		instrH := handlers.NewInstructionsHandler()
+		adminInstr := r.Group("", middleware.AdminAuth(db.DB))
+		adminInstr.GET("/instructions", instrH.List)
+		adminInstr.POST("/instructions", instrH.Create)
+		adminInstr.PUT("/instructions/:id", instrH.Update)
+		adminInstr.DELETE("/instructions/:id", instrH.Delete)
+		// Resolve endpoint is open to workspace auth (agents call it at startup)
+		r.GET("/instructions/resolve", instrH.Resolve)
+	}
+
 	// Admin — cross-workspace schedule health monitoring (issue #618).
 	// Lets cron-audit agents and operators detect silent schedule failures
 	// across all workspaces without holding individual workspace bearer tokens.
