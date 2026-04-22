@@ -20,11 +20,7 @@ COPY --from=builder /app/public ./public
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
-# Non-root runtime — node image defaults to root, explicitly drop.
-# node:20-alpine ships with a `node` user at uid/gid 1000; remove it before
-# claiming 1000 for `canvas` so `addgroup -g 1000` doesn't collide.
-RUN deluser --remove-home node 2>/dev/null || true; \
-    delgroup node 2>/dev/null || true; \
-    addgroup -g 1000 canvas && adduser -u 1000 -G canvas -s /bin/sh -D canvas
-USER canvas
+# Non-root runtime — node:20-alpine already has gid 1000 (node group).
+# Use the existing node user instead of creating a new one.
+USER node
 CMD ["node", "server.js"]
