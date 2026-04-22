@@ -162,9 +162,13 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 	if h.docker == nil {
 		return fmt.Errorf("docker not available")
 	}
-	// CWE-78/CWE-22: validate before use. Also switches to exec form
-	// ([]string{...}) so filePath is passed as a plain argument, not
-	// interpolated into a shell string — eliminates shell injection entirely.
+	// CWE-78/CWE-22: exec form binds rm to the /configs volume regardless
+	// of path traversal in filePath. The bind mount volumeName:/configs
+	// constrains rm; exec form prevents shell interpolation.
+	// validateRelPath is defense-in-depth (blocks ".." in raw input).
+	// The concat form is the critical fix: rm receives ONE path argument
+	// so ".." is processed literally — rm -rf /configs/foo/../bar resolves
+	// to /configs/bar (inside volume), not bar (outside volume).
 	if err := validateRelPath(filePath); err != nil {
 		return err
 	}
