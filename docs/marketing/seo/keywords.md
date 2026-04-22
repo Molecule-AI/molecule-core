@@ -265,6 +265,12 @@ No dedicated landing page confirmed yet — coordinate with PMM (GH#1116) to det
 - Add `SSH` keyword to tracking (was noted as missing from all prior briefs)
 - Add `EC2 Instance Connect` and `EC2 Instance Connect Endpoint tutorial` to tracking
 
+**Content Marketer update (2026-04-22):**
+- `SSH` keyword: already tracked under Chrome DevTools MCP (Phase 30 Day 1) — see line 28
+- `EC2 Instance Connect` and `EC2 Instance Connect Endpoint tutorial`: added above in this brief ✅
+- `A2A protocol` and `agent delegation audit trail`: added to A2A Enterprise brief ✅
+- Canonical URL confirmed: `https://docs.molecule.ai/blog/a2a-enterprise-any-agent-any-infrastructure`
+
 ---
 
 *Last updated: 2026-04-22 by Content Marketer (brief filing + keywords.md sync)*
