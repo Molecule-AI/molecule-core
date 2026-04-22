@@ -178,7 +178,10 @@ async def _notify_channels(
     misconfigured Slack webhook cannot block the approval flow.
     """
     platform_url = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
-    workspace_id = os.environ.get("WORKSPACE_ID", "")
+    _ws_raw = os.environ.get("WORKSPACE_ID")
+    if not _ws_raw:
+        raise RuntimeError("WORKSPACE_ID environment variable is required but not set")
+    workspace_id = _ws_raw
 
     for channel in cfg.channels:
         ch_type = channel.get("type", "dashboard")
@@ -453,7 +456,10 @@ async def pause_task(task_id: str, reason: str = "") -> dict:
     # reject callers from a different workspace (cross-workspace prompt-injection
     # prevention).  External task_id is unchanged — only internal ownership
     # metadata is added, so no tests or callers need to update their task IDs.
-    _ws = os.environ.get("WORKSPACE_ID", "")
+    _ws_raw = os.environ.get("WORKSPACE_ID")
+    if not _ws_raw:
+        raise RuntimeError("WORKSPACE_ID environment variable is required but not set")
+    _ws = _ws_raw
 
     try:
         from builtin_tools.audit import log_event
@@ -526,7 +532,10 @@ async def resume_task(task_id: str, message: str = "") -> dict:
     """
     # #265: pass caller's workspace ID so the registry can reject a resume
     # from a different workspace (ownership check in _TaskPauseRegistry.resume).
-    _ws = os.environ.get("WORKSPACE_ID", "")
+    _ws_raw = os.environ.get("WORKSPACE_ID")
+    if not _ws_raw:
+        raise RuntimeError("WORKSPACE_ID environment variable is required but not set")
+    _ws = _ws_raw
 
     result_payload = {"message": message} if message else {}
     success = pause_registry.resume(task_id, result_payload, owner=_ws)
