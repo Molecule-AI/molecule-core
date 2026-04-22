@@ -32,16 +32,6 @@ const validateAnyTokenSelectQuery = "SELECT t\\.id.*FROM workspace_auth_tokens t
 // validateTokenUpdateQuery is matched for the best-effort last_used_at UPDATE.
 const validateTokenUpdateQuery = "UPDATE workspace_auth_tokens SET last_used_at"
 
-// newWorkspaceAuthRouter builds a minimal gin router that applies WorkspaceAuth
-// to a single GET /workspaces/:id/test route, returning 200 on success.
-func newWorkspaceAuthRouter(db sqlmock.Sqlmock, realDB interface{ Close() error }) *gin.Engine {
-	_ = db  // unused directly; sqlmock intercepts calls via the *sql.DB pointer
-	r := gin.New()
-	// We need the *sql.DB, not the mock. The caller passes mockDB via the
-	// test-local var — this helper is only used to build the router topology.
-	return r
-}
-
 // TestWorkspaceAuth_351_NoBearer_Returns401 — strict contract: every request
 // under /workspaces/:id/* must carry a valid bearer, period. No fail-open,
 // no grace period, no existence check. The middleware goes straight to
@@ -476,10 +466,6 @@ func TestAdminAuth_InvalidBearer_Returns401(t *testing.T) {
 // orgTokenValidateQueryV1 is matched for orgtoken.Validate().
 // NOTE: no ::text cast — sql.NullString handles NULL scan natively.
 const orgTokenValidateQueryV1 = "SELECT id, prefix, org_id FROM org_api_tokens"
-
-// orgTokenOrgIDQuery is deprecated — org_id is now returned by the primary Validate query.
-// Kept to avoid breaking other callers; unused in this file.
-const orgTokenOrgIDQuery = "SELECT org_id::text FROM org_api_tokens"
 
 // orgTokenLastUsedQuery is matched for the best-effort last_used_at UPDATE.
 const orgTokenLastUsedQuery = "UPDATE org_api_tokens SET last_used_at"
