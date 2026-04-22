@@ -44,6 +44,10 @@ export async function fetchSession(): Promise<Session | null> {
  */
 export function redirectToLogin(screenHint: "sign-up" | "sign-in" = "sign-in"): void {
   if (typeof window === "undefined") return;
+  // Guard against infinite redirect loop: if we're already on the login
+  // page, don't redirect again (each redirect double-encodes return_to
+  // until the URL exceeds header limits → 431).
+  if (window.location.pathname.startsWith("/cp/auth/")) return;
   const returnTo = window.location.href;
   const path = screenHint === "sign-up" ? "signup" : "login";
   const dest = `${PLATFORM_URL}${AUTH_BASE}/${path}?return_to=${encodeURIComponent(returnTo)}`;
