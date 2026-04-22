@@ -36,15 +36,25 @@ func NewTemplatesHandler(configsDir string, dockerCli *client.Client) *Templates
 	return &TemplatesHandler{configsDir: configsDir, docker: dockerCli}
 }
 
+// modelSpec describes a single supported model on a template: its id (sent
+// to the runtime), a human-readable label, and the env vars that must be
+// present for that model to work (e.g. API keys).
+type modelSpec struct {
+	ID          string   `json:"id" yaml:"id"`
+	Name        string   `json:"name,omitempty" yaml:"name"`
+	RequiredEnv []string `json:"required_env,omitempty" yaml:"required_env"`
+}
+
 type templateSummary struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Tier        int      `json:"tier"`
-	Runtime     string   `json:"runtime"`
-	Model       string   `json:"model"`
-	Skills      []string `json:"skills"`
-	SkillCount  int      `json:"skill_count"`
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Tier        int         `json:"tier"`
+	Runtime     string      `json:"runtime"`
+	Model       string      `json:"model"`
+	Models      []modelSpec `json:"models,omitempty"`
+	Skills      []string    `json:"skills"`
+	SkillCount  int         `json:"skill_count"`
 }
 
 // resolveTemplateDir finds the template directory for a workspace on the host.
@@ -83,15 +93,25 @@ func (h *TemplatesHandler) List(c *gin.Context) {
 		}
 
 		var raw struct {
-			Name        string   `yaml:"name"`
-			Description string   `yaml:"description"`
-			Tier        int      `yaml:"tier"`
-			Runtime     string   `yaml:"runtime"`
-			Model       string   `yaml:"model"`
-			Skills      []string `yaml:"skills"`
+			Name          string   `yaml:"name"`
+			Description   string   `yaml:"description"`
+			Tier          int      `yaml:"tier"`
+			Runtime       string   `yaml:"runtime"`
+			Model         string   `yaml:"model"`
+			Skills        []string `yaml:"skills"`
+			RuntimeConfig struct {
+				Model  string      `yaml:"model"`
+				Models []modelSpec `yaml:"models"`
+			} `yaml:"runtime_config"`
 		}
 		if err := yaml.Unmarshal(data, &raw); err != nil {
 			continue
+		}
+
+		// Model comes from either top-level (legacy) or runtime_config.model (current).
+		model := raw.Model
+		if model == "" {
+			model = raw.RuntimeConfig.Model
 		}
 
 		templates = append(templates, templateSummary{
@@ -100,7 +120,8 @@ func (h *TemplatesHandler) List(c *gin.Context) {
 			Description: raw.Description,
 			Tier:        raw.Tier,
 			Runtime:     raw.Runtime,
-			Model:       raw.Model,
+			Model:       model,
+			Models:      raw.RuntimeConfig.Models,
 			Skills:      raw.Skills,
 			SkillCount:  len(raw.Skills),
 		})

@@ -85,22 +85,30 @@ function AgentCardSection({ workspaceId }: { workspaceId: string }) {
 
 // --- Main ConfigTab ---
 
+interface ModelSpec {
+  id: string;
+  name?: string;
+  required_env?: string[];
+}
+
 interface RuntimeOption {
   value: string;
   label: string;
+  models: ModelSpec[];
 }
 
 // Fallback used when /templates can't be fetched (offline, older backend).
 // Keep in sync with manifest.json workspace_templates as a defensive default.
+// Model + env suggestions only flow when the backend is reachable.
 const FALLBACK_RUNTIME_OPTIONS: RuntimeOption[] = [
-  { value: "", label: "LangGraph (default)" },
-  { value: "claude-code", label: "Claude Code" },
-  { value: "crewai", label: "CrewAI" },
-  { value: "autogen", label: "AutoGen" },
-  { value: "deepagents", label: "DeepAgents" },
-  { value: "openclaw", label: "OpenClaw" },
-  { value: "hermes", label: "Hermes" },
-  { value: "gemini-cli", label: "Gemini CLI" },
+  { value: "", label: "LangGraph (default)", models: [] },
+  { value: "claude-code", label: "Claude Code", models: [] },
+  { value: "crewai", label: "CrewAI", models: [] },
+  { value: "autogen", label: "AutoGen", models: [] },
+  { value: "deepagents", label: "DeepAgents", models: [] },
+  { value: "openclaw", label: "OpenClaw", models: [] },
+  { value: "hermes", label: "Hermes", models: [] },
+  { value: "gemini-cli", label: "Gemini CLI", models: [] },
 ];
 
 export function ConfigTab({ workspaceId }: Props) {
@@ -141,22 +149,33 @@ export function ConfigTab({ workspaceId }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    api.get<Array<{ id: string; name?: string; runtime?: string }>>("/templates")
+    api.get<Array<{ id: string; name?: string; runtime?: string; models?: ModelSpec[] }>>("/templates")
       .then((rows) => {
         if (cancelled || !Array.isArray(rows)) return;
-        const seen = new Set<string>();
-        const opts: RuntimeOption[] = [{ value: "", label: "LangGraph (default)" }];
+        const byRuntime = new Map<string, RuntimeOption>();
+        byRuntime.set("", { value: "", label: "LangGraph (default)", models: [] });
         for (const r of rows) {
           const v = (r.runtime || "").trim();
-          if (!v || seen.has(v) || v === "langgraph") continue;
-          seen.add(v);
-          opts.push({ value: v, label: r.name || v });
+          if (!v || v === "langgraph") continue;
+          // Last template wins if two templates share a runtime — rare, and the
+          // one with the richer models list is probably newer.
+          const existing = byRuntime.get(v);
+          const models = Array.isArray(r.models) ? r.models : [];
+          if (!existing || models.length > existing.models.length) {
+            byRuntime.set(v, { value: v, label: r.name || v, models });
+          }
         }
-        if (opts.length > 1) setRuntimeOptions(opts);
+        if (byRuntime.size > 1) setRuntimeOptions(Array.from(byRuntime.values()));
       })
       .catch(() => { /* keep fallback */ });
     return () => { cancelled = true; };
   }, []);
+
+  // Models + env hints for the currently-selected runtime.
+  const selectedRuntime = runtimeOptions.find((o) => o.value === (config.runtime || "")) ?? null;
+  const availableModels: ModelSpec[] = selectedRuntime?.models ?? [];
+  const currentModelId = config.runtime_config?.model || config.model || "";
+  const currentModelSpec = availableModels.find((m) => m.id === currentModelId) ?? null;
 
   const update = <K extends keyof ConfigData>(key: K, value: ConfigData[K]) => {
     setConfig((prev) => ({ ...prev, [key]: value }));
@@ -302,15 +321,52 @@ export function ConfigTab({ workspaceId }: Props) {
                   ))}
                 </select>
               </div>
-              <TextInput label="Model" value={config.runtime_config?.model || config.model || ""} onChange={(v) => {
-                if (config.runtime) {
-                  update("runtime_config", { ...config.runtime_config, model: v });
-                } else {
-                  update("model", v);
-                }
-              }} placeholder="e.g. anthropic:claude-sonnet-4-6" mono />
+              <div>
+                <label className="text-[10px] text-zinc-500 block mb-1">
+                  Model
+                  {availableModels.length > 0 && (
+                    <span className="ml-1 text-zinc-600">({availableModels.length} suggested)</span>
+                  )}
+                </label>
+                <input
+                  type="text"
+                  list={availableModels.length > 0 ? `${runtimeId}-models` : undefined}
+                  value={currentModelId}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (config.runtime) {
+                      update("runtime_config", { ...config.runtime_config, model: v });
+                    } else {
+                      update("model", v);
+                    }
+                  }}
+                  placeholder="e.g. anthropic:claude-sonnet-4-6"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 font-mono focus:outline-none focus:border-blue-500"
+                />
+                {availableModels.length > 0 && (
+                  <datalist id={`${runtimeId}-models`}>
+                    {availableModels.map((m) => (
+                      <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                    ))}
+                  </datalist>
+                )}
+              </div>
             </div>
-            <TagList label="Required Env Vars" values={config.runtime_config?.required_env || []} onChange={(v) => updateNested("runtime_config" as keyof ConfigData, "required_env", v)} placeholder="e.g. CLAUDE_CODE_OAUTH_TOKEN" />
+            <TagList
+              label={currentModelSpec?.required_env?.length ? "Required Env Vars (suggested)" : "Required Env Vars"}
+              values={
+                config.runtime_config?.required_env?.length
+                  ? config.runtime_config.required_env
+                  : (currentModelSpec?.required_env ?? [])
+              }
+              onChange={(v) => updateNested("runtime_config" as keyof ConfigData, "required_env", v)}
+              placeholder="e.g. CLAUDE_CODE_OAUTH_TOKEN"
+            />
+            {currentModelSpec?.required_env?.length ? (
+              <p className="text-[10px] text-zinc-500 mt-1">
+                Suggested from template for <code className="text-zinc-400">{currentModelSpec.name || currentModelSpec.id}</code>. Edit above to override; set actual values in the Secrets tab.
+              </p>
+            ) : null}
           </Section>
 
           {/* Claude Settings — shown for claude-code runtime or claude/anthropic model names */}
