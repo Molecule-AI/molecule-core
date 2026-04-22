@@ -17,9 +17,9 @@ interface TopBarProps {
  */
 export function TopBar({ canvasName = 'Canvas' }: TopBarProps) {
   return (
-    <div className="top-bar" role="banner">
+    <header className="top-bar">
       <div className="top-bar__left">
-        <span className="top-bar__logo">☁</span>
+        <span className="top-bar__logo" aria-hidden="true">☁</span>
         <span className="top-bar__name">{canvasName}</span>
       </div>
       <div className="top-bar__right">
@@ -28,6 +28,6 @@ export function TopBar({ canvasName = 'Canvas' }: TopBarProps) {
         <SettingsButton ref={settingsGearRef} />
         {/* Bell and Avatar would go here */}
       </div>
-    </div>
+    </header>
   );
 }
