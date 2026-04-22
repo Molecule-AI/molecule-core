@@ -108,6 +108,11 @@ case "${ACTION}" in
     store|erase)
         # No-op — the platform manages token lifecycle.
         ;;
+    Password|password|Passphrase|passphrase)
+        # git calls the helper with these actions too when it needs a password/passphrase.
+        # We emit no credentials so git falls through to the next helper or fails gracefully.
+        exit 1
+        ;;
     _fetch_token)
         # Private action for cron-based gh auth login --with-token.
         _fetch_token
