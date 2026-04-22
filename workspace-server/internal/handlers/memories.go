@@ -381,9 +381,13 @@ func (h *MemoriesHandler) Search(c *gin.Context) {
 			}
 
 		case "GLOBAL":
-			// All GLOBAL memories (readable by everyone)
-			sqlQuery = `SELECT id, workspace_id, content, scope, namespace, created_at FROM agent_memories WHERE scope = 'GLOBAL'`
-			args = []interface{}{}
+			// GLOBAL memories are namespace-scoped: a caller in workspace X
+			// can only read GLOBAL memories created under the same namespace.
+			// This matches the MCP bridge behaviour which already enforces
+			// namespace scoping; the HTTP API must enforce it too to prevent
+			// cross-namespace GLOBAL memory poisoning.
+			sqlQuery = `SELECT id, workspace_id, content, scope, namespace, created_at FROM agent_memories WHERE scope = 'GLOBAL' AND namespace = $1`
+			args = []interface{}{workspaceID}
 
 		default:
 			// All accessible memories
