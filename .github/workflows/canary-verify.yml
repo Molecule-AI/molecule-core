@@ -37,6 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.compute.outputs.sha }}
+      smoke_ran: ${{ steps.smoke.outputs.ran }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -85,12 +86,38 @@ jobs:
           echo "Timeout after ${MAX_WAIT}s — proceeding anyway (smoke suite will validate)"
 
       - name: Run canary smoke suite
+        id: smoke
+        # Graceful-skip when no canary fleet is configured (Phase 2 not yet
+        # stood up — see molecule-controlplane/docs/canary-tenants.md).
+        # Sets `ran=false` on skip so promote-to-latest stays off (we don't
+        # want every main merge auto-promoting without gating). Manual
+        # promote-latest.yml is the release gate while canary is absent.
+        # Once the fleet is real: delete the early-exit branch.
         env:
           CANARY_TENANT_URLS: ${{ secrets.CANARY_TENANT_URLS }}
           CANARY_ADMIN_TOKENS: ${{ secrets.CANARY_ADMIN_TOKENS }}
           CANARY_CP_BASE_URL: https://staging-api.moleculesai.app
           CANARY_CP_SHARED_SECRET: ${{ secrets.CANARY_CP_SHARED_SECRET }}
-        run: bash scripts/canary-smoke.sh
+        run: |
+          set -euo pipefail
+          if [ -z "${CANARY_TENANT_URLS:-}" ] \
+            || [ -z "${CANARY_ADMIN_TOKENS:-}" ] \
+            || [ -z "${CANARY_CP_SHARED_SECRET:-}" ]; then
+            {
+              echo "## ⚠️ canary-verify skipped"
+              echo
+              echo "One or more canary secrets are unset (\`CANARY_TENANT_URLS\`, \`CANARY_ADMIN_TOKENS\`, \`CANARY_CP_SHARED_SECRET\`)."
+              echo "Phase 2 canary fleet has not been stood up yet —"
+              echo "see [canary-tenants.md](https://github.com/Molecule-AI/molecule-controlplane/blob/main/docs/canary-tenants.md)."
+              echo
+              echo "**Skipped — promote-to-latest will NOT auto-fire.** Dispatch \`promote-latest.yml\` manually when ready."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "ran=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::canary-verify: skipped — no canary fleet configured"
+            exit 0
+          fi
+          bash scripts/canary-smoke.sh
+          echo "ran=true" >> "$GITHUB_OUTPUT"
 
       - name: Summary on failure
         if: ${{ failure() }}
@@ -109,8 +136,11 @@ jobs:
     # On green, retag :staging-<sha> → :latest for BOTH images.
     # crane is a lightweight registry client (no Docker daemon needed on
     # the runner) that can retag remotely with a single API call each.
+    # Gated on smoke_ran=true — without a real canary fleet the smoke
+    # step no-ops with success, and we don't want that to silently
+    # auto-promote every main merge.
     needs: canary-smoke
-    if: ${{ needs.canary-smoke.result == 'success' }}
+    if: ${{ needs.canary-smoke.result == 'success' && needs.canary-smoke.outputs.smoke_ran == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: imjasonh/setup-crane@v0.4
