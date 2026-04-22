@@ -81,7 +81,7 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 	// token, allowing Workspace A to forge X-Workspace-ID: B and reach B's
 	// terminal if A held any valid token. ValidateToken binds the token to
 	// the claimed workspace identity.
-	callerID := c.GetHeader("X-Workspace-ID")
+callerID := c.GetHeader("X-Workspace-ID")
 	if callerID != "" && callerID != workspaceID {
 		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
 		if tok != "" {
