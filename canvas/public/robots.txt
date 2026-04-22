@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://molecule.ai/sitemap.xml
+
+# Disallow staging/preview internals
+Disallow: /api/
+Disallow: /_next/
+Disallow: /orgs/
