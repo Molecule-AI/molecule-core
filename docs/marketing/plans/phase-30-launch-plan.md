@@ -27,7 +27,8 @@
 |-----|------|----------|--------|
 | Day 1 | Apr 21 | Chrome DevTools MCP | ✅ Ready — blocked on credentials |
 | Day 2 | Apr 22 | Discord Adapter | ✅ Ready |
-| Day 3 | Apr 23 | Org API Keys | ✅ Ready |
+| Day 3 | Apr 23 | Org API Keys | ✅ Ready — social copy written by Marketing Lead (commit 08f43af) |
+| Day 3 | Apr 23 | A2A Enterprise | ✅ Ready — social copy done (a2a-enterprise-launch/social-copy.md) |
 | Day 4 | Apr 24 | EC2 Console Output | ✅ APPROVED — social copy written by Marketing Lead (PR #1178 + demo storyboard) |
 | Day 5 | Apr 25 | Cloudflare Artifacts | ✅ APPROVED — "sub-100ms" softened to "fast edge-based clone times" |
 | Day 5+ | Apr 25+ | Org-Scoped API Keys | ✅ Approved |
