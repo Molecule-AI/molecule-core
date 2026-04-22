@@ -1,6 +1,8 @@
 # Workspace Terminal over EIC + SSH
 
-Tracking: [molecule-core#1528](https://github.com/Molecule-AI/molecule-core/issues/1528)
+Tracking: [molecule-core#1528](https://github.com/Molecule-AI/molecule-core/issues/1528) (resolved 2026-04-22)
+
+**Status: live in prod** on hongmingwang tenant as of 2026-04-22. Verified end-to-end against the Hermes workspace EC2.
 
 ## Problem
 
@@ -142,25 +144,77 @@ Three more failure modes + ongoing bookkeeping per tenant. Skip unless you have 
 | SSH connect timeout | "tenant cannot reach workspace instance — check security group" | Yes (SG fix) |
 | `docker exec` fails (no container) | "workspace container is not running — try restart" | Yes (normal ops) |
 
-## Rollout checklist
+## Rollout (verified recipe)
 
-### 1. Infra prep (one-time)
+Each AWS account (staging + prod, etc.) needs this once. The CP repo
+ships `scripts/bootstrap-eic-terminal.sh` that automates everything
+below — what's here is what the script does, in case you want to run
+the steps by hand or audit it.
 
-- [ ] Add IAM policy above to `molecule-cp` user (tag key is `Role`, already set by CP at launch — no CP change needed)
-- [ ] Create one EIC Endpoint in the workspace VPC (see command above)
-- [ ] No change to `workspaceIngressRules()` — EIC Endpoint bypasses SG ingress
+### 1. Infra (one-shot)
 
-### 2. Tenant code (this repo)
+```bash
+# From molecule-controlplane checkout (needs IAM admin creds):
+./scripts/bootstrap-eic-terminal.sh <workspace-vpc-id> <region>
+```
 
-- [ ] PR 1 (this one): migration `038_workspace_instance_id` + persist instance_id on CP provision
-- [ ] PR 2 (follow-up): terminal handler EIC + SSH branch + tests
+Creates (idempotent):
+- EC2 Instance Connect **service-linked role** (`AWSServiceRoleForEC2InstanceConnect`)
+- **Managed IAM policy** `MoleculeEICTerminal` (DescribeInstances + SendSSHPublicKey + OpenTunnel + CreateInstanceConnectEndpoint + DescribeInstanceConnectEndpoints)
+- **IAM role + instance profile** `MoleculeTenantEICRole` / `MoleculeTenantEICProfile` (attach the managed policy) — this replaces env-var AWS creds on tenant EC2s
+- **EIC Endpoint** in the workspace VPC (uses the default VPC SG for egress, which is all EIC Endpoint needs)
 
-### 3. Verification
+Script prints the endpoint SG id + profile name to set on the CP:
 
-- [ ] After PR 1 merges + deploys, provision a new CP workspace → verify `SELECT instance_id FROM workspaces` returns the EC2 id
-- [ ] After PR 2 merges + deploys, open Terminal tab on a CP workspace → bash prompt appears
-- [ ] Intentionally terminate the EC2 → Terminal tab shows the "instance no longer exists" message
-- [ ] Pull the `ec2-instance-connect:OpenTunnel` action from molecule-cp temporarily → Terminal shows "tenant lacks EIC permission"
+```
+EIC_ENDPOINT_SG_ID=sg-xxxxxx
+EC2_TENANT_IAM_PROFILE=MoleculeTenantEICProfile
+```
+
+### 2. CP config + redeploy
+
+Set those two env vars on the CP service (Railway dashboard or equivalent). On redeploy, [molecule-controlplane#227](https://github.com/Molecule-AI/molecule-controlplane/pull/227) ensures every **newly-provisioned** workspace + tenant SG auto-carries a `22/tcp` ingress rule sourced from the EIC Endpoint SG.
+
+### 3. Backfill existing instances
+
+Pre-existing SGs need one-time ingress added. The bootstrap script's final output includes this loop; shown here for visibility:
+
+```bash
+for sg in $(aws ec2 describe-security-groups --region us-east-2 \
+    --filters 'Name=tag:ManagedBy,Values=molecule-cp' \
+    --query 'SecurityGroups[].GroupId' --output text); do
+  aws ec2 authorize-security-group-ingress --region us-east-2 \
+    --group-id $sg --protocol tcp --port 22 --source-group sg-xxxxxx \
+    2>&1 | grep -v DuplicatePermission || true
+done
+```
+
+### 4. Tenant code (this monorepo)
+
+Already merged:
+- [#1531](https://github.com/Molecule-AI/molecule-core/pull/1531) — migration `038_workspace_instance_id` + persist on CP provision
+- [#1533](https://github.com/Molecule-AI/molecule-core/pull/1533) — terminal handler remote branch (EIC open-tunnel + ssh + pty)
+
+Tenant image (`ghcr.io/molecule-ai/platform-tenant:latest`) ships with `aws-cli` + `openssh-client` as of 2026-04-22.
+
+### 5. Verification (how to confirm after deploy)
+
+- Provision a fresh CP workspace → `SELECT instance_id FROM workspaces WHERE id = ?` is non-null
+- Open canvas Terminal on that workspace → bash prompt (`ubuntu@ip-...`)
+- Terminate the workspace EC2 manually → Terminal shows "EIC tunnel didn't come up"
+- Temporarily remove `ec2-instance-connect:OpenTunnel` from `MoleculeEICTerminal` → Terminal shows "failed to push session key"
+
+### Existing-workspace backfill of `instance_id`
+
+Migrations run on tenant boot, but pre-existing workspace rows have NULL `instance_id`. The CP provisioner only writes `instance_id` on NEW provisions; old workspaces need:
+
+```sql
+-- Inside the tenant DB
+UPDATE workspaces SET instance_id = '<i-xxx from DescribeInstances by tag WorkspaceID>', updated_at = now()
+WHERE id = '<workspace-uuid>';
+```
+
+For a whole fleet, join CP's workspace table with the DescribeInstances result by `WorkspaceID` tag and batch-UPDATE.
 
 ## Future work (not in scope)
 
