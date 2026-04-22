@@ -12,10 +12,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"time"
+		"strconv"
+		"time"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
@@ -300,49 +298,3 @@ func readUsageMap(m map[string]json.RawMessage) (inputTokens, outputTokens int64
 	}
 	return usage.InputTokens, usage.OutputTokens, true
 }
-
-// isSafeURL validates that a URL resolves to a publicly-routable address,
-// preventing A2A requests from being redirected to internal/cloud-metadata
-// infrastructure (SSRF, CWE-918). Workspace URLs come from DB/Redis caches
-// so we validate before making any outbound HTTP call.
-func isSafeURL(rawURL string) error {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("invalid URL: %w", err)
-	}
-	// Reject non-HTTP(S) schemes.
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("forbidden scheme: %s (only http/https allowed)", u.Scheme)
-	}
-	host := u.Hostname()
-	if host == "" {
-		return fmt.Errorf("empty hostname")
-	}
-	// Block direct IP addresses.
-	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() {
-			return fmt.Errorf("forbidden loopback/unspecified IP: %s", ip)
-		}
-		if isPrivateOrMetadataIP(ip) {
-			return fmt.Errorf("forbidden private/metadata IP: %s", ip)
-		}
-		return nil
-	}
-	// For hostnames, resolve and validate each returned IP.
-	addrs, err := net.LookupHost(host)
-	if err != nil {
-		return fmt.Errorf("DNS resolution blocked for hostname: %s (%v)", host, err)
-	}
-	if len(addrs) == 0 {
-		return fmt.Errorf("DNS returned no addresses for: %s", host)
-	}
-	for _, addr := range addrs {
-		ip := net.ParseIP(addr)
-		if ip != nil && (ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || isPrivateOrMetadataIP(ip)) {
-			return fmt.Errorf("hostname %s resolves to forbidden IP: %s", host, ip)
-		}
-	}
-	return nil
-}
-
-
