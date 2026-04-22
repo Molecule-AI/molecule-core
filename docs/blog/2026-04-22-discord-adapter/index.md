@@ -1,16 +1,16 @@
 ---
-title: "The Discord Adapter: Connect Your AI Agent to a Discord Community"
+title: "Discord Adapter: Connect Your AI Agent to Discord"
 date: 2026-04-22
 slug: discord-adapter-launch
-description: "Running an AI agent community means answering the same questions over and over. The Discord adapter lets your Molecule AI agent read and respond in Discord channels — without writing a single line of webhook code."
+description: "Answer community questions automatically. Molecule AI Discord adapter lets your AI agent read and respond in Discord channels — no webhook code needed."
 tags: [community, discord, integrations, mcp, agentic-ai]
 author: Molecule AI
-og_title: "The Discord Adapter: Your AI Agent in Discord"
+og_title: "Discord Adapter: Connect Your AI Agent to Discord"
 og_description: "The Discord adapter lets your Molecule AI agent respond in Discord channels. No webhook code. No permission engineering. Just connect and go."
 twitter_card: summary_large_image
 ---
 
-# The Discord Adapter: Connect Your AI Agent to a Discord Community
+# Discord Adapter: Connect Your AI Agent to Discord
 
 Every AI agent community has the same problem: the same questions, asked over and over. What's the pricing model? How do I self-host? Can it run on Fly.io?
 

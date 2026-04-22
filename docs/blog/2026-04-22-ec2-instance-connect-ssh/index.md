@@ -1,12 +1,12 @@
 ---
-title: "Remote Terminals for AI Agent Workspaces: EC2 Instance Connect SSH in Molecule AI"
+title: "EC2 Instance Connect SSH: Shell Access Without Opening Inbound Ports"
 date: 2026-04-22
 slug: ec2-instance-connect-ssh
-description: "Access a shell on any CP-provisioned workspace without opening inbound SSH ports. Molecule AI now integrates AWS EC2 Instance Connect Endpoint — the Terminal tab in Canvas connects via a signed, ephemeral tunnel that closes automatically when you disconnect."
+description: "Access a shell on CP-provisioned workspaces without opening inbound SSH ports. Molecule AI integrates AWS EC2 Instance Connect Endpoint — the Terminal tab connects via a signed, ephemeral tunnel."
 tags: [EC2, terminal, SSH, self-hosted, DevOps, security, Canvas]
 ---
 
-# Remote Terminals for AI Agent Workspaces: EC2 Instance Connect SSH in Molecule AI
+# EC2 Instance Connect SSH: Shell Access Without Opening Inbound Ports
 
 When an AI agent runs in a cloud workspace, operators sometimes need to get their hands on a real shell — to inspect configuration, debug a stuck process, or verify that the environment looks the way the agent reported. With CP-provisioned workspaces on EC2, that used to mean opening inbound port 22, managing key pairs, and dealing with the security implications of an internet-facing SSH endpoint.
 

@@ -1,9 +1,9 @@
 ---
-title: "A2A Protocol for Enterprise: Any Agent. Any Infrastructure. Full Audit Trail."
+title: "A2A Protocol for Enterprise: Any Agent. Any Infra."
 date: 2026-04-22
 slug: a2a-enterprise-any-agent-any-infrastructure
-description: "Molecule AI's A2A protocol runs agent-to-agent communication across any infrastructure — cloud, on-prem, laptop — with org API key attribution on every delegation and a full audit trail. No VPN required."
-og_title: "A2A Protocol for Enterprise: Any Agent. Any Infrastructure. Full Audit Trail."
+description: "Molecule AI A2A protocol runs agent-to-agent communication across any infrastructure with org API key attribution and a full audit trail."
+og_title: "A2A Protocol for Enterprise: Any Agent. Any Infra."
 og_description: "Cross-cloud AI agent delegation with org API key attribution and zero-trust governance. No VPN, no hub-and-spoke bottleneck."
 og_image: /docs/assets/blog/2026-04-22-a2a-enterprise-og.png
 tags: [A2A, enterprise, multi-cloud, agent-governance, orchestration, LangGraph]
