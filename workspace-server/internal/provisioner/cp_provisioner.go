@@ -129,7 +129,7 @@ func (p *CPProvisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string,
 	if err != nil {
 		return "", fmt.Errorf("cp provisioner: send: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Cap body read at 64 KiB — the CP only ever returns small JSON
 	// responses; an unbounded read could be weaponized into log-flood
@@ -163,7 +163,7 @@ func (p *CPProvisioner) Stop(ctx context.Context, workspaceID string) error {
 	if err != nil {
 		return fmt.Errorf("cp provisioner: stop: %w", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return nil
 }
 
@@ -199,7 +199,7 @@ func (p *CPProvisioner) IsRunning(ctx context.Context, workspaceID string) (bool
 	if err != nil {
 		return true, fmt.Errorf("cp provisioner: status: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		// Don't leak the body — upstream errors may echo headers.
 		return true, fmt.Errorf("cp provisioner: status: unexpected %d", resp.StatusCode)
@@ -213,6 +213,37 @@ func (p *CPProvisioner) IsRunning(ctx context.Context, workspaceID string) (bool
 		return true, fmt.Errorf("cp provisioner: status decode: %w", err)
 	}
 	return result.State == "running", nil
+}
+
+// GetConsoleOutput proxies a call to the CP's
+// GET /cp/admin/workspaces/:id/console endpoint, which returns the EC2
+// serial console output (AWS ec2:GetConsoleOutput under the hood) for a
+// workspace instance. The tenant platform has no AWS credentials by
+// design, so CP is the only party that can read the serial console.
+//
+// Returns ("", err) on transport or non-2xx — the caller decides what
+// to render to the user.
+func (p *CPProvisioner) GetConsoleOutput(ctx context.Context, workspaceID string) (string, error) {
+	url := fmt.Sprintf("%s/cp/admin/workspaces/%s/console", p.baseURL, workspaceID)
+	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	p.authHeaders(req)
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("cp provisioner: console: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("cp provisioner: console: unexpected %d", resp.StatusCode)
+	}
+	// Cap at 256 KiB — EC2 returns at most 64 KiB of serial console, but
+	// allow headroom for CP-side wrapping / metadata.
+	var body struct {
+		Output string `json:"output"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 256<<10)).Decode(&body); err != nil {
+		return "", fmt.Errorf("cp provisioner: console decode: %w", err)
+	}
+	return body.Output, nil
 }
 
 // Close is a no-op.

@@ -82,6 +82,33 @@ func TestTenantGuard_AllowlistBypassesCheck(t *testing.T) {
 	}
 }
 
+// Workspace EC2s POST to these two paths during startup and do NOT have
+// MOLECULE_ORG_ID to attach as a header — CP's user-data only exports
+// WORKSPACE_ID + PLATFORM_URL + RUNTIME + PORT. Without this allowlist
+// entry every workspace silently fails to register and sits in
+// 'provisioning' until the 10-min sweeper — the same failure class
+// that caused the 2026-04-21 prod incident.
+func TestTenantGuard_AllowsWorkspaceRegistryPaths(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(TenantGuardWithOrgID("org-abc"))
+	// Register stub handlers so the test distinguishes "guard rejected"
+	// (404 from middleware) vs "route not matched" (404 from gin). The
+	// actual registry handlers live elsewhere; we only care that the
+	// guard doesn't abort before dispatch.
+	r.POST("/registry/register", func(c *gin.Context) { c.String(200, "register-reached") })
+	r.POST("/registry/heartbeat", func(c *gin.Context) { c.String(200, "heartbeat-reached") })
+
+	for _, path := range []string{"/registry/register", "/registry/heartbeat"} {
+		req := httptest.NewRequest("POST", path, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != 200 {
+			t.Errorf("%s: workspace boot path must bypass TenantGuard; got %d (body=%q)", path, w.Code, w.Body.String())
+		}
+	}
+}
+
 // Fly-Replay-Src state path: the production path. Control plane puts the
 // bare UUID in state= (no prefix — Fly 502s on `=` in the state value).
 // Fly injects the whole Fly-Replay-Src header on the replayed request.

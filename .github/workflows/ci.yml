@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main, staging]
 
+# Cancel in-progress CI runs when a new commit arrives on the same ref.
+# This prevents multiple stale runs from queuing behind each other and
+# monopolising the self-hosted macOS arm64 runner.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Detect which paths changed so downstream jobs can skip when only
   # docs/markdown files were modified. Uses plain `git diff` — no macOS

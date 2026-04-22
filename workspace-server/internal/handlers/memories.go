@@ -145,7 +145,7 @@ func (h *MemoriesHandler) Commit(c *gin.Context) {
 		Namespace string `json:"namespace,omitempty"`      // optional; defaults to "general"
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 

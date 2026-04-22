@@ -1,0 +1,15 @@
+name: Frontend Engineer (Docs)
+role: >-
+  Owns the Molecule AI docs site (Molecule-AI/docs): Nextra/MDX
+  content, navigation structure, component library, search
+  integration, deploy pipeline (Vercel at doc.moleculesai.app).
+tier: 3
+model: opus
+files_dir: frontend-engineer-3
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge]
+idle_interval_seconds: 600
+schedules:
+  - name: Hourly pick up work
+    cron_expr: "28 * * * *"
+    enabled: true
+    prompt_file: schedules/hourly-pick-up-work.md

@@ -27,7 +27,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -523,6 +525,10 @@ func (h *MCPHandler) toolDelegateTask(ctx context.Context, callerID string, args
 	if err != nil {
 		return "", err
 	}
+	// SSRF defence: reject private/metadata URLs before making outbound call.
+	if err := isSafeURL(agentURL); err != nil {
+		return "", fmt.Errorf("invalid workspace URL: %w", err)
+	}
 
 	a2aBody, err := json.Marshal(map[string]interface{}{
 		"jsonrpc": "2.0",
@@ -560,7 +566,7 @@ func (h *MCPHandler) toolDelegateTask(ctx context.Context, callerID string, args
 	if err != nil {
 		return "", fmt.Errorf("A2A call failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -597,6 +603,11 @@ func (h *MCPHandler) toolDelegateTaskAsync(ctx context.Context, callerID string,
 			log.Printf("MCPHandler.delegate_task_async: resolve URL for %s: %v", targetID, err)
 			return
 		}
+		// SSRF defence: reject private/metadata URLs before making outbound call.
+		if err := isSafeURL(agentURL); err != nil {
+			log.Printf("MCPHandler.delegate_task_async: unsafe URL for %s: %v", targetID, err)
+			return
+		}
 
 		a2aBody, _ := json.Marshal(map[string]interface{}{
 			"jsonrpc": "2.0",
@@ -624,7 +635,7 @@ func (h *MCPHandler) toolDelegateTaskAsync(ctx context.Context, callerID string,
 			log.Printf("MCPHandler.delegate_task_async: A2A call to %s: %v", targetID, err)
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		// Drain response so the connection can be reused.
 		_, _ = io.Copy(io.Discard, resp.Body)
 	}()
@@ -703,6 +714,7 @@ func (h *MCPHandler) toolSendMessageToUser(ctx context.Context, workspaceID stri
 
 	return "Message sent.", nil
 }
+
 
 func (h *MCPHandler) toolCommitMemory(ctx context.Context, workspaceID string, args map[string]interface{}) (string, error) {
 	content, _ := args["content"].(string)
@@ -814,6 +826,76 @@ func (h *MCPHandler) toolRecallMemory(ctx context.Context, workspaceID string, a
 	return string(b), nil
 }
 
+// isSafeURL validates that a URL resolves to a publicly-routable address,
+// preventing A2A requests from being redirected to internal/cloud-metadata
+// infrastructure (SSRF, CWE-918). Workspace URLs come from DB/Redis caches
+// so we validate before making any outbound HTTP call.
+func isSafeURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	// Reject non-HTTP(S) schemes.
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("forbidden scheme: %s (only http/https allowed)", u.Scheme)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("empty hostname")
+	}
+	// Block direct IP addresses.
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() {
+			return fmt.Errorf("forbidden loopback/unspecified IP: %s", ip)
+		}
+		if isPrivateOrMetadataIP(ip) {
+			return fmt.Errorf("forbidden private/metadata IP: %s", ip)
+		}
+		return nil
+	}
+	// For hostnames, resolve and validate each returned IP.
+	addrs, err := net.LookupHost(host)
+	if err != nil {
+		// DNS resolution failure — block it. Could be an internal hostname.
+		return fmt.Errorf("DNS resolution blocked for hostname: %s (%v)", host, err)
+	}
+	if len(addrs) == 0 {
+		return fmt.Errorf("DNS returned no addresses for: %s", host)
+	}
+	for _, addr := range addrs {
+		ip := net.ParseIP(addr)
+		if ip != nil && (ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || isPrivateOrMetadataIP(ip)) {
+			return fmt.Errorf("hostname %s resolves to forbidden IP: %s", host, ip)
+		}
+	}
+	return nil
+}
+
+// isPrivateOrMetadataIP returns true for RFC-1918 private, carrier-grade NAT,
+// link-local, and cloud metadata ranges.
+func isPrivateOrMetadataIP(ip net.IP) bool {
+	var privateRanges = []net.IPNet{
+		{IP: net.ParseIP("10.0.0.0"), Mask: net.CIDRMask(8, 32)},
+		{IP: net.ParseIP("172.16.0.0"), Mask: net.CIDRMask(12, 32)},
+		{IP: net.ParseIP("192.168.0.0"), Mask: net.CIDRMask(16, 32)},
+		{IP: net.ParseIP("169.254.0.0"), Mask: net.CIDRMask(16, 32)},
+		{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)},
+		{IP: net.ParseIP("192.0.2.0"), Mask: net.CIDRMask(24, 32)},
+		{IP: net.ParseIP("198.51.100.0"), Mask: net.CIDRMask(24, 32)},
+		{IP: net.ParseIP("203.0.113.0"), Mask: net.CIDRMask(24, 32)},
+	}
+	ip = ip.To4()
+	if ip == nil {
+		return false
+	}
+	for _, r := range privateRanges {
+		if r.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -824,15 +906,24 @@ func (h *MCPHandler) toolRecallMemory(ctx context.Context, workspaceID string, a
 //  1. Docker-internal URL cache (set by provisioner; correct when platform is in Docker)
 //  2. Redis URL cache
 //  3. DB `url` column fallback, with 127.0.0.1→Docker bridge rewrite when in Docker
+//
+// SECURITY (F1083 / #1130): all three paths run the returned URL through
+// validateAgentURL to block SSRF targets (private IPs, loopback, cloud metadata).
 func mcpResolveURL(ctx context.Context, database *sql.DB, workspaceID string) (string, error) {
 	if platformInDocker {
 		if url, err := db.GetCachedInternalURL(ctx, workspaceID); err == nil && url != "" {
+			if err := validateAgentURL(url); err != nil {
+				return "", fmt.Errorf("workspace %s: forbidden URL from internal cache: %w", workspaceID, err)
+			}
 			return url, nil
 		}
 	}
 	if url, err := db.GetCachedURL(ctx, workspaceID); err == nil && url != "" {
 		if platformInDocker && strings.HasPrefix(url, "http://127.0.0.1:") {
 			return provisioner.InternalURL(workspaceID), nil
+		}
+		if err := validateAgentURL(url); err != nil {
+			return "", fmt.Errorf("workspace %s: forbidden URL from Redis cache: %w", workspaceID, err)
 		}
 		return url, nil
 	}
@@ -852,6 +943,9 @@ func mcpResolveURL(ctx context.Context, database *sql.DB, workspaceID string) (s
 	}
 	if platformInDocker && strings.HasPrefix(urlStr.String, "http://127.0.0.1:") {
 		return provisioner.InternalURL(workspaceID), nil
+	}
+	if err := validateAgentURL(urlStr.String); err != nil {
+		return "", fmt.Errorf("workspace %s: forbidden URL from DB: %w", workspaceID, err)
 	}
 	return urlStr.String, nil
 }

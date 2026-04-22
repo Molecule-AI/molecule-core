@@ -6,6 +6,7 @@ import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { StatusDot } from "../StatusDot";
 import { BudgetSection } from "./BudgetSection";
 import { WorkspaceUsage } from "../WorkspaceUsage";
+import { ConsoleModal } from "../ConsoleModal";
 
 interface Props {
   workspaceId: string;
@@ -33,6 +34,7 @@ export function DetailsTab({ workspaceId, data }: Props) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
+  const [consoleOpen, setConsoleOpen] = useState(false);
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const selectNode = useCanvasStore((s) => s.selectNode);
@@ -56,8 +58,19 @@ export function DetailsTab({ workspaceId, data }: Props) {
   }, [workspaceId]);
 
   useEffect(() => {
+    // The /registry/:id/peers endpoint requires a workspace-scoped
+    // bearer token (validateDiscoveryCaller) which the canvas session
+    // doesn't hold. For a still-provisioning or failed workspace there
+    // are no peers to show anyway — skip the fetch so the Details tab
+    // doesn't flood devtools with 401 noise and so the empty Peers
+    // section renders cleanly.
+    if (data.status !== "online" && data.status !== "degraded") {
+      setPeers([]);
+      setPeersError(null);
+      return;
+    }
     loadPeers();
-  }, [loadPeers]);
+  }, [loadPeers, data.status]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -176,7 +189,7 @@ export function DetailsTab({ workspaceId, data }: Props) {
             <Row label="Parent" value={data.parentId || "root"} mono />
             <Row label="Active Tasks" value={String(data.activeTasks)} />
             {data.status === "degraded" && (
-              <Row label="Error Rate" value={`${(data.lastErrorRate * 100).toFixed(0)}%`} />
+              <Row label="Error Rate" value={`${((data.lastErrorRate ?? 0) * 100).toFixed(0)}%`} />
             )}
             {isRestartable && (
               <div className="pt-2">
@@ -204,6 +217,31 @@ export function DetailsTab({ workspaceId, data }: Props) {
         )}
       </Section>
 
+      {/* Error details — shown when the workspace failed to boot. The
+          control plane's bootstrap watcher writes last_sample_error with
+          the real traceback from the EC2 serial console, so users see
+          "ModuleNotFoundError: ..." instead of a generic timeout. */}
+      {(data.status === "failed" || (data.status === "degraded" && data.lastSampleError)) && (
+        <Section title="Error">
+          {data.lastSampleError ? (
+            <pre
+              data-testid="details-error-log"
+              className="text-[11px] text-red-300 font-mono whitespace-pre-wrap break-all bg-red-950/20 border border-red-900/40 rounded p-2 max-h-[240px] overflow-auto leading-tight"
+            >
+              {data.lastSampleError}
+            </pre>
+          ) : (
+            <p className="text-xs text-zinc-500">No error detail recorded.</p>
+          )}
+          <button
+            onClick={() => setConsoleOpen(true)}
+            className="mt-2 px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-xs rounded text-zinc-300 border border-zinc-700"
+          >
+            View console output
+          </button>
+        </Section>
+      )}
+
       {/* Budget — dedicated section with live usage stats (#541) */}
       <BudgetSection workspaceId={workspaceId} />
 
@@ -230,6 +268,10 @@ export function DetailsTab({ workspaceId, data }: Props) {
       <Section title={`Peers (${peers.length})`}>
         {peersError ? (
           <p className="text-xs text-red-400">{peersError}</p>
+        ) : peers.length === 0 && data.status !== "online" && data.status !== "degraded" ? (
+          <p className="text-xs text-zinc-500">
+            Peers are only discoverable while the workspace is online.
+          </p>
         ) : peers.length === 0 ? (
           <p className="text-xs text-zinc-500">No reachable peers</p>
         ) : (
@@ -296,6 +338,15 @@ export function DetailsTab({ workspaceId, data }: Props) {
           </button>
         )}
       </Section>
+
+      {/* Portal-rendered console modal — mounted at the root of this tab
+          but appears above everything via createPortal(document.body). */}
+      <ConsoleModal
+        workspaceId={workspaceId}
+        workspaceName={data.name}
+        open={consoleOpen}
+        onClose={() => setConsoleOpen(false)}
+      />
     </div>
   );
 }

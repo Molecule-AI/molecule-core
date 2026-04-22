@@ -82,7 +82,7 @@ func Export(ctx context.Context, workspaceID, configsDir string, dockerCli *clie
 	rows, err := db.DB.QueryContext(ctx,
 		`SELECT id FROM workspaces WHERE parent_id = $1 AND status != 'removed'`, workspaceID)
 	if err == nil {
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var childID string
 			if rows.Scan(&childID) == nil {
@@ -216,7 +216,7 @@ func (b *Bundle) loadFromConfigDir(dir string) {
 
 		// Walk all files in the skill directory
 		skillPath := filepath.Join(skillsDir, entry.Name())
-		filepath.Walk(skillPath, func(path string, info os.FileInfo, err error) error {
+		_ = filepath.Walk(skillPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
 				return nil
 			}

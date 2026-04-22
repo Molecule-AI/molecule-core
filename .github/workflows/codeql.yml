@@ -25,6 +25,13 @@ on:
     # Weekly run picks up findings in code that hasn't been touched.
     - cron: '30 1 * * 0'
 
+# Workflow-level concurrency: only one CodeQL run per branch/PR at a time.
+# `cancel-in-progress: false` queues new runs — the 45-min analysis is the
+# longest CI occupant and fights the single mac mini runner the hardest.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   actions: read
   contents: read

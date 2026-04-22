@@ -45,6 +45,11 @@ func NewRegistryHandler(b *events.Broadcaster) *RegistryHandler {
 // Go's net.ParseIP.To4() before Contains() runs, so the IPv4 rules above
 // catch those without a separate entry.
 //
+// F1083/#1130 (SSRF on mcpResolveURL / a2a_proxy resolveAgentURL): in
+// addition to blocking IP literals, DNS names are now resolved and each
+// returned IP is checked against the blocklist. This closes the gap where
+// an attacker could register agent.example.com pointing to 169.254.169.254.
+//
 // Returns a non-nil error suitable for including in a 400 Bad Request response.
 func validateAgentURL(rawURL string) error {
 	if rawURL == "" {
@@ -58,28 +63,59 @@ func validateAgentURL(rawURL string) error {
 		return fmt.Errorf("url scheme must be http or https, got %q", parsed.Scheme)
 	}
 	hostname := parsed.Hostname()
-	if ip := net.ParseIP(hostname); ip != nil {
-		// All private and reserved ranges are rejected. Agents must register
-		// using DNS hostnames so the platform can reach them; raw IP literals
-		// in registration payloads have no legitimate use case and enable SSRF.
-		blockedRanges := []struct {
-			cidr  string
-			label string
-		}{
-			{"169.254.0.0/16", "link-local address (cloud metadata endpoint)"},
-			{"127.0.0.0/8", "loopback address"},
-			{"10.0.0.0/8", "RFC-1918 private address"},
-			{"172.16.0.0/12", "RFC-1918 private address"},
-			{"192.168.0.0/16", "RFC-1918 private address"},
-			{"fe80::/10", "IPv6 link-local address (cloud metadata analogue)"},
-			{"::1/128", "IPv6 loopback address"},
-			{"fc00::/7", "IPv6 ULA address (RFC-4193 private)"},
-		}
+
+	blockedRanges := []struct {
+		cidr  string
+		label string
+	}{
+		{"169.254.0.0/16", "link-local address (cloud metadata endpoint)"},
+		{"127.0.0.0/8", "loopback address"},
+		{"10.0.0.0/8", "RFC-1918 private address"},
+		{"172.16.0.0/12", "RFC-1918 private address"},
+		{"192.168.0.0/16", "RFC-1918 private address"},
+		{"fe80::/10", "IPv6 link-local address (cloud metadata analogue)"},
+		{"::1/128", "IPv6 loopback address"},
+		{"fc00::/7", "IPv6 ULA address (RFC-4193 private)"},
+	}
+
+	// Helper: check a single IP against the blocklist.
+	checkIP := func(ip net.IP) error {
 		for _, r := range blockedRanges {
 			_, network, _ := net.ParseCIDR(r.cidr)
 			if network.Contains(ip) {
 				return fmt.Errorf("url targets a blocked address: %s", r.label)
 			}
+		}
+		return nil
+	}
+
+	if ip := net.ParseIP(hostname); ip != nil {
+		// All private and reserved ranges are rejected. Agents must register
+		// using DNS hostnames so the platform can reach them; raw IP literals
+		// in registration payloads have no legitimate use case and enable SSRF.
+		return checkIP(ip)
+	}
+
+	// "localhost" is allowed by name (no DNS lookup) — it is a standard dev-
+	// environment alias for 127.0.0.1 and agents in local dev rely on it.
+	// The existing test suite expects this behaviour to be preserved.
+	if hostname == "localhost" {
+		return nil
+	}
+
+	// F1083/#1130: hostname is a DNS name — resolve it and check each returned IP.
+	// Skip the lookup if the hostname fails to resolve (network issues, etc.);
+	// the agent won't be reachable anyway, so blocking on DNS failure is safe.
+	ips, lookupErr := net.LookupIP(hostname)
+	if lookupErr != nil {
+		// DNS lookup failed — block the URL rather than allow a potentially-
+		// unreachable or intentionally-unresolvable hostname through. The
+		// platform has no use for a workspace it cannot reach.
+		return fmt.Errorf("hostname %q cannot be resolved (DNS error): %w", hostname, lookupErr)
+	}
+	for _, ip := range ips {
+		if err := checkIP(ip); err != nil {
+			return fmt.Errorf("hostname %q resolves to forbidden address: %w", hostname, err)
 		}
 	}
 	return nil
@@ -90,13 +126,13 @@ func validateAgentURL(rawURL string) error {
 func (h *RegistryHandler) Register(c *gin.Context) {
 	var payload models.RegisterPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
 	// C6: reject SSRF-capable URLs before persisting or caching them.
 	if err := validateAgentURL(payload.URL); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -215,7 +251,7 @@ func (h *RegistryHandler) Register(c *gin.Context) {
 func (h *RegistryHandler) Heartbeat(c *gin.Context) {
 	var payload models.HeartbeatPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -354,7 +390,7 @@ func (h *RegistryHandler) evaluateStatus(c *gin.Context, payload models.Heartbea
 func (h *RegistryHandler) UpdateCard(c *gin.Context) {
 	var payload models.UpdateCardPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 

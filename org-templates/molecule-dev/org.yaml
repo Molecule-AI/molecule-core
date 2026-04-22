@@ -1,0 +1,151 @@
+# Molecule AI Dev Team — PM + Research + Dev
+name: Molecule AI Dev Team
+description: AI agent company for building Molecule AI
+
+defaults:
+  runtime: claude-code
+  tier: 2
+  # required_env removed — PR #1031 eliminated the CLAUDE_CODE_OAUTH_TOKEN
+  # requirement; workspaces authenticate via the platform token flow.
+  # ANTHROPIC_API_KEY is set via workspace .env, not as a required_env constraint.
+
+  # Default plugin set applied to every workspace. Per-workspace `plugins:`
+  # UNIONs with this set (#71). Use just the additions; prefix `!` (or `-`)
+  # to opt a default OUT for one workspace if needed.
+  #
+  # Coding / guardrail essentials:
+  # - ecc:                            "Everything Claude Code" guardrails + coding skills
+  # - molecule-dev:                   Molecule AI codebase conventions, past bugs, review-loop
+  # - superpowers:                    systematic-debugging, TDD, planning, verification-before-completion
+  #
+  # Safety hooks (PreToolUse/PostToolUse/UserPromptSubmit) — universal:
+  # - molecule-careful-bash:          refuse destructive shell (rm -rf, push --force main, DROP TABLE)
+  # - molecule-prompt-watchdog:       inject warnings on destructive user prompts
+  # - molecule-audit-trail:           append every Edit/Write to .claude/audit.jsonl
+  #
+  # Operational memory — keeps agents consistent across sessions/cron ticks:
+  # - molecule-session-context:       auto-load cron learnings + PR/issue counts on SessionStart
+  # - molecule-skill-cron-learnings:  per-tick learning JSONL format (pairs with session-context)
+  #
+  # Docs hygiene:
+  # - molecule-skill-update-docs:     keep architecture / README / edit-history aligned with code
+  plugins:
+    - ecc
+    - molecule-dev
+    - superpowers
+    - molecule-careful-bash
+    - molecule-prompt-watchdog
+    - molecule-audit-trail
+    - molecule-session-context
+    - molecule-skill-cron-learnings
+    - molecule-skill-update-docs
+
+  # Audit-summary routing — generic per-template mapping (issue #51).
+  # Auditors (Security Auditor, UIUX Designer, QA Engineer) send A2A messages
+  # with metadata.audit_summary.category set. The receiver (PM) reads this
+  # table from its own /configs/config.yaml and delegates to each listed role.
+  # Each org template owns its own mapping — role names are NOT hardcoded in
+  # prompts, so adding/renaming roles is a config-only change.
+  category_routing:
+    # Defensive findings — code review, SAST, missing patch class.
+    security: [Backend Engineer, Backend Engineer 2, Backend Engineer 3, DevOps Engineer]
+    # Adversarial findings — live exploit, container escape, supply-chain
+    # CVE, cross-agent prompt injection. Routed through Security Auditor
+    # first so the patch class is named before paging the implementing
+    # engineer; most red-team findings need both an immediate mitigation
+    # (DevOps) and a structural fix (Security Auditor + Backend).
+    offensive: [Security Auditor, Security Auditor 2, Backend Engineer, DevOps Engineer]
+    ui: [Frontend Engineer, Frontend Engineer 2, Frontend Engineer 3]
+    ux: [Frontend Engineer, Frontend Engineer 2]
+    infra: [DevOps Engineer, Platform Engineer, SRE Engineer]
+    # Cloud-services findings (Vercel/Fly/GHCR/Upptime) — failed deploy,
+    # broken health check, expired cert, increased error rate, runaway
+    # cost. Routed to DevOps first (operate the platform) and Backend
+    # second (most cloud regressions trace back to a backend deploy).
+    cloud: [DevOps Engineer, Platform Engineer, SRE Engineer, Backend Engineer]
+    qa: [QA Engineer, QA Engineer 2, QA Engineer 3]
+    performance: [Backend Engineer]
+    docs: [Documentation Specialist]
+    mixed: [Dev Lead]
+    # Evolution-cron categories (#93): these four are fired by hourly
+    # self-review schedules (Research Lead, Technical Researcher, Dev Lead,
+    # DevOps Engineer). Routing them to the same role that generated them
+    # is a safe default — it converts the summary into a delegation back
+    # to the author so they act on their own findings. Override per-org
+    # if you want a different fan-out.
+    research: [Research Lead]
+    plugins: [Technical Researcher]
+    template: [Dev Lead]
+    channels: [DevOps Engineer]
+    # Marketing team categories (2026-04-16). Peer sub-tree under CEO —
+    # reports via Marketing Lead for coordination + cross-functional
+    # delegations into the dev team (DevRel → Backend Engineer for code
+    # samples, PMM → Competitive Intelligence for eco-watch diffs).
+    content: [Content Marketer]
+    positioning: [Product Marketing Manager]
+    community: [Community Manager]
+    growth: [SEO Growth Analyst]
+    social: [Social Media Brand]
+    devrel: [DevRel Engineer]
+
+  # workspace_dir: not set by default — each agent gets an isolated Docker volume
+  # Set per-workspace to bind-mount a host directory as /workspace
+
+  # Idle-loop reflection pattern (#205). When idle_prompt is non-empty, the
+  # workspace self-sends this prompt every idle_interval_seconds while its
+  # heartbeat.active_tasks == 0. Pattern from Hermes/Letta. Cost collapses to
+  # event-driven (no LLM call unless there's actually nothing to do). Off by
+  # default to avoid surprising token burn — set per-workspace to enable.
+  # Keep idle prompts local (no A2A sends): same rule as initial_prompt.
+  idle_prompt: ""
+  idle_interval_seconds: 600   # 10 min — ignored when idle_prompt is empty
+
+  # initial_prompt runs once on first boot (not on restart).
+  # ${GITHUB_REPO} is a container env var from .env secrets.
+  # IMPORTANT: Do NOT send A2A messages in initial_prompt — other agents may not
+  # be ready yet. Keep it local: clone, read, memorize. Wait for tasks.
+  initial_prompt: |
+    You just started. Set up your environment silently — do NOT contact other agents yet.
+    SCOPE: this team owns the entire Molecule-AI GitHub org (40+ repos: molecule-core,
+    molecule-app, docs, landingpage, all plugin/template/sdk repos) AND the live cloud
+    services that run them (Vercel for app + landingpage, Fly for control plane, GHCR
+    for images, Upptime for status). Do NOT scope yourselves to molecule-core only —
+    issues, PRs, and incidents from any Molecule-AI/* repo are in scope. Pick up work
+    from across the org based on your role.
+
+    1. Clone the baseline repo (molecule-core conventions are the org standard).
+       Authenticated when GITHUB_TOKEN is available, anonymous otherwise. When a token
+       is present, use it in-URL ONLY for the clone, then scrub the remote URL so the
+       token is never persisted to /workspace/repos/molecule-core/.git/config:
+       mkdir -p /workspace/repos
+       if [ -n "$GITHUB_TOKEN" ]; then
+         git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git" /workspace/repos/molecule-core 2>/dev/null \
+           && (cd /workspace/repos/molecule-core && git remote set-url origin "https://github.com/${GITHUB_REPO}.git") \
+           || (cd /workspace/repos/molecule-core && git pull)
+       else
+         git clone "https://github.com/${GITHUB_REPO}.git" /workspace/repos/molecule-core 2>/dev/null || (cd /workspace/repos/molecule-core && git pull)
+       fi
+       # Backwards-compat symlink — older role prompts still reference /workspace/repo
+       ln -sfn /workspace/repos/molecule-core /workspace/repo
+
+    2. Enumerate the org so you know what's out there. Don't clone everything (wasteful);
+       memorise the inventory and clone-on-demand when a task touches a specific repo:
+         gh repo list Molecule-AI --limit 60 --json name,description,updatedAt \
+           > /workspace/org-repos.json
+       Use commit_memory with key `org-repos-inventory` to save the repo list +
+       brief description for each. Re-enumerate on every restart so you stay current
+       with new repos.
+
+    3. Set up git hooks for the baseline: cd /workspace/repos/molecule-core && git config core.hooksPath .githooks
+    4. Read /workspace/repos/molecule-core/CLAUDE.md to understand the project conventions.
+    5. Read your system prompt at /configs/system-prompt.md to understand your role + which
+       org repos and cloud services are YOUR ownership area.
+    6. Save key conventions to memory so you recall them on every future task:
+       Use commit_memory to save: "CONVENTIONS: (1) Every canvas .tsx using hooks needs 'use client' as first line — run the grep check before committing. (2) Dark zinc theme only — never white/light. (3) Zustand selectors must not create new objects. (4) Always run npm test + npm run build before reporting done. (5) Use delegate_task to ask peers questions directly — don't guess API shapes. (6) Pre-commit hook at .githooks/pre-commit enforces these — commits will be rejected if violated. (7) When working in a non-core repo, clone it on demand under /workspace/repos/<name> and follow that repo's CLAUDE.md if present."
+    7. You are now ready. Wait for tasks from your parent — do not initiate contact.
+
+workspaces:
+  - !include teams/pm.yaml
+  - !include teams/marketing.yaml
+
+template_schema_version: 1

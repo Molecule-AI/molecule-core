@@ -116,7 +116,7 @@ func (h *MemoryHandler) Set(c *gin.Context) {
 		IfMatchVersion *int64 `json:"if_match_version"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 

@@ -288,7 +288,7 @@ func (h *WorkspaceHandler) proxyA2ARequest(ctx context.Context, workspaceID stri
 	if err != nil {
 		return h.handleA2ADispatchError(ctx, workspaceID, callerID, body, a2aMethod, err, durationMs, logActivity)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read agent response (capped at 10MB).
 	// #689: Do() succeeded, which means the target received the request and sent
@@ -384,6 +384,14 @@ func (h *WorkspaceHandler) resolveAgentURL(ctx context.Context, workspaceID stri
 	// Docker host). Rewrite to the container's Docker-bridge hostname.
 	if strings.HasPrefix(agentURL, "http://127.0.0.1:") && h.provisioner != nil && platformInDocker {
 		agentURL = provisioner.InternalURL(workspaceID)
+	}
+	// SSRF defence: reject private/metadata URLs before making outbound call.
+	if err := isSafeURL(agentURL); err != nil {
+		log.Printf("ProxyA2A: unsafe URL for workspace %s: %v", workspaceID, err)
+		return "", &proxyA2AError{
+			Status:   http.StatusBadGateway,
+			Response: gin.H{"error": "workspace URL is not publicly routable"},
+		}
 	}
 	return agentURL, nil
 }
