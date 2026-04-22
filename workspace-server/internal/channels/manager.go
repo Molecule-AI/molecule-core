@@ -203,8 +203,8 @@ func (m *Manager) Reload(ctx context.Context) {
 			log.Printf("Channels: reload scan error: %v", err)
 			continue
 		}
-		json.Unmarshal(configJSON, &ch.Config)
-		json.Unmarshal(allowedJSON, &ch.AllowedUsers)
+		_ = json.Unmarshal(configJSON, &ch.Config)
+		_ = json.Unmarshal(allowedJSON, &ch.AllowedUsers)
 		// #319: decrypt at the boundary between DB (ciphertext) and the
 		// in-memory config adapters consume. A decrypt failure logs and
 		// skips the channel — downstream getUpdates would fail anyway
@@ -374,7 +374,7 @@ func (m *Manager) HandleInbound(ctx context.Context, ch ChannelRow, msg *Inbound
 
 	// Update stats in DB
 	if db.DB != nil {
-		db.DB.ExecContext(ctx, `
+		_, _ = db.DB.ExecContext(ctx, `
 			UPDATE workspace_channels
 			SET last_message_at = now(), message_count = message_count + 1, updated_at = now()
 			WHERE id = $1
@@ -383,7 +383,7 @@ func (m *Manager) HandleInbound(ctx context.Context, ch ChannelRow, msg *Inbound
 
 	// Broadcast event
 	if m.broadcaster != nil {
-		m.broadcaster.RecordAndBroadcast(ctx, "CHANNEL_MESSAGE", ch.WorkspaceID, map[string]interface{}{
+		_ = m.broadcaster.RecordAndBroadcast(ctx, "CHANNEL_MESSAGE", ch.WorkspaceID, map[string]interface{}{
 			"channel_id":   ch.ID,
 			"channel_type": ch.ChannelType,
 			"username":     msg.Username,
@@ -419,7 +419,7 @@ func (m *Manager) SendOutbound(ctx context.Context, channelID string, text strin
 	}
 
 	if db.DB != nil {
-		db.DB.ExecContext(ctx, `
+		_, _ = db.DB.ExecContext(ctx, `
 			UPDATE workspace_channels
 			SET last_message_at = now(), message_count = message_count + 1, updated_at = now()
 			WHERE id = $1
@@ -427,7 +427,7 @@ func (m *Manager) SendOutbound(ctx context.Context, channelID string, text strin
 	}
 
 	if m.broadcaster != nil {
-		m.broadcaster.RecordAndBroadcast(ctx, "CHANNEL_MESSAGE", ch.WorkspaceID, map[string]interface{}{
+		_ = m.broadcaster.RecordAndBroadcast(ctx, "CHANNEL_MESSAGE", ch.WorkspaceID, map[string]interface{}{
 			"channel_id":   ch.ID,
 			"channel_type": ch.ChannelType,
 			"direction":    "outbound",
@@ -521,7 +521,7 @@ func (m *Manager) FetchWorkspaceChannelContext(ctx context.Context, workspaceID 
 		if len(text) > 200 {
 			text = text[:197] + "..."
 		}
-		sb.WriteString(fmt.Sprintf("- %s: %s\n", name, text))
+		fmt.Fprintf(&sb, "- %s: %s\n", name, text)
 	}
 	return sb.String()
 }

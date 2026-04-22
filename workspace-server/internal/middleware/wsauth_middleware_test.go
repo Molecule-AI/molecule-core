@@ -32,16 +32,6 @@ const validateAnyTokenSelectQuery = "SELECT t\\.id.*FROM workspace_auth_tokens t
 // validateTokenUpdateQuery is matched for the best-effort last_used_at UPDATE.
 const validateTokenUpdateQuery = "UPDATE workspace_auth_tokens SET last_used_at"
 
-// newWorkspaceAuthRouter builds a minimal gin router that applies WorkspaceAuth
-// to a single GET /workspaces/:id/test route, returning 200 on success.
-func newWorkspaceAuthRouter(db sqlmock.Sqlmock, realDB interface{ Close() error }) *gin.Engine {
-	_ = db  // unused directly; sqlmock intercepts calls via the *sql.DB pointer
-	r := gin.New()
-	// We need the *sql.DB, not the mock. The caller passes mockDB via the
-	// test-local var — this helper is only used to build the router topology.
-	return r
-}
-
 // TestWorkspaceAuth_351_NoBearer_Returns401 — strict contract: every request
 // under /workspaces/:id/* must carry a valid bearer, period. No fail-open,
 // no grace period, no existence check. The middleware goes straight to
@@ -535,7 +525,7 @@ func TestAdminAuth_OrgToken_SetsOrgID(t *testing.T) {
 
 			// F1097 fix: org_id lookup. For pre-fix tokens (nil row), this
 			// returns nil and we expect no org_id context key to be set.
-			orgIDRows := sqlmock.NewRows([]string{"org_id"})
+			var orgIDRows *sqlmock.Rows
 			if tt.orgIDFromDB == nil {
 				orgIDRows = sqlmock.NewRows([]string{"org_id"}).AddRow(nil)
 			} else {

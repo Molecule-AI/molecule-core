@@ -18,7 +18,7 @@ func setupHibernationMock(t *testing.T) sqlmock.Sqlmock {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
 	db.DB = mockDB
-	t.Cleanup(func() { mockDB.Close() })
+	t.Cleanup(func() { _ = mockDB.Close() })
 	return mock
 }
 

@@ -374,7 +374,7 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 		}
 	} else if lastStatus == "ok" {
 		// Non-empty success — reset the counter
-		db.DB.ExecContext(ctx, `
+		_, _ = db.DB.ExecContext(ctx, `
 			UPDATE workspace_schedules
 			SET consecutive_empty_runs = 0,
 			    updated_at = now()
@@ -434,7 +434,7 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 	`, sched.WorkspaceID, "Cron: "+sched.Name, string(cronMeta), lastStatus, lastError)
 
 	if s.broadcaster != nil {
-		s.broadcaster.RecordAndBroadcast(ctx, "CRON_EXECUTED", sched.WorkspaceID, map[string]interface{}{
+		_ = s.broadcaster.RecordAndBroadcast(ctx, "CRON_EXECUTED", sched.WorkspaceID, map[string]interface{}{
 			"schedule_id":   sched.ID,
 			"schedule_name": sched.Name,
 			"status":        lastStatus,

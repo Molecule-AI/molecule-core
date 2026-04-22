@@ -31,7 +31,7 @@ func setupTestDB(t *testing.T) sqlmock.Sqlmock {
 		t.Fatalf("failed to create sqlmock: %v", err)
 	}
 	db.DB = mockDB
-	t.Cleanup(func() { mockDB.Close() })
+	t.Cleanup(func() { _ = mockDB.Close() })
 	return mock
 }
 
@@ -51,9 +51,9 @@ func TestSweepOnlineWorkspaces_DeadContainer(t *testing.T) {
 	mr := setupTestRedis(t)
 
 	// Set up Redis keys for a workspace that's about to be detected as dead
-	mr.Set("ws:ws-dead-123", "online")
-	mr.Set("ws:ws-dead-123:url", "http://127.0.0.1:32000")
-	mr.Set("ws:ws-dead-123:internal_url", "http://ws-ws-dead-123:8000")
+	_ = mr.Set("ws:ws-dead-123", "online")
+	_ = mr.Set("ws:ws-dead-123:url", "http://127.0.0.1:32000")
+	_ = mr.Set("ws:ws-dead-123:internal_url", "http://ws-ws-dead-123:8000")
 
 	// Mock: query returns one online workspace
 	rows := sqlmock.NewRows([]string{"id"}).AddRow("ws-dead-123")
