@@ -94,6 +94,7 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 	// Runs after secret loads so an operator can still override via a
 	// workspace_secret named GIT_AUTHOR_NAME if they want custom identity.
 	applyAgentGitIdentity(envVars, payload.Name)
+	applyRuntimeModelEnv(envVars, payload.Runtime, payload.Model)
 
 	// Plugin extension point: run any registered EnvMutators (e.g.
 	// github-app-auth, vault-secrets) AFTER built-in identity injection so
@@ -544,6 +545,37 @@ func (h *WorkspaceHandler) ensureDefaultConfig(workspaceID string, payload model
 	return files
 }
 
+// applyRuntimeModelEnv exposes the workspace's selected model via an
+// env var the target runtime's install.sh / start.sh knows to read.
+// Each runtime owns its own env-var contract — the tenant just plumbs
+// the value through so CP can bake it into user-data.
+//
+// Why per-runtime rather than a generic MOLECULE_MODEL: each runtime
+// installer has its own config schema and naming (hermes writes to
+// ~/.hermes/config.yaml with `model.default`; langgraph reads from
+// /configs/config.yaml directly; future IoT/robotics targets may have
+// firmware manifests). Keeping the contract owned by the runtime
+// template means adding a new runtime doesn't require edits on the
+// tenant side for each one.
+//
+// For runtimes with no env-based model override (langgraph etc. read
+// model from /configs/config.yaml which CP user-data generates from
+// payload.Model at boot), this is a no-op — no harm in the switch
+// being empty for those cases.
+func applyRuntimeModelEnv(envVars map[string]string, runtime, model string) {
+	if model == "" {
+		return
+	}
+	switch runtime {
+	case "hermes":
+		// template-hermes install.sh reads this into ~/.hermes/config.yaml's
+		// model.default field; derives HERMES_INFERENCE_PROVIDER from the
+		// slug prefix (minimax/…, anthropic/…, openai/…, etc.) when the
+		// provider isn't explicitly set.
+		envVars["HERMES_DEFAULT_MODEL"] = model
+	}
+}
+
 // loadWorkspaceSecrets loads global + workspace-specific secrets into a map.
 // Returns nil map + error string on decrypt failure. Shared by both Docker
 // and control plane provisioning paths to avoid duplication.
@@ -600,6 +632,7 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 	}
 
 	applyAgentGitIdentity(envVars, payload.Name)
+	applyRuntimeModelEnv(envVars, payload.Runtime, payload.Model)
 	if err := h.envMutators.Run(ctx, workspaceID, envVars); err != nil {
 		log.Printf("CPProvisioner: env mutator failed for %s: %v", workspaceID, err)
 		// F1086 / #1206: env mutator errors (missing tokens, vault paths) must not
