@@ -1,6 +1,5 @@
 'use client';
-import { useState, useCallback, useEffect, useRef } from 'react';
-import type { SecretGroup } from '@/types/secrets';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useSecretsStore } from '@/stores/secrets-store';
 import { KeyValueField } from '@/components/ui/KeyValueField';
 import { ValidationHint } from '@/components/ui/ValidationHint';
@@ -10,7 +9,7 @@ import {
   isValidKeyName,
   inferGroup,
 } from '@/lib/validation/secret-formats';
-import { SERVICES, SERVICE_GROUP_ORDER, getDefaultKeyName } from '@/lib/services';
+import { SERVICES, KEY_NAME_SUGGESTIONS } from '@/lib/services';
 
 const VALIDATION_DEBOUNCE_MS = 400;
 
@@ -23,9 +22,21 @@ interface AddKeyFormProps {
 /**
  * Inline-expanding form for adding a new API key.
  *
- * Flow (from spec §4.2):
- *   Form Open → select service → key name auto-fills → type value →
- *   optional Test Connection → Save
+ * Design note (2026-04-22): the form used to open with a Service
+ * dropdown (GitHub / Anthropic / OpenRouter / Other) gating what to
+ * do next. That added friction — the storage layer only cares about
+ * (key_name, value), and the provider can always be inferred from the
+ * key name itself. We removed the dropdown and rely on:
+ *
+ *   - A datalist of common key-name suggestions so autocomplete
+ *     replaces "pick a provider then the name auto-fills"
+ *   - inferGroup(keyName) to classify the secret for validation +
+ *     list-view grouping + test-connection routing, derived at render
+ *     time from what the user actually typed
+ *
+ * Result: fewer fields, provider-agnostic by design, no UI code change
+ * needed to onboard a new provider (MiniMax, DeepSeek, etc. just work
+ * as soon as you type their canonical env var name).
  */
 export function AddKeyForm({
   workspaceId,
@@ -34,8 +45,7 @@ export function AddKeyForm({
 }: AddKeyFormProps) {
   const createSecret = useSecretsStore((s) => s.createSecret);
 
-  const [selectedGroup, setSelectedGroup] = useState<SecretGroup>('github');
-  const [keyName, setKeyName] = useState(getDefaultKeyName('github'));
+  const [keyName, setKeyName] = useState('');
   const [value, setValue] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [keyNameError, setKeyNameError] = useState<string | null>(null);
@@ -43,23 +53,13 @@ export function AddKeyForm({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const service = SERVICES[selectedGroup];
 
-  // Auto-fill key name when service changes
-  const handleServiceChange = useCallback(
-    (group: SecretGroup) => {
-      setSelectedGroup(group);
-      const defaultName = getDefaultKeyName(group);
-      if (defaultName) {
-        setKeyName(defaultName);
-      }
-      // Reset validation
-      setValidationError(null);
-      setKeyNameError(null);
-      setSaveError(null);
-    },
-    [],
-  );
+  // Group is derived, not selected. Falls back to 'custom' for any
+  // key name that doesn't match a known provider pattern — validation
+  // and test-connection still work, just without provider-specific
+  // format hints.
+  const inferredGroup = useMemo(() => inferGroup(keyName || ''), [keyName]);
+  const service = SERVICES[inferredGroup];
 
   // Validate key name
   useEffect(() => {
@@ -78,7 +78,7 @@ export function AddKeyForm({
     setKeyNameError(null);
   }, [keyName, existingNames]);
 
-  // Debounced value validation
+  // Debounced value validation against the inferred provider's format.
   useEffect(() => {
     if (!value) {
       setValidationError(null);
@@ -86,18 +86,17 @@ export function AddKeyForm({
     }
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      setValidationError(validateSecretValue(value, selectedGroup));
+      setValidationError(validateSecretValue(value, inferredGroup));
     }, VALIDATION_DEBOUNCE_MS);
     return () => clearTimeout(debounceRef.current);
-  }, [value, selectedGroup]);
+  }, [value, inferredGroup]);
 
   const handleSave = useCallback(async () => {
-    // Final validation pass
     if (!isValidKeyName(keyName)) {
       setKeyNameError('Key name must be UPPER_SNAKE_CASE');
       return;
     }
-    const valErr = validateSecretValue(value, selectedGroup);
+    const valErr = validateSecretValue(value, inferredGroup);
     if (valErr) {
       setValidationError(valErr);
       return;
@@ -114,32 +113,21 @@ export function AddKeyForm({
     } finally {
       setIsSaving(false);
     }
-  }, [keyName, value, selectedGroup, createSecret, workspaceId]);
+  }, [keyName, value, inferredGroup, createSecret, workspaceId]);
 
   const canSave = keyName && value && !keyNameError && !validationError && !isSaving;
+
+  // Show the provider-specific docs hint only when the key name
+  // matches a known provider. For 'custom' (unknown key name) we stay
+  // quiet — no false-structure prompt.
+  const showProviderHint = inferredGroup !== 'custom' && service.docsUrl;
 
   return (
     <div className="add-key-form">
       <div className="add-key-form__header">Add New Key</div>
 
-      {/* Service selector */}
-      <label className="add-key-form__label">
-        Service
-        <select
-          value={selectedGroup}
-          onChange={(e) => handleServiceChange(e.target.value as SecretGroup)}
-          disabled={isSaving}
-          className="add-key-form__select"
-        >
-          {SERVICE_GROUP_ORDER.map((group) => (
-            <option key={group} value={group}>
-              {SERVICES[group].label}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      {/* Key name */}
+      {/* Key name — autocomplete replaces the old Service dropdown.
+          inferGroup(keyName) derives classification at render time. */}
       <label className="add-key-form__label">
         Key name
         <input
@@ -147,14 +135,32 @@ export function AddKeyForm({
           value={keyName}
           onChange={(e) => setKeyName(e.target.value.toUpperCase())}
           disabled={isSaving}
-          placeholder="MY_API_KEY"
+          placeholder="e.g. ANTHROPIC_API_KEY, MINIMAX_API_KEY, GITHUB_TOKEN"
           className="add-key-form__input"
           autoComplete="off"
           spellCheck={false}
+          list="add-key-name-suggestions"
         />
       </label>
-      {keyNameError && (
-        <ValidationHint error={keyNameError} />
+      <datalist id="add-key-name-suggestions">
+        {KEY_NAME_SUGGESTIONS.map((name) => (
+          <option key={name} value={name} />
+        ))}
+      </datalist>
+      {keyNameError && <ValidationHint error={keyNameError} />}
+      {showProviderHint && (
+        <div className="add-key-form__hint" data-testid="provider-hint">
+          <span className="add-key-form__hint-label">{service.label}</span>
+          {' — '}
+          <a
+            href={service.docsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="add-key-form__hint-link"
+          >
+            get a key
+          </a>
+        </div>
       )}
 
       {/* Key value */}
@@ -172,22 +178,21 @@ export function AddKeyForm({
         showValid={!validationError && value.length > 0}
       />
 
-      {/* Test connection (only for supported services) */}
+      {/* Test connection (only when the inferred group supports it AND
+          value looks format-valid). */}
       {service.testSupported && value && !validationError && (
         <TestConnectionButton
-          provider={selectedGroup}
+          provider={inferredGroup}
           secretValue={value}
         />
       )}
 
-      {/* Save error */}
       {saveError && (
         <div className="add-key-form__error" role="alert">
           {saveError}
         </div>
       )}
 
-      {/* Actions */}
       <div className="add-key-form__actions">
         <button
           type="button"
