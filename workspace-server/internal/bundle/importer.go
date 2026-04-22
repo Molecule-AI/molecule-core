@@ -50,7 +50,7 @@ func Import(
 		return result
 	}
 
-	broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", wsID, map[string]interface{}{
+	_ = broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", wsID, map[string]interface{}{
 		"name":             b.Name,
 		"tier":             b.Tier,
 		"source_bundle_id": b.ID,
@@ -71,7 +71,7 @@ func Import(
 		}
 	}
 	// Store runtime in DB
-	db.DB.ExecContext(ctx, `UPDATE workspaces SET runtime = $1 WHERE id = $2`, bundleRuntime, wsID)
+	_, _ = db.DB.ExecContext(ctx, `UPDATE workspaces SET runtime = $1 WHERE id = $2`, bundleRuntime, wsID)
 
 	// Provision the container if provisioner is available
 	if prov != nil {

@@ -212,6 +212,15 @@ func (s *Scheduler) tick(ctx context.Context) {
 				if r := recover(); r != nil {
 					log.Printf("Scheduler: PANIC firing '%s' on workspace %s — recovered: %v",
 						s2.Name, s2.WorkspaceID, r)
+					// Always advance next_run_at even on panic so the schedule doesn't get
+					// stuck re-firing the same panicking schedule indefinitely (#1029).
+					if nextTime, err := ComputeNextRun(s2.CronExpr, s2.Timezone, time.Now()); err == nil {
+						// F1089: use context.Background() so the panic-recovery UPDATE is not
+						// silently skipped if the outer ctx was cancelled during the panic window.
+						if _, execErr := db.DB.ExecContext(context.Background(), `UPDATE workspace_schedules SET next_run_at=$1, updated_at=now() WHERE id=$2`, nextTime, s2.ID); execErr != nil {
+							log.Printf("Scheduler: panic-recovery next_run_at UPDATE failed for schedule %s: %v", s2.ID, execErr)
+						}
+					}
 				}
 			}()
 			supervised.Heartbeat("scheduler")
@@ -238,6 +247,15 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 		if r := recover(); r != nil {
 			log.Printf("Scheduler: panic recovered in fireSchedule for '%s' (%s): %v",
 				sched.Name, sched.ID, r)
+			// Always advance next_run_at even on panic so the schedule doesn't get
+			// stuck re-firing the same panicking schedule indefinitely (#1029).
+			if nextTime, err := ComputeNextRun(sched.CronExpr, sched.Timezone, time.Now()); err == nil {
+				// F1089: use context.Background() so the panic-recovery UPDATE is not
+				// silently skipped if the outer ctx was cancelled during the panic window.
+				if _, execErr := db.DB.ExecContext(context.Background(), `UPDATE workspace_schedules SET next_run_at=$1, updated_at=now() WHERE id=$2`, nextTime, sched.ID); execErr != nil {
+					log.Printf("Scheduler: panic-recovery next_run_at UPDATE failed for schedule %s: %v", sched.ID, execErr)
+				}
+			}
 		}
 	}()
 
@@ -249,32 +267,36 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 	// This replaces the #115 "skip when busy" pattern which caused crons
 	// to permanently miss when workspaces were perpetually busy from the
 	// Orchestrator pulse delegation chain (~30% message drop rate on Dev Lead).
+	// Check workspace capacity — fire when active_tasks < max_concurrent_tasks.
+	// Default max is 1 (backward compatible). Workspaces can override via config
+	// to allow concurrent task processing (e.g. leaders handling A2A while cron runs).
 	var activeTasks int
+	var maxConcurrent int
 	if err := db.DB.QueryRowContext(ctx,
-		`SELECT COALESCE(active_tasks, 0) FROM workspaces WHERE id = $1`,
+		`SELECT COALESCE(active_tasks, 0), COALESCE(max_concurrent_tasks, 1) FROM workspaces WHERE id = $1`,
 		sched.WorkspaceID,
-	).Scan(&activeTasks); err == nil && activeTasks > 0 {
-		log.Printf("Scheduler: '%s' workspace %s busy (active_tasks=%d), deferring up to 2 min",
-			sched.Name, short(sched.WorkspaceID, 12), activeTasks)
+	).Scan(&activeTasks, &maxConcurrent); err == nil && activeTasks >= maxConcurrent {
+		log.Printf("Scheduler: '%s' workspace %s at capacity (active_tasks=%d, max=%d), deferring up to 2 min",
+			sched.Name, short(sched.WorkspaceID, 12), activeTasks, maxConcurrent)
 		// Poll every 10s for up to 2 minutes
 		waited := false
 		for i := 0; i < 12; i++ {
 			time.Sleep(10 * time.Second)
 			if err := db.DB.QueryRowContext(ctx,
-				`SELECT COALESCE(active_tasks, 0) FROM workspaces WHERE id = $1`,
+				`SELECT COALESCE(active_tasks, 0), COALESCE(max_concurrent_tasks, 1) FROM workspaces WHERE id = $1`,
 				sched.WorkspaceID,
-			).Scan(&activeTasks); err != nil || activeTasks == 0 {
+			).Scan(&activeTasks, &maxConcurrent); err != nil || activeTasks < maxConcurrent {
 				waited = true
 				break
 			}
 		}
-		if !waited && activeTasks > 0 {
-			log.Printf("Scheduler: skipping '%s' on busy workspace %s after 2 min wait (active_tasks=%d)",
-				sched.Name, short(sched.WorkspaceID, 12), activeTasks)
+		if !waited && activeTasks >= maxConcurrent {
+			log.Printf("Scheduler: skipping '%s' on busy workspace %s after 2 min wait (active_tasks=%d, max=%d)",
+				sched.Name, short(sched.WorkspaceID, 12), activeTasks, maxConcurrent)
 			s.recordSkipped(ctx, sched, activeTasks)
 			return
 		}
-		log.Printf("Scheduler: '%s' workspace %s now idle after deferral, firing",
+		log.Printf("Scheduler: '%s' workspace %s has capacity after deferral, firing",
 			sched.Name, short(sched.WorkspaceID, 12))
 	}
 
@@ -372,7 +394,15 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 			sched.Name, sched.ID, nextErr)
 	}
 
-	_, err := db.DB.ExecContext(ctx, `
+	// F1089: use a dedicated context with its own 5s deadline for the
+	// post-fire UPDATE. The outer ctx (fireCtx) may be cancelled if the
+	// HTTP call timed out or the server is shutting down; using it here
+	// would silently skip the UPDATE and leave next_run_at stale, causing
+	// the schedule to be immediately re-fired on the next tick.
+	updateCtx, updateCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer updateCancel()
+
+	_, err := db.DB.ExecContext(updateCtx, `
 		UPDATE workspace_schedules
 		SET last_run_at = now(),
 		    next_run_at = COALESCE($2, next_run_at),
@@ -383,7 +413,7 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 		WHERE id = $1
 	`, sched.ID, nextRunPtr, lastStatus, lastError)
 	if err != nil {
-		log.Printf("Scheduler: update error for %s: %v", sched.ID, err)
+		log.Printf("Scheduler: post-fire update error for %s [%s]: %v", sched.ID, sched.Name, err)
 	}
 
 	// Log a dedicated cron_run activity entry with schedule metadata so the

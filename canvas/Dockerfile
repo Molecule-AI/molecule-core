@@ -20,4 +20,7 @@ COPY --from=builder /app/public ./public
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
+# Non-root runtime — node image defaults to root, explicitly drop.
+RUN addgroup -g 1000 canvas && adduser -u 1000 -G canvas -s /bin/sh -D canvas
+USER canvas
 CMD ["node", "server.js"]

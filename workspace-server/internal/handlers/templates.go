@@ -134,7 +134,7 @@ func (h *TemplatesHandler) ListFiles(c *gin.Context) {
 	subPath := c.DefaultQuery("path", "")
 	if subPath != "" {
 		if err := validateRelPath(subPath); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
 			return
 		}
 	}
@@ -258,7 +258,7 @@ func (h *TemplatesHandler) ReadFile(c *gin.Context) {
 	}
 
 	if err := validateRelPath(filePath); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
 		return
 	}
 
@@ -295,6 +295,13 @@ func (h *TemplatesHandler) ReadFile(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found (container offline, no template)"})
 		return
 	}
+	// validateRelPath is already called above (line 260) for the container path,
+	// but the fallback below uses filePath directly in filepath.Join without
+	// any sanitization. Re-validate before the host-side read to close the gap.
+	if err := validateRelPath(filePath); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
+		return
+	}
 	fullPath := filepath.Join(templateDir, filePath)
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
@@ -318,7 +325,7 @@ func (h *TemplatesHandler) WriteFile(c *gin.Context) {
 	}
 
 	if err := validateRelPath(filePath); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
 		return
 	}
 
@@ -326,7 +333,7 @@ func (h *TemplatesHandler) WriteFile(c *gin.Context) {
 		Content string `json:"content"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -367,7 +374,7 @@ func (h *TemplatesHandler) DeleteFile(c *gin.Context) {
 	}
 
 	if err := validateRelPath(filePath); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
 		return
 	}
 

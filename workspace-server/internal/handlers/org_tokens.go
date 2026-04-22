@@ -61,6 +61,10 @@ type createOrgTokenResponse struct {
 // provenance of the current request — so an audit trail points back
 // to who minted what. For the bootstrap ADMIN_TOKEN path, created_by
 // is "admin-token" (no session identity available).
+//
+// orgID is the caller's org workspace ID, captured at mint time.
+// requireCallerOwnsOrg (org_plugin_allowlist.go:116) uses this to
+// enforce org isolation (#1200 / F1094).
 func (h *OrgTokenHandler) Create(c *gin.Context) {
 	var req createOrgTokenRequest
 	// Optional body — an empty POST should still work (unnamed token).
@@ -70,15 +74,15 @@ func (h *OrgTokenHandler) Create(c *gin.Context) {
 		return
 	}
 
-	createdBy := orgTokenActor(c)
+	createdBy, orgID := orgTokenActor(c)
 
-	plaintext, id, err := orgtoken.Issue(c.Request.Context(), db.DB, req.Name, createdBy)
+	plaintext, id, err := orgtoken.Issue(c.Request.Context(), db.DB, req.Name, createdBy, orgID)
 	if err != nil {
 		log.Printf("orgtoken issue: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to mint token"})
 		return
 	}
-	log.Printf("orgtoken: minted id=%s by=%s name=%q", id, createdBy, req.Name)
+	log.Printf("orgtoken: minted id=%s by=%s org=%s name=%q", id, createdBy, orgID, req.Name)
 
 	c.JSON(http.StatusOK, createOrgTokenResponse{
 		ID:      id,
@@ -107,7 +111,7 @@ func (h *OrgTokenHandler) Revoke(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "token not found or already revoked"})
 		return
 	}
-	actor := orgTokenActor(c)
+	actor, _ := orgTokenActor(c)
 	log.Printf("orgtoken: revoked id=%s by=%s", id, actor)
 	c.JSON(http.StatusOK, gin.H{"revoked": id})
 }
@@ -121,28 +125,51 @@ const (
 	actorAdminToken     = "admin-token" // bootstrap ADMIN_TOKEN env
 )
 
-// orgTokenActor derives a short provenance string for audit.
+// callerContext returns the caller's org workspace ID for use in
+// org-token creation (#1200 / F1094). It reads org_token_id from the
+// gin context (set by AdminAuth when an org token authed the request)
+// and looks up the token's org_id.
 //
-//   - If the request was authed via another org token, return
-//     "org-token:<prefix>" where prefix is the 8-char plaintext
-//     prefix shown in the UI — correlates audit rows directly with
-//     the revoke button a user sees.
-//   - If authed via session cookie (AdminAuth's session tier), the
-//     middleware doesn't stash a WorkOS user_id today — return
-//     "session" as a generic label. Follow-up (see
-//     docs/architecture/org-api-keys-followups.md #6) captures the
-//     user_id through the session tier for full attribution.
-//   - Else (ADMIN_TOKEN / bootstrap), return "admin-token".
-func orgTokenActor(c *gin.Context) string {
+// For session/ADMIN_TOKEN callers (no org_token_id in context), returns
+// ("", "") so the token is minted as "unanchored" (org_id=NULL).
+// Unanchored tokens cannot access org-scoped routes — safer than
+// permitting cross-org access until the operator explicitly sets org_id.
+func callerOrg(c *gin.Context) string {
+	tokenID, ok := c.Get("org_token_id")
+	if !ok {
+		return ""
+	}
+	tokID, ok := tokenID.(string)
+	if !ok || tokID == "" {
+		return ""
+	}
+	orgID, err := orgtoken.OrgIDByTokenID(c.Request.Context(), db.DB, tokID)
+	if err != nil || orgID == "" {
+		return ""
+	}
+	return orgID
+}
+
+// orgTokenActor returns (createdBy, orgID) for the current request.
+//
+//   - If authed via another org token (org_token_id in context),
+//     createdBy = "org-token:<prefix>" and orgID = token's org_id.
+//   - If authed via session cookie (AdminAuth's session tier),
+//     createdBy = "session", orgID = "" (session → org mapping not
+//     available in the handler; must be filled by the CP or left null).
+//   - If ADMIN_TOKEN / bootstrap, createdBy = "admin-token",
+//     orgID = "".
+func orgTokenActor(c *gin.Context) (createdBy, orgID string) {
 	if v, ok := c.Get("org_token_prefix"); ok {
 		if s, ok := v.(string); ok && s != "" {
-			return actorOrgTokenPrefix + s
+			return actorOrgTokenPrefix + s, callerOrg(c)
 		}
 	}
-	// Session-tier auth doesn't stash an identity in the gin context
-	// today. Until it does, treat session requests as "session".
+	// Session-tier auth doesn't stash a WorkOS user_id in the gin
+	// context today. Until it does, treat session requests as "session"
+	// with no org anchor.
 	if c.GetHeader("Cookie") != "" {
-		return actorSession
+		return actorSession, ""
 	}
-	return actorAdminToken
+	return actorAdminToken, ""
 }

@@ -39,7 +39,7 @@ func (h *ViewportHandler) Save(c *gin.Context) {
 		Zoom float64 `json:"zoom"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid viewport data"})
 		return
 	}
 

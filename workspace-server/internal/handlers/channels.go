@@ -136,7 +136,7 @@ func (h *ChannelHandler) Create(c *gin.Context) {
 	}
 
 	if err := adapter.ValidateConfig(body.Config); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid channel config"})
 		return
 	}
 
@@ -294,7 +294,8 @@ func (h *ChannelHandler) Send(c *gin.Context) {
 	}
 
 	if err := h.manager.SendOutbound(ctx, channelID, body.Text); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("Channels: send outbound failed for channel %s: %v", channelID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "send failed"})
 		return
 	}
 
@@ -307,7 +308,8 @@ func (h *ChannelHandler) Test(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	if err := h.manager.SendOutbound(ctx, channelID, "🔔 Molecule AI channel test — connection successful!"); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("Channels: test message failed for channel %s: %v", channelID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "test message failed"})
 		return
 	}
 
@@ -436,7 +438,7 @@ func (h *ChannelHandler) Webhook(c *gin.Context) {
 	// Parse the webhook first to get the chat_id
 	msg, err := adapter.ParseWebhook(c, nil)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "parse error: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "webhook parse failed"})
 		return
 	}
 	if msg == nil {

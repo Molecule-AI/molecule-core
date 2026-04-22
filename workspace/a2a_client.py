@@ -14,8 +14,14 @@ from platform_auth import auth_headers
 
 logger = logging.getLogger(__name__)
 
-WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")
-PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://platform:8080")
+_WORKSPACE_ID_raw = os.environ.get("WORKSPACE_ID")
+if not _WORKSPACE_ID_raw:
+    raise RuntimeError("WORKSPACE_ID environment variable is required but not set")
+WORKSPACE_ID = _WORKSPACE_ID_raw
+if os.path.exists("/.dockerenv") or os.environ.get("DOCKER_VERSION"):
+    PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
+else:
+    PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://localhost:8080")
 
 # Cache workspace ID → name mappings (populated by list_peers calls)
 _peer_names: dict[str, str] = {}

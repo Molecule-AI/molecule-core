@@ -121,7 +121,7 @@ func (s *SlackAdapter) sendBotMessage(ctx context.Context, config map[string]int
 			return fmt.Errorf("slack: send: %w", err)
 		}
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		var result struct {
 			OK    bool   `json:"ok"`
 			Error string `json:"error"`
@@ -474,7 +474,7 @@ func FetchChannelHistory(ctx context.Context, botToken, channelID string, limit 
 		return nil, err
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 65536))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	var result struct {
 		OK       bool                  `json:"ok"`
