@@ -306,7 +306,13 @@ class LangGraphA2AExecutor(AgentExecutor):
 
                     # ── Tool trace: collect every tool invocation for
                     # platform-level observability ────────────────────
+                    # Keyed by run_id so parallel tool calls (LangGraph
+                    # supports them) pair start→end correctly. Capped at
+                    # MAX_TOOL_TRACE entries to prevent runaway loops from
+                    # ballooning the JSONB payload.
+                    MAX_TOOL_TRACE = 200
                     tool_trace: list[dict] = []
+                    tool_trace_by_run: dict[str, dict] = {}
 
                     async for event in self.agent.astream_events(
                         {"messages": messages},
@@ -339,11 +345,16 @@ class LangGraphA2AExecutor(AgentExecutor):
                         elif kind == "on_tool_start":
                             tool_name = event.get("name", "?")
                             tool_input = event.get("data", {}).get("input", "")
+                            tool_run_id = event.get("run_id", "")
                             logger.debug("SSE: tool start — %s", tool_name)
-                            tool_trace.append({
-                                "tool": tool_name,
-                                "input": str(tool_input)[:500] if tool_input else "",
-                            })
+                            if len(tool_trace) < MAX_TOOL_TRACE:
+                                entry = {
+                                    "tool": tool_name,
+                                    "input": str(tool_input)[:500] if tool_input else "",
+                                }
+                                tool_trace.append(entry)
+                                if tool_run_id:
+                                    tool_trace_by_run[tool_run_id] = entry
                             if _agency is not None:
                                 _agency.on_tool_call(
                                     tool_name=tool_name,
@@ -353,9 +364,12 @@ class LangGraphA2AExecutor(AgentExecutor):
                         elif kind == "on_tool_end":
                             tool_end_name = event.get("name", "?")
                             tool_output = event.get("data", {}).get("output", "")
+                            tool_run_id = event.get("run_id", "")
                             logger.debug("SSE: tool end — %s", tool_end_name)
-                            if tool_trace and tool_trace[-1]["tool"] == tool_end_name:
-                                tool_trace[-1]["output_preview"] = str(tool_output)[:300] if tool_output else ""
+                            # Pair via run_id so parallel tool calls don't clobber each other.
+                            entry = tool_trace_by_run.get(tool_run_id) if tool_run_id else None
+                            if entry is not None:
+                                entry["output_preview"] = str(tool_output)[:300] if tool_output else ""
 
                         elif kind == "on_chat_model_end":
                             # Capture the last completed AIMessage for token telemetry
