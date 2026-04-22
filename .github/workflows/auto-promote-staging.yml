@@ -1,0 +1,182 @@
+name: Auto-promote staging → main
+
+# Fires after any of the staging-branch quality gates complete. When ALL
+# required gates are green on the same staging SHA, fast-forwards `main`
+# to that SHA automatically — closing the gap that historically let
+# features sit on staging for weeks waiting for a bulk promotion PR
+# (see molecule-core#1496 for the 1172-commit example).
+#
+# Safety model:
+# - Runs ONLY on workflow_run events for the staging branch.
+# - Requires EVERY named gate workflow to have the same head_sha and
+#   all be `conclusion == success`. If any of them is red, skipped,
+#   cancelled, or pending, we abort (stay on the current main).
+# - Uses --ff-only: refuses to advance main if main has diverged from
+#   the staging history (e.g. a hotfix landed directly on main). In
+#   that case a human resolves the fork.
+# - Writes a commit summary so the promote shows up in git log as a
+#   deliberate act, not a stealth move.
+#
+# **Initial rollout:** ship this file but leave the `enabled` input set
+# such that nothing auto-promotes until staging CI has been reliably
+# green for a few days. Toggle via repo variable `AUTO_PROMOTE_ENABLED`.
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+      - E2E Staging Canvas (Playwright)
+      - E2E API Smoke Test
+      - CodeQL
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Force promote even when AUTO_PROMOTE_ENABLED is unset (manual override)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: write
+
+jobs:
+  check-all-gates-green:
+    # Only consider staging pushes. PRs into staging don't promote.
+    if: >
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.head_branch == 'staging' &&
+       github.event.workflow_run.event == 'push')
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      all_green: ${{ steps.gates.outputs.all_green }}
+      head_sha: ${{ steps.gates.outputs.head_sha }}
+    steps:
+      - name: Check all required gates on this SHA
+        id: gates
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Required gate workflow names. Must match the `name:` field
+          # in the respective .github/workflows/*.yml files.
+          GATES=(
+            "CI"
+            "E2E Staging Canvas (Playwright)"
+            "E2E API Smoke Test"
+            "CodeQL"
+          )
+
+          echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Checking gates on SHA ${HEAD_SHA}"
+
+          ALL_GREEN=true
+          for gate in "${GATES[@]}"; do
+            # Query the most recent run of this workflow on this SHA.
+            # event=push to avoid picking up PR runs. branch=staging to
+            # guard against someone dispatching the gate on a non-staging
+            # branch at the same SHA.
+            RESULT=$(gh run list \
+              --repo "$REPO" \
+              --workflow "$gate" \
+              --branch staging \
+              --event push \
+              --commit "$HEAD_SHA" \
+              --limit 1 \
+              --json status,conclusion \
+              --jq '.[0] | "\(.status)/\(.conclusion // "none")"' \
+              2>/dev/null || echo "missing/none")
+
+            echo "  $gate → $RESULT"
+
+            # Only completed/success counts. completed/failure or
+            # in_progress/anything or no record at all = abort.
+            if [ "$RESULT" != "completed/success" ]; then
+              ALL_GREEN=false
+            fi
+          done
+
+          echo "all_green=${ALL_GREEN}" >> "$GITHUB_OUTPUT"
+          if [ "$ALL_GREEN" != "true" ]; then
+            echo "::notice::auto-promote: not all gates are green on ${HEAD_SHA} — staying on current main"
+          fi
+
+  promote:
+    needs: check-all-gates-green
+    if: needs.check-all-gates-green.outputs.all_green == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check rollout gate
+        env:
+          AUTO_PROMOTE_ENABLED: ${{ vars.AUTO_PROMOTE_ENABLED }}
+          FORCE_INPUT: ${{ github.event.inputs.force }}
+        run: |
+          set -eu
+          # Repo variable AUTO_PROMOTE_ENABLED=true flips this on. While
+          # it's unset, the workflow dry-runs (logs what it would have
+          # done) but doesn't actually push to main. Set the variable in
+          # Settings → Secrets and variables → Actions → Variables.
+          if [ "${AUTO_PROMOTE_ENABLED:-}" != "true" ] && [ "${FORCE_INPUT:-false}" != "true" ]; then
+            {
+              echo "## ⏸ Auto-promote disabled"
+              echo
+              echo "Repo variable \`AUTO_PROMOTE_ENABLED\` is not set to \`true\`."
+              echo "All gates are green on staging; would have promoted to \`main\`."
+              echo
+              echo "To enable: Settings → Secrets and variables → Actions → Variables → \`AUTO_PROMOTE_ENABLED=true\`."
+              echo "To test once manually: workflow_dispatch with \`force=true\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::auto-promote disabled — dry run only"
+            exit 0
+          fi
+
+      - name: Checkout main
+        if: ${{ vars.AUTO_PROMOTE_ENABLED == 'true' || github.event.inputs.force == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fast-forward main → staging HEAD
+        if: ${{ vars.AUTO_PROMOTE_ENABLED == 'true' || github.event.inputs.force == 'true' }}
+        env:
+          TARGET_SHA: ${{ needs.check-all-gates-green.outputs.head_sha }}
+        run: |
+          set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin staging
+          git fetch origin main
+
+          # Refuse to advance main if it's diverged from staging history.
+          # Someone landed a commit directly on main that's not on
+          # staging → human needs to decide how to reconcile.
+          if ! git merge-base --is-ancestor "$(git rev-parse origin/main)" "$TARGET_SHA"; then
+            {
+              echo "## ❌ Auto-promote refused — main has diverged"
+              echo
+              echo "\`main\` (\`$(git rev-parse --short origin/main)\`) is not an ancestor of staging (\`${TARGET_SHA:0:7}\`)."
+              echo "Someone committed directly to main or the histories forked."
+              echo
+              echo "Resolve manually: merge main into staging, get CI green on the merged commit,"
+              echo "then the auto-promote will succeed on the next run."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          # Fast-forward main to the target SHA.
+          git checkout main
+          git merge --ff-only "$TARGET_SHA"
+          git push origin main
+
+          {
+            echo "## ✅ Auto-promoted main → ${TARGET_SHA:0:7}"
+            echo
+            echo "All gate workflows green on staging at this SHA."
+            echo "\`main\` fast-forwarded to match."
+          } >> "$GITHUB_STEP_SUMMARY"
