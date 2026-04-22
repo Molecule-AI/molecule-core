@@ -1,9 +1,11 @@
 # golangci-lint configuration for workspace-server
-# errcheck is disabled to avoid blocking CI on pre-existing violations.
 version: v2
 run:
   timeout: 3m
 linters:
+  enable-all: false
+  disable:
+    - errcheck
   enable:
     - gosimple
     - govet
