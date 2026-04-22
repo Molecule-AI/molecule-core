@@ -276,8 +276,6 @@ func parseUsageFromA2AResponse(body []byte) (inputTokens, outputTokens int64) {
 	return 0, 0
 }
 
-// isSafeURL and isPrivateOrMetadataIP live in ssrf.go (single source of truth).
-
 // readUsageMap extracts input_tokens / output_tokens from the "usage" key of m.
 // Returns (0, 0, false) when the key is absent or contains no non-zero values.
 func readUsageMap(m map[string]json.RawMessage) (inputTokens, outputTokens int64, ok bool) {

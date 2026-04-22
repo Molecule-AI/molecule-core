@@ -458,8 +458,6 @@ func (h *MCPHandler) toolRecallMemory(ctx context.Context, workspaceID string, a
 	return string(b), nil
 }
 
-// isSafeURL and isPrivateOrMetadataIP live in ssrf.go (single source of truth).
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────

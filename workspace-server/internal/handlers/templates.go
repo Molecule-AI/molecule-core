@@ -61,8 +61,6 @@ func (h *TemplatesHandler) resolveTemplateDir(wsName string) string {
 	return ""
 }
 
-// validateRelPath lives in ssrf.go (single source of truth).
-
 // List handles GET /templates
 func (h *TemplatesHandler) List(c *gin.Context) {
 	entries, err := os.ReadDir(h.configsDir)
