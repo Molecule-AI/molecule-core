@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"crypto/sha256"
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"testing"
