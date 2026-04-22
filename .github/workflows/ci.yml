@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main, staging]
 
-# Cancel in-progress CI runs when a new commit arrives on the same ref.
+# Cancel in-progress CI runs when a new commit arrives on the same ref. (refresh 2026-04-22T22:22:07Z)
 # This prevents multiple stale runs from queuing behind each other and
 # monopolising the self-hosted macOS arm64 runner.
 concurrency:
