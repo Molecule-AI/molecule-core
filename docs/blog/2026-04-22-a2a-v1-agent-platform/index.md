@@ -8,6 +8,7 @@ og_description: "Cross-cloud AI agent delegation with org API key attribution an
 og_image: /docs/assets/blog/2026-04-22-a2a-enterprise-og.png
 tags: [A2A, enterprise, multi-cloud, agent-governance, orchestration, LangGraph]
 keywords: [enterprise AI agent platform, multi-cloud AI agent orchestration, agent delegation audit trail, cross-cloud AI agents, agent-to-agent governance, A2A protocol architecture, multi-agent attribution]
+canonical: https://docs.molecule.ai/blog/a2a-enterprise-any-agent-any-infrastructure
 ---
 
 <script type="application/ld+json">
@@ -83,6 +84,10 @@ For enterprise buyers, this is a validation of the approach, not a commoditizati
 The differentiation isn't the protocol. It's the governance story underneath.
 
 LangGraph's A2A implementation (PRs [#6645](https://github.com/langchain-ai/langgraph/pull/6645) and [#7113](https://github.com/langchain-ai/langgraph/pull/7113)) adds A2A client capability — inbound and outbound — but does not yet include a governance layer. There is no workspace-scoped token enforcement, no immutable audit attribution per org key, and no revocation model. The LangGraph A2A is "connect agents." Molecule AI's A2A is "connect agents with full control."
+
+### What LangGraph's A2A GA Doesn't Include (Yet)
+
+LangGraph's A2A implementation — shipping via PRs in Q2-Q3 2026 — covers the protocol layer. It does not yet include a governance layer. Workspace-scoped token enforcement, immutable audit attribution, org-level token revocation, and per-workspace bearer token isolation are Molecule AI-specific capabilities not present in LangGraph's current A2A PRs. A2A v1.0 makes the protocol standard; what you build on top of it is still the differentiator.
 
 ## What This Means in Practice
 
