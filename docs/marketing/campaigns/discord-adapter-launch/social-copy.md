@@ -63,6 +63,8 @@ If your team runs standups, triage, and deployments in Discord — your AI agent
 
 Connect a workspace in two minutes. Start with a slash command.
 
+→ https://docs.molecule.ai/blog/discord-adapter
+
 ---
 
 ## LinkedIn — Single post
