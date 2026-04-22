@@ -708,9 +708,16 @@ func fmtErr(s string) error { return testErr(s) }
 
 func TestRuntimeTagFromImage(t *testing.T) {
 	cases := map[string]string{
-		"workspace-template:openclaw": "openclaw",
+		// Legacy local-build form (still supported for `docker build -t
+		// workspace-template:<runtime>` dev loops).
+		"workspace-template:openclaw":    "openclaw",
 		"workspace-template:claude-code": "claude-code",
-		"workspace-template:base": "base",
+		"workspace-template:base":        "base",
+		// Current GHCR form produced by molecule-ci's publish-template-image
+		// workflow and consumed by RuntimeImages.
+		"ghcr.io/molecule-ai/workspace-template-hermes:latest":         "hermes",
+		"ghcr.io/molecule-ai/workspace-template-claude-code:latest":    "claude-code",
+		"ghcr.io/molecule-ai/workspace-template-langgraph:sha-abc1234": "langgraph",
 		// Fallbacks for non-standard shapes
 		"myregistry.io/foo:v1.2": "v1.2",
 		"no-colon-at-all":        "no-colon-at-all",
@@ -728,28 +735,28 @@ func TestRuntimeTagFromImage(t *testing.T) {
 // ---------- End-to-end error-message shape ----------
 //
 // Verifies the wrapped error that Start() surfaces when ContainerCreate
-// hits "no such image" — callers rely on both the human hint and the
-// original underlying error being preserved (via %w) for errors.Is chains.
+// hits "no such image" after the pull-on-miss attempt. Callers rely on
+// both the human hint and the original underlying error being preserved
+// (via %w) for errors.Is chains.
 
-func TestImageNotFoundErrorIncludesBuildHint(t *testing.T) {
-	// Simulate the exact wrap Start() produces without needing a real
-	// Docker daemon (the live verification path runs via the e2e stage).
-	underlying := testErr(`Error response from daemon: No such image: workspace-template:openclaw`)
+func TestImageNotFoundErrorIncludesPullHint(t *testing.T) {
+	underlying := testErr(`Error response from daemon: No such image: ghcr.io/molecule-ai/workspace-template-openclaw:latest`)
 	if !isImageNotFoundErr(underlying) {
 		t.Fatalf("precondition failed: classifier didn't recognise moby's message")
 	}
 
-	tag := runtimeTagFromImage("workspace-template:openclaw")
+	image := "ghcr.io/molecule-ai/workspace-template-openclaw:latest"
+	tag := runtimeTagFromImage(image)
 	wrapped := testErr(
-		`docker image "workspace-template:openclaw" not found — run 'bash workspace/build-all.sh ` +
-			tag + `' to build it (underlying error: ` + underlying.Error() + `)`,
+		`docker image "` + image + `" not found after pull attempt — verify GHCR visibility for ` + tag +
+			` and that the tenant has internet access (underlying error: ` + underlying.Error() + `)`,
 	)
 	s := wrapped.Error()
 
 	for _, want := range []string{
-		`"workspace-template:openclaw"`,
-		`bash workspace/build-all.sh openclaw`,
-		`No such image: workspace-template:openclaw`,
+		`"ghcr.io/molecule-ai/workspace-template-openclaw:latest"`,
+		`verify GHCR visibility for openclaw`,
+		`No such image`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("wrapped error missing %q, got: %s", want, s)
