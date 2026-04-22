@@ -1,0 +1,16 @@
+name: Frontend Engineer (SaaS App)
+role: >-
+  Owns the molecule-app repo (Next.js SaaS dashboard): user
+  authentication, org/team management UI, workspace provisioning
+  flow, billing/subscription pages, and the admin console.
+  Deployed on Vercel at app.moleculesai.app.
+tier: 3
+model: opus
+files_dir: frontend-engineer-2
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge]
+idle_interval_seconds: 600
+schedules:
+  - name: Hourly pick up work
+    cron_expr: "38 * * * *"
+    enabled: true
+    prompt_file: schedules/hourly-pick-up-work.md

@@ -65,13 +65,20 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 		return
 	}
 
-	if h.provisioner == nil {
+	// SaaS mode: cpProv handles workspace EC2 lifecycle. Self-hosted mode:
+	// provisioner handles local Docker containers. At least one must be
+	// available — previously only `provisioner` was checked, which broke
+	// restart entirely on every SaaS tenant (the workspace EC2 couldn't
+	// be terminated + relaunched, the endpoint 503'd on every try).
+	if h.provisioner == nil && h.cpProv == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "provisioner not available"})
 		return
 	}
 
-	// Read runtime from container's config.yaml before stopping
-	// (user may have changed runtime via Config tab before restarting)
+	// Read runtime from container's config.yaml before stopping. Docker-
+	// only: in SaaS mode the workspace runs on a remote EC2 and we can't
+	// exec into it, so we trust the DB value (user updates runtime via
+	// the Config tab which writes through to both the DB and the container).
 	containerRuntime := dbRuntime
 	if h.provisioner != nil {
 		containerName := configDirName(id) // ws-{id[:12]}
@@ -91,8 +98,17 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 		}
 	}
 
-	// Stop existing container if any
-	h.provisioner.Stop(ctx, id)
+	// Stop existing container / terminate existing EC2. Pick the matching
+	// stop path. CPProvisioner.Stop calls DELETE /cp/workspaces/:id to
+	// terminate the workspace EC2; the subsequent provision call launches
+	// a fresh one with the latest secrets + config.
+	if h.provisioner != nil {
+		h.provisioner.Stop(ctx, id)
+	} else if h.cpProv != nil {
+		if err := h.cpProv.Stop(ctx, id); err != nil {
+			log.Printf("Restart: cpProv.Stop(%s) failed: %v (continuing to reprovision)", id, err)
+		}
+	}
 
 	// Reset to provisioning
 	db.DB.ExecContext(ctx,
@@ -125,10 +141,26 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 		template = findTemplateByName(h.configsDir, wsName)
 	}
 	if template != "" {
-		candidatePath := filepath.Join(h.configsDir, template)
-		if _, err := os.Stat(candidatePath); err == nil {
+		candidatePath, resolveErr := resolveInsideRoot(h.configsDir, template)
+		if resolveErr != nil {
+			log.Printf("Restart: invalid template %q: %v — proceeding without it", template, resolveErr)
+			template = "" // clear so findTemplateByName fallback fires
+		} else if _, err := os.Stat(candidatePath); err == nil {
 			templatePath = candidatePath
 			configLabel = template
+		} else {
+			log.Printf("Restart: template %q dir not found — proceeding without it", template)
+		}
+	}
+
+	// #239: rebuild_config=true — try org-templates as last-resort source so a
+	// workspace with a destroyed config volume can self-recover without admin
+	// intervention. Only fires when no other template was resolved above.
+	if templatePath == "" && body.RebuildConfig {
+		if p, label := resolveOrgTemplate(h.configsDir, wsName); p != "" {
+			templatePath = p
+			configLabel = label
+			log.Printf("Restart: rebuild_config — using org-template %s for %s (%s)", label, wsName, id)
 		}
 	}
 
@@ -175,7 +207,14 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 	// last_heartbeat_at with the new session. Issue #19 Layer 1.
 	restartData := loadRestartContextData(ctx, id)
 
-	go h.provisionWorkspaceOpts(id, templatePath, configFiles, payload, resetClaudeSession)
+	// Dispatch to the correct provisioner. provisionWorkspaceOpts is the
+	// Docker path; provisionWorkspaceCP is the SaaS path. The Create
+	// handler already branches this way; Restart now mirrors it.
+	if h.cpProv != nil {
+		go h.provisionWorkspaceCP(id, templatePath, configFiles, payload)
+	} else {
+		go h.provisionWorkspaceOpts(id, templatePath, configFiles, payload, resetClaudeSession)
+	}
 	go h.sendRestartContext(id, restartData)
 
 	c.JSON(http.StatusOK, gin.H{"status": "provisioning", "config_dir": configLabel, "reset_session": resetClaudeSession})
@@ -438,7 +477,10 @@ func (h *WorkspaceHandler) Resume(c *gin.Context) {
 		return
 	}
 
-	if h.provisioner == nil {
+	// Accept either provisioner (Docker self-hosted OR CP SaaS). See the
+	// same guard in Restart above for context — Resume previously 503'd
+	// on every SaaS tenant.
+	if h.provisioner == nil && h.cpProv == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "provisioner not available"})
 		return
 	}
@@ -479,7 +521,14 @@ func (h *WorkspaceHandler) Resume(c *gin.Context) {
 			"name": ws.name, "tier": ws.tier,
 		})
 		payload := models.CreateWorkspacePayload{Name: ws.name, Tier: ws.tier, Runtime: ws.runtime}
-		go h.provisionWorkspace(ws.id, "", nil, payload)
+		// Dispatch to the matching provisioner (mirrors the Create +
+		// Restart branching). SaaS tenants use cpProv; self-hosted Docker
+		// uses provisioner via provisionWorkspaceOpts.
+		if h.cpProv != nil {
+			go h.provisionWorkspaceCP(ws.id, "", nil, payload)
+		} else {
+			go h.provisionWorkspace(ws.id, "", nil, payload)
+		}
 	}
 
 	log.Printf("Resuming workspace %s (%s) + %d children", wsName, id, len(toResume)-1)

@@ -9,7 +9,7 @@ import { api } from "@/lib/api";
 
 interface BudgetData {
   budget_limit: number | null;
-  budget_used: number;
+  budget_used?: number; // optional — provisioning-stuck workspaces return partial shapes
   budget_remaining: number | null;
 }
 
@@ -107,7 +107,7 @@ export function BudgetSection({ workspaceId }: Props) {
 
   const progressPct =
     budget && budget.budget_limit != null && budget.budget_limit > 0
-      ? Math.min(100, Math.round((budget.budget_used / budget.budget_limit) * 100))
+      ? Math.min(100, Math.round(((budget.budget_used ?? 0) / budget.budget_limit) * 100))
       : 0;
 
   // ── Render ────────────────────────────────────────────────────────────────

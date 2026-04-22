@@ -8,10 +8,10 @@ export interface WorkspaceUsageProps {
 }
 
 interface WorkspaceMetrics {
-  input_tokens: number;
-  output_tokens: number;
-  total_calls: number;
-  estimated_cost_usd: string;
+  input_tokens?: number; // optional — provisioning-stuck workspaces return partial shapes
+  output_tokens?: number; // optional — same
+  total_calls?: number;
+  estimated_cost_usd?: string; // optional — same
   period_start: string;
   period_end: string;
 }
@@ -98,7 +98,8 @@ export function WorkspaceUsage({ workspaceId }: WorkspaceUsageProps) {
   );
 }
 
-function formatPeriod(start: string, end: string): string {
+function formatPeriod(start: string | undefined, end: string | undefined): string {
+  if (!start || !end) return "—";
   const fmt = (s: string) =>
     new Date(s).toLocaleDateString(undefined, {
       month: "short",

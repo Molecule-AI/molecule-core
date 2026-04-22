@@ -140,12 +140,14 @@ func (h *PluginsHandler) resolveAndStage(ctx context.Context, req installRequest
 
 	source, err := plugins.ParseSource(req.Source)
 	if err != nil {
-		return nil, newHTTPErr(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return nil, newHTTPErr(http.StatusBadRequest, gin.H{"error": "invalid plugin source"})
 	}
 	resolver, err := h.sources.Resolve(source)
 	if err != nil {
+		// F1086 / #1206: include schemes so the caller can self-diagnose
+		// the fix, but never the raw error message.
 		return nil, newHTTPErr(http.StatusBadRequest, gin.H{
-			"error":             err.Error(),
+			"error":             "failed to resolve plugin source",
 			"available_schemes": h.sources.Schemes(),
 		})
 	}
@@ -153,7 +155,7 @@ func (h *PluginsHandler) resolveAndStage(ctx context.Context, req installRequest
 	// traversal attempts yield 400 rather than a resolver-level 502.
 	if source.Scheme == "local" {
 		if err := validatePluginName(source.Spec); err != nil {
-			return nil, newHTTPErr(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return nil, newHTTPErr(http.StatusBadRequest, gin.H{"error": "invalid plugin name"})
 		}
 	}
 
@@ -197,7 +199,7 @@ func (h *PluginsHandler) resolveAndStage(ctx context.Context, req installRequest
 	if err := validatePluginName(pluginName); err != nil {
 		cleanup()
 		return nil, newHTTPErr(http.StatusBadRequest, gin.H{
-			"error":  fmt.Sprintf("resolver returned invalid plugin name %q: %v", pluginName, err),
+			"error":  "resolver returned invalid plugin name",
 			"source": source.Raw(),
 		})
 	}
@@ -205,7 +207,7 @@ func (h *PluginsHandler) resolveAndStage(ctx context.Context, req installRequest
 	if _, err := dirSize(stagedDir, limit); err != nil {
 		cleanup()
 		return nil, newHTTPErr(http.StatusRequestEntityTooLarge, gin.H{
-			"error":  err.Error(),
+			"error":  "staged plugin exceeds size limit",
 			"source": source.Raw(),
 		})
 	}
@@ -216,7 +218,7 @@ func (h *PluginsHandler) resolveAndStage(ctx context.Context, req installRequest
 	if err := plugins.VerifyManifestIntegrity(stagedDir); err != nil {
 		cleanup()
 		return nil, newHTTPErr(http.StatusUnprocessableEntity, gin.H{
-			"error":  err.Error(),
+			"error":  "plugin manifest integrity check failed",
 			"source": source.Raw(),
 		})
 	}

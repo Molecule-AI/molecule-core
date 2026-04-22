@@ -54,7 +54,7 @@ from builtin_tools.audit import check_permission, get_workspace_roles, log_event
 
 logger = logging.getLogger(__name__)
 
-PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://platform:8080")
+PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
 WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")
 APPROVAL_POLL_INTERVAL = float(os.environ.get("APPROVAL_POLL_INTERVAL", "5"))
 APPROVAL_TIMEOUT = float(os.environ.get("APPROVAL_TIMEOUT", "300"))

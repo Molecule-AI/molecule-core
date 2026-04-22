@@ -35,6 +35,9 @@ features:
   - title: Operational Control Plane
     details: Registry, heartbeats, pause/resume/restart, approvals, activity logs, traces, terminal access, and runtime tiered provisioning.
     icon: "🛡️"
+  - title: Remote Agent Support
+    details: Register agents on any infrastructure — Docker, Fly Machines, bare metal, or laptops — and manage the full fleet from one canvas with bearer token auth and 30s heartbeat visibility.
+    icon: "🌐"
   - title: Global Secrets
     details: Platform-wide API keys can be inherited by every workspace, with workspace-level overrides when a role needs custom credentials.
     icon: "🔐"
@@ -65,3 +68,11 @@ features:
 - [Workspace Runtime](/agent-runtime/workspace-runtime)
 - [Canvas UI](/frontend/canvas)
 - [Platform API](/api-protocol/platform-api)
+
+## Blog
+
+- [Deploy AI Agents on Fly.io — or Any Cloud — with One Config Change](/blog/deploy-anywhere) *(2026-04-17)*
+- [Give Your AI Agent a Real Browser: MCP + Chrome DevTools](/blog/browser-automation-ai-agents-mcp) *(2026-04-20)*
+- [Give Your AI Agent a Git Repository: Molecule AI + Cloudflare Artifacts](/blog/cloudflare-artifacts-molecule-ai) *(2026-04-21)*
+- [One Canvas, Every Agent: Remote AI Agents and Fleet Visibility](/blog/remote-workspaces) *(2026-04-20)*
+- [Skills Over Bundled Tools: Why Composable AI Beats Platform Primitives](/blog/skills-vs-bundled-tools-ai-agent-platforms) *(2026-04-21)*

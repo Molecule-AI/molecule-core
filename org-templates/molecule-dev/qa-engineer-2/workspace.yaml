@@ -1,0 +1,14 @@
+name: QA Engineer (Controlplane)
+role: >-
+  QA coverage for molecule-controlplane and molecule-tenant-proxy.
+  Integration tests, load tests, regression suites. Reviews PRs
+  for test coverage gaps.
+tier: 3
+model: opus
+files_dir: qa-engineer-2
+plugins: [molecule-skill-code-review, molecule-skill-llm-judge, molecule-compliance]
+schedules:
+  - name: Hourly pick up work
+    cron_expr: "53 * * * *"
+    enabled: true
+    prompt_file: schedules/hourly-pick-up-work.md

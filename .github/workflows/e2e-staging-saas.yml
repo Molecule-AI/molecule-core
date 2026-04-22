@@ -1,0 +1,161 @@
+name: E2E Staging SaaS (full lifecycle)
+
+# Dedicated workflow that provisions a fresh staging org per run, exercises
+# the full workspace lifecycle (register → heartbeat → A2A → delegation →
+# HMA memory → activity → peers), then tears down and asserts leak-free.
+#
+# Why a separate workflow (not folded into ci.yml):
+#   - The run takes ~20 min (EC2 boot + cloudflared DNS + provision sweeps +
+#     agent bootstrap), way too slow for every PR.
+#   - Needs its own concurrency group so two pushes don't fight over the
+#     same staging org slug prefix.
+#   - Has its own required secrets (session cookie, admin token) that most
+#     PRs don't need to read.
+#
+# Triggers:
+#   - Push to main (regression guard)
+#   - workflow_dispatch (manual re-run from UI)
+#   - Nightly cron (catches drift even when no pushes land)
+#   - Changes to any provisioning-critical file under PR review (opt-in
+#     via the same paths watcher that e2e-api.yml uses)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'workspace-server/internal/handlers/registry.go'
+      - 'workspace-server/internal/handlers/workspace_provision.go'
+      - 'workspace-server/internal/handlers/a2a_proxy.go'
+      - 'workspace-server/internal/middleware/**'
+      - 'workspace-server/internal/provisioner/**'
+      - 'tests/e2e/test_staging_full_saas.sh'
+      - '.github/workflows/e2e-staging-saas.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'workspace-server/internal/handlers/registry.go'
+      - 'workspace-server/internal/handlers/workspace_provision.go'
+      - 'workspace-server/internal/handlers/a2a_proxy.go'
+      - 'workspace-server/internal/middleware/**'
+      - 'workspace-server/internal/provisioner/**'
+      - 'tests/e2e/test_staging_full_saas.sh'
+      - '.github/workflows/e2e-staging-saas.yml'
+  workflow_dispatch:
+    inputs:
+      runtime:
+        description: "Runtime to test (hermes | claude-code | langgraph)"
+        required: false
+        default: "hermes"
+      keep_org:
+        description: "Skip teardown for debugging (only use via manual dispatch!)"
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    # 07:00 UTC every day — catches AMI drift, WorkOS cert rotation,
+    # Cloudflare API regressions, etc. even on quiet days.
+    - cron: '0 7 * * *'
+
+# Serialize: staging has a finite per-hour org creation quota. Two pushes
+# landing in quick succession should queue, not race. `cancel-in-progress:
+# false` mirrors e2e-api.yml — GitHub would otherwise cancel the running
+# teardown step and leave orphan EC2s.
+concurrency:
+  group: e2e-staging-saas
+  cancel-in-progress: false
+
+jobs:
+  e2e-staging-saas:
+    name: E2E Staging SaaS
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    env:
+      MOLECULE_CP_URL: https://staging-api.moleculesai.app
+      # Single admin-bearer secret drives provision + tenant-token
+      # retrieval + teardown. Configure in
+      # Settings → Secrets and variables → Actions → Repository secrets.
+      MOLECULE_ADMIN_TOKEN: ${{ secrets.MOLECULE_STAGING_ADMIN_TOKEN }}
+      # OpenAI key for workspace LLM calls (section 8 A2A). Without it,
+      # Hermes runtime crashes at boot with "No provider API key found".
+      # Configure at Settings → Secrets → Actions → MOLECULE_STAGING_OPENAI_KEY.
+      E2E_OPENAI_API_KEY: ${{ secrets.MOLECULE_STAGING_OPENAI_KEY }}
+      E2E_RUNTIME: ${{ github.event.inputs.runtime || 'hermes' }}
+      E2E_RUN_ID: "${{ github.run_id }}-${{ github.run_attempt }}"
+      E2E_KEEP_ORG: ${{ github.event.inputs.keep_org && '1' || '0' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify admin token present
+        run: |
+          if [ -z "$MOLECULE_ADMIN_TOKEN" ]; then
+            echo "::error::MOLECULE_STAGING_ADMIN_TOKEN secret not set (Railway staging CP_ADMIN_API_TOKEN)"
+            exit 2
+          fi
+          echo "Admin token present ✓"
+
+      - name: Verify OpenAI key present
+        run: |
+          if [ -z "$E2E_OPENAI_API_KEY" ]; then
+            echo "::error::MOLECULE_STAGING_OPENAI_KEY secret not set — workspaces will fail at boot with 'No provider API key found'"
+            exit 2
+          fi
+          echo "OpenAI key present ✓ (len=${#E2E_OPENAI_API_KEY})"
+
+      - name: CP staging health preflight
+        run: |
+          code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 "$MOLECULE_CP_URL/health")
+          if [ "$code" != "200" ]; then
+            echo "::error::Staging CP unhealthy (got HTTP $code). Skipping — not a workspace bug."
+            exit 1
+          fi
+          echo "Staging CP healthy ✓"
+
+      - name: Run full-lifecycle E2E
+        id: e2e
+        run: bash tests/e2e/test_staging_full_saas.sh
+
+      # Belt-and-braces teardown: the test script itself installs a trap
+      # for EXIT/INT/TERM, but if the GH runner itself is cancelled (e.g.
+      # someone pushes a new commit and workflow concurrency is set to
+      # cancel), the trap may not fire. This `always()` step runs even on
+      # cancellation and attempts the delete a second time. The admin
+      # DELETE endpoint is idempotent so double-invoking is safe.
+      - name: Teardown safety net (runs on cancel/failure)
+        if: always()
+        env:
+          ADMIN_TOKEN: ${{ secrets.MOLECULE_STAGING_ADMIN_TOKEN }}
+        run: |
+          # Best-effort: find any e2e-YYYYMMDD-* orgs matching this run and
+          # nuke them. Catches the case where the script died before
+          # exporting its slug.
+          set +e
+          orgs=$(curl -sS "$MOLECULE_CP_URL/cp/admin/orgs" \
+            -H "Authorization: Bearer $ADMIN_TOKEN" 2>/dev/null \
+            | python3 -c "
+          import json, sys, os
+          run_id = os.environ.get('GITHUB_RUN_ID', '')
+          d = json.load(sys.stdin)
+          today = __import__('datetime').date.today().strftime('%Y%m%d')
+          # ONLY sweep slugs from *this* CI run. Previously the filter was
+          # f'e2e-{today}-' which stomped on parallel CI runs AND any manual
+          # E2E probes a dev was running against staging (incident 2026-04-21
+          # 15:02Z: this workflow's safety net deleted an unrelated manual
+          # run's tenant 1s after it hit 'running').
+          prefix = f'e2e-{today}-{run_id}-' if run_id else f'e2e-{today}-'
+          candidates = [o['slug'] for o in d.get('orgs', [])
+                        if o.get('slug','').startswith(prefix)
+                        and o.get('instance_status') not in ('purged',)]
+          print('\n'.join(candidates))
+          " 2>/dev/null)
+          for slug in $orgs; do
+            echo "Safety-net teardown: $slug"
+            curl -sS -X DELETE "$MOLECULE_CP_URL/cp/admin/tenants/$slug" \
+              -H "Authorization: Bearer $ADMIN_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"confirm\":\"$slug\"}" >/dev/null || true
+          done
+          exit 0

@@ -1,6 +1,6 @@
 # MCP Server Setup Guide
 
-The Molecule AI MCP server lets any MCP-compatible AI agent (Claude Code, Cursor, etc.) manage workspaces, agents, secrets, memory, schedules, channels, and more through the platform API.
+The Molecule AI MCP server lets any MCP-compatible AI agent manage workspaces, agents, secrets, memory, schedules, channels, and more through the platform API. It works with Claude Code, Cursor, and any other tool that speaks the MCP protocol.
 
 ## Quick Start
 

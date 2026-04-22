@@ -40,7 +40,6 @@ const mockStore = {
     nodeData: Record<string, unknown>;
   } | null,
   closeContextMenu,
-  removeNode: vi.fn(),
   updateNodeData: vi.fn(),
   selectNode: vi.fn(),
   setPanelTab: vi.fn(),
@@ -226,6 +225,8 @@ describe("ContextMenu — keyboard accessibility", () => {
     expect(mockStore.setPendingDelete).toHaveBeenCalledWith({
       id: "ws-1",
       name: "Alpha Workspace",
+      hasChildren: false,
+      children: [],
     });
     expect(closeContextMenu).toHaveBeenCalled();
   });

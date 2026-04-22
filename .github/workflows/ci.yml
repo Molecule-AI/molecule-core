@@ -6,13 +6,21 @@ on:
   pull_request:
     branches: [main, staging]
 
+# Cancel in-progress CI runs when a new commit arrives on the same ref.
+# This prevents multiple stale runs from queuing behind each other and
+# monopolising the self-hosted macOS arm64 runner.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Detect which paths changed so downstream jobs can skip when only
-  # docs/markdown files were modified. Uses git diff (no Docker — works
-  # on macOS self-hosted runners unlike dorny/paths-filter).
+  # docs/markdown files were modified. Uses plain `git diff` — no macOS
+  # dependency, so this runs on ubuntu-latest to free the self-hosted
+  # macOS arm64 runner for jobs that genuinely need it.
   changes:
     name: Detect changes
-    runs-on: [self-hosted, macos, arm64]
+    runs-on: ubuntu-latest
     outputs:
       platform: ${{ steps.check.outputs.platform }}
       canvas: ${{ steps.check.outputs.canvas }}
@@ -24,12 +32,17 @@ jobs:
           fetch-depth: 0
       - id: check
         run: |
-          # For push events: diff against previous commit (handles merge commits)
-          # For PR events: diff against the base branch
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          # For PR events: diff against the base branch (not HEAD~1 of the branch,
+          # which may be unrelated after force-pushes). When a push updates a PR,
+          # both pull_request and push events fire — prefer the PR base so that
+          # the diff is always computed against the actual merge base, not the
+          # previous SHA on the branch which may be on a different history line.
+          BASE="${GITHUB_BASE_REF:-${{ github.event.before }}}"
+          # GITHUB_BASE_REF is set by GitHub for PR events (the base branch name).
+          # For pull_request events we use the stored base.sha; for push events
+          # (or when base.sha is unavailable) fall back to github.event.before.
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ -n "${{ github.event.pull_request.base.sha }}" ]; then
             BASE="${{ github.event.pull_request.base.sha }}"
-          else
-            BASE="${{ github.event.before }}"
           fi
           # Fallback: if BASE is empty or all zeros (new branch), run everything
           if [ -z "$BASE" ] || echo "$BASE" | grep -qE '^0+$'; then
@@ -174,6 +187,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.python == 'true'
     runs-on: [self-hosted, macos, arm64]
+    env:
+      WORKSPACE_ID: test
     defaults:
       run:
         working-directory: workspace

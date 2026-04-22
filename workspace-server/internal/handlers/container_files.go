@@ -67,15 +67,35 @@ func (h *TemplatesHandler) execInContainer(ctx context.Context, containerName st
 }
 
 // copyFilesToContainer creates a tar archive from a map of files and copies it into a container.
+// The destPath is prepended to each file name. File names must be relative and must not escape
+// destPath via ".." segments — otherwise the tar header name could escape the mounted volume.
 func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerName, destPath string, files map[string]string) error {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 
 	createdDirs := map[string]bool{}
 	for name, content := range files {
+		// Block absolute paths and traversal attempts at the archive-write boundary.
+		// Files are written inside destPath (typically /configs); anything that escapes
+		// via ".." or an absolute name could reach other volumes or system paths.
+		clean := filepath.Clean(name)
+		if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+			return fmt.Errorf("unsafe file path in archive: %s", name)
+		}
+		// Prepend destPath so relative paths land inside the volume mount.
+		// Use cleaned name so validation (which checks clean) and usage stay consistent.
+		archiveName := filepath.Join(destPath, clean)
+		// Defence-in-depth: ensure the joined path doesn't escape destPath.
+		// This guards against platform-specific filepath.Join behaviour where
+		// joining a relative name containing ".." with a destPath can still
+		// produce an absolute path outside the intended directory.
+		if !strings.HasPrefix(archiveName, destPath) && archiveName != destPath {
+			return fmt.Errorf("path escapes destination: %s", name)
+		}
+
 		// Create parent directories in tar (deduplicated)
-		dir := filepath.Dir(name)
-		if dir != "." && !createdDirs[dir] {
+		dir := filepath.Dir(archiveName)
+		if dir != destPath && !createdDirs[dir] {
 			tw.WriteHeader(&tar.Header{
 				Typeflag: tar.TypeDir,
 				Name:     dir + "/",
@@ -86,7 +106,7 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 
 		data := []byte(content)
 		header := &tar.Header{
-			Name: name,
+			Name: archiveName,
 			Mode: 0644,
 			Size: int64(len(data)),
 		}
@@ -142,10 +162,16 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 	if h.docker == nil {
 		return fmt.Errorf("docker not available")
 	}
+	// CWE-78/CWE-22: validate before use. Also switches to exec form
+	// ([]string{...}) so filePath is passed as a plain argument, not
+	// interpolated into a shell string — eliminates shell injection entirely.
+	if err := validateRelPath(filePath); err != nil {
+		return err
+	}
 
 	resp, err := h.docker.ContainerCreate(ctx, &container.Config{
 		Image: "alpine:latest",
-		Cmd:   []string{"rm", "-rf", "/configs/" + filePath},
+		Cmd:   []string{"rm", "-rf", "/configs", filePath},
 	}, &container.HostConfig{
 		Binds: []string{volumeName + ":/configs"},
 	}, nil, nil, "")

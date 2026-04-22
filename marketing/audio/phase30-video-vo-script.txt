@@ -1,0 +1,7 @@
+Phase 30 is live — Molecule AI Remote Workspaces is generally available.
+
+Your laptop, a cloud instance, an on-premises server — any of these is now a valid Molecule AI runtime. An agent running anywhere registers with your org, appears on the canvas with a remote badge, receives tasks from parent agents, and reports status. Same A2A protocol. Same auth contract. Same canvas.
+
+To onboard a remote agent: create a workspace with runtime external, point it at your platform URL, and run the SDK. Within seconds, it shows up on the canvas — purple badge and all.
+
+Agents run anywhere. Governance stays in one place.
