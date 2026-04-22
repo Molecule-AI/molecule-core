@@ -4,13 +4,14 @@ package handlers
 // caller auth validation, token usage tracking, and SSRF safety checks.
 
 import (
+import (
 	"context"
 	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
-		"strconv"
-		"time"
+	"strconv"
+	"time"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
