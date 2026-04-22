@@ -175,19 +175,15 @@ func mustCIDR(s string) net.IPNet {
 // copyFilesToContainer and deleteViaEphemeral as a defence-in-depth measure.
 func validateRelPath(filePath string) error {
 	clean := filepath.Clean(filePath)
+	// Reject absolute paths (Unix / or Windows C:\).
 	if filepath.IsAbs(clean) {
 		return fmt.Errorf("path traversal or absolute path not allowed: %s", filePath)
 	}
-	// Check for ".." traversal in the cleaned path. filepath.Clean resolves
-	// leading ".." (e.g. "../foo" → "../foo") but preserves embedded ".." as
-	// a signal that the path goes up. After Clean(), patterns that go above
-	// the intended destination are:
-	//   - contains "/../"  → "foo/../bar"
-	//   - ends with "/.."  → "foo/.."  (Clean("foo/..") = "foo")
-	//   - equals ".."      → bare ".." at root
-	if strings.Contains(clean, "/../") ||
-		(len(clean) >= 3 && strings.HasSuffix(clean, "/..")) ||
-		clean == ".." {
+	// Reject any path containing ".." anywhere — check both raw and cleaned
+	// because filepath.Clean resolves ".." upward (e.g. "foo/../bar" → "bar"
+	// and "foo/.." → ".") which would make the check pass if only clean were checked.
+	// We only want explicitly-named files; ".." implies intent to escape.
+	if strings.Contains(filePath, "..") || strings.Contains(clean, "..") {
 		return fmt.Errorf("path traversal or absolute path not allowed: %s", filePath)
 	}
 	return nil
