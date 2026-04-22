@@ -529,7 +529,6 @@ func isPrivateOrMetadataIP(ip net.IP) bool {
 	return false
 }
 
->>>>>>> b1064ea (refactor: split 4 oversized handler files into focused sub-files)
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────

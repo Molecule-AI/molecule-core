@@ -400,7 +400,6 @@ func isPrivateOrMetadataIP(ip net.IP) bool {
 	return contains(ulaRangesV6, ip)
 }
 
->>>>>>> b1064ea (refactor: split 4 oversized handler files into focused sub-files)
 // readUsageMap extracts input_tokens / output_tokens from the "usage" key of m.
 // Returns (0, 0, false) when the key is absent or contains no non-zero values.
 func readUsageMap(m map[string]json.RawMessage) (inputTokens, outputTokens int64, ok bool) {
