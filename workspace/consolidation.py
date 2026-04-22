@@ -22,10 +22,18 @@ if os.path.exists("/.dockerenv") or os.environ.get("DOCKER_VERSION"):
     PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://host.docker.internal:8080")
 else:
     PLATFORM_URL = os.environ.get("PLATFORM_URL", "http://localhost:8080")
+# Lazy WORKSPACE_ID — raises only when actually used in a workspace context.
+# Allows test collection (pytest import) to succeed without WORKSPACE_ID set,
+# while preserving the guard for production usage.
 _WORKSPACE_ID_raw = os.environ.get("WORKSPACE_ID")
-if not _WORKSPACE_ID_raw:
-    raise RuntimeError("WORKSPACE_ID environment variable is required but not set")
-WORKSPACE_ID = _WORKSPACE_ID_raw
+
+
+def __getattr__(name: str):
+    if name == "WORKSPACE_ID":
+        if not _WORKSPACE_ID_raw:
+            raise RuntimeError("WORKSPACE_ID environment variable is required but not set")
+        return _WORKSPACE_ID_raw
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 CONSOLIDATION_INTERVAL = float(os.environ.get("CONSOLIDATION_INTERVAL", "300"))  # 5 min
 CONSOLIDATION_THRESHOLD = int(os.environ.get("CONSOLIDATION_THRESHOLD", "10"))  # min memories before consolidating
 

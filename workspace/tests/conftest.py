@@ -307,3 +307,32 @@ if "coordinator" not in sys.modules:
 
 # Don't mock prompt or coordinator if they can be imported from the workspace-template dir
 # test_prompt.py and test_coordinator.py need the real modules
+
+
+# ---------------------------------------------------------------------------
+# Shared fixtures
+# ---------------------------------------------------------------------------
+
+import pytest
+
+
+@pytest.fixture(scope="session", autouse=True)
+def patch_workspace_id():
+    """Set WORKSPACE_ID env var and patch consolidation.WORKSPACE_ID for all tests.
+
+    The ubuntu-latest CI runner (commit e298393d) moved all CI jobs off the
+    self-hosted macOS runner.  consolidation.py uses a lazy __getattr__ hook for
+    WORKSPACE_ID, which raises RuntimeError when the variable is unset.  This
+    fixture ensures WORKSPACE_ID is available in both the environment and the
+    module namespace before any test runs.
+    """
+    import os
+    os.environ.setdefault("WORKSPACE_ID", "test-workspace-id")
+    # Patch consolidation.WORKSPACE_ID directly in its __dict__ so bare
+    # WORKSPACE_ID references in method bodies resolve without triggering
+    # __getattr__ (which would raise RuntimeError when WORKSPACE_ID is absent).
+    try:
+        import consolidation as _consolidation_mod
+        _consolidation_mod.__dict__["WORKSPACE_ID"] = "test-workspace-id"
+    except Exception:
+        pass  # consolidation may not be importable in all environments
