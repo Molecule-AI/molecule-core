@@ -169,9 +169,19 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 		return err
 	}
 
+	// F1085 (Misconfiguration - Filesystems): scope rm to the /configs volume.
+	// filepath.Join scopes the rm target; filepath.Clean normalizes ".."; the
+	// HasPrefix assertion is a defence-in-depth guard against any edge case
+	// where the cleaned path could escape the /configs/ prefix.
+	rmTarget := filepath.Join("/configs", filePath)
+	rmTarget = filepath.Clean(rmTarget)
+	if !strings.HasPrefix(rmTarget, "/configs/") {
+		return fmt.Errorf("path escapes volume scope: %s", filePath)
+	}
+
 	resp, err := h.docker.ContainerCreate(ctx, &container.Config{
 		Image: "alpine:latest",
-		Cmd:   []string{"rm", "-rf", "/configs", filePath},
+		Cmd:   []string{"rm", "-rf", rmTarget},
 	}, &container.HostConfig{
 		Binds: []string{volumeName + ":/configs"},
 	}, nil, nil, "")
