@@ -408,7 +408,13 @@ def test_extract_history_non_list():
 @pytest.mark.asyncio
 async def test_set_current_task_updates_heartbeat():
     """set_current_task updates heartbeat fields."""
+    # Seed active_tasks as an int — without this, MagicMock auto-creates
+    # the attribute on first access, getattr() returns a MagicMock, and
+    # `MagicMock + 1` stays a MagicMock instead of becoming 1. The real
+    # HeartbeatLoop class initialises active_tasks=0 so this matches
+    # production behaviour.
     heartbeat = MagicMock()
+    heartbeat.active_tasks = 0
     await set_current_task(heartbeat, "Doing work")
     assert heartbeat.current_task == "Doing work"
     assert heartbeat.active_tasks == 1
