@@ -296,3 +296,4 @@ The current `main` branch already includes the core platform, canvas, memory mod
 [Business Source License 1.1](LICENSE) — copyright © 2025 Molecule AI.
 
 Personal, internal, and non-commercial use is permitted without restriction. You may not use the Licensed Work to offer a competing product or service. On January 1, 2029, the license converts to Apache 2.0.
+# trigger CI
