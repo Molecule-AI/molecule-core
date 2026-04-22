@@ -101,7 +101,6 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 			return
 		}
 	}
-	}
 
 	// Check for CP-provisioned workspace (instance_id persisted by
 	// provisionWorkspaceCP → migration 038). Null instance_id means the
