@@ -251,18 +251,24 @@ export function handleCanvasEvent(
     }
 
     case "A2A_RESPONSE": {
-      // A2A proxy completed — extract response text and store as agent message.
-      // This gives the ChatTab instant response delivery via WebSocket instead of polling.
+      // A2A proxy completed — extract response text and store under the
+      // `a2a:${workspace_id}` key so ChatTab's dedicated effect (which is
+      // guarded by sendingFromAPIRef against the HTTP .then() append) can
+      // consume it. Previously this was stored under the plain workspace_id
+      // key, which collided with the unprompted send_message_to_user effect
+      // and bypassed the dedup guard entirely — so every A2A reply rendered
+      // twice (once from HTTP response, once from WS broadcast).
       const responseBody = msg.payload.response_body as Record<string, unknown> | undefined;
       if (responseBody) {
         const text = extractResponseText(responseBody);
         if (text) {
+          const key = `a2a:${msg.workspace_id}`;
           const { agentMessages } = get();
-          const existing = agentMessages[msg.workspace_id] || [];
+          const existing = agentMessages[key] || [];
           set({
             agentMessages: {
               ...agentMessages,
-              [msg.workspace_id]: [
+              [key]: [
                 ...existing,
                 { id: crypto.randomUUID(), content: text, timestamp: new Date().toISOString() },
               ],

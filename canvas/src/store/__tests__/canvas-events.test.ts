@@ -629,8 +629,14 @@ describe("handleCanvasEvent – A2A_RESPONSE", () => {
     const { agentMessages } = set.mock.calls[0][0] as {
       agentMessages: Record<string, Array<{ id: string; content: string; timestamp: string }>>;
     };
-    expect(agentMessages["ws-1"]).toHaveLength(1);
-    expect(agentMessages["ws-1"][0].content).toBe("Here is my analysis");
+    // A2A_RESPONSE must store under `a2a:${workspace_id}` — NOT under the
+    // plain workspace_id. Storing under the plain key collides with the
+    // unprompted agent-message effect in ChatTab and bypasses the
+    // sendingFromAPIRef dedup guard, causing every reply to render twice
+    // (bug reported 2026-04-21).
+    expect(agentMessages["a2a:ws-1"]).toHaveLength(1);
+    expect(agentMessages["a2a:ws-1"][0].content).toBe("Here is my analysis");
+    expect(agentMessages["ws-1"]).toBeUndefined();
   });
 
   it("is a no-op when response_body is missing", () => {

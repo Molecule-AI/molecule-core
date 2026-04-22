@@ -631,18 +631,6 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 		return
 	}
 
-	// Persist the backing instance id so later operations (terminal via
-	// EIC+SSH, live logs, debug introspection) can resolve workspace → EC2
-	// without re-asking CP on every request.
-	if _, err := db.DB.ExecContext(ctx,
-		`UPDATE workspaces SET instance_id = $2, updated_at = now() WHERE id = $1`,
-		workspaceID, machineID); err != nil {
-		// Non-fatal: provisioning succeeded, the workspace will still run.
-		// The row stays without instance_id — terminal falls back to the
-		// "CP-provisioned but unreachable" error, not a silent failure.
-		log.Printf("CPProvisioner: persist instance_id failed for %s: %v", workspaceID, err)
-	}
-
 	log.Printf("CPProvisioner: workspace %s started as machine %s via control plane", workspaceID, machineID)
 	// Token issuance is deliberately deferred to the workspace's first
 	// /registry/register call. Minting here without also delivering the
