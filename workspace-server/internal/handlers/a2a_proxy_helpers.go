@@ -207,12 +207,11 @@ func nilIfEmpty(s string) *string {
 func validateCallerToken(ctx context.Context, c *gin.Context, callerID string) error {
 	hasLive, err := wsauth.HasAnyLiveToken(ctx, db.DB, callerID)
 	if err != nil {
-		// Fail-open here matches the heartbeat path — A2A caller auth is
-		// defense-in-depth on top of access-control hierarchy, not the
-		// sole gate on the secret material. A DB hiccup shouldn't take
-		// the whole A2A path down.
-		log.Printf("wsauth: caller HasAnyLiveToken(%s) failed: %v — allowing A2A", callerID, err)
-		return nil
+		// Fail-closed: DB auth errors must block the request, not silently
+		// allow it. The caller auth path is a security boundary, not a
+		// convenience feature.
+		log.Printf("wsauth: caller HasAnyLiveToken(%s) failed: %v — rejecting A2A", callerID, err)
+		return fmt.Errorf("caller auth unavailable: %w", err)
 	}
 	if !hasLive {
 		return nil // legacy / pre-upgrade caller

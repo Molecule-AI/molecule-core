@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -323,8 +324,11 @@ func (h *DiscoveryHandler) CheckAccess(c *gin.Context) {
 func validateDiscoveryCaller(ctx context.Context, c *gin.Context, workspaceID string) error {
 	hasLive, err := wsauth.HasAnyLiveToken(ctx, db.DB, workspaceID)
 	if err != nil {
-		log.Printf("wsauth: discovery HasAnyLiveToken(%s) failed: %v — allowing request", workspaceID, err)
-		return nil
+		// Fail-closed: DB auth errors must block the request, not silently
+		// allow it. Discovery is gated behind CanCommunicate, but that is
+		// not a substitute for validating the caller's own token state.
+		log.Printf("wsauth: discovery HasAnyLiveToken(%s) failed: %v — rejecting A2A", workspaceID, err)
+		return fmt.Errorf("caller auth unavailable: %w", err)
 	}
 	if !hasLive {
 		return nil // legacy / pre-upgrade
