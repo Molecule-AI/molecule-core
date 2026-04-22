@@ -321,7 +321,7 @@ func (t *TelegramAdapter) SendMessage(ctx context.Context, config map[string]int
 				case 403:
 					return fmt.Errorf("forbidden: bot was blocked or kicked from chat %s", chatID)
 				case 429:
-					retryAfter := time.Duration(apiErr.ResponseParameters.RetryAfter) * time.Second
+					retryAfter := time.Duration(apiErr.RetryAfter) * time.Second
 					log.Printf("Channels: Telegram rate-limited, retry after %s", retryAfter)
 					time.Sleep(retryAfter)
 					if _, retryErr := bot.Send(msg); retryErr != nil {
@@ -456,7 +456,7 @@ func (t *TelegramAdapter) StartPolling(ctx context.Context, config map[string]in
 			var apiErr *tgbotapi.Error
 			if errors.As(err, &apiErr) {
 				if apiErr.Code == 429 {
-					retryAfter := time.Duration(apiErr.ResponseParameters.RetryAfter) * time.Second
+					retryAfter := time.Duration(apiErr.RetryAfter) * time.Second
 					log.Printf("Channels: Telegram poll rate-limited, sleeping %s", retryAfter)
 					select {
 					case <-ctx.Done():
@@ -489,7 +489,7 @@ func (t *TelegramAdapter) StartPolling(ctx context.Context, config map[string]in
 
 				// Acknowledge the button press (removes loading spinner)
 				ackCfg := tgbotapi.NewCallback(cb.ID, "Received")
-				bot.Send(ackCfg)
+				_, _ = bot.Send(ackCfg)
 
 				// Update the message to show what was clicked
 				decision := "approved"
@@ -501,7 +501,7 @@ func (t *TelegramAdapter) StartPolling(ctx context.Context, config map[string]in
 					cb.Message.MessageID,
 					cb.Message.Text+"\n\n✅ CEO "+decision,
 				)
-				bot.Send(editMsg)
+				_, _ = bot.Send(editMsg)
 
 				// Route the decision as an inbound message to the agent
 				inbound := &InboundMessage{

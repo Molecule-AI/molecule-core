@@ -153,7 +153,7 @@ func List(ctx context.Context, db *sql.DB) ([]Token, error) {
 	if err != nil {
 		return nil, fmt.Errorf("orgtoken: list: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := []Token{}
 	for rows.Next() {

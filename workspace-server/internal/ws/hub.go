@@ -109,7 +109,7 @@ func (h *Hub) Broadcast(msg models.WSMessage) {
 
 // WritePump reads from client.Send and writes to the WebSocket.
 func WritePump(client *Client) {
-	defer client.Conn.Close()
+	defer func() { _ = client.Conn.Close() }()
 	for msg := range client.Send {
 		if err := client.Conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 			break
@@ -127,7 +127,7 @@ func (h *Hub) Close() {
 		count := len(h.clients)
 		for client := range h.clients {
 			close(client.Send)
-			client.Conn.Close()
+			_ = client.Conn.Close()
 			delete(h.clients, client)
 		}
 		log.Printf("WebSocket hub closed (%d clients disconnected)", count)
@@ -142,7 +142,7 @@ func ReadPump(client *Client, hub *Hub) {
 		case hub.Unregister <- client:
 		case <-hub.done:
 		}
-		client.Conn.Close()
+		_ = client.Conn.Close()
 	}()
 	for {
 		_, _, err := client.Conn.ReadMessage()

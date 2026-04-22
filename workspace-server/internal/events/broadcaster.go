@@ -149,7 +149,7 @@ func (b *Broadcaster) Subscribe(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			sub.Close()
+			_ = sub.Close()
 			return
 		case redisMsg := <-ch:
 			if redisMsg == nil {

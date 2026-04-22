@@ -30,7 +30,7 @@ func setupLivenessTestRedis(t *testing.T) *miniredis.Miniredis {
 	}
 	db.RDB = redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() {
-		db.RDB.Close()
+		_ = db.RDB.Close()
 		mr.Close()
 	})
 	return mr
@@ -93,7 +93,7 @@ func TestStartLivenessMonitor_KeyExpiryTriggersOffline(t *testing.T) {
 	// Publish a simulated keyspace expiry notification
 	// (miniredis supports keyspace notifications via Publish)
 	pubsub := db.RDB.Subscribe(ctx, "__keyevent@0__:expired")
-	defer pubsub.Close()
+	defer func() { _ = pubsub.Close() }()
 
 	// Publish directly to the channel the monitor is subscribed to
 	db.RDB.Publish(ctx, "__keyevent@0__:expired", "ws:ws-expire-test")

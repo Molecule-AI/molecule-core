@@ -155,8 +155,8 @@ func TestApplyTierConfig_Tier2_Standard(t *testing.T) {
 
 	// Memory limit: 512 MiB
 	expectedMemory := int64(512 * 1024 * 1024)
-	if hc.Resources.Memory != expectedMemory {
-		t.Errorf("T2: expected Memory=%d (512m), got %d", expectedMemory, hc.Resources.Memory)
+	if hc.Memory != expectedMemory {
+		t.Errorf("T2: expected Memory=%d (512m), got %d", expectedMemory, hc.Memory)
 	}
 
 	// CPU limit: 1.0 CPU (1e9 NanoCPUs)
@@ -770,7 +770,7 @@ func TestImageNotFoundErrorIncludesPullHint(t *testing.T) {
 // getTierMemoryMB returns the agreed (issue #14) defaults.
 func TestGetTierMemoryMB_DefaultsMatchLegacy(t *testing.T) {
 	for _, k := range []string{"TIER2_MEMORY_MB", "TIER3_MEMORY_MB", "TIER4_MEMORY_MB"} {
-		os.Unsetenv(k)
+		_ = os.Unsetenv(k)
 	}
 	cases := map[int]int64{
 		1: 0, // no cap
@@ -809,7 +809,7 @@ func TestGetTierCPUShares_EnvOverride(t *testing.T) {
 	if got := getTierCPUShares(3); got != 4096 {
 		t.Errorf("with TIER3_CPU_SHARES=4096, got %d, want 4096", got)
 	}
-	os.Unsetenv("TIER3_CPU_SHARES")
+	_ = os.Unsetenv("TIER3_CPU_SHARES")
 	if got := getTierCPUShares(3); got != defaultTier3CPUShares {
 		t.Errorf("unset TIER3_CPU_SHARES: got %d, want default %d", got, defaultTier3CPUShares)
 	}
@@ -843,7 +843,7 @@ func TestApplyTierConfig_T3_UsesEnvOverride(t *testing.T) {
 // default (previously uncapped — behaviour change per issue #14).
 func TestApplyTierConfig_T3_DefaultCap(t *testing.T) {
 	for _, k := range []string{"TIER3_MEMORY_MB", "TIER3_CPU_SHARES"} {
-		os.Unsetenv(k)
+		_ = os.Unsetenv(k)
 	}
 	hc := baseHostConfig("")
 	cfg := WorkspaceConfig{WorkspaceID: "abc123", Tier: 3}
