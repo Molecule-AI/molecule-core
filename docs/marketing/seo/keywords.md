@@ -178,3 +178,93 @@ No dedicated landing page confirmed yet — coordinate with PMM (GH#1116) to det
 ## Confirmed Deliverables
 
 - **Guide:** `docs/guides/same-origin-canvas-fetches.md`
+
+
+---
+
+# Phase 30 A2A Enterprise — SEO Keyword Brief
+
+**Campaign:** Phase 30 A2A Protocol for Enterprise
+**Date:** 2026-04-22
+**Owner:** SEO Analyst
+**Status:** Brief filed by Content Marketer — keyword validation needed
+
+## Primary Keywords (P0)
+
+| Keyword | Intent | Target |
+|---------|--------|--------|
+| `enterprise AI agent platform` | Commercial | Blog post H1 + meta description |
+| `agent delegation audit trail` | Informational | Blog body sections |
+
+## Secondary Keywords (P1)
+
+| Keyword | Intent | Target |
+|---------|--------|--------|
+| `A2A protocol` | Informational | Blog H2, meta description |
+| `agent-to-agent communication` | Informational | Blog body |
+| `multi-cloud AI agent orchestration` | Commercial | Blog body |
+| `agent governance platform` | Commercial | Blog body |
+
+## Keyword Strategy
+
+- `A2A protocol` captures developers researching the spec. Use in H2 and body to capture informational queries from existing LangGraph/agent framework users.
+- `enterprise AI agent platform` is a commercial head term with high competition — position in meta description, not as H1.
+- LangGraph ADR cited in blog (PRs #6645, #7113) — this captures users already researching A2A implementations and comparing governance features.
+
+## Confirmed Deliverables
+
+- **Blog post:** `docs/blog/2026-04-22-a2a-v1-agent-platform/index.md` (slug: `a2a-enterprise-any-agent-any-infrastructure`)
+- **SEO brief:** `docs/marketing/briefs/2026-04-22-a2a-enterprise-seo-brief.md`
+- **Social copy:** `docs/marketing/campaigns/a2a-enterprise-launch/social-copy.md`
+
+## SEO Analyst Action Required
+
+- Validate difficulty scores in brief
+- Add `A2A protocol` and `agent delegation audit trail` to tracking
+- Confirm canonical URL for A2A Enterprise blog
+
+---
+
+# Phase 30 EC2 Instance Connect SSH — SEO Keyword Brief
+
+**Campaign:** Phase 30 EC2 Instance Connect Endpoint Terminal Support
+**Date:** 2026-04-22
+**Owner:** SEO Analyst
+**Status:** Brief filed by Content Marketer — keyword validation needed
+
+## Primary Keywords (P0)
+
+| Keyword | Intent | Target |
+|---------|--------|--------|
+| `EC2 Instance Connect` | Informational | Blog H1 + meta description |
+| `AI agent SSH access` | Informational | Blog body sections |
+
+## Secondary Keywords (P1)
+
+| Keyword | Intent | Target |
+|---------|--------|--------|
+| `EC2 Instance Connect Endpoint tutorial` | Tutorial / How-to | Tutorial page H1 |
+| `SSH bastion host alternative` | Informational | Blog body |
+| `SSH AI agent platform` | Commercial | Blog body |
+
+## Keyword Strategy
+
+- `EC2 Instance Connect Endpoint tutorial` targets the how-to search intent. Existing tutorial at `docs/tutorials/workspace-terminal-ieee.md` is the canonical target.
+- `SSH bastion host alternative` captures operators who already use bastion hosts and are looking for the upgrade. Appear in blog body.
+
+## Confirmed Deliverables
+
+- **Blog post:** `docs/blog/2026-04-22-ec2-instance-connect-ssh/index.md` (slug: `ec2-instance-connect-ssh`)
+- **SEO brief:** `docs/marketing/briefs/2026-04-22-ec2-instance-connect-ssh-seo-brief.md`
+- **Social copy:** `docs/marketing/campaigns/ec2-instance-connect-ssh/social-copy.md`
+- **Tutorial:** `docs/tutorials/workspace-terminal-ieee.md`
+
+## SEO Analyst Action Required
+
+- Validate difficulty scores in brief
+- Add `SSH` keyword to tracking (was noted as missing from all prior briefs)
+- Add `EC2 Instance Connect` and `EC2 Instance Connect Endpoint tutorial` to tracking
+
+---
+
+*Last updated: 2026-04-22 by Content Marketer (brief filing + keywords.md sync)*
