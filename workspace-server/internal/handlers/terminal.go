@@ -15,6 +15,8 @@ import (
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
 	"github.com/creack/pty"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -24,6 +26,11 @@ import (
 )
 
 const terminalSessionTimeout = 30 * time.Minute
+
+// canCommunicateCheck is the communication-authorization predicate used by
+// HandleConnect to enforce the KI-005 workspace-hierarchy guard.
+// Exposed as a package var so tests can stub it without DB fixtures.
+var canCommunicateCheck = registry.CanCommunicate
 
 var termUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -59,6 +66,34 @@ func NewTerminalHandler(cli *client.Client) *TerminalHandler {
 func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 	workspaceID := c.Param("id")
 	ctx := c.Request.Context()
+
+	// KI-005 fix: enforce CanCommunicate hierarchy check before granting
+	// terminal access. WorkspaceAuth validates the bearer's token, but the
+	// token is scoped to a specific workspace ID — Workspace A's token can
+	// reach Workspace A's terminal. Without CanCommunicate, Workspace A could
+	// also reach Workspace B's terminal if it knows B's UUID (enumeration
+	// via canvas, logs, or delegation). Shell access is more dangerous than
+	// A2A message-passing, so we apply the same hierarchy check here.
+	callerID := c.GetHeader("X-Workspace-ID")
+	// GH#756/#1609 security fix: if the caller claims a specific workspace
+	// identity (X-Workspace-ID header), the bearer token — if present — must
+	// belong to that claimed workspace. ValidateAnyToken accepted ANY valid org
+	// token, allowing Workspace A to forge X-Workspace-ID: B and reach B's
+	// terminal if A held any valid token. ValidateToken binds the token to
+	// the claimed workspace identity.
+	if callerID != "" && callerID != workspaceID {
+		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
+		if tok != "" {
+			if err := wsauth.ValidateToken(ctx, db.DB, callerID, tok); err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token for claimed workspace"})
+				return
+			}
+		}
+		if !canCommunicateCheck(callerID, workspaceID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to access this workspace's terminal"})
+			return
+		}
+	}
 
 	// Check for CP-provisioned workspace (instance_id persisted by
 	// provisionWorkspaceCP → migration 038). Null instance_id means the
