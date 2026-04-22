@@ -8,11 +8,13 @@ name: CodeQL
 # scanned. This workflow fills that gap by explicitly scanning both
 # branches on push and PR.
 #
-# Runs on the self-hosted mac mini (matches the org-wide Code Quality
-# runner-label config). GHAS is NOT enabled on this repo, so results
-# are not uploaded to the Security tab — the scan fails the PR check
-# on findings, and the SARIF is kept as a workflow artifact for
-# triage.
+# Runs on ubuntu-latest — CodeQL analysis is language-agnostic and
+# does not require macOS. Self-hosted runner relief: the mac mini is
+# reserved for canvas-build (Next.js) which has native macOS dependencies.
+#
+# GHAS is NOT enabled on this repo, so results are not uploaded to the
+# Security tab — the scan fails the PR check on findings, and the SARIF
+# is kept as a workflow artifact for triage.
 
 on:
   push:
@@ -31,7 +33,7 @@ permissions:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    runs-on: [self-hosted, macos, arm64]
+    runs-on: ubuntu-latest
     timeout-minutes: 45
 
     strategy:
@@ -55,14 +57,7 @@ jobs:
           token: ${{ secrets.PLUGIN_REPO_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Ensure jq installed
-        # Follows the crane-install pattern in promote-latest.yml.
-        # HOMEBREW_NO_* flags skip the cleanup that fails on the shared
-        # runner's /opt/homebrew symlinks.
-        env:
-          HOMEBREW_NO_INSTALL_CLEANUP: "1"
-          HOMEBREW_NO_AUTO_UPDATE: "1"
-          HOMEBREW_NO_ENV_HINTS: "1"
-        run: command -v jq >/dev/null || brew install jq
+        run: command -v jq >/dev/null || sudo apt-get update && sudo apt-get install -y jq
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
