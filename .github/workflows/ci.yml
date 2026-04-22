@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, staging, fix/cwe-22-critical-cherrypick]
+    branches: [main, staging]
   pull_request:
     branches: [main, staging]
 
