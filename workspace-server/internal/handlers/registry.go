@@ -196,12 +196,6 @@ func (h *RegistryHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// C6: reject SSRF-capable URLs before persisting or caching them.
-	if err := validateAgentURL(payload.URL); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
 	ctx := c.Request.Context()
 
 	// C18: prevent workspace URL hijacking on re-registration.
