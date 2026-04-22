@@ -129,6 +129,115 @@ skills:
 	}
 }
 
+func TestTemplatesList_RuntimeAndModelsRegistry(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+
+	tmpDir := t.TempDir()
+	tmplDir := filepath.Join(tmpDir, "hermes")
+	if err := os.MkdirAll(tmplDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	configYaml := `name: Hermes Agent
+description: test
+tier: 2
+runtime: hermes
+runtime_config:
+  model: nous-hermes-3-70b
+  models:
+    - id: nous-hermes-3-70b
+      name: Nous Hermes 3 70B
+      required_env: [HERMES_API_KEY]
+    - id: minimax/minimax-m2.7
+      name: MiniMax M2.7 (via OpenRouter)
+      required_env: [OPENROUTER_API_KEY]
+skills: []
+`
+	if err := os.WriteFile(filepath.Join(tmplDir, "config.yaml"), []byte(configYaml), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	handler := NewTemplatesHandler(tmpDir, nil)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/templates", nil)
+	handler.List(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var resp []templateSummary
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(resp) != 1 {
+		t.Fatalf("expected 1 template, got %d", len(resp))
+	}
+	got := resp[0]
+	if got.Runtime != "hermes" {
+		t.Errorf("Runtime: want hermes, got %q", got.Runtime)
+	}
+	if got.Model != "nous-hermes-3-70b" {
+		t.Errorf("Model: want nous-hermes-3-70b (from runtime_config.model), got %q", got.Model)
+	}
+	if len(got.Models) != 2 {
+		t.Fatalf("Models: want 2, got %d", len(got.Models))
+	}
+	if got.Models[0].ID != "nous-hermes-3-70b" || got.Models[0].Name != "Nous Hermes 3 70B" {
+		t.Errorf("Models[0] id/name mismatch: %+v", got.Models[0])
+	}
+	if len(got.Models[0].RequiredEnv) != 1 || got.Models[0].RequiredEnv[0] != "HERMES_API_KEY" {
+		t.Errorf("Models[0] required_env: want [HERMES_API_KEY], got %+v", got.Models[0].RequiredEnv)
+	}
+	if got.Models[1].ID != "minimax/minimax-m2.7" {
+		t.Errorf("Models[1].ID: got %q", got.Models[1].ID)
+	}
+	if len(got.Models[1].RequiredEnv) != 1 || got.Models[1].RequiredEnv[0] != "OPENROUTER_API_KEY" {
+		t.Errorf("Models[1] required_env: want [OPENROUTER_API_KEY], got %+v", got.Models[1].RequiredEnv)
+	}
+}
+
+func TestTemplatesList_LegacyTopLevelModel(t *testing.T) {
+	// Older templates (pre-runtime_config) declared `model:` at the top level.
+	// The /templates endpoint should keep surfacing those for backward compat.
+	setupTestDB(t)
+	setupTestRedis(t)
+
+	tmpDir := t.TempDir()
+	tmplDir := filepath.Join(tmpDir, "legacy")
+	if err := os.MkdirAll(tmplDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	configYaml := `name: Legacy Agent
+tier: 1
+model: anthropic:claude-sonnet-4-6
+skills: []
+`
+	if err := os.WriteFile(filepath.Join(tmplDir, "config.yaml"), []byte(configYaml), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	handler := NewTemplatesHandler(tmpDir, nil)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/templates", nil)
+	handler.List(c)
+
+	var resp []templateSummary
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(resp) != 1 || resp[0].Model != "anthropic:claude-sonnet-4-6" {
+		t.Errorf("legacy top-level model not surfaced: %+v", resp)
+	}
+	if resp[0].Runtime != "" {
+		t.Errorf("Runtime should be empty for legacy template, got %q", resp[0].Runtime)
+	}
+	if len(resp[0].Models) != 0 {
+		t.Errorf("Models should be empty for legacy template, got %+v", resp[0].Models)
+	}
+}
+
 func TestTemplatesList_NonexistentDir(t *testing.T) {
 	setupTestDB(t)
 	setupTestRedis(t)
