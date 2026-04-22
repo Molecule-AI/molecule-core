@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { api } from "@/lib/api";
 import { showToast } from "./Toaster";
@@ -23,8 +23,15 @@ export function ContextMenu() {
   const setPanelTab = useCanvasStore((s) => s.setPanelTab);
   const nestNode = useCanvasStore((s) => s.nestNode);
   const contextNodeId = contextMenu?.nodeId ?? null;
-  const children = useCanvasStore((s) =>
-    contextNodeId ? s.nodes.filter((n) => n.data.parentId === contextNodeId) : []
+  // Select the full nodes array (stable reference across unrelated store
+  // updates) and derive children via useMemo. Filtering inside the
+  // selector returned a new array every call, which Zustand's
+  // useSyncExternalStore saw as "snapshot changed" → schedule
+  // re-render → loop → React error #185. See canvas-store-snapshots.
+  const nodes = useCanvasStore((s) => s.nodes);
+  const children = useMemo(
+    () => (contextNodeId ? nodes.filter((n) => n.data.parentId === contextNodeId) : []),
+    [nodes, contextNodeId],
   );
   const hasChildren = children.length > 0;
   const setPendingDelete = useCanvasStore((s) => s.setPendingDelete);
