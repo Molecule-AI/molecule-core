@@ -2,6 +2,12 @@
 
 How a workspace-server code change reaches the prod tenant fleet — and how to stop it if something's wrong.
 
+> **⚠️ State note (2026-04-22):** this doc describes the **intended design**. As of this write, the canary fleet described below is **not actually running** — no canary tenants are provisioned, `CANARY_TENANT_URLS` / `CANARY_ADMIN_TOKENS` / `CANARY_CP_SHARED_SECRET` are empty in repo secrets, and `canary-verify.yml` fails every run. The AWS account `004947743811` referenced in "Canary fleet" below predates this repo's history and hasn't been verified in-session.
+>
+> Current merges gate on manual `promote-latest.yml` dispatches, not canary. See [molecule-controlplane/docs/canary-tenants.md](https://github.com/Molecule-AI/molecule-controlplane/blob/main/docs/canary-tenants.md) for the Phase 1 code work that's already shipped + the Phase 2 plan for actually standing up the fleet + a "should we even do this now?" decision framework.
+>
+> When Phase 2 lands, delete this note and reconcile the two docs.
+
 ## The loop
 
 ```
