@@ -2,14 +2,22 @@
 **Feature:** PR #1533 — `feat(terminal): remote path via aws ec2-instance-connect + pty`
 **Campaign:** EC2 Instance Connect SSH | **Blog:** `docs/infra/workspace-terminal.md` (shipped in PR #1533)
 **Canonical URL:** `moleculesai.app/docs/infra/workspace-terminal`
-**Status:** DRAFT — PMM proactive draft; no file existed before this entry
+**Status:** APPROVED — unblocked for Social Media Brand
 **Owner:** PMM → Social Media Brand | **Day:** Blocked on DevRel code demo (#1545) + Content Marketer blog (#1546)
+**Positioning approved by:** PMM (GH issue #1637)
 
 ---
 
-## X (140–280 chars)
+## Headline Angle: "No SSH keys, no bastion, no public IP"
+**Primary security differentiator:** Ephemeral keys (60-second RSA key lifespan via AWS API — no persistent key on disk, no rotation, no orphaned credential risk)
 
-### Version A — Infrastructure angle
+Secondary angle: Zero key rot — the 60-second key window means there's nothing to rotate, nothing to revoke, nothing exposed on developer machines.
+
+---
+
+## X / Twitter (140–280 chars)
+
+### Version A — Infrastructure angle ✅ (ops simplicity, approved primary)
 ```
 Your SaaS-provisioned EC2 workspace has a terminal tab. No SSH keys needed.
 
@@ -18,7 +26,7 @@ Molecule AI connects via EC2 Instance Connect Endpoint — IAM-authorized, no ba
 One click. You're in.
 ```
 
-### Version B — Zero credential overhead
+### Version B — Zero credential overhead (ops simplicity)
 ```
 Connecting to a cloud VM used to mean: SSH key, bastion host, public IP, and a security review.
 
@@ -27,7 +35,7 @@ EC2 Instance Connect changes that. Your IAM role is the auth layer. No keys on d
 The terminal just works.
 ```
 
-### Version C — Developer angle
+### Version C — Developer angle (DX)
 ```
 Your agent's EC2 workspace just got a terminal tab.
 
@@ -38,16 +46,29 @@ Molecule AI handles EC2 Instance Connect for you — IAM-authorized, PTY over We
 That's the SaaS difference.
 ```
 
-### Version D — Security / Enterprise
+### Version D — Security / Enterprise (zero key rot) ✅
 ```
 SSH key left on a laptop. Former employee. Rotation takes a week.
 
-EC2 Instance Connect: no shared keys, no orphaned credentials, every connection authorized via IAM and logged in CloudTrail.
+EC2 Instance Connect: every connection uses an ephemeral key pushed to instance metadata — valid 60 seconds, never touches a developer machine.
+
+No orphaned keys. No rotation SLAs. IAM is the auth layer.
 
 Security teams notice this architecture.
 ```
 
-### Version E — Problem → solution
+### Version E — Ephemeral key story (new — security lead)
+```
+Traditional SSH: key lives on disk, gets shared, gets forgotten, becomes a liability.
+
+EC2 Instance Connect SSH in Molecule AI: a temporary RSA key appears in instance metadata for 60 seconds, then disappears.
+
+No key on disk. No key rotation. No blast radius when someone leaves.
+
+The terminal just works. The key doesn't outlast the session.
+```
+
+### Version F — Problem → solution (ops lead)
 ```
 Problem: SaaS-provisioned EC2 workspaces don't have a terminal tab without SSH keys, a bastion, and a public IP.
 
@@ -79,10 +100,9 @@ This is what SaaS terminal access looks like when it's designed for agents, not 
 | Post | Image | Source |
 |---|---|---|
 | X Version A | Canvas screenshot: terminal tab open on a REMOTE badge workspace | Custom: needs DevRel code demo screenshot |
-| X Version B | Before/after: SSH key config vs "just click terminal" | Custom graphic |
-| X Version C | Terminal demo: IAM auth flow → canvas terminal | Custom: DevRel code demo output |
-| X Version D | IAM policy diagram: EC2 Instance Connect → CloudTrail log entry | Custom: AWS CloudTrail screenshot |
-| X Version E | Problem/solution card: "Before: bastion + keys + public IP" vs "After: one click, canvas terminal" | Custom graphic |
+| X Version D | Timeline graphic: "Key pushed to metadata → 60s window → key invalidated" | Custom: AWS/EC2 flow diagram |
+| X Version E | Before/after: key-on-disk vs ephemeral key lifecycle | Custom graphic |
+| X Version F | Problem/solution card: "Before: bastion + keys + public IP" vs "After: one click, canvas terminal" | Custom graphic |
 | LinkedIn | Canvas terminal screenshot with REMOTE badge | Custom |
 
 ---
@@ -108,5 +128,5 @@ Recommended: Coordinate with DevRel screencast; social posts should reference th
 
 ---
 
-*PMM drafted 2026-04-22 — no prior social copy file found anywhere in workspace*
+*PMM drafted 2026-04-22 — updated 2026-04-22 (GH issue #1637 positioning decision: lead with ops simplicity, highlight ephemeral key property in security-focused posts)*
 *Positioning brief: `docs/marketing/launches/pr-1533-ec2-instance-connect-ssh.md`*
