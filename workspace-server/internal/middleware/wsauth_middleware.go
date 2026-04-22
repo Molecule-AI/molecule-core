@@ -63,7 +63,12 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 			if id, prefix, orgID, err := orgtoken.Validate(ctx, database, tok); err == nil {
 				c.Set("org_token_id", id)
 				c.Set("org_token_prefix", prefix)
-				c.Set("org_id", orgID)
+				// F1097 guard: only set org_id key when orgID is non-empty.
+				// NULL org_id in DB → orgID="" → don't set the key so
+				// c.Get returns (exists=false, value=nil) for nil tokens.
+				if orgID != "" {
+					c.Set("org_id", orgID)
+				}
 				c.Next()
 				return
 			} else if !errors.Is(err, orgtoken.ErrInvalidToken) {
