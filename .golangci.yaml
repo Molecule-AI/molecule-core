@@ -1,12 +1,3 @@
-version: 4
-
-linters:
-  default: none
-  enable:
-    - staticcheck
-    - gofmt
-    - govet
-
 linters-settings:
   errcheck:
     check-type-assertions: false
