@@ -30,6 +30,7 @@ func devModeAllowsLoopback() bool {
 	return env == "development" || env == "dev"
 }
 
+
 // ssrfCheckEnabled controls whether isSafeURL performs real validation.
 // Tests disable it via setSSRFCheckForTest so that httptest.NewServer
 // loopback URLs and fake hostnames (*.example) don't trigger SSRF
