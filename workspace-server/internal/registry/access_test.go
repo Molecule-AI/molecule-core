@@ -15,7 +15,7 @@ func setupMockDB(t *testing.T) sqlmock.Sqlmock {
 		t.Fatalf("sqlmock: %v", err)
 	}
 	db.DB = mockDB
-	t.Cleanup(func() { mockDB.Close() })
+	t.Cleanup(func() { _ = mockDB.Close() })
 	return mock
 }
 

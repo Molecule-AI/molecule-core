@@ -77,7 +77,7 @@ func sweepOnlineWorkspaces(ctx context.Context, checker ContainerChecker, onOffl
 		log.Printf("Health sweep: query error: %v", err)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var ids []string
 	for rows.Next() {
@@ -142,7 +142,7 @@ func sweepStaleRemoteWorkspaces(ctx context.Context, onOffline OfflineHandler) {
 		log.Printf("Health sweep (remote): query error: %v", err)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var ids []string
 	for rows.Next() {

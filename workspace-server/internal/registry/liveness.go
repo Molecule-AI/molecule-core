@@ -23,7 +23,7 @@ func StartLivenessMonitor(ctx context.Context, onOffline OfflineHandler) {
 	for {
 		select {
 		case <-ctx.Done():
-			sub.Close()
+			_ = sub.Close()
 			return
 		case msg := <-ch:
 			if msg == nil {
