@@ -68,6 +68,7 @@ export function PricingTable() {
       {error && (
         <div
           role="alert"
+          aria-live="assertive"
           className="mx-auto mb-6 max-w-3xl rounded border border-red-900 bg-red-950/40 p-4 text-sm text-red-200"
         >
           {error}

@@ -124,7 +124,7 @@ export function DeleteConfirmDialog({ workspaceId }: DeleteConfirmDialogProps) {
           <p className="delete-dialog__warning">This cannot be undone.</p>
 
           {deleteError && (
-            <p className="delete-dialog__error" role="alert">
+            <p className="delete-dialog__error" role="alert" aria-live="assertive">
               {deleteError}
             </p>
           )}
