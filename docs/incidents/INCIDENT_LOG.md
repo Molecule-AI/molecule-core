@@ -5,7 +5,80 @@
 
 ---
 
-*Last updated: 2026-04-21T07:45Z by Core Platform Lead — Incident log rebuilt after linter reset*
+*Last updated: 2026-04-22T06:30Z by Core-DevOps — P0 platform incident active*
+
+---
+
+## P0 — Platform Incident (ACTIVE, 2026-04-22 ~00:00Z onward)
+
+**Severity:** Critical
+**Period:** 2026-04-22 ~00:00Z – ongoing
+**Finding IDs:** N/A (infra/cascade outage)
+**Status:** ACTIVE — platform unreachable, GitHub tokens revoked org-wide
+
+### Summary
+
+Multiple cascading failures:
+1. **Platform unreachable** — PM workspace (f0897ffd) and second EC2 down, cascade spreading
+2. **GitHub tokens revoked org-wide** — `ghs_f5trls76E6B2T9jU...` returns 401 "Bad credentials" across ALL agents (Research Lead, Core-DevOps, Plugin-Dev, Fullstack, CP-Security, Core-QA, SDK Lead all confirmed)
+3. **A2A mesh degraded** — PM workspace + EC2 down blocks peer-to-peer delegation for dependent workspaces
+
+### Affected Systems
+
+| System | Status |
+|--------|--------|
+| Platform API | ❌ Unreachable |
+| GitHub (gh api, git push) | ❌ 401 org-wide |
+| PM workspace (f0897ffd) | ❌ DOWN |
+| Self-hosted CI runners | ⚠️ Runner hongming-claws has corrupt Go module cache |
+| GCP staging CP | ❌ 403 on `/cp/admin/orgs` — missing IAM policy (KI-007) |
+
+### GitHub Token Status
+
+`ghs_f5trls76E6B2T9jU...` (molecule-ai[bot]) — revoked or rotated by mol-ops. All write operations blocked across all workspaces. Token confirmed dead via `gh auth status` and `gh api` calls returning "Bad credentials" on every agent.
+
+### PR #1498 CI Blockers
+
+**Branch:** `ship/security-fixes-to-main-0516` (P0 — emergency security fixes)
+**Fix commits (ready, not pushed):**
+- `54be428` — fix(handlers): resolve Go compile failures from duplicate declarations
+- `a701cc0` — fix(tests): conftest httpx mock — proper async context manager support
+- `0f39f82` — docs(incidents): document Python test fix + Go fix in qa-audit
+
+**CI failures (pre-fix state, SHA d490f977):**
+| Job | Result | Fix |
+|-----|--------|-----|
+| Platform (Go) | ❌ FAIL | `54be428` — deleted duplicate workspace_crud.go |
+| Python Lint & Test | ❌ FAIL | `a701cc0` — fixed conftest httpx mock |
+| E2E API Smoke Test | ❌ FAIL | Runner Go cache corruption — needs SSH to hongming-claws |
+| CodeQL (go/js/py) | ✅ SUCCESS | — |
+| Canvas (Next.js) | ✅ SUCCESS | — |
+| Shellcheck | ✅ SUCCESS | — |
+| Detect changes | ✅ SUCCESS | — |
+
+### Required Actions
+
+1. **Restore GitHub credentials** — mol-ops must provide new PAT for molecule-ai[bot] or re-enable existing token
+2. **Push PR #1498 fixes** — `git push origin ship/security-fixes-to-main-0516` (blocked by #1)
+3. **SSH to hongming-claws** — clear Go module cache corruption:
+   ```bash
+   ssh hongming-claws
+   rm -rf ~/go/pkg/mod ~/Library/Caches/go-build
+   cd /Users/hongming-claw/actions-runner-2/_work/molecule-core/molecule-core
+   go mod download
+   ```
+4. **GCP IAM fix (KI-007)** — apply `roles/container.clusterAdmin` to staging canary SA:
+   ```bash
+   gcloud iam service-accounts add-iam-policy-binding \
+     staging@YOUR_PROJECT.iam.gserviceaccount.com \
+     --role=roles/container.clusterAdmin \
+     --member="serviceAccount:staging@YOUR_PROJECT.iam.gserviceaccount.com"
+   ```
+5. **PM workspace + EC2 recovery** — Infra team to restore PM workspace (f0897ffd) and EC2 cascade
+
+### Known Issue — builtin_tools/memory.py (INCIDENT LOG #1124)
+
+`workspace/builtin_tools/memory.py:46` still uses `WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")` with no validation. Only affects modules that import WORKSPACE_ID from builtin_tools.memory (vs a2a_client which has RuntimeError guard). Low priority — platform must be restored first.
 
 ---
 
