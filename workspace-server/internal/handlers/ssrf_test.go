@@ -5,6 +5,36 @@ import (
 	"testing"
 )
 
+// init wires setSSRFChecker so SetSSRFPermissive is not a no-op.
+// Run automatically when the test package is loaded.
+func init() {
+	setSSRFChecker = func(check func(string) error) {
+		safeURLChecker = check
+	}
+}
+
+// SetSSRFPermissive overrides safeURLChecker with a pass-through stub
+// that lets httptest.Server URLs (including 127.0.0.1:xxxx) through without
+// triggering the SSRF guard. Call from t.Cleanup to restore production
+// behavior after each test.
+//
+// Production code never calls this — see ssrf.go.
+func SetSSRFPermissive(t CleanupLike) {
+	if setSSRFChecker == nil {
+		return
+	}
+	restore := safeURLChecker
+	t.Cleanup(func() { safeURLChecker = restore })
+	setSSRFChecker(func(_ string) error { return nil })
+}
+
+// CleanupLike is the minimal interface that both *testing.T and the
+// package-level t.Cleanup() accept. Defined here so this helper works
+// in all test contexts without importing testing.
+type CleanupLike interface {
+	Cleanup(func())
+}
+
 // isSafeURL is defined in a2a_proxy.go.
 // isPrivateOrMetadataIP is defined in a2a_proxy.go.
 // saasMode is defined in registry.go.

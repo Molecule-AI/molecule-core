@@ -8,11 +8,25 @@ import (
 	"strings"
 )
 
+// safeURLChecker is the active URL validator. Production code calls this
+// exclusively — it delegates to isSafeURLDefault below. Tests swap in a
+// permissive stub via setSSRFChecker (see ssrf_test.go).
+//
+// The var pattern avoids any sync.Once-per-package initialization issues
+// and works cleanly with t.Cleanup in individual test cases.
+var safeURLChecker = isSafeURLDefault
+
+// setSSRFChecker is called exclusively by test helpers; not for production use.
+var setSSRFChecker func(func(string) error) // nil in normal builds
+
 // isSafeURL validates that a URL resolves to a publicly-routable address,
 // preventing A2A requests from being redirected to internal/cloud-metadata
 // infrastructure (SSRF, CWE-918). Workspace URLs come from DB/Redis caches
 // so we validate before making any outbound HTTP call.
-func isSafeURL(rawURL string) error {
+func isSafeURL(rawURL string) error { return safeURLChecker(rawURL) }
+
+// isSafeURLDefault is the production URL validator.
+func isSafeURLDefault(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
