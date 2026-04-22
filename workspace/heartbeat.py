@@ -24,7 +24,12 @@ logger = logging.getLogger(__name__)
 HEARTBEAT_INTERVAL = 30  # seconds
 MAX_CONSECUTIVE_FAILURES = 10
 MAX_SEEN_DELEGATION_IDS = 200
-SELF_MESSAGE_COOLDOWN = 60  # seconds — minimum between self-messages to prevent loops
+SELF_MESSAGE_COOLDOWN = 120  # seconds — minimum between self-messages to prevent loops
+
+# Rate-limit envelope: cap how many delegation results we notify on per cycle.
+# This prevents a single large batch of failures (e.g. PMM retry loop) from
+# generating thousands of A2A messages and canvas notifications in one shot.
+MAX_DELEGATION_RESULTS_PER_CYCLE = 20
 # Shared path — also used by cli_executor._read_delegation_results()
 DELEGATION_RESULTS_FILE = os.environ.get("DELEGATION_RESULTS_FILE", "/tmp/delegation_results.jsonl")
 
@@ -185,6 +190,19 @@ class HeartbeatLoop:
             if len(self._seen_delegation_ids) > MAX_SEEN_DELEGATION_IDS:
                 # Keep most recent half
                 self._seen_delegation_ids = set(list(self._seen_delegation_ids)[MAX_SEEN_DELEGATION_IDS // 2:])
+
+            # Rate-limit: cap results processed per cycle to prevent cascade amplification.
+            # During a PMM retry storm, hundreds of failures arrive in one heartbeat
+            # cycle. Notifying on all of them simultaneously would saturate the agent's
+            # message queue and generate thousands of downstream A2A messages.
+            if len(new_results) > MAX_DELEGATION_RESULTS_PER_CYCLE:
+                overflow = new_results[MAX_DELEGATION_RESULTS_PER_CYCLE:]
+                new_results = new_results[:MAX_DELEGATION_RESULTS_PER_CYCLE]
+                logger.warning(
+                    "Heartbeat: delegation result overflow — %d results dropped this cycle "
+                    "(cap=%d). Increase SELF_MESSAGE_COOLDOWN or investigate upstream retries.",
+                    len(overflow), MAX_DELEGATION_RESULTS_PER_CYCLE,
+                )
 
             if new_results:
                 # Append to results file for context injection on next message

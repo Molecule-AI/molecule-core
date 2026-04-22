@@ -435,7 +435,7 @@ func pickFreePort() (int, error) {
 	return port, nil
 }
 
-// waitForPort polls 127.0.0.1:<port> until something is listening or the
+// waitForPort polls host:<port> until something is listening or the
 // deadline passes. Used to wait for the EIC tunnel subprocess to bind
 // its local port before we dial ssh at it.
 func waitForPort(ctx context.Context, host string, port int, timeout time.Duration) error {
