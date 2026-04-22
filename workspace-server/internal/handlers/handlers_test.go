@@ -26,6 +26,8 @@ func init() {
 }
 
 // setupTestDB creates a sqlmock DB and assigns it to the global db.DB.
+// It also disables the SSRF URL check so that httptest.NewServer loopback
+// URLs and fake hostnames (*.example) used in tests don't trigger rejections.
 func setupTestDB(t *testing.T) sqlmock.Sqlmock {
 	t.Helper()
 	mockDB, mock, err := sqlmock.New()
@@ -33,6 +35,10 @@ func setupTestDB(t *testing.T) sqlmock.Sqlmock {
 		t.Fatalf("failed to create sqlmock: %v", err)
 	}
 	db.DB = mockDB
+
+	restore := setSSRFCheckForTest(false)
+	t.Cleanup(func() { restore() })
+
 	t.Cleanup(func() { mockDB.Close() })
 	return mock
 }

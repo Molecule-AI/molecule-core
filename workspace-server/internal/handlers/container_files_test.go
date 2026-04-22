@@ -1,0 +1,105 @@
+package handlers
+
+import (
+	"os"
+	"strings"
+	"testing"
+)
+
+// TestValidateRelPath tests the path-traversal guard used in deleteViaEphemeral.
+// validateRelPath should reject absolute paths and ".." segments.
+func TestValidateRelPath(t *testing.T) {
+	cases := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		// Valid: simple relative paths inside a destination
+		{"single file", "config.json", false},
+		{"nested relative", "dir/subdir/file.txt", false},
+		{"file at destination root", "file.txt", false},
+		{"subdirectory file", "configs/myapp/file.cfg", false},
+		{"dotfile (hidden file, not traversal)", ".env", false},
+
+		// Traversal: must be rejected
+		{"double dot parent", "../etc/passwd", true},
+		{"trailing dotdot", "../", true},
+		{"embedded dotdot", "foo/../bar", true},
+		{"dotdot middle", "a/b/../../c", true},
+		{"path ends in ..", "foo/..", true},
+		{"bare ..", "..", true},
+
+		// Absolute: must be rejected
+		{"absolute unix", "/etc/passwd", true},
+		{"absolute windows", "C:\\Windows\\System32", true},
+		{"embedded absolute", "foo/etc/passwd", false},
+		{"root absolute", "/workspace/file.txt", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateRelPath(tc.path)
+			if tc.wantErr && err == nil {
+				t.Errorf("validateRelPath(%q): expected error, got nil", tc.path)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("validateRelPath(%q): expected nil, got %v", tc.path, err)
+			}
+		})
+	}
+}
+
+// TestValidateRelPath_Cleaned ensures that validateRelPath is called on the
+// cleaned (resolved) path, not the raw input, so tricks like "foo/./bar"
+// pass but "foo/../bar" fails.
+func TestValidateRelPath_Cleaned(t *testing.T) {
+	// ". " (dot-space) is not "..", but after Clean() it becomes just the dir.
+	// validateRelPath should be called on the clean path, not raw.
+	// These are valid relative paths.
+	valid := []string{
+		"foo/./bar",
+		"foo/././baz",
+		"./file.cfg",
+	}
+	for _, p := range valid {
+		if err := validateRelPath(p); err != nil {
+			t.Errorf("validateRelPath(%q): expected nil, got %v", p, err)
+		}
+	}
+}
+
+// TestDeleteViaEphemeral_PathTraversalCallsite documents that the exec form
+// of rm used in deleteViaEphemeral receives the path as a single concatenated
+// argument, not as a shell-expanded arg. This prevents traversal even if
+// validateRelPath were somehow bypassed (defence in depth).
+//
+// The concat form: []string{"rm", "-rf", "/configs/" + filePath}
+// passes ONE argument "/configs/../../../etc" to rm, which resolves it
+// relative to rm's CWD, NOT the shell's working directory.
+//
+// By contrast, the shell-expanded form:
+//   sh -c "rm -rf /configs $filePath"
+// would treat ".." as path components relative to /configs and could escape.
+//
+// deleteViaEphemeral uses the exec form only (verified in code review).
+func TestDeleteViaEphemeral_ConcatFormDocs(t *testing.T) {
+	// This is a documentation test — it confirms the concat form is present
+	// in the actual codebase by reading the source file directly.
+	src, err := sourceFile("container_files.go")
+	if err != nil {
+		t.Skip("cannot read source: " + err.Error())
+	}
+	if !strings.Contains(src, `"/configs/" + filePath`) {
+		t.Error("deleteViaEphemeral does not use concat form; F1085 fix may be missing or reverted")
+	}
+}
+
+// sourceFile reads a source file from the same package at runtime.
+// Used for compile-time-verification-style tests without importing io/ioutil.
+func sourceFile(name string) (string, error) {
+	data, err := os.ReadFile(name)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
