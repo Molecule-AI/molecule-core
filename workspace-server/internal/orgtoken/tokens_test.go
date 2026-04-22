@@ -74,7 +74,7 @@ func TestValidate_HappyPath(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT id, prefix FROM org_api_tokens`).
 		WithArgs(hash[:]).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).AddRow("tok-live", "abcd1234", nil))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).AddRow("tok-live", "abcd1234", nil))
 	mock.ExpectExec(`UPDATE org_api_tokens SET last_used_at`).
 		WithArgs("tok-live").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -141,7 +141,7 @@ func TestList_NewestFirst(t *testing.T) {
 
 	now := time.Now()
 	earlier := now.Add(-1 * time.Hour)
-	mock.ExpectQuery(`SELECT id, prefix.*FROM org_api_tokens.*ORDER BY created_at DESC`).
+	mock.ExpectQuery(`SELECT id, prefix, name, org_id, created_by, created_at, last_used_at FROM org_api_tokens ORDER BY created_at DESC`).
 		WithArgs(listMax).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "name", "org_id", "created_by", "created_at", "last_used_at"}).
 			AddRow("t2", "abcd1234", "zapier", "org-1", "user_01", now, now).
