@@ -1,8 +1,8 @@
 # Phase 30 Launch Plan — Chrome DevTools MCP SEO Campaign
 
 **Owner:** Marketing Lead
-**Status:** Active — Day 1 execution pending social credentials
-**Last updated:** 2026-04-21
+**Status:** Active — Phase 30 Day 2 (Discord Adapter) executing today
+**Last updated:** 2026-04-22
 
 ---
 
@@ -33,7 +33,7 @@
 | Day 5+ | Apr 25+ | Org-Scoped API Keys | ✅ Approved |
 | Apr 22 | Apr 22 | A2A Enterprise | ✅ Ready — blog committed staging (1980c92) |
 | Apr 22 | Apr 22 | EC2 Instance Connect SSH | ✅ Ready — blog committed staging (2b5a89b), social copy done |
-| Apr 22 | Apr 22 | MCP Server List | ✅ Social copy done — needs blog post |
+| Apr 25 | Apr 25 | MCP Server List | ✅ Blog done — committed staging (12d32f7), social copy ready |
 | Apr 21 | Apr 21 | Cloudflare Artifacts | ✅ Approved — blog live, social copy in `cloudflare-artifacts-launch/` | |
 
 ---
