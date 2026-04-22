@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+<<<<<<< HEAD
 // isSafeURL is defined in a2a_proxy.go.
 // isPrivateOrMetadataIP is defined in a2a_proxy.go.
 // saasMode is defined in registry.go.
@@ -129,6 +130,12 @@ func TestIsPrivateOrMetadataIP_IPv6(t *testing.T) {
 func TestIsPrivateOrMetadataIP(t *testing.T) {
 	t.Setenv("MOLECULE_DEPLOY_MODE", "")
 	t.Setenv("MOLECULE_ORG_ID", "")
+=======
+// isSafeURL is defined in mcp.go.
+// isPrivateOrMetadataIP is defined in mcp.go.
+
+func TestIsPrivateOrMetadataIP(t *testing.T) {
+>>>>>>> origin/staging
 	cases := []struct {
 		name  string
 		ipStr string
@@ -154,11 +161,15 @@ func TestIsPrivateOrMetadataIP(t *testing.T) {
 		// Must be allowed: public IP addresses
 		{"8.8.8.8", "8.8.8.8", false},
 		{"1.1.1.1", "1.1.1.1", false},
+<<<<<<< HEAD
 		// Previously asserted (incorrectly) that 203.0.113.254 is public --
 		// the original test's comment claimed the address was "above 203.0.113.0/24
 		// range end", but 203.0.113.0/24 spans 203.0.113.0-255, so .254 IS in
 		// range and correctly blocked. Assertion flipped to match reality.
 		{"203.0.113.254 (TEST-NET-3)", "203.0.113.254", true},
+=======
+		{"203.0.113.254", "203.0.113.254", false}, // TEST-NET-3 max — above 203.0.113.0/24 range end
+>>>>>>> origin/staging
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -175,8 +186,11 @@ func TestIsPrivateOrMetadataIP(t *testing.T) {
 }
 
 func TestIsSafeURL(t *testing.T) {
+<<<<<<< HEAD
 	t.Setenv("MOLECULE_DEPLOY_MODE", "")
 	t.Setenv("MOLECULE_ORG_ID", "")
+=======
+>>>>>>> origin/staging
 	cases := []struct {
 		name    string
 		rawURL  string

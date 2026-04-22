@@ -570,7 +570,11 @@ func TestSeedInitialMemories_TruncatesOversizedContent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+<<<<<<< HEAD
 			mock.ExpectationsWereMet()
+=======
+			mock.ExpectExpectations()
+>>>>>>> origin/staging
 			workspaceID := "ws-trunc-" + tt.name
 			content := strings.Repeat("X", tt.contentLen)
 			memories := []models.MemorySeed{{Content: content, Scope: "LOCAL"}}
@@ -624,7 +628,11 @@ func TestSeedInitialMemories_RedactsSecrets(t *testing.T) {
 // unrecognized scope value are silently skipped (not inserted).
 func TestSeedInitialMemories_InvalidScopeSkipped(t *testing.T) {
 	mock := setupTestDB(t)
+<<<<<<< HEAD
 	mock.ExpectationsWereMet() // no DB calls expected for invalid scope
+=======
+	mock.ExpectExpectations() // no DB calls expected for invalid scope
+>>>>>>> origin/staging
 
 	memories := []models.MemorySeed{
 		{Content: "this should be skipped", Scope: "NOT_A_REAL_SCOPE"},
@@ -641,7 +649,11 @@ func TestSeedInitialMemories_InvalidScopeSkipped(t *testing.T) {
 // is handled without error (no DB calls).
 func TestSeedInitialMemories_EmptyMemoriesNil(t *testing.T) {
 	mock := setupTestDB(t)
+<<<<<<< HEAD
 	mock.ExpectationsWereMet()
+=======
+	mock.ExpectExpectations()
+>>>>>>> origin/staging
 
 	seedInitialMemories(context.Background(), "ws-nil", nil, "test-ns")
 
@@ -901,6 +913,7 @@ func containsStr(s, substr string) bool {
 //
 // Each test injects a known-internal error and verifies the response body
 // or broadcast payload contains ONLY the generic prod-safe message.
+<<<<<<< HEAD
 
 // TestSeedInitialMemories_Truncation verifies that seedInitialMemories
 // truncates content at maxMemoryContentLength before INSERT. Regression
@@ -908,6 +921,8 @@ func containsStr(s, substr string) bool {
 func TestSeedInitialMemories_Truncation(t *testing.T) {
 	mock := setupTestDB(t)
 
+=======
+>>>>>>> origin/staging
 	largeContent := string(make([]byte, 100_001))
 	copy([]byte(largeContent), "X") // fill with "X" so test is deterministic
 
@@ -1087,14 +1102,100 @@ func containsUnsafeString(v interface{}) bool {
 // never leaks internal error details in WORKSPACE_PROVISION_FAILED broadcasts.
 // Regression test for issue #1206.
 func TestProvisionWorkspace_NoInternalErrorsInBroadcast(t *testing.T) {
+<<<<<<< HEAD
 	t.Skip("TODO: captureBroadcaster type mismatch with WorkspaceHandler.broadcaster (*events.Broadcaster). Needs broadcaster interface refactor — currently blocking package compile on main (2026-04-21).")
+=======
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	// Simulate global secret load failing with a real postgres error shape.
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM global_secrets`).
+		WillReturnError(errInternalDB)
+
+	broadcaster := &captureBroadcaster{}
+	handler := &WorkspaceHandler{
+		broadcaster:  broadcaster,
+		provisioner: &provisioner.Provisioner{},
+		cpProv:       &provisioner.CPProvisioner{},
+		platformURL:  "http://platform.test",
+		configsDir:   t.TempDir(),
+	}
+
+	handler.provisionWorkspace("ws-test-123", "", nil, models.CreateWorkspacePayload{Name: "test-ws"})
+
+	if broadcaster.lastData == nil {
+		t.Fatal("expected a WORKSPACE_PROVISION_FAILED broadcast, got none")
+	}
+	errVal, ok := broadcaster.lastData["error"]
+	if !ok {
+		t.Fatal(`broadcast missing "error" key`)
+	}
+	errStr, ok := errVal.(string)
+	if !ok {
+		t.Fatalf("broadcast error field is not a string: %T", errVal)
+	}
+	// Must be the generic prod-safe message, not errInternalDB.Error().
+	if errStr == errInternalDB.Error() {
+		t.Errorf("broadcast error contains raw err.Error() = %q — must use prod-safe message", errStr)
+	}
+	// Verify the generic message is present.
+	if errStr != "provisioning failed" {
+		t.Errorf("expected error=%q, got %q", "provisioning failed", errStr)
+	}
+>>>>>>> origin/staging
 }
 
 // TestProvisionWorkspaceCP_NoInternalErrorsInBroadcast asserts that
 // provisionWorkspaceCP never leaks err.Error() in WORKSPACE_PROVISION_FAILED
 // broadcasts. Regression test for issue #1206.
 func TestProvisionWorkspaceCP_NoInternalErrorsInBroadcast(t *testing.T) {
+<<<<<<< HEAD
 	t.Skip("TODO: captureBroadcaster type mismatch with WorkspaceHandler.broadcaster (*events.Broadcaster). Needs broadcaster interface refactor — currently blocking package compile on main (2026-04-21).")
+=======
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	// Simulate secret load succeeding (both global and workspace rows return empty).
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM global_secrets`).
+		WillReturnRows(sqlmock.NewRows([]string{"key", "encrypted_value", "encryption_version"}))
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM workspace_secrets WHERE workspace_id = \$1`).
+		WillReturnRows(sqlmock.NewRows([]string{"key", "encrypted_value", "encryption_version"}))
+
+	broadcaster := &captureBroadcaster{}
+	registry := &mockEnvMutator{returnErr: errInternalDB}
+	handler := &WorkspaceHandler{
+		broadcaster:  broadcaster,
+		cpProv:       &provisioner.CPProvisioner{},
+		platformURL:  "http://platform.test",
+		envMutators:  registry,
+	}
+
+	handler.provisionWorkspaceCP("ws-cp-test-456", "", nil, models.CreateWorkspacePayload{Name: "test-cp"})
+
+	if broadcaster.lastData == nil {
+		t.Fatal("expected WORKSPACE_PROVISION_FAILED broadcast, got none")
+	}
+	errVal, ok := broadcaster.lastData["error"]
+	if !ok {
+		t.Fatal(`broadcast missing "error" key`)
+	}
+	errStr, ok := errVal.(string)
+	if !ok {
+		t.Fatalf("broadcast error field is not a string: %T", errVal)
+	}
+	if errStr == errInternalDB.Error() {
+		t.Errorf("CP provisioner broadcast error contains raw err.Error() = %q", errStr)
+	}
+	if errStr != "provisioning failed" {
+		t.Errorf("expected error=%q, got %q", "provisioning failed", errStr)
+	}
+>>>>>>> origin/staging
 }
 
 // mockEnvMutator is a provisionhook.Registry stub that always returns a fixed error.
@@ -1106,13 +1207,75 @@ func (m *mockEnvMutator) Run(_ context.Context, _ string, _ map[string]string) e
 	return m.returnErr
 }
 
+<<<<<<< HEAD
 func (m *mockEnvMutator) Register(_ provisionhook.EnvMutator) {}
+=======
+func (m *mockEnvMutator) Register(_ interface{}) {}
+>>>>>>> origin/staging
 
 // TestResolveAndStage_NoInternalErrorsInHTTPErr asserts that resolveAndStage
 // never puts err.Error() in HTTP error responses. Tests plugin source
 // parsing, resolver failures, and validation errors.
 func TestResolveAndStage_NoInternalErrorsInHTTPErr(t *testing.T) {
+<<<<<<< HEAD
 	t.Skip("TODO: mockPluginsSources type mismatch with PluginsHandler.sources (*plugins.Registry). Needs resolver interface refactor — currently blocking package compile on main (2026-04-21).")
+=======
+	testCases := []struct {
+		name          string
+		source        string
+		wantSafe      bool // true = expect 4xx, false = expect nil
+		wantHTTPError bool // true = expect *httpErr from resolveAndStage
+		// knownUnsafe, if non-empty, is a substring that must NOT appear in
+		// the error body when wantHTTPError is true.
+		knownUnsafe string
+	}{
+		{
+			name:          "empty source",
+			source:        "",
+			wantHTTPError: true,
+			knownUnsafe:   "pq:",
+		},
+		{
+			name:          "valid source",
+			source:        "github://owner/repo",
+			wantHTTPError: false,
+			knownUnsafe:   "pq:",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &PluginsHandler{
+				sources: &mockPluginsSources{schemes: []string{"github", "local"}},
+			}
+			_, err := h.resolveAndStage(context.Background(), installRequest{Source: tc.source})
+			if tc.wantHTTPError {
+				if err == nil {
+					t.Fatal("expected an error, got nil")
+				}
+				httpErr, ok := err.(*httpErr)
+				if !ok {
+					t.Fatalf("expected *httpErr, got %T", err)
+				}
+				// Verify the generic message is used (not a raw err.Error()).
+				if httpErr.Body == nil {
+					t.Fatal("httpErr.Body is nil")
+				}
+				errStr, ok := httpErr.Body["error"].(string)
+				if !ok {
+					t.Fatalf("body error field is not a string: %T", httpErr.Body["error"])
+				}
+				if tc.knownUnsafe != "" && strings.Contains(errStr, tc.knownUnsafe) {
+					t.Errorf("error body contains unsafe string %q: %q", tc.knownUnsafe, errStr)
+				}
+			} else {
+				if err != nil && tc.wantHTTPError {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+>>>>>>> origin/staging
 }
 
 // mockPluginsSources implements plugins.SourceResolver for testing.
@@ -1131,8 +1294,11 @@ func (m *mockPluginsSources) Resolve(source plugins.Source) (plugins.SourceResol
 
 type mockResolver struct{}
 
+<<<<<<< HEAD
 func (*mockResolver) Scheme() string { return "" }
 
+=======
+>>>>>>> origin/staging
 func (*mockResolver) Fetch(ctx context.Context, spec, destDir string) (string, error) {
 	return "", nil
 }

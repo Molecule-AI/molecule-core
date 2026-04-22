@@ -14,8 +14,11 @@ export function StatusDot({
   return (
     <div
       className={`${sizeClass} rounded-full shrink-0 ${statusDotClass(status)} ${glowClass}`}
+<<<<<<< HEAD
       aria-hidden="true"
       role="img"
+=======
+>>>>>>> origin/staging
     />
   );
 }

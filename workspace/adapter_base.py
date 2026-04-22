@@ -132,6 +132,7 @@ class BaseAdapter(ABC):
             "source": None,
         }
 
+<<<<<<< HEAD
     def pre_stop_state(self) -> dict:
         """Capture in-memory state for pause/resume serialization.
 
@@ -203,6 +204,8 @@ class BaseAdapter(ABC):
         self._snapshot_session_id: str | None = snapshot.get("session_id")
         self._snapshot_transcript: list | None = snapshot.get("transcript_lines")
 
+=======
+>>>>>>> origin/staging
     def register_subagent_hook(self, name: str, spec: dict) -> None:
         """Default no-op. DeepAgents overrides to register a sub-agent."""
         return None

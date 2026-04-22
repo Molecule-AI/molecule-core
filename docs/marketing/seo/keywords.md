@@ -1,9 +1,12 @@
+<<<<<<< HEAD
 # Molecule AI — SEO Keyword Briefs
 
 > Active campaigns. Each section is self-contained. Stale sections should be marked `Status: superseded` rather than deleted.
 
 ---
 
+=======
+>>>>>>> origin/staging
 # Chrome DevTools MCP — SEO Keyword Brief
 
 **Campaign:** Phase 30 Chrome DevTools MCP SEO launch
@@ -34,6 +37,7 @@
 ## Confirmed Deliverables
 
 - **Brief:** `docs/marketing/briefs/2026-04-20-chrome-devtools-mcp-seo-brief.md`
+<<<<<<< HEAD
 - **Blog post:** `docs/blog/2026-04-20-chrome-devtools-mcp/index.md`
   > Note: brief originally referenced `docs/marketing/blog/...` path; actual shipped path is `docs/blog/...`. Both paths are live. Confirm canonical URL with DevRel.
 
@@ -178,3 +182,10 @@ No dedicated landing page confirmed yet — coordinate with PMM (GH#1116) to det
 ## Confirmed Deliverables
 
 - **Guide:** `docs/guides/same-origin-canvas-fetches.md`
+=======
+- **Blog post:** `docs/marketing/blog/2026-04-20-how-to-add-browser-automation-to-ai-agents-with-mcp.md`
+
+## SEO Analyst Note
+
+SEO Analyst reported 6 campaign actions complete. File paths `docs/blog/...` and `docs/marketing/seo/keywords.md` — the latter is now confirmed real (this file). The `docs/blog/...` path has been superseded by the confirmed `docs/marketing/blog/...` location. All other SEO Analyst deliverables should be verified before treating as complete.
+>>>>>>> origin/staging

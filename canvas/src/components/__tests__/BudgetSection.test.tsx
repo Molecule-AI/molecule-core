@@ -202,6 +202,7 @@ describe("BudgetSection — progress bar", () => {
     const bar = screen.getByRole("progressbar");
     expect(bar.getAttribute("aria-valuenow")).toBe("30");
   });
+<<<<<<< HEAD
 
   it("shows 0% progress bar when budget_used is absent from the response", async () => {
     // Regression: budget_used is optional (provisioning-stuck workspaces return
@@ -214,6 +215,8 @@ describe("BudgetSection — progress bar", () => {
     const fill = screen.getByTestId("budget-progress-fill") as HTMLDivElement;
     expect(fill.style.width).toBe("0%");
   });
+=======
+>>>>>>> origin/staging
 });
 
 // ── Input pre-fill ────────────────────────────────────────────────────────────

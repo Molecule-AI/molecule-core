@@ -283,6 +283,7 @@ func verifyAuditChain(events []auditEventRow) *bool {
 		// Recompute the expected HMAC.
 		expected := computeAuditHMAC(key, ev)
 		if !hmac.Equal([]byte(ev.HMAC), []byte(expected)) {
+<<<<<<< HEAD
 			// Truncate for logging only after confirming the slice is safe.
 			storedPrefix := ev.HMAC
 			computedPrefix := expected
@@ -295,6 +296,11 @@ func verifyAuditChain(events []auditEventRow) *bool {
 			log.Printf(
 				"audit: HMAC mismatch at event %s (agent=%s): stored=%q computed=%q",
 				ev.ID, ev.AgentID, storedPrefix, computedPrefix,
+=======
+			log.Printf(
+				"audit: HMAC mismatch at event %s (agent=%s): stored=%q computed=%q",
+				ev.ID, ev.AgentID, ev.HMAC[:12], expected[:12],
+>>>>>>> origin/staging
 			)
 			f := false
 			return &f

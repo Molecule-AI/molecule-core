@@ -134,7 +134,11 @@ async def tool_delegate_task_async(workspace_id: str, task: str) -> str:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
                 f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/delegate",
+<<<<<<< HEAD
                 json={"target_id": workspace_id, "task": task, "idempotency_key": idem_key},
+=======
+                json={"target_id": workspace_id, "task": task},
+>>>>>>> origin/staging
                 headers=_auth_headers_for_heartbeat(),
             )
             if resp.status_code == 202:

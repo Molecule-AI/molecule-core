@@ -16,7 +16,10 @@ afterEach(() => {
 // ── Shared fitView spy — must be set up before vi.mock hoisting ──────────────
 const mockFitView = vi.fn();
 const mockFitBounds = vi.fn();
+<<<<<<< HEAD
 const mockGetIntersectingNodes = vi.fn(() => []);
+=======
+>>>>>>> origin/staging
 
 vi.mock("@xyflow/react", () => {
   const ReactFlow = ({
@@ -45,7 +48,11 @@ vi.mock("@xyflow/react", () => {
       fitView: mockFitView,
       fitBounds: mockFitBounds,
       setViewport: vi.fn(),
+<<<<<<< HEAD
       getIntersectingNodes: mockGetIntersectingNodes,
+=======
+      getIntersectingNodes: vi.fn(() => []),
+>>>>>>> origin/staging
       setCenter: vi.fn(),
     }),
     applyNodeChanges: vi.fn((_: unknown, nodes: unknown) => nodes),
@@ -128,6 +135,7 @@ describe("Canvas — molecule:pan-to-node event handler", () => {
   beforeEach(() => {
     mockFitView.mockClear();
     mockFitBounds.mockClear();
+<<<<<<< HEAD
     mockGetIntersectingNodes.mockClear();
   });
 
@@ -168,6 +176,8 @@ describe("Canvas — molecule:pan-to-node event handler", () => {
     expect(mockGetIntersectingNodes).not.toHaveBeenCalled();
     // (No DOM drag event in jsdom — the regression is confirmed by the
     // Canvas.tsx change itself; the test confirms the mock hook is wired.)
+=======
+>>>>>>> origin/staging
   });
 
   it("calls fitView with the provisioned nodeId after a 100ms debounce", async () => {

@@ -18,6 +18,18 @@ import (
 // maxExecOutput limits container exec output to 5MB to prevent OOM.
 const maxExecOutput = 5 * 1024 * 1024
 
+// validateRelPath checks that a relative path doesn't escape the target
+// directory via ".." or an absolute path. Used by deleteViaEphemeral and
+// copyFilesToContainer to validate user-supplied file paths before they're
+// interpolated into Docker commands or tar headers.
+func validateRelPath(relPath string) error {
+	clean := filepath.Clean(relPath)
+	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+		return fmt.Errorf("path traversal blocked: %s", relPath)
+	}
+	return nil
+}
+
 // findContainer finds a running container for the workspace.
 // Checks provisioner name, full ID, and DB workspace name (same candidates as terminal handler).
 func (h *TemplatesHandler) findContainer(ctx context.Context, workspaceID string) string {
@@ -78,11 +90,17 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 		// Block absolute paths and traversal attempts at the archive-write boundary.
 		// Files are written inside destPath (typically /configs); anything that escapes
 		// via ".." or an absolute name could reach other volumes or system paths.
+<<<<<<< HEAD
+=======
+		// CWE-22: Clean first so e.g. "foo/../bar" becomes "bar" (detectable) rather
+		// than leaving ".." inside the path that only strings.Contains would catch.
+>>>>>>> origin/staging
 		clean := filepath.Clean(name)
 		if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
 			return fmt.Errorf("unsafe file path in archive: %s", name)
 		}
 		// Prepend destPath so relative paths land inside the volume mount.
+<<<<<<< HEAD
 		// Use cleaned name so validation (which checks clean) and usage stay consistent.
 		archiveName := filepath.Join(destPath, clean)
 		// Defence-in-depth: ensure the joined path doesn't escape destPath.
@@ -92,6 +110,9 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 		if !strings.HasPrefix(archiveName, destPath) && archiveName != destPath {
 			return fmt.Errorf("path escapes destination: %s", name)
 		}
+=======
+		archiveName := filepath.Join(destPath, clean)
+>>>>>>> origin/staging
 
 		// Create parent directories in tar (deduplicated)
 		dir := filepath.Dir(archiveName)
@@ -165,6 +186,12 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 	// CWE-78/CWE-22: validate before use. Also switches to exec form
 	// ([]string{...}) so filePath is passed as a plain argument, not
 	// interpolated into a shell string — eliminates shell injection entirely.
+	if err := validateRelPath(filePath); err != nil {
+		return err
+	}
+
+	// CWE-22: validate filePath before constructing the rm command so
+	// a path-traversal sequence cannot escape /configs.
 	if err := validateRelPath(filePath); err != nil {
 		return err
 	}

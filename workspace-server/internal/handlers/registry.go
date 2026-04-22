@@ -8,7 +8,10 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+<<<<<<< HEAD
 	"os"
+=======
+>>>>>>> origin/staging
 	"strings"
 	"sync"
 
@@ -115,6 +118,7 @@ func validateAgentURL(rawURL string) error {
 	}
 	hostname := parsed.Hostname()
 
+<<<<<<< HEAD
 	// Link-local / loopback / IPv6 metadata classes are blocked in every
 	// mode — they are never a legitimate agent URL and they cover the AWS/
 	// GCP/Azure IMDS endpoints. RFC-1918 ranges are conditionally blocked:
@@ -136,6 +140,20 @@ func validateAgentURL(rawURL string) error {
 			blockedRange{"192.168.0.0/16", "RFC-1918 private address"},
 			blockedRange{"fc00::/7", "IPv6 ULA address (RFC-4193 private)"},
 		)
+=======
+	blockedRanges := []struct {
+		cidr  string
+		label string
+	}{
+		{"169.254.0.0/16", "link-local address (cloud metadata endpoint)"},
+		{"127.0.0.0/8", "loopback address"},
+		{"10.0.0.0/8", "RFC-1918 private address"},
+		{"172.16.0.0/12", "RFC-1918 private address"},
+		{"192.168.0.0/16", "RFC-1918 private address"},
+		{"fe80::/10", "IPv6 link-local address (cloud metadata analogue)"},
+		{"::1/128", "IPv6 loopback address"},
+		{"fc00::/7", "IPv6 ULA address (RFC-4193 private)"},
+>>>>>>> origin/staging
 	}
 
 	// Helper: check a single IP against the blocklist.

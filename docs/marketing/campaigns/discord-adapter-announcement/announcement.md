@@ -97,6 +97,7 @@ Docs: docs/agent-runtime/social-channels
 
 ---
 
+<<<<<<< HEAD
 ---
 
 ## Reddit / HN — Day 2 Campaign
@@ -167,3 +168,6 @@ Demo + full docs: https://github.com/Molecule-AI/molecule-core/blob/main/docs/ag
 ---
 
 *Draft by Content Marketer 2026-04-21 — Day 2 campaign. Fill blog URL before posting. Coordinate with Social Media Brand on timing.*
+=======
+*Draft by Content Marketer 2026-04-20 — for Social Media Brand review before publishing*
+>>>>>>> origin/staging

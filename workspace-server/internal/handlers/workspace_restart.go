@@ -196,6 +196,7 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 	// last_heartbeat_at with the new session. Issue #19 Layer 1.
 	restartData := loadRestartContextData(ctx, id)
 
+<<<<<<< HEAD
 	// Dispatch to the correct provisioner. provisionWorkspaceOpts is the
 	// Docker path; provisionWorkspaceCP is the SaaS path. The Create
 	// handler already branches this way; Restart now mirrors it.
@@ -204,6 +205,9 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 	} else {
 		go h.provisionWorkspaceOpts(id, templatePath, configFiles, payload, resetClaudeSession)
 	}
+=======
+	go h.provisionWorkspaceOpts(id, templatePath, configFiles, payload, resetClaudeSession)
+>>>>>>> origin/staging
 	go h.sendRestartContext(id, restartData)
 
 	c.JSON(http.StatusOK, gin.H{"status": "provisioning", "config_dir": configLabel, "reset_session": resetClaudeSession})

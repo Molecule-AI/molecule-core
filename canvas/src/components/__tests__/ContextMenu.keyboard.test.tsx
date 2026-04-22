@@ -225,8 +225,11 @@ describe("ContextMenu — keyboard accessibility", () => {
     expect(mockStore.setPendingDelete).toHaveBeenCalledWith({
       id: "ws-1",
       name: "Alpha Workspace",
+<<<<<<< HEAD
       hasChildren: false,
       children: [],
+=======
+>>>>>>> origin/staging
     });
     expect(closeContextMenu).toHaveBeenCalled();
   });

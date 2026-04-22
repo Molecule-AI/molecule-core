@@ -74,12 +74,20 @@ func TestValidate_HappyPath(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT id, prefix FROM org_api_tokens`).
 		WithArgs(hash[:]).
+<<<<<<< HEAD
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).AddRow("tok-live", "abcd1234", nil))
+=======
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).AddRow("tok-live", "abcd1234"))
+>>>>>>> origin/staging
 	mock.ExpectExec(`UPDATE org_api_tokens SET last_used_at`).
 		WithArgs("tok-live").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
+<<<<<<< HEAD
 	id, prefix, _, err := Validate(context.Background(), db, plaintext)
+=======
+	id, prefix, err := Validate(context.Background(), db, plaintext)
+>>>>>>> origin/staging
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
@@ -94,7 +102,11 @@ func TestValidate_HappyPath(t *testing.T) {
 func TestValidate_EmptyPlaintextRejected(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
+<<<<<<< HEAD
 	if _, _, _, err := Validate(context.Background(), db, ""); !errors.Is(err, ErrInvalidToken) {
+=======
+	if _, _, err := Validate(context.Background(), db, ""); !errors.Is(err, ErrInvalidToken) {
+>>>>>>> origin/staging
 		t.Errorf("empty plaintext should be ErrInvalidToken, got %v", err)
 	}
 }
@@ -110,7 +122,11 @@ func TestValidate_UnknownHashErrInvalid(t *testing.T) {
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnError(sql.ErrNoRows)
 
+<<<<<<< HEAD
 	if _, _, _, err := Validate(context.Background(), db, "ghost"); !errors.Is(err, ErrInvalidToken) {
+=======
+	if _, _, err := Validate(context.Background(), db, "ghost"); !errors.Is(err, ErrInvalidToken) {
+>>>>>>> origin/staging
 		t.Errorf("unknown hash should be ErrInvalidToken, got %v", err)
 	}
 }
@@ -127,7 +143,11 @@ func TestValidate_RevokedTokenNotAccepted(t *testing.T) {
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnError(sql.ErrNoRows)
 
+<<<<<<< HEAD
 	if _, _, _, err := Validate(context.Background(), db, "revoked-plaintext"); !errors.Is(err, ErrInvalidToken) {
+=======
+	if _, _, err := Validate(context.Background(), db, "revoked-plaintext"); !errors.Is(err, ErrInvalidToken) {
+>>>>>>> origin/staging
 		t.Errorf("revoked token should be ErrInvalidToken, got %v", err)
 	}
 }

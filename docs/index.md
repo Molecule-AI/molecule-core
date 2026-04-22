@@ -74,5 +74,8 @@ features:
 - [Deploy AI Agents on Fly.io — or Any Cloud — with One Config Change](/blog/deploy-anywhere) *(2026-04-17)*
 - [Give Your AI Agent a Real Browser: MCP + Chrome DevTools](/blog/browser-automation-ai-agents-mcp) *(2026-04-20)*
 - [Give Your AI Agent a Git Repository: Molecule AI + Cloudflare Artifacts](/blog/cloudflare-artifacts-molecule-ai) *(2026-04-21)*
+<<<<<<< HEAD
 - [One Canvas, Every Agent: Remote AI Agents and Fleet Visibility](/blog/remote-workspaces) *(2026-04-20)*
 - [Skills Over Bundled Tools: Why Composable AI Beats Platform Primitives](/blog/skills-vs-bundled-tools-ai-agent-platforms) *(2026-04-21)*
+=======
+>>>>>>> origin/staging

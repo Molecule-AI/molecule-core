@@ -5,7 +5,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+<<<<<<< HEAD
 	"net"
+=======
+>>>>>>> origin/staging
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -714,6 +717,7 @@ func TestExtractA2AText_InvalidJSON_ReturnRaw(t *testing.T) {
 		t.Errorf("extractA2AText: expected raw fallback, got %q", got)
 	}
 }
+<<<<<<< HEAD
 
 // ==================== SSRF Defence — isSafeURL ====================
 
@@ -857,3 +861,5 @@ func TestIsPrivateOrMetadataIP_PublicAllowed(t *testing.T) {
 		}
 	}
 }
+=======
+>>>>>>> origin/staging

@@ -17,12 +17,19 @@ import (
 )
 
 const (
+<<<<<<< HEAD
 	pollInterval          = 30 * time.Second
 	maxConcurrent         = 10
 	batchLimit            = 50
 	fireTimeout           = 5 * time.Minute
 	phantomSweepInterval  = 5 * time.Minute
 	phantomStaleThreshold = 10 * time.Minute
+=======
+	pollInterval   = 30 * time.Second
+	maxConcurrent  = 10
+	batchLimit     = 50
+	fireTimeout    = 5 * time.Minute
+>>>>>>> origin/staging
 )
 
 // A2AProxy is the interface the scheduler needs to send messages to workspaces.
@@ -65,7 +72,10 @@ type Scheduler struct {
 	// Atomic-ish via the mutex; tick rate is 30s so contention is trivial.
 	mu           sync.RWMutex
 	lastTickAt   time.Time
+<<<<<<< HEAD
 	lastSweepAt  time.Time
+=======
+>>>>>>> origin/staging
 	tickInterval time.Duration // defaults to pollInterval; overridable in tests
 }
 
@@ -167,7 +177,10 @@ func (s *Scheduler) Start(ctx context.Context) {
 			return
 		case <-ticker.C:
 			tickWithRecover()
+<<<<<<< HEAD
 			s.maybeSweepPhantomBusy(ctx)
+=======
+>>>>>>> origin/staging
 			supervised.Heartbeat("scheduler")
 		}
 	}
@@ -271,6 +284,7 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 	// This replaces the #115 "skip when busy" pattern which caused crons
 	// to permanently miss when workspaces were perpetually busy from the
 	// Orchestrator pulse delegation chain (~30% message drop rate on Dev Lead).
+<<<<<<< HEAD
 	// Check workspace capacity — fire when active_tasks < max_concurrent_tasks.
 	// Default max is 1 (backward compatible). Workspaces can override via config
 	// to allow concurrent task processing (e.g. leaders handling A2A while cron runs).
@@ -282,18 +296,34 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 	).Scan(&activeTasks, &maxConcurrent); err == nil && activeTasks >= maxConcurrent {
 		log.Printf("Scheduler: '%s' workspace %s at capacity (active_tasks=%d, max=%d), deferring up to 2 min",
 			sched.Name, short(sched.WorkspaceID, 12), activeTasks, maxConcurrent)
+=======
+	var activeTasks int
+	if err := db.DB.QueryRowContext(ctx,
+		`SELECT COALESCE(active_tasks, 0) FROM workspaces WHERE id = $1`,
+		sched.WorkspaceID,
+	).Scan(&activeTasks); err == nil && activeTasks > 0 {
+		log.Printf("Scheduler: '%s' workspace %s busy (active_tasks=%d), deferring up to 2 min",
+			sched.Name, short(sched.WorkspaceID, 12), activeTasks)
+>>>>>>> origin/staging
 		// Poll every 10s for up to 2 minutes
 		waited := false
 		for i := 0; i < 12; i++ {
 			time.Sleep(10 * time.Second)
 			if err := db.DB.QueryRowContext(ctx,
+<<<<<<< HEAD
 				`SELECT COALESCE(active_tasks, 0), COALESCE(max_concurrent_tasks, 1) FROM workspaces WHERE id = $1`,
 				sched.WorkspaceID,
 			).Scan(&activeTasks, &maxConcurrent); err != nil || activeTasks < maxConcurrent {
+=======
+				`SELECT COALESCE(active_tasks, 0) FROM workspaces WHERE id = $1`,
+				sched.WorkspaceID,
+			).Scan(&activeTasks); err != nil || activeTasks == 0 {
+>>>>>>> origin/staging
 				waited = true
 				break
 			}
 		}
+<<<<<<< HEAD
 		if !waited && activeTasks >= maxConcurrent {
 			log.Printf("Scheduler: skipping '%s' on busy workspace %s after 2 min wait (active_tasks=%d, max=%d)",
 				sched.Name, short(sched.WorkspaceID, 12), activeTasks, maxConcurrent)
@@ -301,6 +331,15 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 			return
 		}
 		log.Printf("Scheduler: '%s' workspace %s has capacity after deferral, firing",
+=======
+		if !waited && activeTasks > 0 {
+			log.Printf("Scheduler: skipping '%s' on busy workspace %s after 2 min wait (active_tasks=%d)",
+				sched.Name, short(sched.WorkspaceID, 12), activeTasks)
+			s.recordSkipped(ctx, sched, activeTasks)
+			return
+		}
+		log.Printf("Scheduler: '%s' workspace %s now idle after deferral, firing",
+>>>>>>> origin/staging
 			sched.Name, short(sched.WorkspaceID, 12))
 	}
 
@@ -569,6 +608,7 @@ func (s *Scheduler) repairNullNextRunAt(ctx context.Context) {
 	}
 }
 
+<<<<<<< HEAD
 // maybeSweepPhantomBusy runs sweepPhantomBusy at most once every
 // phantomSweepInterval (5 min). Called on every tick but gated by a timer
 // so the DB query doesn't run on every 30s poll.
@@ -641,6 +681,8 @@ func (s *Scheduler) sweepPhantomBusy(ctx context.Context) {
 	}
 }
 
+=======
+>>>>>>> origin/staging
 // isEmptyResponse checks if an A2A response body indicates the agent
 // produced no meaningful output. Catches "(no response generated)" from
 // the workspace runtime + genuinely empty/null responses. Used by the

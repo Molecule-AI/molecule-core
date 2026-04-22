@@ -72,12 +72,17 @@ interface CanvasState {
   // handler: clicking Confirm registered as "outside", closed the menu, and
   // unmounted the dialog before its onClick fired. Hoisting the state fixes
   // that — see fix/context-menu-delete-race.
+<<<<<<< HEAD
   pendingDelete:
     | { id: string; name: string; hasChildren: boolean; children: { id: string; name: string }[] }
     | null;
   setPendingDelete: (
     v: { id: string; name: string; hasChildren: boolean; children: { id: string; name: string }[] } | null
   ) => void;
+=======
+  pendingDelete: { id: string; name: string; hasChildren: boolean } | null;
+  setPendingDelete: (v: { id: string; name: string; hasChildren: boolean } | null) => void;
+>>>>>>> origin/staging
   searchOpen: boolean;
   setSearchOpen: (open: boolean) => void;
   viewport: { x: number; y: number; zoom: number };

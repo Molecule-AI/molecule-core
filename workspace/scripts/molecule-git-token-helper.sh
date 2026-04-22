@@ -50,7 +50,11 @@
 #
 set -euo pipefail
 
+<<<<<<< HEAD
 PLATFORM_URL="${PLATFORM_URL:-http://host.docker.internal:8080}"
+=======
+PLATFORM_URL="${PLATFORM_URL:-http://platform:8080}"
+>>>>>>> origin/staging
 CONFIGS_DIR="${CONFIGS_DIR:-/configs}"
 TOKEN_FILE="${CONFIGS_DIR}/.auth_token"
 # #1068: use workspace-scoped path (WorkspaceAuth) instead of admin path
