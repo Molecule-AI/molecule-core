@@ -294,7 +294,7 @@ class BaseAdapter(ABC):
         from plugins import load_plugins
         from skill_loader.loader import load_skills
         from coordinator import get_children, get_parent_context, build_children_description
-        from prompt import build_system_prompt, get_peer_capabilities
+        from prompt import build_system_prompt, get_peer_capabilities, get_platform_instructions
         from builtin_tools.approval import request_approval
         from builtin_tools.delegation import delegate_to_workspace, check_delegation_status
         from builtin_tools.memory import commit_memory, search_memory
@@ -344,6 +344,7 @@ class BaseAdapter(ABC):
 
         # Build system prompt with all context
         peers = await get_peer_capabilities(platform_url, config.workspace_id)
+        platform_instructions = await get_platform_instructions(platform_url, config.workspace_id)
         coordinator_prompt = build_children_description(children) if is_coordinator else ""
         extra_prompts = list(plugins.prompt_fragments)
         if coordinator_prompt:
@@ -355,6 +356,7 @@ class BaseAdapter(ABC):
             plugin_rules=plugins.rules,
             plugin_prompts=extra_prompts,
             parent_context=parent_context,
+            platform_instructions=platform_instructions,
         )
 
         return SetupResult(
