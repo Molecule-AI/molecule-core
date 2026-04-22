@@ -91,6 +91,10 @@ interface ModelSpec {
   required_env?: string[];
 }
 
+function arraysEqual(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
 interface RuntimeOption {
   value: string;
   label: string;
@@ -334,39 +338,81 @@ export function ConfigTab({ workspaceId }: Props) {
                   value={currentModelId}
                   onChange={(e) => {
                     const v = e.target.value;
-                    if (config.runtime) {
-                      update("runtime_config", { ...config.runtime_config, model: v });
-                    } else {
-                      update("model", v);
-                    }
+                    setConfig((prev) => {
+                      // If the new value exactly matches a known modelSpec id,
+                      // swap required_env to that spec's list — but only when
+                      // the current required_env is empty or was itself
+                      // template-driven (i.e. matches the previous modelSpec's
+                      // required_env). User-typed envs always win.
+                      const nextSpec = availableModels.find((m) => m.id === v) ?? null;
+                      const prevModelId = prev.runtime_config?.model || prev.model || "";
+                      const prevSpec = availableModels.find((m) => m.id === prevModelId) ?? null;
+                      const prevRequired = prev.runtime_config?.required_env ?? [];
+                      const wasTemplateDriven =
+                        prevRequired.length === 0 ||
+                        (prevSpec?.required_env?.length
+                          ? prevRequired.length === prevSpec.required_env.length &&
+                            prevRequired.every((e, i) => e === prevSpec.required_env![i])
+                          : false);
+                      const nextRequired =
+                        nextSpec?.required_env?.length && wasTemplateDriven
+                          ? nextSpec.required_env
+                          : prevRequired;
+                      if (prev.runtime) {
+                        return {
+                          ...prev,
+                          runtime_config: {
+                            ...prev.runtime_config,
+                            model: v,
+                            ...(nextSpec?.required_env?.length && wasTemplateDriven
+                              ? { required_env: nextRequired }
+                              : {}),
+                          },
+                        };
+                      }
+                      return { ...prev, model: v };
+                    });
                   }}
                   placeholder="e.g. anthropic:claude-sonnet-4-6"
                   className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 font-mono focus:outline-none focus:border-blue-500"
                 />
                 {availableModels.length > 0 && (
                   <datalist id={`${runtimeId}-models`}>
-                    {availableModels.map((m) => (
-                      <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                    {availableModels.map((m, i) => (
+                      <option key={`${m.id}-${i}`} value={m.id}>{m.name || m.id}</option>
                     ))}
                   </datalist>
                 )}
               </div>
             </div>
             <TagList
-              label={currentModelSpec?.required_env?.length ? "Required Env Vars (suggested)" : "Required Env Vars"}
-              values={
-                config.runtime_config?.required_env?.length
-                  ? config.runtime_config.required_env
-                  : (currentModelSpec?.required_env ?? [])
+              label={
+                currentModelSpec?.required_env?.length &&
+                arraysEqual(config.runtime_config?.required_env ?? [], currentModelSpec.required_env)
+                  ? "Required Env Vars (from template)"
+                  : "Required Env Vars"
               }
+              values={config.runtime_config?.required_env ?? []}
               onChange={(v) => updateNested("runtime_config" as keyof ConfigData, "required_env", v)}
               placeholder="e.g. CLAUDE_CODE_OAUTH_TOKEN"
             />
-            {currentModelSpec?.required_env?.length ? (
-              <p className="text-[10px] text-zinc-500 mt-1">
-                Suggested from template for <code className="text-zinc-400">{currentModelSpec.name || currentModelSpec.id}</code>. Edit above to override; set actual values in the Secrets tab.
-              </p>
-            ) : null}
+            {currentModelSpec?.required_env?.length &&
+              !arraysEqual(config.runtime_config?.required_env ?? [], currentModelSpec.required_env) && (
+              <div className="text-[10px] text-zinc-500 mt-1 flex items-center gap-2">
+                <span>
+                  Template suggests{" "}
+                  <code className="text-zinc-400">{currentModelSpec.required_env.join(", ")}</code>{" "}
+                  for <code className="text-zinc-400">{currentModelSpec.name || currentModelSpec.id}</code>.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => updateNested("runtime_config" as keyof ConfigData, "required_env", currentModelSpec.required_env)}
+                  className="text-blue-400 hover:text-blue-300 underline"
+                >
+                  Apply
+                </button>
+              </div>
+            )}
           </Section>
 
           {/* Claude Settings — shown for claude-code runtime or claude/anthropic model names */}
