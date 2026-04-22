@@ -1,14 +1,1 @@
-version: 2
-
-linters-settings:
-  errcheck:
-    check-type-assertions: false
-    check-blank: false
-  govet:
-    enable-all: false
-    disable:
-      - errcheck
-
-run:
-  timeout: 3m
-  tests: true
+version: "2"
