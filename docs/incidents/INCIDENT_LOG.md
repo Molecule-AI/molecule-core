@@ -5,7 +5,7 @@
 
 ---
 
-*Last updated: 2026-04-22T16:32Z by Infra-SRE — AUTO-MERGE ENABLED on PR #1498 ✅ (enabled 16:12:05Z); CI failing on hongming-m1-mini runners (Go + Python); new CI run queued on sha 307859dd; SDK Lead relay COMPLETE (all commits already on main); plugin-dev repos 1-5 DON'T EXIST; PR #1582 remains BEST PATH fallback*
+*Last updated: 2026-04-22T17:02Z by Infra-SRE — PR #1498 NOW ON branch ship/security-fixes-to-main-0516 (head f2b46476); CI run 24790258740 IN_PROGRESS (Platform Go job queued); PR #1585 MERGEABLE with CWE-78 fix + go.mod update (BEST PATH — 2 fewer commits than #1582); PR #1582 MERGEABLE but 2 extra commits; GH_TOKEN 401 org-wide, GitHub App token ghs_vEnAce2oT... working for git+API from this workspace*
 
 ---
 
