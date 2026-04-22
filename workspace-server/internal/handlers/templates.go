@@ -292,8 +292,7 @@ func (h *TemplatesHandler) ReadFile(c *gin.Context) {
 
 	// Try container first
 	if containerName := h.findContainer(ctx, workspaceID); containerName != "" {
-		containerPath := rootPath + "/" + filePath
-		content, err := h.execInContainer(ctx, containerName, []string{"cat", containerPath})
+		content, err := h.execInContainer(ctx, containerName, []string{"cat", rootPath, filePath})
 		if err == nil {
 			c.JSON(http.StatusOK, gin.H{
 				"path":    filePath,
