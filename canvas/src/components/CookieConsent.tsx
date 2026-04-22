@@ -113,18 +113,18 @@ export function CookieConsent() {
             for details.
           </p>
         </div>
-        <div className="flex gap-2 md:shrink-0">
+        <div className="flex gap-2 md:shrink-0 w-full sm:w-auto">
           <button
             type="button"
             onClick={() => decide("rejected")}
-            className="rounded border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+            className="flex-1 sm:flex-none rounded border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800"
           >
             Necessary only
           </button>
           <button
             type="button"
             onClick={() => decide("accepted")}
-            className="rounded border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
+            className="flex-1 sm:flex-none rounded border border-blue-600 bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-500"
           >
             Accept all
           </button>

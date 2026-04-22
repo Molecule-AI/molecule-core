@@ -80,7 +80,7 @@ export function BatchActionBar() {
     <div
       role="toolbar"
       aria-label="Batch workspace actions"
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-zinc-900/95 border border-zinc-700/70 shadow-2xl shadow-black/50 backdrop-blur-md"
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] flex flex-wrap items-center justify-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 rounded-2xl bg-zinc-900/95 border border-zinc-700/70 shadow-2xl shadow-black/50 backdrop-blur-md max-w-[calc(100vw-1rem)]"
     >
       {/* Selection count badge */}
       <span className="text-[12px] font-semibold text-zinc-100 bg-blue-600/80 px-2.5 py-0.5 rounded-full tabular-nums">

@@ -142,7 +142,7 @@ export function CreateWorkspaceButton() {
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
-        <button className="fixed bottom-6 right-6 z-40 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-sm font-medium rounded-xl text-white shadow-lg shadow-blue-600/20 hover:shadow-xl hover:shadow-blue-500/30 transition-all duration-200 flex items-center gap-2">
+        <button className="fixed bottom-6 right-4 sm:right-6 z-40 px-4 sm:px-5 py-2.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-sm font-medium rounded-xl text-white shadow-lg shadow-blue-600/20 hover:shadow-xl hover:shadow-blue-500/30 transition-all duration-200 flex items-center gap-2">
           <svg
             width="14"
             height="14"
@@ -165,7 +165,7 @@ export function CreateWorkspaceButton() {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" />
         <Dialog.Content
-          className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-zinc-900 border border-zinc-700/60 rounded-2xl shadow-2xl shadow-black/40 w-[400px] max-h-[90vh] overflow-y-auto p-6"
+          className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-zinc-900 border border-zinc-700/60 rounded-2xl shadow-2xl shadow-black/40 w-[calc(100vw-2rem)] sm:w-[400px] max-h-[90vh] overflow-y-auto p-4 sm:p-6"
           aria-describedby={undefined}
         >
           <Dialog.Title className="text-base font-semibold text-zinc-100 mb-1">

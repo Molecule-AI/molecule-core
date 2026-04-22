@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 import { AuthGate } from "@/components/AuthGate";
@@ -7,6 +7,14 @@ import { CookieConsent } from "@/components/CookieConsent";
 export const metadata: Metadata = {
   title: "Molecule AI",
   description: "AI Org Chart Canvas",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
 };
 
 export default async function RootLayout({

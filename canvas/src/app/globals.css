@@ -5,20 +5,109 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   MOLECULE AI — DESIGN SYSTEM CUSTOM PROPERTIES
+   ============================================================ */
+:root {
+  --mol-bg-deepest: #060b14;
+  --mol-bg-deep: #0a0f1a;
+  --mol-bg-base: #111827;
+  --mol-bg-raised: #1e293b;
+  --mol-surface: #0f1629;
+  --mol-surface-light: #151d30;
+  --mol-accent-mint: #39e58c;
+  --mol-accent-cyan: #22d1ee;
+  --mol-border: rgba(255, 255, 255, 0.06);
+  --mol-border-light: rgba(255, 255, 255, 0.10);
+  --mol-text-primary: #f1f5f9;
+  --mol-text-secondary: #94a3b8;
+  --mol-text-muted: #64748b;
+}
+
+html {
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background: #09090b;
-  color: #e4e4e7;
+  overflow-x: hidden;
+  background: var(--mol-bg-deepest);
+  color: var(--mol-text-primary);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font-size: 13px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* iOS safe area insets for notched phones */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Subtle gradient background for the canvas area */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(57, 229, 140, 0.03), transparent),
+    radial-gradient(ellipse 60% 40% at 80% 100%, rgba(34, 209, 238, 0.02), transparent),
+    linear-gradient(to bottom, #060b14, #0a0f1a 40%, #0d1321);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* ============================================================
+   GLOBAL INTERACTIVE TRANSITIONS
+   ============================================================ */
+button, a, [role="button"], input, select, textarea {
+  transition: all 0.15s ease;
+}
+
+/* ============================================================
+   GLASSMORPHISM UTILITIES
+   ============================================================ */
+@layer utilities {
+  .glass-panel {
+    background: rgba(15, 22, 41, 0.70);
+    backdrop-filter: blur(20px) saturate(1.2);
+    -webkit-backdrop-filter: blur(20px) saturate(1.2);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .glass-card {
+    background: rgba(15, 22, 41, 0.50);
+    backdrop-filter: blur(16px) saturate(1.1);
+    -webkit-backdrop-filter: blur(16px) saturate(1.1);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .glow-mint {
+    box-shadow: 0 0 20px rgba(57, 229, 140, 0.15), 0 0 60px rgba(57, 229, 140, 0.05);
+  }
+
+  .glow-cyan {
+    box-shadow: 0 0 20px rgba(34, 209, 238, 0.15), 0 0 60px rgba(34, 209, 238, 0.05);
+  }
+
+  .glow-status {
+    box-shadow: 0 0 12px rgba(57, 229, 140, 0.3);
+  }
+
+  .text-gradient-mint-cyan {
+    background: linear-gradient(135deg, var(--mol-accent-mint), var(--mol-accent-cyan));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
 }
 
 /* React Flow overrides for dark theme */
 .react-flow__edge-path {
-  stroke: #3f3f46 !important;
+  stroke: rgba(57, 229, 140, 0.15) !important;
   stroke-width: 1.5 !important;
 }
 
@@ -41,10 +130,10 @@ body {
   transition: box-shadow 0.2s ease;
 }
 
-/* Scrollbar styling */
+/* Scrollbar styling — thin, dark, accent thumb */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -52,17 +141,23 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #3f3f46;
-  border-radius: 3px;
+  background: rgba(57, 229, 140, 0.15);
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
+  background: rgba(57, 229, 140, 0.3);
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(57, 229, 140, 0.15) transparent;
 }
 
 /* Selection */
 ::selection {
-  background: rgba(59, 130, 246, 0.3);
+  background: rgba(57, 229, 140, 0.2);
 }
 
 /* Panel slide animation */
@@ -145,4 +240,36 @@ body {
   .react-flow__node {
     animation: none !important;
   }
+}
+
+/* ============================================================
+   MOBILE UTILITIES
+   Touch-friendly sizing and safe area handling for phones.
+   ============================================================ */
+
+/* Minimum 44px tap targets on touch devices (WCAG 2.5.5) */
+@media (pointer: coarse) {
+  button,
+  [role="button"],
+  a,
+  select,
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Exceptions: inline icon buttons with explicit sizing */
+  .tap-target-override {
+    min-height: unset;
+    min-width: unset;
+  }
+}
+
+/* Responsive text scale — slightly larger base on very small screens
+   where 10px/11px labels become hard to read */
+@media (max-width: 640px) {
+  .text-\[10px\] { font-size: 11px; }
+  .text-\[11px\] { font-size: 12px; }
+  .text-\[9px\]  { font-size: 10px; }
 }

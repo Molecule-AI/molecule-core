@@ -123,6 +123,10 @@ export function SidePanel() {
     };
   }, []);
 
+  // On mobile (< 640px), force full-width panel
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
+  const effectiveWidth = isMobile ? window.innerWidth : width;
+
   if (!selectedNodeId || !node) return null;
 
   const isOnline = node.data.status === "online";
@@ -130,10 +134,10 @@ export function SidePanel() {
 
   return (
     <div
-      className="fixed top-0 right-0 h-full bg-zinc-950/95 backdrop-blur-xl border-l border-zinc-800/50 flex flex-col z-50 shadow-2xl shadow-black/50 animate-in slide-in-from-right duration-200"
-      style={{ width }}
+      className="fixed top-0 right-0 h-full bg-molecule-bg-900/95 backdrop-blur-2xl border-l border-white/[0.06] flex flex-col z-50 shadow-premium-lg animate-in slide-in-from-right duration-200 w-full sm:w-auto"
+      style={{ width: isMobile ? "100%" : width }}
     >
-      {/* Resize handle */}
+      {/* Resize handle — hidden on mobile where panel is full-width */}
       <div
         role="separator"
         aria-label="Resize workspace panel"
@@ -144,21 +148,21 @@ export function SidePanel() {
         tabIndex={0}
         onMouseDown={onMouseDown}
         onKeyDown={onResizeKeyDown}
-        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/30 active:bg-blue-500/50 transition-colors z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset"
+        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/30 active:bg-blue-500/50 transition-colors z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset hidden sm:block"
       />
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800/40 bg-zinc-900/30">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06] bg-molecule-surface-900/30">
         <div className="flex items-center gap-3 min-w-0">
           <div className="relative">
             <StatusDot status={node.data.status} size="md" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-[14px] font-semibold text-zinc-100 truncate leading-tight">
+            <h2 className="text-[15px] font-semibold text-slate-100 truncate leading-tight">
               {node.data.name}
             </h2>
             <div className="flex items-center gap-2 mt-0.5">
               {node.data.role && (
-                <span className="text-[10px] text-zinc-500 truncate">
+                <span className="text-[11px] text-slate-400 truncate">
                   {node.data.role}
                 </span>
               )}
@@ -173,7 +177,7 @@ export function SidePanel() {
         <button
           onClick={() => selectNode(null)}
           aria-label="Close workspace panel"
-          className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors"
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-100 hover:bg-molecule-surface-700/60 transition-all hover:scale-105"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
             <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -182,7 +186,7 @@ export function SidePanel() {
       </div>
 
       {/* Capability summary */}
-      <div className="px-5 py-3 border-b border-zinc-800/40 bg-zinc-900/20">
+      <div className="px-5 py-3 border-b border-white/[0.06] bg-molecule-surface-900/20">
         <div className="flex flex-wrap gap-2">
           <MetaPill label="Tier" value={`T${node.data.tier}`} />
           <MetaPill label="Runtime" value={capability.runtime || "unknown"} />
@@ -192,13 +196,13 @@ export function SidePanel() {
       </div>
 
       {/* Tabs — relative wrapper lets the fade gradient position against the scroll container */}
-      <div className="relative border-b border-zinc-800/40">
+      <div className="relative border-b border-white/[0.06]">
         {/* Right-edge fade: signals more tabs are hidden off-screen when the bar overflows */}
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-zinc-950 to-transparent z-10" aria-hidden="true" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-molecule-bg-900 to-transparent z-10" aria-hidden="true" />
       <div
         role="tablist"
         aria-label="Workspace panel tabs"
-        className="flex overflow-x-auto bg-zinc-900/20 px-1"
+        className="flex overflow-x-auto bg-molecule-surface-900/20 px-1"
         onKeyDown={(e) => {
           const idx = TABS.findIndex((t) => t.id === panelTab);
           let next: number | null = null;
@@ -221,10 +225,10 @@ export function SidePanel() {
             aria-controls={`panel-${tab.id}`}
             tabIndex={panelTab === tab.id ? 0 : -1}
             onClick={() => setPanelTab(tab.id)}
-            className={`shrink-0 px-3 py-2.5 text-[10px] font-medium tracking-wide transition-all rounded-t-lg mx-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 ${
+            className={`shrink-0 px-3 py-2.5 text-[12px] font-medium tracking-wide transition-all rounded-t-lg mx-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-molecule-accent-mint/60 ${
               panelTab === tab.id
-                ? "text-zinc-100 bg-zinc-800/40 border-b-2 border-blue-500"
-                : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/40"
+                ? "text-slate-100 bg-molecule-surface-800/50 border-b-2 border-molecule-accent-mint"
+                : "text-slate-500 hover:text-slate-200 hover:bg-molecule-surface-800/30"
             }`}
           >
             <span className="mr-1 opacity-50" aria-hidden="true">{tab.icon}</span>
@@ -285,8 +289,8 @@ export function SidePanel() {
       </div>
 
       {/* Footer — workspace ID */}
-      <div className="px-5 py-2 border-t border-zinc-800/40 bg-zinc-900/20">
-        <span className="text-[9px] font-mono text-zinc-500 select-all">
+      <div className="px-5 py-2.5 border-t border-white/[0.06] bg-molecule-surface-900/20">
+        <span className="text-[10px] font-mono text-slate-500 select-all">
           {selectedNodeId}
         </span>
       </div>
@@ -296,14 +300,14 @@ export function SidePanel() {
 
 function MetaPill({ label, value, tone = "zinc" }: { label: string; value: string; tone?: "zinc" | "emerald" | "amber" }) {
   const toneClasses = {
-    zinc: "border-zinc-700/50 bg-zinc-900/70 text-zinc-400",
-    emerald: "border-emerald-500/20 bg-emerald-950/20 text-emerald-300",
+    zinc: "border-white/[0.06] bg-molecule-surface-800/50 text-slate-400",
+    emerald: "border-molecule-accent-mint/20 bg-molecule-accent-mint/5 text-molecule-accent-mint",
     amber: "border-amber-500/20 bg-amber-950/20 text-amber-300",
   }[tone];
 
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[9px] ${toneClasses}`}>
-      <span className="uppercase tracking-[0.18em] text-[8px] opacity-70">{label}</span>
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] ${toneClasses}`}>
+      <span className="uppercase tracking-[0.18em] text-[9px] opacity-60">{label}</span>
       <span className="font-medium">{value}</span>
     </span>
   );

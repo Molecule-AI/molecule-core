@@ -6,7 +6,7 @@ const LEGEND_STATUSES = ["online", "provisioning", "degraded", "failed", "paused
 
 export function Legend() {
   return (
-    <div className="fixed bottom-6 left-4 z-30 bg-zinc-900/95 border border-zinc-700/50 rounded-xl px-4 py-3 shadow-xl shadow-black/30 backdrop-blur-sm max-w-[280px]">
+    <div className="fixed bottom-6 left-4 z-30 bg-zinc-900/95 border border-zinc-700/50 rounded-xl px-4 py-3 shadow-xl shadow-black/30 backdrop-blur-sm max-w-[280px] hidden sm:block">
       <div className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mb-2">Legend</div>
 
       {/* Status */}

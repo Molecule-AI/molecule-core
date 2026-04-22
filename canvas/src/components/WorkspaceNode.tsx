@@ -115,17 +115,18 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
         ${isDragTarget
           ? "bg-emerald-950/40 border-2 border-emerald-400/60 ring-2 ring-emerald-400/20 scale-[1.03]"
           : isBatchSelected
-          ? "bg-zinc-900/95 border-2 border-blue-500/80 ring-2 ring-blue-500/30 shadow-lg shadow-blue-500/15"
+          ? "bg-molecule-surface-900/95 border-2 border-molecule-accent-cyan/60 ring-2 ring-molecule-accent-cyan/20 shadow-glow-cyan"
           : isSelected
-          ? "bg-zinc-900/95 border border-blue-500/70 ring-1 ring-blue-500/30 shadow-lg shadow-blue-500/10"
-          : "bg-zinc-900/90 border border-zinc-700/80 hover:border-zinc-500/60 shadow-lg shadow-black/30 hover:shadow-xl hover:shadow-black/40"
+          ? "bg-molecule-surface-900/95 border border-molecule-accent-mint/40 ring-1 ring-molecule-accent-mint/20 shadow-glow-mint"
+          : "bg-molecule-surface-900/60 border border-white/[0.06] hover:border-white/[0.12] shadow-premium hover:shadow-premium-lg hover:-translate-y-0.5"
         }
-        backdrop-blur-sm
-        focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950
+        backdrop-blur-xl
+        focus:outline-none focus-visible:ring-2 focus-visible:ring-molecule-accent-mint/60 focus-visible:ring-offset-1 focus-visible:ring-offset-molecule-bg-950
       `}
     >
       {/* Status gradient bar at top */}
-      <div className={`absolute inset-x-0 top-0 h-8 bg-gradient-to-b ${statusCfg.bar} pointer-events-none`} />
+      <div className={`absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r ${statusCfg.bar} pointer-events-none`} style={{ opacity: 0.8 }} />
+      <div className={`absolute inset-x-0 top-0 h-10 bg-gradient-to-b ${statusCfg.bar} pointer-events-none`} />
 
       <Handle
         type="target"
@@ -133,12 +134,12 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
         className="!w-2.5 !h-1 !rounded-full !bg-zinc-600/80 !border-0 !-top-0.5 hover:!bg-blue-400 hover:!h-1.5 transition-all"
       />
 
-      <div className="relative px-3.5 py-2.5">
+      <div className="relative px-4 py-3">
         {/* Header row */}
-        <div className="flex items-center justify-between gap-2 mb-1">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className={`w-2 h-2 rounded-full shrink-0 ${statusCfg.dot} ${statusCfg.glow} shadow-sm`} />
-            <span className="text-[13px] font-semibold text-zinc-100 truncate leading-tight">
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusCfg.dot}`} style={{ boxShadow: isOnline ? "0 0 10px rgba(57, 229, 140, 0.5), 0 0 20px rgba(57, 229, 140, 0.2)" : undefined }} />
+            <span className="text-[14px] font-semibold text-slate-100 truncate leading-snug">
               {data.name}
             </span>
           </div>
@@ -188,7 +189,7 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
 
         {/* Role */}
         {data.role && (
-          <div className="text-[10px] text-zinc-400 mb-1.5 leading-tight">{data.role}</div>
+          <div className="text-[12px] text-slate-400 mb-2 leading-snug">{data.role}</div>
         )}
 
         {/* Skills */}

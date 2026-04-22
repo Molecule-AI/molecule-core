@@ -132,7 +132,7 @@ export function OnboardingWizard() {
     <div
       role="complementary"
       aria-label="Onboarding guide"
-      className="fixed bottom-20 left-4 z-50 w-80 rounded-2xl border border-zinc-700/60 bg-zinc-900/95 backdrop-blur-xl shadow-2xl shadow-black/40 overflow-hidden"
+      className="fixed bottom-20 left-4 right-4 sm:right-auto z-50 w-auto sm:w-80 rounded-2xl border border-zinc-700/60 bg-zinc-900/95 backdrop-blur-xl shadow-2xl shadow-black/40 overflow-hidden"
     >
       {/* Progress bar */}
       <div className="h-1 bg-zinc-800">

@@ -344,7 +344,7 @@ export function TemplatePalette() {
 
       {/* Sidebar */}
       {open && (
-        <div className="fixed top-0 left-0 h-full w-[280px] bg-zinc-900/95 backdrop-blur-md border-r border-zinc-800/60 z-30 flex flex-col shadow-2xl shadow-black/40">
+        <div className="fixed top-0 left-0 h-full w-full sm:w-[280px] bg-zinc-900/95 backdrop-blur-md border-r border-zinc-800/60 z-30 flex flex-col shadow-2xl shadow-black/40">
           <div className="px-4 pt-14 pb-3 border-b border-zinc-800/60">
             <h2 className="text-sm font-semibold text-zinc-100">Templates</h2>
             <p className="text-[10px] text-zinc-500 mt-0.5">Click to deploy a workspace</p>

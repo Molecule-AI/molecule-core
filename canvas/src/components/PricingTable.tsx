@@ -64,7 +64,7 @@ export function PricingTable() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl px-6">
+    <div className="mx-auto max-w-6xl px-4 sm:px-6">
       {error && (
         <div
           role="alert"
@@ -128,7 +128,7 @@ function PlanCard({
         type="button"
         onClick={onSelect}
         disabled={loading}
-        className={`mt-6 rounded-lg px-4 py-3 text-sm font-medium ${
+        className={`mt-6 w-full rounded-lg px-4 py-3 text-sm font-medium ${
           plan.highlighted
             ? "bg-blue-600 text-white hover:bg-blue-500 disabled:bg-blue-900"
             : "border border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800 disabled:opacity-50"

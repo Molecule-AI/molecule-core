@@ -20,11 +20,11 @@ export const metadata = {
 export default function PricingPage() {
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="mx-auto max-w-5xl px-6 pt-20 pb-8 text-center">
-        <h1 className="text-5xl font-bold tracking-tight text-white md:text-6xl">
+      <div className="mx-auto max-w-5xl px-4 sm:px-6 pt-12 sm:pt-20 pb-8 text-center">
+        <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-white md:text-6xl">
           Pricing
         </h1>
-        <p className="mx-auto mt-4 max-w-2xl text-lg text-zinc-300">
+        <p className="mx-auto mt-4 max-w-2xl text-base sm:text-lg text-zinc-300">
           Free while you tinker. Pay when you ship real agents to production.
           Every tier includes the full runtime stack — you upgrade for scale,
           support, and dedicated infrastructure.
@@ -33,7 +33,7 @@ export default function PricingPage() {
 
       <PricingTable />
 
-      <section className="mx-auto mt-20 max-w-3xl px-6 text-center">
+      <section className="mx-auto mt-12 sm:mt-20 max-w-3xl px-4 sm:px-6 text-center">
         <h2 className="text-2xl font-semibold text-white">Questions?</h2>
         <p className="mt-2 text-zinc-400">
           We publish the{" "}
@@ -57,7 +57,7 @@ export default function PricingPage() {
         </p>
       </section>
 
-      <footer className="mx-auto mt-20 max-w-5xl border-t border-zinc-800 px-6 py-6 text-center text-sm text-zinc-500">
+      <footer className="mx-auto mt-12 sm:mt-20 max-w-5xl border-t border-zinc-800 px-4 sm:px-6 py-6 text-center text-sm text-zinc-500">
         <p>
           © {new Date().getFullYear()} Molecule AI, Inc. ·{" "}
           <a href="/legal/terms" className="hover:text-zinc-300">

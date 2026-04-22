@@ -100,7 +100,7 @@ export function ConversationTraceModal({ open, workspaceId: _workspaceId, onClos
           aria-describedby={undefined}
         >
           {/* Modal panel */}
-          <div className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl max-w-[700px] w-full max-h-[85vh] flex flex-col overflow-hidden">
+          <div className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl max-w-[700px] w-[calc(100%-2rem)] max-h-[85vh] flex flex-col overflow-hidden">
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800">
               <div>

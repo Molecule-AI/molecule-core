@@ -116,15 +116,15 @@ export function Toolbar() {
   }, []);
 
   return (
-    <div className="fixed top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 bg-zinc-900/80 backdrop-blur-md border border-zinc-800/60 rounded-xl px-4 py-2 shadow-xl shadow-black/20">
+    <div className="fixed top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 sm:gap-4 glass-panel rounded-2xl px-3 sm:px-5 py-2.5 shadow-premium max-w-[calc(100vw-1rem)] overflow-x-auto border-b border-b-transparent" style={{ borderImage: "linear-gradient(90deg, transparent, rgba(57,229,140,0.2), rgba(34,209,238,0.2), transparent) 1" }}>
       {/* Logo / Title */}
-      <div className="flex items-center gap-2 pr-3 border-r border-zinc-800/60">
+      <div className="flex items-center gap-2.5 pr-3 sm:pr-4 border-r border-white/[0.06] shrink-0">
         <img src="/molecule-icon.png" alt="Molecule AI" className="w-5 h-5" />
-        <span className="text-[11px] font-semibold text-zinc-300 tracking-wide">Molecule AI</span>
+        <span className="text-[12px] font-semibold text-gradient-mint-cyan tracking-wide hidden sm:inline">Molecule AI</span>
       </div>
 
       {/* Status counts */}
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-3">
         <StatusPill color={statusDotClass("online")} count={counts.online} label="online" />
         {counts.offline > 0 && (
           <StatusPill color={statusDotClass("offline")} count={counts.offline} label="offline" />
@@ -138,15 +138,15 @@ export function Toolbar() {
       </div>
 
       {/* Total */}
-      <div className="pl-3 border-l border-zinc-800/60">
-        <span className="text-[10px] text-zinc-500">
+      <div className="pl-3 sm:pl-4 border-l border-white/[0.06] hidden sm:block">
+        <span className="text-[11px] text-slate-400">
           {counts.roots} workspace{counts.roots !== 1 ? "s" : ""}
-          {counts.children > 0 && <span className="text-zinc-600"> + {counts.children} sub</span>}
+          {counts.children > 0 && <span className="text-slate-500"> + {counts.children} sub</span>}
         </span>
       </div>
 
       {/* WebSocket connection status */}
-      <div className="pl-3 border-l border-zinc-800/60">
+      <div className="pl-3 sm:pl-4 border-l border-white/[0.06] shrink-0">
         <WsStatusPill status={wsStatus} />
       </div>
 
@@ -192,10 +192,10 @@ export function Toolbar() {
         aria-pressed={showA2AEdges}
         aria-label={showA2AEdges ? "Hide A2A edges" : "Show A2A edges"}
         title={showA2AEdges ? "Hide A2A delegation edges" : "Show A2A delegation edges (last 60 min)"}
-        className={`flex items-center gap-1.5 px-2.5 py-1 border rounded-lg transition-colors ${
+        className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg transition-all hover:scale-[1.02] ${
           showA2AEdges
-            ? "bg-blue-950/50 hover:bg-blue-900/50 border-blue-800/40 text-blue-300"
-            : "bg-zinc-800/50 hover:bg-zinc-700/50 border-zinc-700/40 text-zinc-500 hover:text-zinc-300"
+            ? "bg-molecule-accent-mint/10 hover:bg-molecule-accent-mint/15 border-molecule-accent-mint/30 text-molecule-accent-mint glow-mint"
+            : "bg-molecule-surface-800/60 hover:bg-molecule-surface-700/60 border-white/[0.06] text-slate-400 hover:text-slate-200"
         }`}
       >
         {/* Mesh / network icon */}
@@ -217,7 +217,7 @@ export function Toolbar() {
             strokeLinecap="round"
           />
         </svg>
-        <span className="text-[10px] font-medium">A2A</span>
+        <span className="text-[11px] font-medium hidden sm:inline">A2A</span>
       </button>
 
       {/* Audit trail shortcut — switches selected workspace's panel to the Audit tab */}
@@ -231,7 +231,7 @@ export function Toolbar() {
         }}
         aria-label="Open audit trail for selected workspace"
         title="View audit ledger for the selected workspace"
-        className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-700/40 rounded-lg transition-colors text-zinc-500 hover:text-zinc-300"
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-molecule-surface-800/60 hover:bg-molecule-surface-700/60 border border-white/[0.06] rounded-lg transition-all hover:scale-[1.02] text-slate-400 hover:text-slate-200"
       >
         {/* Scroll / ledger icon */}
         <svg
@@ -245,44 +245,44 @@ export function Toolbar() {
           <rect x="3" y="2" width="10" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
           <path d="M6 5.5h4M6 8h4M6 10.5h2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
         </svg>
-        <span className="text-[10px] font-medium">Audit</span>
+        <span className="text-[11px] font-medium hidden sm:inline">Audit</span>
       </button>
 
       {/* Search shortcut */}
       <button
         onClick={() => useCanvasStore.getState().setSearchOpen(true)}
-        className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-700/40 rounded-lg transition-colors"
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-molecule-surface-800/60 hover:bg-molecule-surface-700/60 border border-white/[0.06] rounded-lg transition-all hover:scale-[1.02] shrink-0"
       >
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="text-zinc-500">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="text-slate-400">
           <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5" />
           <path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
-        <span className="text-[10px] text-zinc-500">Search</span>
-        <kbd className="text-[8px] text-zinc-600 bg-zinc-900/60 px-1 py-0.5 rounded border border-zinc-700/30">⌘K</kbd>
+        <span className="text-[11px] text-slate-400 hidden sm:inline">Search</span>
+        <kbd className="text-[9px] text-slate-500 bg-molecule-bg-900/60 px-1.5 py-0.5 rounded border border-white/[0.06] hidden sm:inline">&#8984;K</kbd>
       </button>
 
       {/* Quick help */}
       <div ref={helpRef} className="relative">
         <button
           onClick={() => setHelpOpen((open) => !open)}
-          className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-700/40 rounded-lg transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-molecule-surface-800/60 hover:bg-molecule-surface-700/60 border border-white/[0.06] rounded-lg transition-all hover:scale-[1.02]"
           aria-expanded={helpOpen}
           aria-label="Open quick help"
         >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="text-zinc-500">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="text-slate-400">
             <path d="M8 12v.5M6.5 6.3A1.9 1.9 0 1 1 9 8.1c-.7.4-1 .8-1 1.7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.2" />
           </svg>
-          <span className="text-[10px] text-zinc-500">Help</span>
+          <span className="text-[11px] text-slate-400 hidden sm:inline">Help</span>
         </button>
 
         {helpOpen && (
-          <div className="absolute right-0 top-full mt-2 w-72 rounded-xl border border-zinc-700/60 bg-zinc-950/95 p-3 shadow-2xl shadow-black/50 backdrop-blur-md">
+          <div className="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-xl glass-panel p-4 shadow-premium-lg">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-400">Quick start</span>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-gradient-mint-cyan">Quick start</span>
               <button
                 onClick={() => setHelpOpen(false)}
-                className="text-[10px] text-zinc-600 hover:text-zinc-300 transition-colors"
+                className="text-[11px] text-slate-500 hover:text-slate-200 transition-colors"
               >
                 Close
               </button>
@@ -318,8 +318,8 @@ export function Toolbar() {
 function StatusPill({ color, count, label }: { color: string; count: number; label: string }) {
   return (
     <div className="flex items-center gap-1.5" title={`${count} ${label}`} aria-label={`${count} ${label}`}>
-      <div className={`w-1.5 h-1.5 rounded-full ${color}`} aria-hidden="true" />
-      <span className="text-[10px] text-zinc-400 tabular-nums" aria-hidden="true">{count}</span>
+      <div className={`w-2 h-2 rounded-full ${color}`} style={{ boxShadow: label === "online" ? "0 0 8px rgba(57, 229, 140, 0.4)" : undefined }} aria-hidden="true" />
+      <span className="text-[11px] text-slate-300 tabular-nums font-medium" aria-hidden="true">{count}</span>
     </div>
   );
 }
@@ -328,34 +328,34 @@ function WsStatusPill({ status }: { status: "connected" | "connecting" | "discon
   if (status === "connected") {
     return (
       <div className="flex items-center gap-1.5" title="Real-time updates: connected" aria-label="Real-time updates: connected">
-        <div className={`w-1.5 h-1.5 rounded-full ${statusDotClass("online")}`} aria-hidden="true" />
-        <span className="text-[10px] text-zinc-500" aria-hidden="true">Live</span>
+        <div className={`w-2 h-2 rounded-full ${statusDotClass("online")}`} style={{ boxShadow: "0 0 8px rgba(57, 229, 140, 0.4)" }} aria-hidden="true" />
+        <span className="text-[11px] text-molecule-accent-mint/80 font-medium" aria-hidden="true">Live</span>
       </div>
     );
   }
   if (status === "connecting") {
     return (
       <div className="flex items-center gap-1.5" title="Real-time updates: reconnecting…" aria-label="Real-time updates: reconnecting">
-        <div className="w-1.5 h-1.5 rounded-full bg-amber-400 motion-safe:animate-pulse" aria-hidden="true" />
-        <span className="text-[10px] text-zinc-500" aria-hidden="true">Reconnecting</span>
+        <div className="w-2 h-2 rounded-full bg-amber-400 motion-safe:animate-pulse" aria-hidden="true" />
+        <span className="text-[11px] text-slate-400" aria-hidden="true">Reconnecting</span>
       </div>
     );
   }
   return (
     <div className="flex items-center gap-1.5" title="Real-time updates: disconnected" aria-label="Real-time updates: disconnected">
-      <div className={`w-1.5 h-1.5 rounded-full ${statusDotClass("failed")}`} aria-hidden="true" />
-      <span className="text-[10px] text-zinc-500" aria-hidden="true">Offline</span>
+      <div className={`w-2 h-2 rounded-full ${statusDotClass("failed")}`} aria-hidden="true" />
+      <span className="text-[11px] text-slate-400" aria-hidden="true">Offline</span>
     </div>
   );
 }
 
 function HelpRow({ shortcut, text }: { shortcut: string; text: string }) {
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-zinc-800/70 bg-zinc-900/45 px-3 py-2">
-      <span className="shrink-0 rounded-md border border-zinc-700/60 bg-zinc-950/70 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.18em] text-zinc-400">
+    <div className="flex items-start gap-3 rounded-lg border border-white/[0.05] bg-molecule-surface-900/60 px-3 py-2.5">
+      <span className="shrink-0 rounded-md border border-molecule-accent-mint/20 bg-molecule-accent-mint/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-molecule-accent-mint/70">
         {shortcut}
       </span>
-      <p className="text-[11px] leading-relaxed text-zinc-500">{text}</p>
+      <p className="text-[12px] leading-relaxed text-slate-400">{text}</p>
     </div>
   );
 }

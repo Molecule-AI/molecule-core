@@ -111,7 +111,7 @@ export function ConfirmDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
-        className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl shadow-black/50 max-w-[380px] w-full mx-4 overflow-hidden"
+        className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl shadow-black/50 max-w-[380px] w-[calc(100%-2rem)] mx-4 overflow-hidden"
       >
         <div className="px-5 py-4">
           <h3 id="confirm-dialog-title" className="text-sm font-semibold text-zinc-100 mb-2">{title}</h3>

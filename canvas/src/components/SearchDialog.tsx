@@ -85,14 +85,14 @@ export function SearchDialog() {
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-start justify-center pt-[20vh] bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-[70] flex items-start justify-center pt-[10vh] sm:pt-[20vh] px-4 sm:px-0 bg-black/50 backdrop-blur-sm"
       onClick={() => setOpen(false)}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Search workspaces"
-        className="w-[420px] bg-zinc-950/95 backdrop-blur-xl border border-zinc-800/60 rounded-2xl shadow-2xl shadow-black/50 overflow-hidden"
+        className="w-full max-w-[420px] bg-zinc-950/95 backdrop-blur-xl border border-zinc-800/60 rounded-2xl shadow-2xl shadow-black/50 overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Search input */}
