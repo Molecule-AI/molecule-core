@@ -75,16 +75,23 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 	// also reach Workspace B's terminal if it knows B's UUID (enumeration
 	// via canvas, logs, or delegation). Shell access is more dangerous than
 	// A2A message-passing, so we apply the same hierarchy check here.
-	callerID := c.GetHeader("X-Workspace-ID")
-	if callerID != "" {
+	// GH#756/#1609 security fix: if the caller claims a specific workspace
+	// identity (X-Workspace-ID header), the bearer token — if present — must
+	// belong to that claimed workspace. ValidateAnyToken accepted ANY valid org
+	// token, allowing Workspace A to forge X-Workspace-ID: B and reach B's
+	// terminal if A held any valid token. ValidateToken binds the token to
+	// the claimed workspace identity.
+	if callerID != "" && callerID != workspaceID {
 		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
 		if tok != "" {
-			if err := wsauth.ValidateAnyToken(ctx, db.DB, tok); err == nil {
-				if !canCommunicateCheck(callerID, workspaceID) {
-					c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to access this workspace's terminal"})
-					return
-				}
+			if err := wsauth.ValidateToken(ctx, db.DB, callerID, tok); err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token for claimed workspace"})
+				return
 			}
+		}
+		if !canCommunicateCheck(callerID, workspaceID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to access this workspace's terminal"})
+			return
 		}
 	}
 
