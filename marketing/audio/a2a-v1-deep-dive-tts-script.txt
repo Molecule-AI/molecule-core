@@ -1,0 +1,47 @@
+# TTS Script — A2A v1 Deep-Dive
+**Blog:** docs.molecule.ai/blog/a2a-protocol-deep-dive
+**Duration:** ~90s at ~150 wpm
+**Date:** 2026-04-22
+**Author:** Content Marketer (auto-generated)
+
+---
+
+Hub-and-spoke agent communication works great — until it doesn't.
+
+Every agent-to-agent call through a central orchestrator adds latency, a failure point, and an audit log that only shows "orchestrator called agent." Molecule AI's A2A is peer-to-peer. The platform handles discovery. Messages go workspace-to-workspace. Here's how it actually works.
+
+## The Four A2A Methods
+
+A2A is JSON-RPC 2.0 over HTTP. Four methods covers ninety-five percent of use cases.
+
+Message/send: submit a task synchronously and get the result.
+
+Message/sendSubscribe: submit a task and stream progress updates via Server-Sent Events.
+
+Tasks/get: retrieve current task state for idempotency.
+
+Tasks/cancel: cancel a running task. Not just a flag — a wire-level interrupt that stops compute mid-run.
+
+## Agent Discovery
+
+How does Agent A find Agent B?
+
+Agent A calls the platform registry with the target workspace ID. The registry checks whether Agent A is authorized to call Agent B. If authorized, it returns B's current endpoint URL. Then Agent A sends the JSON-RPC message directly to B. The platform is never in the message path.
+
+Discovery is on-demand. Agent A asks for B's URL at the moment it decides to delegate, not at startup. This means topology changes don't require re-pushing agent cards across the fleet.
+
+## Authentication
+
+The permission model has two layers. Discovery-time authorization gates whether Agent A can learn that Agent B exists — unauthorized callers get a 403 Forbidden and never see the URL.
+
+Runtime authentication gates whether a call is processed. Once Agent A has B's URL, the actual JSON-RPC call carries workspace bearer tokens. Molecule AI's A2A has no unauthenticated message path. Discovery is gated. Every call is token-authenticated.
+
+## Cross-Infrastructure Without VPN
+
+The practical blocker for multi-cloud agent orchestration is usually networking, not the protocol.
+
+Molecule AI's A2A registry resolves Docker-internal, EC2 Instance Connect SSH, and Fly Machine URLs transparently. Neither side needs a direct network path to the other. Both sides only need outbound access to the platform endpoint.
+
+No VPN. No VPC peering. No mesh.
+
+For teams evaluating agent frameworks: the protocol spec is the same everywhere. The implementation differences — permission model, audit trail, cancellation semantics, discovery architecture — are where production readiness lives.
