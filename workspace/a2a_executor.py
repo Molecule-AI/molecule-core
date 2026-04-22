@@ -304,6 +304,10 @@ class LangGraphA2AExecutor(AgentExecutor):
                         else None
                     )
 
+                    # ── Tool trace: collect every tool invocation for
+                    # platform-level observability ────────────────────
+                    tool_trace: list[dict] = []
+
                     async for event in self.agent.astream_events(
                         {"messages": messages},
                         config=run_config,
@@ -334,7 +338,12 @@ class LangGraphA2AExecutor(AgentExecutor):
 
                         elif kind == "on_tool_start":
                             tool_name = event.get("name", "?")
+                            tool_input = event.get("data", {}).get("input", "")
                             logger.debug("SSE: tool start — %s", tool_name)
+                            tool_trace.append({
+                                "tool": tool_name,
+                                "input": str(tool_input)[:500] if tool_input else "",
+                            })
                             if _agency is not None:
                                 _agency.on_tool_call(
                                     tool_name=tool_name,
@@ -342,7 +351,11 @@ class LangGraphA2AExecutor(AgentExecutor):
                                 )
 
                         elif kind == "on_tool_end":
-                            logger.debug("SSE: tool end — %s", event.get("name", "?"))
+                            tool_end_name = event.get("name", "?")
+                            tool_output = event.get("data", {}).get("output", "")
+                            logger.debug("SSE: tool end — %s", tool_end_name)
+                            if tool_trace and tool_trace[-1]["tool"] == tool_end_name:
+                                tool_trace[-1]["output_preview"] = str(tool_output)[:300] if tool_output else ""
 
                         elif kind == "on_chat_model_end":
                             # Capture the last completed AIMessage for token telemetry
@@ -383,9 +396,10 @@ class LangGraphA2AExecutor(AgentExecutor):
                 # Non-streaming: ResultAggregator.consume_all() returns this
                 #   immediately as the response (a2a_client.py reads .parts[0].text).
                 # Streaming: yielded as the last SSE event in the stream.
-                await event_queue.enqueue_event(
-                    new_agent_text_message(final_text, task_id=task_id, context_id=context_id)
-                )
+                msg = new_agent_text_message(final_text, task_id=task_id, context_id=context_id)
+                if tool_trace:
+                    msg.metadata = {"tool_trace": tool_trace}
+                await event_queue.enqueue_event(msg)
                 _result = final_text
 
             except Exception as e:
