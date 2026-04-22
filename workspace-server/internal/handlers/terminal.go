@@ -16,10 +16,10 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
+	"github.com/creack/pty"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
-	"github.com/creack/pty"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
@@ -54,38 +54,14 @@ func NewTerminalHandler(cli *client.Client) *TerminalHandler {
 	return &TerminalHandler{docker: cli}
 }
 
-// HandleConnect handles WS /workspaces/:id/terminal. Routes to the remote
-// path (aws ec2-instance-connect ssh + docker exec) when the workspace row
-// has an instance_id; falls back to local Docker otherwise.
-func (h *TerminalHandler) HandleConnect(c *gin.Context) {
-	workspaceID := c.Param("id")
-	ctx := c.Request.Context()
-
-	// Check for CP-provisioned workspace (instance_id persisted by
-	// provisionWorkspaceCP → migration 038). Null instance_id means the
-	// workspace runs as a local Docker container on this tenant.
-	var instanceID string
-	db.DB.QueryRowContext(ctx,
-		`SELECT COALESCE(instance_id, '') FROM workspaces WHERE id = $1`,
-		workspaceID).Scan(&instanceID)
-
-	if instanceID != "" {
-		h.handleRemoteConnect(c, workspaceID, instanceID)
-		return
-	}
-
-	h.handleLocalConnect(c, workspaceID)
-}
-
-// handleLocalConnect attaches to a Docker container running on this
-// tenant's Docker daemon. Original behavior preserved exactly.
-func (h *TerminalHandler) handleLocalConnect(c *gin.Context, workspaceID string) {
 // canCommunicateCheck is the communication-authorization predicate used by
 // HandleConnect to enforce the KI-005 workspace-hierarchy guard.
 // Exposed as a package var so tests can stub it without DB fixtures.
 var canCommunicateCheck = registry.CanCommunicate
 
-// HandleConnect handles WS /workspaces/:id/terminal
+// HandleConnect handles WS /workspaces/:id/terminal. Routes to the remote
+// path (aws ec2-instance-connect ssh + docker exec) when the workspace row
+// has an instance_id; falls back to local Docker otherwise.
 func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 	targetID := c.Param("id")
 	ctx := c.Request.Context()
@@ -110,13 +86,33 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 		}
 	}
 
+	workspaceID := targetID
+
+	// Check for CP-provisioned workspace (instance_id persisted by
+	// provisionWorkspaceCP → migration 038). Null instance_id means the
+	// workspace runs as a local Docker container on this tenant.
+	var instanceID string
+	db.DB.QueryRowContext(ctx,
+		`SELECT COALESCE(instance_id, '') FROM workspaces WHERE id = $1`,
+		workspaceID).Scan(&instanceID)
+
+	if instanceID != "" {
+		h.handleRemoteConnect(c, workspaceID, instanceID)
+		return
+	}
+
+	h.handleLocalConnect(c, workspaceID)
+}
+
+// handleLocalConnect attaches to a Docker container running on this
+// tenant's Docker daemon. Original behavior preserved exactly.
+func (h *TerminalHandler) handleLocalConnect(c *gin.Context, workspaceID string) {
 	if h.docker == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Docker not available"})
 		return
 	}
 
 	ctx := c.Request.Context()
-	workspaceID := targetID
 
 	// Try multiple container name patterns:
 	// 1. Provisioner naming: ws-{id[:12]}
