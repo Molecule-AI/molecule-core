@@ -171,7 +171,7 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 
 	resp, err := h.docker.ContainerCreate(ctx, &container.Config{
 		Image: "alpine:latest",
-		Cmd:   []string{"rm", "-rf", "/configs", filePath},
+		Cmd:   []string{"rm", "-rf", "/configs/" + filePath},
 	}, &container.HostConfig{
 		Binds: []string{volumeName + ":/configs"},
 	}, nil, nil, "")
