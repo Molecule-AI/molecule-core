@@ -12,6 +12,22 @@ twitter_card: summary_large_image
 
 ---
 
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Skills vs. Bundled Tools: AI Agent Extensibility",
+  "description": "Some AI agent platforms ship with built-in tools. Others let you install exactly what you need from a marketplace. Here's how to evaluate the difference — and when it matters.",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-22",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  }
+}
+</script>
+
 # Skills vs. Bundled Tools: AI Agent Extensibility
 
 When you're evaluating AI agent platforms, you'll eventually hit a question that looks like a feature comparison but is actually an architectural decision: should your agent's capabilities come from a built-in toolkit, or from an installable marketplace of skills?

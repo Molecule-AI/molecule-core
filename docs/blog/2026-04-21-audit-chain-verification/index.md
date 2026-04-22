@@ -3,8 +3,26 @@ title: "How Molecule AI's Audit Ledger Works: HMAC Chains and the Fix That Made 
 date: 2026-04-21
 slug: audit-chain-verification
 description: "Every agent decision logged, chained with HMAC-SHA256, and verified tamper-evident. Here's the architecture behind Molecule AI's audit trail — and the panic bug fix that shipped in PR #1339."
+og_image: /docs/assets/blog/2026-04-21-audit-chain-verification-og.png
 tags: [security, audit, HMAC, enterprise, compliance]
+keywords: [Audit Chain Verification, Molecule AI, AI agents]
 ---
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "How Molecule AI's Audit Ledger Works: HMAC Chains and the Fix That Made It Production-Ready",
+  "description": "Every agent decision logged, chained with HMAC-SHA256, and verified tamper-evident. Here's the architecture behind Molecule AI's audit trail — and the panic bug fix that shipped in PR #1339.",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-21",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  }
+}
+</script>
 
 # How Molecule AI's Audit Ledger Works: HMAC Chains and the Fix That Made It Production-Ready
 

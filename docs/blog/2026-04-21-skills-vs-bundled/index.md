@@ -3,12 +3,30 @@ title: "Skills vs. Bundled Tools: Why the Choice Matters for Production AI Agent
 date: 2026-04-21
 slug: skills-vs-bundled-tools
 description: "When an AI agent ships with built-in tools, it works out of the box. When an agent uses a skills architecture, it works the way you need it to. Here's how to think about the difference — and why it matters at scale."
+og_image: /docs/assets/blog/2026-04-21-skills-vs-bundled-og.png
 tags: [skills, integrations, architecture, mcp, agentic-ai, hermes]
+keywords: [Skills vs Bundled Tools, Molecule AI, AI agents]
 author: Molecule AI
 og_title: "Skills vs. Bundled Tools: Why Composable AI Wins at Scale"
 og_description: "Bundled tools work great until you need different ones. Molecule AI's skills architecture means you install exactly what your agents need — web search, TTS, image gen, MCP servers — and compose them freely across your fleet."
 twitter_card: summary_large_image
 ---
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Skills vs. Bundled Tools: Why the Choice Matters for Production AI Agents",
+  "description": "When an AI agent ships with built-in tools, it works out of the box. When an agent uses a skills architecture, it works the way you need it to. Here's how to think about the difference — and why it ma",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-21",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  }
+}
+</script>
 
 # Skills vs. Bundled Tools: Why the Choice Matters for Production AI Agents
 

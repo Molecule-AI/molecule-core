@@ -3,8 +3,26 @@ title: "Give Your AI Agent a Git Repository: Molecule AI + Cloudflare Artifacts"
 date: 2026-04-21
 slug: cloudflare-artifacts-molecule-ai
 description: "Attach a Cloudflare Artifacts git repository to any Molecule AI workspace. Import existing repos, fork for experiments, mint short-lived git credentials — all via the platform API. Git-native storage for AI agents."
+og_image: /docs/assets/blog/2026-04-21-cloudflare-artifacts-og.png
 tags: [Cloudflare, git, artifacts, AI-agents, workflow, tutorial]
+keywords: [Give Your AI Agent a Git Repository, Molecule AI, AI agents]
 ---
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Give Your AI Agent a Git Repository: Molecule AI + Cloudflare Artifacts",
+  "description": "Attach a Cloudflare Artifacts git repository to any Molecule AI workspace. Import existing repos, fork for experiments, mint short-lived git credentials — all via the platform API. Git-native storage ",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-21",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  }
+}
+</script>
 
 # Give Your AI Agent a Git Repository: Molecule AI + Cloudflare Artifacts
 

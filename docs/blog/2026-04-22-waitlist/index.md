@@ -3,12 +3,30 @@ title: "Join the Molecule AI Waitlist"
 date: 2026-04-22
 slug: waitlist
 description: "We're building Molecule AI Cloud — a hosted platform for production AI agent fleets. Sign up for early access."
+og_image: /docs/assets/blog/2026-04-22-waitlist-og.png
 tags: [product, cloud, launch, beta]
+keywords: [Waitlist, Molecule AI, AI agents]
 author: Molecule AI
 og_title: "Molecule AI Cloud — Early Access"
 og_description: "Sign up for early access to Molecule AI Cloud — hosted AI agent fleet management with org-level governance, audit trails, and zero infrastructure overhead."
 twitter_card: summary_large_image
 ---
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Join the Molecule AI Waitlist",
+  "description": "We're building Molecule AI Cloud — a hosted platform for production AI agent fleets. Sign up for early access.",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-22",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  }
+}
+</script>
 
 # Join the Molecule AI Waitlist
 

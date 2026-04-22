@@ -3,12 +3,30 @@ title: "Org-Scoped API Keys: Named Credentials for Multi-Agent Infrastructure"
 date: 2026-04-25
 slug: org-scoped-api-keys
 description: "When you run two agents, one ADMIN_TOKEN works fine. When you run twenty, it's a single point of failure you can't rotate, audit, or compartmentalize. Here's how org-scoped API keys change the credential model for production AI agent fleets."
+og_image: /docs/assets/blog/2026-04-25-org-scoped-api-keys-og.png
 tags: [security, api-keys, governance, enterprise, agentic-ai]
+keywords: [Org-scoped API Keys, Molecule AI, AI agents]
 author: Molecule AI
 og_title: "One ADMIN_TOKEN across your whole agent fleet is a compliance risk"
 og_description: "Org-scoped API keys: named, revocable, audit-attributable credentials for every integration. Instant revocation. Zero downtime."
 twitter_card: summary_large_image
 ---
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Org-Scoped API Keys: Named Credentials for Multi-Agent Infrastructure",
+  "description": "When you run two agents, one ADMIN_TOKEN works fine. When you run twenty, it's a single point of failure you can't rotate, audit, or compartmentalize. Here's how org-scoped API keys change the credent",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-25",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  }
+}
+</script>
 
 # Org-Scoped API Keys: Named Credentials for Multi-Agent Infrastructure
 

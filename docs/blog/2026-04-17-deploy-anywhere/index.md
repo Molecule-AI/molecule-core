@@ -13,6 +13,22 @@ twitter_card: summary_large_image
 author: Molecule AI
 ---
 
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Deploy AI Agents on Fly.io — or Any Cloud — with One Config Change",
+  "description": "Molecule AI supports fly.io agent deployment and control-plane provisioning. Switch backends with one env var — no agent code changes required.",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-17",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  }
+}
+</script>
+
 # Deploy AI Agents on Fly.io — or Any Cloud — with One Config Change
 
 Your infrastructure choice just got decoupled from your agent platform choice. Molecule AI now ships three production-ready workspace backends — `docker`, `flyio`, and `controlplane` — and switching between them takes a single environment variable. Your agent code, model choices, and workspace topology stay exactly the same.

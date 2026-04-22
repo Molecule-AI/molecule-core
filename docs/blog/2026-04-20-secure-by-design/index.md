@@ -3,8 +3,26 @@ title: "Secure by Design — Molecule AI's Beta Auth Hardening Push"
 date: 2026-04-20
 slug: beta-auth-hardening
 description: "Today's launch hardens Molecule AI's multi-tenant architecture across four dimensions: org-scoped API keys, browser session auth, tenant provisioning security, and a waitlist gate. Here's what changed and why."
+og_image: /docs/assets/blog/2026-04-20-secure-by-design-og.png
 tags: [security, platform, multi-tenant, auth, launch]
+keywords: [Secure by Design, Molecule AI, AI agents]
 ---
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Secure by Design — Molecule AI's Beta Auth Hardening Push",
+  "description": "Today's launch hardens Molecule AI's multi-tenant architecture across four dimensions: org-scoped API keys, browser session auth, tenant provisioning security, and a waitlist gate. Here's what changed",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-20",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  }
+}
+</script>
 
 # Secure by Design — Molecule AI's Beta Auth Hardening Push
 

@@ -3,12 +3,30 @@ title: "How Molecule AI Tracks Active Agent Tasks: Concurrency Control in Produc
 date: 2026-04-21
 slug: active-tasks-concurrency
 description: "Running a fleet of AI agents in production means running many tasks concurrently. Here's how Molecule AI's active_tasks counter tracks concurrency, prevents overscheduling, and keeps your agent fleet from overwhelming your infrastructure."
+og_image: /docs/assets/blog/2026-04-21-active-tasks-og.png
 tags: [architecture, runtime, concurrency, production, platform-engineering]
+keywords: [Active Tasks, Molecule AI, AI agents]
 author: Molecule AI
 og_title: "How Molecule AI Tracks Active Agent Tasks"
 og_description: "The active_tasks counter is the mechanism Molecule AI uses to track how many agents are running concurrently — preventing overscheduling, enabling graceful concurrency limits, and giving your platform team real-time fleet visibility."
 twitter_card: summary_large_image
 ---
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "How Molecule AI Tracks Active Agent Tasks: Concurrency Control in Production",
+  "description": "Running a fleet of AI agents in production means running many tasks concurrently. Here's how Molecule AI's active_tasks counter tracks concurrency, prevents overscheduling, and keeps your agent fleet ",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-21",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  }
+}
+</script>
 
 # How Molecule AI Tracks Active Agent Tasks: Concurrency Control in Production
 

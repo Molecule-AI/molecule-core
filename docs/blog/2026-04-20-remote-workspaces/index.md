@@ -3,8 +3,26 @@ title: "Phase 30: Run AI Agents Anywhere — Remote Workspaces is Now GA"
 date: 2026-04-20
 slug: remote-workspaces-ga
 description: "Molecule AI's Phase 30 ships today. Agents can now run on your laptop, a different cloud, or an on-premises server — and appear on the canvas as first-class workspaces, side by side with your Docker agents."
+og_image: /docs/assets/blog/2026-04-20-remote-workspaces-og.png
 tags: [launch, platform, remote-agents, federation, phase-30]
+keywords: [One Canvas Every Agent, Molecule AI, AI agents]
 ---
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Phase 30: Run AI Agents Anywhere — Remote Workspaces is Now GA",
+  "description": "Molecule AI's Phase 30 ships today. Agents can now run on your laptop, a different cloud, or an on-premises server — and appear on the canvas as first-class workspaces, side by side with your Docker a",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-20",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  }
+}
+</script>
 
 # Phase 30: Run AI Agents Anywhere — Remote Workspaces is Now GA
 

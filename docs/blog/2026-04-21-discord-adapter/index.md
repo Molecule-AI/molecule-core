@@ -3,8 +3,26 @@ title: "Your AI Agents Just Joined Discord"
 date: 2026-04-21
 slug: discord-adapter-launch
 description: "Molecule AI workspaces can now connect to Discord — send messages to channels and receive slash commands, using only a webhook URL. No bot account, no OAuth flow, no Gateway connection."
+og_image: /docs/assets/blog/2026-04-21-discord-adapter-og.png
 tags: [launch, discord, social-channels, platform, MCP]
+keywords: [Your AI Agents Just Joined Discord, Molecule AI, AI agents]
 ---
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Your AI Agents Just Joined Discord",
+  "description": "Molecule AI workspaces can now connect to Discord — send messages to channels and receive slash commands, using only a webhook URL. No bot account, no OAuth flow, no Gateway connection.",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-21",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  }
+}
+</script>
 
 # Your AI Agents Just Joined Discord
 

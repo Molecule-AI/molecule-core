@@ -3,8 +3,26 @@ title: "Org-Scoped API Keys: Enterprise Key Management for Multi-Agent Teams"
 date: 2026-04-21
 slug: org-scoped-api-keys
 description: "Named, revocable, audit-trail-enabled tokens for every integration in your organization. Replace shared ADMIN_TOKEN with org-level keys that rotate without downtime and trace every call back to the key that made it."
+og_image: /docs/assets/blog/2026-04-25-org-scoped-api-keys-og.png
 tags: [security, enterprise, API-keys, multi-agent, audit]
+keywords: [Org-scoped API Keys, Molecule AI, AI agents]
 ---
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Org-Scoped API Keys: Enterprise Key Management for Multi-Agent Teams",
+  "description": "Named, revocable, audit-trail-enabled tokens for every integration in your organization. Replace shared ADMIN_TOKEN with org-level keys that rotate without downtime and trace every call back to the ke",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-21",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  }
+}
+</script>
 
 # Org-Scoped API Keys: Enterprise Key Management for Multi-Agent Teams
 
