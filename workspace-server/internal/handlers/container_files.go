@@ -168,10 +168,18 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 	if err := validateRelPath(filePath); err != nil {
 		return err
 	}
-
+	// CWE-78: resolve filePath relative to the volume root and verify it
+	// stays inside /configs/. The old string-concat form ("/configs/"+filePath)
+	// let "foo/../bar" escape to /configs/../bar; the exec form (separate
+	// args) also fails because rm resolves .. relative to / (the container
+	// root), not /configs/. We resolve the path and assert containment.
+	rmTarget := filepath.Clean(filepath.Join("/configs", filePath))
+	if !strings.HasPrefix(rmTarget, "/configs/") {
+		return fmt.Errorf("path traversal escape attempt: %s resolves to %s", filePath, rmTarget)
+	}
 	resp, err := h.docker.ContainerCreate(ctx, &container.Config{
 		Image: "alpine:latest",
-		Cmd:   []string{"rm", "-rf", "/configs/" + filePath},
+		Cmd:   []string{"rm", "-rf", rmTarget},
 	}, &container.HostConfig{
 		Binds: []string{volumeName + ":/configs"},
 	}, nil, nil, "")
