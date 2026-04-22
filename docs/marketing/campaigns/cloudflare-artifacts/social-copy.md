@@ -62,7 +62,7 @@ Set two env vars, create a repo via the API, and your agent has a git URL.
 
 GitHub: [molecule-core/workspace-server/internal/handlers/artifacts.go](https://github.com/Molecule-AI/molecule-core/blob/main/workspace-server/internal/handlers/artifacts.go)
 
-→ [Read the full post: "Give Your AI Agent a Git Repository"](https://github.com/Molecule-AI/molecule-core/blob/main/docs/blog/2026-04-21-cloudflare-artifacts/index.md)
+→ [Read the full post: "Give Your AI Agent a Git Repository"](https://docs.molecule.ai/blog/cloudflare-artifacts)
 
 ---
 
@@ -88,7 +88,7 @@ If you're running Molecule AI with Cloudflare infrastructure, this is the storag
 
 Full implementation: [artifacts.go on GitHub](https://github.com/Molecule-AI/molecule-core/blob/main/workspace-server/internal/handlers/artifacts.go)
 
-→ [Read: "Give Your AI Agent a Git Repository"](https://github.com/Molecule-AI/molecule-core/blob/main/docs/blog/2026-04-21-cloudflare-artifacts/index.md)
+→ [Read: "Give Your AI Agent a Git Repository"](https://docs.molecule.ai/blog/cloudflare-artifacts)
 
 #Cloudflare #AIagents #Git #DeveloperTools #CloudComputing
 

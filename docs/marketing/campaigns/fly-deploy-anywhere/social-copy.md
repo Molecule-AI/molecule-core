@@ -90,7 +90,7 @@ Both groups now get the deployment model they need without sacrificing the agent
 
 Full breakdown of all three backends, with env var reference tables, in the blog post.
 
-→ [Read: "Deploy AI Agents on Fly.io — or Any Cloud — with One Config Change"](https://github.com/Molecule-AI/molecule-core/blob/main/docs/blog/2026-04-17-deploy-anywhere/index.md)
+→ [Read: "Deploy AI Agents on Fly.io — or Any Cloud — with One Config Change"](https://docs.molecule.ai/blog/deploy-anywhere?utm_source=linkedin&utm_medium=social&utm_campaign=fly-deploy-anywhere)
 
 #AIagents #Flyio #SaaS #DeveloperTools #DevOps #MultiTenant
 
