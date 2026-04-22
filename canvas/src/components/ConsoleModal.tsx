@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
 import { showToast } from "@/components/Toaster";
@@ -27,10 +27,20 @@ export function ConsoleModal({ workspaceId, workspaceName, open, onClose }: Prop
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Focus close button when modal opens
+  useEffect(() => {
+    if (!open) return;
+    const raf = requestAnimationFrame(() => {
+      closeButtonRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -99,6 +109,7 @@ export function ConsoleModal({ workspaceId, workspaceName, open, onClose }: Prop
             )}
           </div>
           <button
+            ref={closeButtonRef}
             onClick={onClose}
             aria-label="Close"
             className="text-zinc-400 hover:text-zinc-100 text-sm px-2"
