@@ -5,7 +5,7 @@
 
 ---
 
-*Last updated: 2026-04-22T13:07Z by Infra-SRE — PM workspace RECOVERED (online, 142m uptime); 3 App&Docs children online; PR #1498 CI: 6/10 green, 3 runner-specific failures (hk-claw Go cache, hk-m1-mini Python env); GH App workaround confirmed working*
+*Last updated: 2026-04-22T13:40Z by Infra-SRE — CRITICAL: found & fixed CWE-78 regression (F1502, #1580) in commit 85de7d6; regression fix pushed (9246924); PR #1498 CI still blocked by 2 runner issues (hk-claw Go cache, hk-m1-mini Python env)*
 
 ---
 
@@ -41,10 +41,10 @@ Multiple cascading failures:
 ### PR #1498 CI Blockers
 
 **Branch:** `ship/security-fixes-to-main-0516` (P0 — emergency security fixes)
-**Head commit:** `550b295` — docs(incidents): update P0 status
-**All 9 checks ran 2026-04-22T12:21–13:00Z**
+**Head commit:** `9246924` — fix(security): revert CWE-78 regression in deleteViaEphemeral
+**All 9 checks ran 2026-04-22T12:21–13:00Z (on e223061, re-triggered on 9246924)**
 
-**CI results (commit 550b295):**
+**CI results (commit e223061, re-running on 9246924):**
 | Job | Runner | Result | Root Cause |
 |-----|--------|--------|------------|
 | Analyze (javascript-typescript) | — | ⏳ QUEUED | — |
@@ -56,6 +56,13 @@ Multiple cascading failures:
 | Platform (Go) | hongming-claw | ❌ FAIL | `undefined: pq` — Go module cache completely corrupted |
 | Python Lint & Test | hongming-m1-mini | ❌ FAIL | `ModuleNotFoundError: No module named 'sqlalchemy'` — environment issue on runner |
 | E2E API Smoke Test | hongming-claw | ❌ FAIL | `undefined: pq` — same Go cache corruption as Platform (Go) |
+
+**⚠️ SECURITY REGRESSION FOUND & FIXED (9246924):**
+Issue #1580 / F1502: Commit `85de7d6` ("ship: apply CWE-22/CWE-78/SSRF/CI fixes") silently regressed the CWE-78 fix from `49ab614`:
+- WRONG (regression): `Cmd: []string{"rm", "-rf", "/configs/" + filePath}` — path traversal via `foo/../bar`
+- CORRECT (fixed): `Cmd: []string{"rm", "-rf", "/configs", filePath}` — exec form, bounds rm to volume
+
+Regression introduced because `validateRelPath` is applied *before* `filepath.Clean`, so `filePath="foo/../bar"` passes validation (cleaned to `"bar"`) but the concat creates `/configs/../bar` → escape outside volume. Fix reverts to two-arg exec form.
 
 **Annotation details:**
 - Platform (Go) / E2E: `undefined: pq` at 7 line locations in `.github` (Go build error). Also `Restore cache failed: Dependencies file is not found... Supported file pattern: go.sum`
@@ -71,6 +78,8 @@ Multiple cascading failures:
 2. ~~Push PR #1498 fixes~~ — **✅ DONE** (2026-04-22 ~12:20Z): 8 commits pushed to `ship/security-fixes-to-main-0516`, PR #1498 open. GitHub App token can push but **cannot approve its own PRs** — needs human review approval.
 3. **Human review approval for PR #1498** (ship/security-fixes-to-main-0516 → main): https://github.com/Molecule-AI/molecule-core/pull/1498 — GitHub App token is PR author; cannot self-approve. Need org member with write access to approve. CI running (2/9 passed; E2E+Platform Go fail due to runner cache).
 4. **Merge PR #1573** (main → staging): https://github.com/Molecule-AI/molecule-core/pull/1573 — staging is 1,388 commits behind main. Brings CWE-22/CWE-78/SSRF/WORKSPACE_ID fail-fast to staging. **mergeable=false, mergeable_state=dirty** — has conflicts. Rebase or resolve. GitHub App write=False — needs human to click Merge (staging has no branch protection).
+   - ⚠️ **PR #1555 vs #1498 conflict:** Both PRs modify `ssrf.go` differently — PR #1498 REMOVES it (CWE-78 dedup), PR #1555 adds 22+ lines to it. PR #1498 supersedes PR #1555; close PR #1555 after #1498 merges. No action needed from infra unless teams need PR #1555's lint-only changes separately.
+   - ⚠️ **PR #1574 vs staging conflict:** PR #1574 (CWE-22 regression suite + KI-005) has mergeable_state=dirty, conflicts with forced staging update. Consider closing and re-creating after staging settles.
 5. **SSH to hongming-claw** — clear Go module cache corruption on the runner that runs Platform (Go) and E2E API Smoke Test (E2E fails with `undefined: pq`):
    ```bash
    ssh hongming-claws
