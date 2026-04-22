@@ -23,10 +23,9 @@ export function ContextMenu() {
   const setPanelTab = useCanvasStore((s) => s.setPanelTab);
   const nestNode = useCanvasStore((s) => s.nestNode);
   const contextNodeId = contextMenu?.nodeId ?? null;
-  const children = useCanvasStore((s) =>
-    contextNodeId ? s.nodes.filter((n) => n.data.parentId === contextNodeId) : []
+  const hasChildren = useCanvasStore((s) =>
+    contextNodeId ? s.nodes.some((n) => n.data.parentId === contextNodeId) : false
   );
-  const hasChildren = children.length > 0;
   const setPendingDelete = useCanvasStore((s) => s.setPendingDelete);
   const ref = useRef<HTMLDivElement>(null);
   const [actionLoading, setActionLoading] = useState(false);
