@@ -5,7 +5,7 @@
 
 ---
 
-*Last updated: 2026-04-22T06:30Z by Core-DevOps — P0 platform incident active*
+*Last updated: 2026-04-22T07:45Z by Core-DevOps — WORKSPACE_ID fixes committed; P0 still active*
 
 ---
 
@@ -76,9 +76,24 @@ Multiple cascading failures:
    ```
 5. **PM workspace + EC2 recovery** — Infra team to restore PM workspace (f0897ffd) and EC2 cascade
 
-### Known Issue — builtin_tools/memory.py (INCIDENT LOG #1124)
+### Known Issue — builtin_tools WORKSPACE_ID validation (INCIDENT LOG #1124) — ✅ FIXED
 
-`workspace/builtin_tools/memory.py:46` still uses `WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")` with no validation. Only affects modules that import WORKSPACE_ID from builtin_tools.memory (vs a2a_client which has RuntimeError guard). Low priority — platform must be restored first.
+Five builtin_tools modules had `WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")` with no validation, silently producing empty-string IDs when the env var was unset. **Fixed by commit `d838b73`:**
+
+| File | Change |
+|------|--------|
+| `builtin_tools/memory.py` | RuntimeError guard on empty WORKSPACE_ID |
+| `builtin_tools/approval.py` | RuntimeError guard on empty WORKSPACE_ID |
+| `builtin_tools/audit.py` | RuntimeError guard on empty WORKSPACE_ID |
+| `builtin_tools/delegation.py` | RuntimeError guard on empty WORKSPACE_ID |
+| `builtin_tools/governance.py` | RuntimeError guard on empty WORKSPACE_ID |
+
+Also fixed same issue in `builtin_tools/a2a_tools.py`, `builtin_tools/hitl.py`, and other modules with empty-string defaults (a2a_cli.py, coordinator.py, molecule_ai_status.py already had guards). See commit `d838b73` on branch `ship/security-fixes-to-main-0516`.
+
+**Remaining gaps (low priority, not yet fixed):**
+- `builtin_tools/telemetry.py` — uses `"unknown"` default, may be intentional for optional telemetry
+- `builtin_tools/awareness_client.py` — uses `""` default, only active when awareness is configured
+- `executor_helpers.py`, `main.py`, `shared_runtime.py`, `hermes_executor.py` — see above
 
 ---
 
