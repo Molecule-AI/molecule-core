@@ -44,7 +44,7 @@ RUN chmod +x /scripts/clone-manifest.sh && /scripts/clone-manifest.sh /manifest.
 
 # ── Stage 4: Runtime ──────────────────────────────────────────────────
 FROM node:20-alpine
-RUN apk add --no-cache ca-certificates git tzdata
+RUN apk add --no-cache ca-certificates git tzdata openssh-client aws-cli
 
 # Non-root runtime for the Node.js canvas process.
 # The Go binary (started by entrypoint.sh) is also non-root — the
