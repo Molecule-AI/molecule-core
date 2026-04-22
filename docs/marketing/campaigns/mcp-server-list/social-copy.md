@@ -1,5 +1,5 @@
 # MCP Server List Launch — Social Copy
-Campaign: mcp-server-list | Blog: `https://docs.molecule.ai/blog/mcp-server-list`
+Campaign: mcp-server-list | Blog: `docs/blog/2026-04-25-mcp-server-list/index.md`
 Publish day: TBD — coordinate with Marketing Lead
 Assets: visual assets at `docs/marketing/campaigns/mcp-server-list/assets/`
 
@@ -17,7 +17,7 @@ Browser automation. GitHub access. Slack notifications. Vector DB queries. AWS o
 
 MCP (Model Context Protocol) is how you connect your agent to anything you already use — without writing a custom integration.
 
-→ https://docs.molecule.ai/blog/mcp-server-list
+→ https://docs.molecule.ai/blog/mcp-server-list-2026
 
 ---
 
@@ -32,7 +32,7 @@ MCP (Model Context Protocol) standardizes the interface. One MCP server works wi
 
 Molecule AI ships with MCP built in — no wrapper code required.
 
-→ https://docs.molecule.ai/blog/mcp-server-list
+→ https://docs.molecule.ai/blog/mcp-server-list-2026
 
 ---
 
@@ -47,7 +47,7 @@ Molecule AI's MCP ecosystem today:
 
 Every server is org-scoped. Your agents access what your org grants them.
 
-→ https://docs.molecule.ai/blog/mcp-server-list
+→ https://docs.molecule.ai/blog/mcp-server-list-2026
 
 ---
 
@@ -63,7 +63,7 @@ Molecule AI adds the part that's easy to skip: governance.
 
 Your security team will appreciate this.
 
-→ https://docs.molecule.ai/blog/mcp-server-list
+→ https://docs.molecule.ai/blog/mcp-server-list-2026
 
 ---
 
@@ -76,7 +76,7 @@ Molecule AI's MCP layer gives you: one interface, any compatible agent, org-leve
 
 Browse the full list with runnable examples:
 
-→ https://docs.molecule.ai/blog/mcp-server-list
+→ https://docs.molecule.ai/blog/mcp-server-list-2026
 
 ---
 
@@ -106,7 +106,7 @@ This is the difference between "our agents use MCP" and "our MCP usage is audita
 
 Browse the full list with runnable code examples:
 
-→ https://docs.molecule.ai/blog/mcp-server-list
+→ https://docs.molecule.ai/blog/mcp-server-list-2026
 
 ---
 
