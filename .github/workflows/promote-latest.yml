@@ -32,22 +32,12 @@ env:
 
 jobs:
   promote:
-    # Self-hosted mac mini — GitHub-hosted minutes are currently quota-
-    # blocked. mac mini already has crane available via homebrew.
-    runs-on: [self-hosted, macos, arm64]
+    runs-on: ubuntu-latest
     steps:
       - name: Ensure crane installed
-        # HOMEBREW_NO_INSTALL_CLEANUP + HOMEBREW_NO_AUTO_UPDATE stop
-        # brew from touching unrelated symlinks in /opt/homebrew owned
-        # by other users on this shared runner — cleanup was exiting
-        # non-zero even though crane itself installed successfully.
-        env:
-          HOMEBREW_NO_INSTALL_CLEANUP: "1"
-          HOMEBREW_NO_AUTO_UPDATE: "1"
-          HOMEBREW_NO_ENV_HINTS: "1"
         run: |
           if ! command -v crane >/dev/null 2>&1; then
-            brew install crane
+            curl -fsSL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz | tar xz -C /usr/local/bin crane
           fi
           crane version
 
