@@ -1,0 +1,29 @@
+# TTS Script — Cloudflare Artifacts for Molecule AI
+**Blog:** docs.molecule.ai/blog/cloudflare-artifacts-molecule-ai
+**Duration:** ~90s at ~150 wpm
+**Date:** 2026-04-21
+**Author:** Content Marketer (auto-generated)
+
+---
+
+AI agents write code, generate assets, and produce artifacts. Most of the time, those artifacts live in memory — gone when the session ends. Even persistent agents have to choose between keeping everything in context — expensive and slow — or discarding everything, and losing the work.
+
+Cloudflare Artifacts changes this. Artifacts is Cloudflare's git-native object storage — git pull and git push semantics, backed by Cloudflare's global network. Think of it as a workspace filesystem that lives on the edge, is versioned by default, and talks git natively.
+
+Molecule AI's Artifacts integration attaches a Cloudflare Artifacts repository to any workspace. Your agent gets a git URL. It clones, commits, pushes, and pulls — using the same git workflow your team already knows.
+
+Git-native storage works for agents because agents already know git. Clone, branch, commit, push. No new primitives to learn.
+
+Versioning is structural. Every change is a commit. Rollback is git revert. No last-writer-wins data loss.
+
+Collaboration is native. Fork a repo, experiment, open a pull request. The same workflow humans use to collaborate applies to agents.
+
+Cloudflare Artifacts is fast. Git operations run on Cloudflare's edge — sub-hundred-millisecond clone times from anywhere. No S3 bandwidth bills.
+
+Access control is git-native. Token scoping, branch protection, repo-level permissions. The same model your team already uses.
+
+The integration also handles short-lived git credentials. Your agent can mint a temporary username and password, scoped to the workspace repo. Credentials expire automatically. No long-lived tokens to manage or revoke.
+
+The practical use case: a research agent that reads papers, summarizes findings, and writes notes. Without Artifacts, the notes disappear when the session ends. With Artifacts, the agent clones the research repo on first run. Each session: pull latest, add summaries, commit and push. The next session — or the next agent — clones and continues from where the last session left off.
+
+Cloudflare Artifacts for Molecule AI is live now. Connect a repository to any workspace in under a minute.
