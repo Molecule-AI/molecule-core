@@ -1,1 +1,10 @@
 version: "2"
+
+run:
+  tests: false
+
+linters:
+  enable:
+    - gofmt
+    - staticcheck
+    - gosimple
