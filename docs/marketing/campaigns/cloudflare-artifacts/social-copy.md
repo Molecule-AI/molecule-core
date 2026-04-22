@@ -107,6 +107,20 @@ Full implementation: [artifacts.go on GitHub](https://github.com/Molecule-AI/mol
 
 ---
 
+## ⚠️ Publishing Flag — Sub-100ms Claim (PM Ruling 2026-04-22)
+
+**DO NOT POST** the `sub-100ms clone times from anywhere on Cloudflare's edge` claim without adding an inline flag in the published post.
+
+**If you are drafting the post from this file:** keep the ⚠️ [SOURCING GAP — UNSUBSTANTIATED] blockquote that appears inline after each instance. These are not editorial notes — they are the required flag.
+
+**If you are summarizing or paraphrasing:** add a parenthetical note: `(Note: the sub-100ms clone time claim is not yet sourced to a Cloudflare benchmark or official spec.)`
+
+**If the claim has been sourced:** remove the flag and update `docs/marketing/sourcing-gaps/cloudflare-artifacts-sub-100ms.md`.
+
+Do not soften the claim. Do not remove the claim. Flag it.
+
+---
+
 ## Publishing Schedule
 
 | Platform | When | Notes |
@@ -118,3 +132,4 @@ Full implementation: [artifacts.go on GitHub](https://github.com/Molecule-AI/mol
 ---
 
 *Draft by Content Marketer 2026-04-21*
+*PM ruling added 2026-04-22*
