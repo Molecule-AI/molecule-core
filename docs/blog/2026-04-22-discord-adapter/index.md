@@ -9,7 +9,24 @@ og_title: "Discord Adapter: Connect Your AI Agent to Discord"
 og_description: "The Discord adapter lets your Molecule AI agent respond in Discord channels. No webhook code. No permission engineering. Just connect and go."
 twitter_card: summary_large_image
 og_image: /docs/assets/blog/2026-04-22-discord-adapter-og.png
+keywords: [Discord adapter, AI agent Discord, AI agent community, slash commands AI, Discord MCP]
 ---
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Discord Adapter: Connect Your AI Agent to Discord",
+  "description": "Answer community questions automatically. Molecule AI Discord adapter lets your AI agent respond in Discord channels with no webhook code.",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-22",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  }
+}
+</script>
 
 # Discord Adapter: Connect Your AI Agent to Discord
 

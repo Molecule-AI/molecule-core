@@ -10,7 +10,23 @@ tags: [A2A, enterprise, multi-cloud, agent-governance, orchestration, LangGraph]
 keywords: [enterprise AI agent platform, multi-cloud AI agent orchestration, agent delegation audit trail, cross-cloud AI agents, agent-to-agent governance, A2A protocol architecture, multi-agent attribution]
 ---
 
-# A2A Protocol for Enterprise: Any Agent. Any Infrastructure. Full Audit Trail.
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "A2A Protocol for Enterprise: Any Agent. Any Infrastructure.",
+  "description": "Molecule AI A2A protocol runs agent-to-agent communication across any infrastructure with org API key attribution and a full audit trail.",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-22",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  }
+}
+</script>
+
+# A2A Protocol for Enterprise: Any Agent. Any Infrastructure.
 
 The first multi-agent demo is easy. The production deployment is the hard part.
 

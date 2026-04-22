@@ -3,18 +3,29 @@ title: "EC2 Instance Connect SSH: Shell Access Without Opening Inbound Ports"
 date: 2026-04-22
 slug: ec2-instance-connect-ssh
 description: "Access a shell on CP-provisioned workspaces without opening inbound SSH ports. Molecule AI integrates AWS EC2 Instance Connect Endpoint — the Terminal tab connects via a signed, ephemeral tunnel."
+og_image: /docs/assets/blog/2026-04-22-ec2-instance-connect-ssh-og.png
 tags: [EC2, terminal, SSH, self-hosted, DevOps, security, Canvas]
+keywords: [EC2 Instance Connect, AI agent SSH access, SSH bastion host alternative, AI agent terminal, EC2 SSH]
 ---
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "EC2 Instance Connect SSH: Shell Access Without Opening Inbound Ports",
+  "description": "Access a shell on CP-provisioned workspaces without opening inbound SSH ports. Molecule AI integrates AWS EC2 Instance Connect Endpoint with ephemeral signed tunnels.",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-22",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  }
+}
+</script>
 
 # EC2 Instance Connect SSH: Shell Access Without Opening Inbound Ports
 
-When an AI agent runs in a cloud workspace, operators sometimes need to get their hands on a real shell — to inspect configuration, debug a stuck process, or verify that the environment looks the way the agent reported. With CP-provisioned workspaces on EC2, that used to mean opening inbound port 22, managing key pairs, and dealing with the security implications of an internet-facing SSH endpoint.
-
-EC2 Instance Connect Endpoint changes this. Molecule AI now routes the Terminal tab in Canvas through AWS EC2 Instance Connect Endpoint (EIC Endpoint) — a signed, ephemeral SSH tunnel that requires no inbound ports, no static IP, and no long-lived credentials. You get a bash prompt; AWS handles the rest.
-
-This post explains how the integration works, what DevOps teams get out of it, and how to verify it is configured correctly in your tenant.
-
-## What EC2 Instance Connect Endpoint Solves
 
 Traditional SSH to a cloud instance requires one of two setups:
 
