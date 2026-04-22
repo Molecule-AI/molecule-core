@@ -1,0 +1,27 @@
+# TTS Script — A2A Protocol for Enterprise
+**Blog:** docs.molecule.ai/blog/a2a-enterprise-any-agent-any-infrastructure
+**Duration:** ~90s at ~150 wpm
+**Date:** 2026-04-22
+**Author:** Content Marketer (auto-generated)
+
+---
+
+The first multi-agent demo is easy. The production deployment is the hard part.
+
+When teams scale past two or three agents, the instinct is to route all agent-to-agent traffic through a central orchestrator. It works at small scale. At enterprise scale, it creates three compounding problems: a single point of failure, latency that scales with the number of hops, and an audit trail that only shows "orchestrator called agent" — with no visibility into which agent inside actually did what.
+
+Molecule AI's A2A protocol solves this differently. Agents discover peers and delegate work directly, within the org topology. The remote workspaces that host them are the nodes. The org hierarchy is the routing layer. No hub-and-spoke orchestrator. No latency multiplier. And an audit trail that traces every cross-agent call to the org API key that authorized it.
+
+For enterprise buyers, the A2A governance question comes down to one thing: when the compliance team asks "which agent accessed which workspace, and what did it do?", can you answer?
+
+Molecule AI's org-scoped API keys are present on every delegation call. The audit log records the org API key prefix, the caller workspace, the target workspace, the task description, and the result. This is the difference between "a delegation happened" and "ci-deploy-bot delegated the security audit to the security-agent workspace, using org key mole-a1b2, at 2:23 PM UTC, result: findings exported to S3." For regulated industries, that granularity is the compliance requirement.
+
+The practical blocker for multi-cloud agent orchestration is usually networking, not the protocol. Molecule AI's A2A routing works across any infrastructure configuration. Agents running across AWS, GCP, Azure, and on-premises can communicate without a VPN between those environments. Both sides only need outbound access to the platform endpoint.
+
+The differentiation isn't the protocol. It's the governance story underneath.
+
+A2A v1.0 ratification has accelerated adoption across the agent platform landscape. LangGraph shipped A2A support in Q1 2026. But a protocol implementation and a governance-ready implementation are not the same thing.
+
+Molecule AI shipped org API key attribution, per-workspace bearer tokens, a CanCommunicate() hierarchy, and a full agent delegation audit trail. LangGraph's current A2A implementation covers the protocol layer — message framing, capability negotiation, task routing. What it does not yet cover is the governance layer: workspace-scoped authentication tokens, immutable audit attribution, and org-level revocation.
+
+Molecule AI shipped all of this in Phase 30. It is not a roadmap item. It is a production feature that determines whether A2A works safely in your organization today.
