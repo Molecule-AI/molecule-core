@@ -5,7 +5,7 @@
 
 ---
 
-*Last updated: 2026-04-22T13:40Z by Infra-SRE — CRITICAL: found & fixed CWE-78 regression (F1502, #1580) in commit 85de7d6; regression fix pushed (9246924); PR #1498 CI still blocked by 2 runner issues (hk-claw Go cache, hk-m1-mini Python env)*
+*Last updated: 2026-04-22T14:05Z by Infra-SRE — PR #1573 MERGED: staging now at 201e18f with all security fixes from main; PR #1498 CI still blocked by hk-claw Go cache + hk-m1-mini Python env (need SSH); CWE-78 regression fixed (9246924); F1088 (git history credentials) still open — needs BFG cleanup + team coordination; PR #1555 reviewed, flagged as superseded by #1498*
 
 ---
 
@@ -14,7 +14,7 @@
 **Severity:** Critical
 **Period:** 2026-04-22 ~00:00Z – ongoing
 **Finding IDs:** N/A (infra/cascade outage)
-**Status:** ACTIVE — platform unreachable, GitHub tokens revoked org-wide
+**Status:** ACTIVE — platform operational; GitHub App token workaround confirmed working; runner cache corruption blocking PR #1498 CI
 
 ### Summary
 
@@ -28,11 +28,13 @@ Multiple cascading failures:
 | System | Status |
 |--------|--------|
 | Platform API | ✅ Operational |
-| GitHub (gh api, git push) | ✅ GitHub App token via platform API workaround (still working) |
-| PM workspace (f0897ffd / 590e9116) | ✅ **RECOVERED** — online, 142m uptime, 0 errors |
-| App & Docs workspaces (3 children) | ✅ All online, 142m uptime, 0 errors (Technical Writer, Doc Specialist, App-FE) |
+| GitHub (gh api, git push) | ✅ GitHub App token via platform API workaround |
+| PM workspace (f0897ffd / 590e9116) | ✅ **RECOVERED** — online, ~150m uptime, 0 errors |
+| App & Docs workspaces (3 children) | ✅ All online, ~150m uptime, 0 errors |
+| **Staging (201e18f)** | ✅ **UPDATED** — PR #1573 merged (0506e0c + 201e18f), all security fixes from main now on staging |
 | Self-hosted CI runners | ⚠️ hongming-claw: Go cache corrupt (`undefined: pq`); hongming-m1-mini: sqlalchemy import broken |
 | GCP staging CP | ❌ 403 on `/cp/admin/orgs` — missing IAM policy (KI-007) |
+| Git history (F1088) | ⚠️ Credentials may be in git history — BFG cleanup needed (team coordination required) |
 
 ### GitHub Token Status
 
@@ -96,6 +98,8 @@ Regression introduced because `validateRelPath` is applied *before* `filepath.Cl
      --member="serviceAccount:staging@YOUR_PROJECT.iam.gserviceaccount.com"
    ```
 8. **~~PM workspace + EC2 recovery~~** — **✅ RECOVERED** (2026-04-22T13:05Z): PM workspace online, 142m uptime, 0 errors. Cascade EC2 instances may still need health-check.
+9. **F1088 — BFG git history cleanup** (issue #1569): Git history on main/staging may contain committed credentials. Need to: (a) identify which files have credentials, (b) run `bfg --delete-files <filename>` on a fresh clone, (c) force-push to both main and staging. **Team coordination required** — destructive operation, must coordinate with Core-Security and ensure no other force-push operations are in progress.
+10. **F1080 — PR #1036 duplicate ExecContext** (issue #1570): PR #1036 is closed (not merged), so this finding may be stale. Verify main CI Go check passes (it does: Analyze (go) ✅ on all recent runs). Can close if verified resolved.
 
 ### Known Issue — builtin_tools WORKSPACE_ID validation (INCIDENT LOG #1124) — ✅ FULLY FIXED
 
@@ -111,7 +115,7 @@ All builtin_tools modules with empty-string WORKSPACE_ID defaults have been patc
 | `builtin_tools/a2a_tools.py` | `f3204c2` | RuntimeError guard (module-level) |
 | `builtin_tools/hitl.py` | `f3204c2` | RuntimeError guard (3 function-local sites: pause_task, resume_task, _notify_all_channels) |
 
-Branch: `ship/security-fixes-to-main-0516` — 7 unpushed commits, GH_TOKEN 401 blocks push.
+Branch: `ship/security-fixes-to-main-0516` — pushed to origin, HEAD: `5d3f47f`.
 
 **Known exceptions (low priority, intentional defaults):**
 - `builtin_tools/telemetry.py` — `"unknown"` default for optional OTEL telemetry
