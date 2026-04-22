@@ -5,6 +5,7 @@ package handlers
 // Delete (cascade + purge), and input validation helpers.
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -12,8 +13,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/crypto"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
+	"github.com/Molecule-AI/molecule-monorepo/platform/pkg/provisionhook"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -147,6 +150,22 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 		strField("name"), strField("role"), "" /*model not patchable*/, strField("runtime"),
 	); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace fields"})
+		return
+	}
+
+	// #685/#688: validate string fields for length and injection safety.
+	strField := func(key string) string {
+		if v, ok := body[key]; ok {
+			if s, ok := v.(string); ok {
+				return s
+			}
+		}
+		return ""
+	}
+	if err := validateWorkspaceFields(
+		strField("name"), strField("role"), "" /*model not patchable*/, strField("runtime"),
+	); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
