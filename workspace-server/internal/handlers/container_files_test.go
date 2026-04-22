@@ -150,3 +150,123 @@ func searchSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F1085 regression suite for deleteViaEphemeral.
+//
+// Vulnerability (GH#1600 / F1085): deleteViaEphemeral accepted a 2-arg exec
+// form — Cmd: []string{"rm", "-rf", "/configs", filePath} — and passed the
+// raw filePath to rm as a separate argument.  A traversal path such as
+// "foo/../../../etc" caused rm to delete /etc OUTSIDE the /configs volume
+// mount, and also deleted /configs itself.  Fix (PR #1627): switch to a
+// single-arg concat form — Cmd: []string{"rm", "-rf", "/configs/" + filePath}
+// — so the traversal is part of the path inside the volume and gets caught
+// by the existing validateRelPath guard (filepath.Clean("foo/../../../etc") =
+// "/etc"; IsAbs("/etc") = true → rejected before any Docker call).
+// These tests verify validateRelPath blocks all traversal forms at the door,
+// so deleteViaEphemeral never reaches the Docker exec regardless of the rm
+// form used.
+
+func TestDeleteViaEphemeral_F1085_RejectsTraversal(t *testing.T) {
+	// nil docker → "docker not available" only if validateRelPath is bypassed.
+	// With a traversal path, validateRelPath returns a path error first.
+	h := &TemplatesHandler{docker: nil}
+
+	ctx := context.Background()
+
+	tests := []struct {
+		label      string
+		volumeName string
+		filePath   string
+		wantErr    bool
+		errSubstr  string // must appear in error when rejected
+	}{
+		// ── Legitimate relative paths — validateRelPath accepts ─────────────────
+		{
+			label:      "simple_relative_ok",
+			volumeName: "myvol",
+			filePath:   "config.yaml",
+			wantErr:    false, // validateRelPath passes → reaches docker nil → "docker not available"
+		},
+		{
+			label:      "nested_relative_ok",
+			volumeName: "myvol",
+			filePath:   "subdir/script.sh",
+			wantErr:    false,
+		},
+		// ── F1085: leading ".." prefix ────────────────────────────────────────────
+		{
+			label:      "leading_dotdot_rejected",
+			volumeName: "myvol",
+			filePath:   "../etc/passwd",
+			wantErr:    true,
+			errSubstr:  "path traversal",
+		},
+		// ── F1085: mid-path traversal (the regression case) ───────────────────────
+		// "foo/../../../etc" cleaned to "/etc" → IsAbs = true → validateRelPath rejects.
+		{
+			label:      "mid_path_traversal_rejected",
+			volumeName: "myvol",
+			filePath:   "foo/../../../etc/cron.d/malicious",
+			wantErr:    true,
+			errSubstr:  "path traversal",
+		},
+		{
+			label:      "deep_mid_path_traversal_rejected",
+			volumeName: "myvol",
+			filePath:   "x/y/../../../../../../../etc/shadow",
+			wantErr:    true,
+			errSubstr:  "path traversal",
+		},
+		// ── F1085: double-dot in subpath ─────────────────────────────────────────
+		{
+			label:      "double_dotdot_in_subpath_rejected",
+			volumeName: "myvol",
+			filePath:   "a/../../../workspace/secret",
+			wantErr:    true,
+			errSubstr:  "path traversal",
+		},
+		// ── F1085: URL-encoded traversal ──────────────────────────────────────────
+		{
+			label:      "url_encoded_traversal_rejected",
+			volumeName: "myvol",
+			filePath:   "..%2F..%2Fsecrets",
+			wantErr:    true,
+			errSubstr:  "path traversal",
+		},
+		// ── F1085: absolute path ───────────────────────────────────────────────────
+		{
+			label:      "absolute_path_rejected",
+			volumeName: "myvol",
+			filePath:   "/etc/passwd",
+			wantErr:    true,
+			errSubstr:  "path traversal",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.label, func(t *testing.T) {
+			err := h.deleteViaEphemeral(ctx, tc.volumeName, tc.filePath)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("want non-nil error, got nil")
+					return
+				}
+				if tc.errSubstr != "" && !contains(err.Error(), tc.errSubstr) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errSubstr)
+				}
+			} else {
+				// wantErr == false: validateRelPath passes → nil docker → "docker not available"
+				if err == nil {
+					t.Errorf("want non-nil error (docker not available), got nil")
+					return
+				}
+				// Any error other than the docker-initialized one means the path was
+				// incorrectly rejected by validateRelPath.
+				if !contains(err.Error(), "docker not available") {
+					t.Errorf("unexpected error: %v (want docker-not-available, not path rejection)", err)
+				}
+			}
+		})
+	}
+}
