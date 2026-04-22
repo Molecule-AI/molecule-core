@@ -8,11 +8,10 @@ name: CodeQL
 # scanned. This workflow fills that gap by explicitly scanning both
 # branches on push and PR.
 #
-# Runs on the self-hosted mac mini (matches the org-wide Code Quality
-# runner-label config). GHAS is NOT enabled on this repo, so results
-# are not uploaded to the Security tab — the scan fails the PR check
-# on findings, and the SARIF is kept as a workflow artifact for
-# triage.
+# Runs on ubuntu-latest (GHA-hosted — public repo, free). GHAS is NOT
+# enabled on this repo, so results are not uploaded to the Security
+# tab — the scan fails the PR check on findings, and the SARIF is
+# kept as a workflow artifact for triage.
 
 on:
   push:
@@ -24,8 +23,8 @@ on:
     - cron: '30 1 * * 0'
 
 # Workflow-level concurrency: only one CodeQL run per branch/PR at a time.
-# `cancel-in-progress: false` queues new runs — the 45-min analysis is the
-# longest CI occupant and fights the single mac mini runner the hardest.
+# `cancel-in-progress: false` queues new runs so a quick follow-up push
+# doesn't nuke a 45-min analysis mid-flight.
 concurrency:
   group: codeql-${{ github.ref }}
   cancel-in-progress: false
@@ -38,7 +37,7 @@ permissions:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    runs-on: [self-hosted, macos, arm64]
+    runs-on: ubuntu-latest
     timeout-minutes: 45
 
     strategy:
@@ -61,15 +60,7 @@ jobs:
           path: molecule-ai-plugin-github-app-auth
           token: ${{ secrets.PLUGIN_REPO_PAT || secrets.GITHUB_TOKEN }}
 
-      - name: Ensure jq installed
-        # Follows the crane-install pattern in promote-latest.yml.
-        # HOMEBREW_NO_* flags skip the cleanup that fails on the shared
-        # runner's /opt/homebrew symlinks.
-        env:
-          HOMEBREW_NO_INSTALL_CLEANUP: "1"
-          HOMEBREW_NO_AUTO_UPDATE: "1"
-          HOMEBREW_NO_ENV_HINTS: "1"
-        run: command -v jq >/dev/null || brew install jq
+      # jq is pre-installed on ubuntu-latest — no setup step needed.
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3

@@ -15,33 +15,42 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	dockerimage "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 )
 
-// RuntimeImages maps runtime names to their Docker image tags.
-// Each adapter has its own pre-built image extending workspace-template:base,
-// with runtime-specific deps pre-installed for fast startup.
-// Build all: workspace/Dockerfile (base), then each adapters/*/Dockerfile.
+// RuntimeImages maps runtime names to their Docker image refs on GHCR.
+// Each standalone template repo publishes its image via the reusable
+// publish-template-image workflow in molecule-ci on every main merge.
+// The provisioner pulls these on demand (see ensureImageLocal) — no
+// pre-build step on the tenant host.
+//
+// Legacy local-build path (`docker build -t workspace-template:<runtime>`
+// via scripts/build-images.sh) is still supported for development:
+// when a bare `workspace-template:<runtime>` image is present locally,
+// Docker's image resolver matches it before any pull is attempted. Set
+// the env var WORKSPACE_IMAGE_LOCAL_OVERRIDE=1 (enforced by callers) to
+// short-circuit pulls entirely if needed.
 var RuntimeImages = map[string]string{
-	"langgraph":   "workspace-template:langgraph",
-	"claude-code": "workspace-template:claude-code",
-	"openclaw":    "workspace-template:openclaw",
-	"deepagents":  "workspace-template:deepagents",
-	"crewai":      "workspace-template:crewai",
-	"autogen":     "workspace-template:autogen",
-	"hermes":      "workspace-template:hermes",      // Hermes (NousResearch) — adapter.py in adapters/hermes/
-	"gemini-cli":  "workspace-template:gemini-cli", // Google Gemini CLI — adapters/gemini_cli/Dockerfile
+	"langgraph":   "ghcr.io/molecule-ai/workspace-template-langgraph:latest",
+	"claude-code": "ghcr.io/molecule-ai/workspace-template-claude-code:latest",
+	"openclaw":    "ghcr.io/molecule-ai/workspace-template-openclaw:latest",
+	"deepagents":  "ghcr.io/molecule-ai/workspace-template-deepagents:latest",
+	"crewai":      "ghcr.io/molecule-ai/workspace-template-crewai:latest",
+	"autogen":     "ghcr.io/molecule-ai/workspace-template-autogen:latest",
+	"hermes":      "ghcr.io/molecule-ai/workspace-template-hermes:latest",     // Hermes (Nous Research) — real hermes-agent behind A2A bridge
+	"gemini-cli":  "ghcr.io/molecule-ai/workspace-template-gemini-cli:latest", // Google Gemini CLI
 }
 
 const (
 	// DefaultImage is the fallback workspace Docker image (langgraph is the most common runtime).
-	DefaultImage = "workspace-template:langgraph"
+	DefaultImage = "ghcr.io/molecule-ai/workspace-template-langgraph:latest"
 	// NOTE: Every runtime MUST have an entry in RuntimeImages above. If a runtime is missing,
 	// it falls back to DefaultImage which may have wrong deps. Add new runtimes to both
-	// RuntimeImages AND create adapters/<runtime>/Dockerfile.
+	// RuntimeImages AND create the standalone template repo.
 
 	// DefaultNetwork is the Docker network workspaces join.
 	DefaultNetwork = "molecule-monorepo-net"
@@ -227,24 +236,32 @@ func (p *Provisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string, e
 	// Ensure no stale container exists with the same name (race with restart policy)
 	_ = p.cli.ContainerRemove(ctx, name, container.RemoveOptions{Force: true})
 
-	// Log image resolution for debugging stale-image issues
+	// Log image resolution for debugging stale-image issues, and pull from
+	// GHCR on miss so tenant hosts don't need a pre-build step anymore.
+	// The pull is best-effort: if it fails (network, auth, rate limit) the
+	// subsequent ContainerCreate still surfaces the actionable error below.
 	imgInspect, _, imgErr := p.cli.ImageInspectWithRaw(ctx, image)
 	if imgErr == nil {
 		log.Printf("Provisioner: creating %s from image %s (ID: %s, created: %s)",
 			name, image, imgInspect.ID[:19], imgInspect.Created[:19])
 	} else {
-		log.Printf("Provisioner: creating %s from image %s (inspect failed: %v)", name, image, imgErr)
+		log.Printf("Provisioner: image %s not present locally (%v) — attempting pull", image, imgErr)
+		if perr := pullImageAndDrain(ctx, p.cli, image); perr != nil {
+			log.Printf("Provisioner: image pull for %s failed: %v (falling through to create)", image, perr)
+		} else {
+			log.Printf("Provisioner: pulled %s", image)
+		}
 	}
 
-	// Create and start container. If the image isn't available locally,
+	// Create and start container. If the image still isn't available,
 	// Docker returns a generic "No such image" error that's opaque to
-	// operators — wrap it with the resolved tag and the exact build
+	// operators — wrap it with the resolved tag and the exact pull
 	// command so last_sample_error surfaces something actionable. Issue #117.
 	resp, err := p.cli.ContainerCreate(ctx, containerCfg, hostCfg, networkCfg, nil, name)
 	if err != nil {
 		if isImageNotFoundErr(err) {
 			return "", fmt.Errorf(
-				"docker image %q not found — run 'bash workspace/build-all.sh %s' to build it (underlying error: %w)",
+				"docker image %q not found after pull attempt — verify GHCR visibility for %s and that the tenant has internet access (underlying error: %w)",
 				image, runtimeTagFromImage(image), err,
 			)
 		}
@@ -924,17 +941,53 @@ func isImageNotFoundErr(err error) bool {
 		strings.Contains(m, "not found") && strings.Contains(m, "image")
 }
 
-// runtimeTagFromImage extracts the runtime tag portion from a
-// "workspace-template:<runtime>" image reference for use in
-// user-facing build hints. Falls back to the full image string if the
-// shape is unrecognised.
+// runtimeTagFromImage extracts the runtime name from a workspace-template
+// image reference for use in user-facing error hints. Handles both the
+// legacy local tag (`workspace-template:<runtime>`) and the current GHCR
+// form (`ghcr.io/molecule-ai/workspace-template-<runtime>:<tag>`). Falls
+// back to the full image string if the shape is unrecognised.
 func runtimeTagFromImage(image string) string {
-	const prefix = "workspace-template:"
-	if strings.HasPrefix(image, prefix) {
-		return image[len(prefix):]
+	const legacyPrefix = "workspace-template:"
+	if strings.HasPrefix(image, legacyPrefix) {
+		return image[len(legacyPrefix):]
+	}
+	// GHCR form: strip everything before and including "workspace-template-",
+	// then drop the :<tag> suffix.
+	const ghcrInfix = "workspace-template-"
+	if i := strings.Index(image, ghcrInfix); i >= 0 {
+		rest := image[i+len(ghcrInfix):]
+		if j := strings.Index(rest, ":"); j >= 0 {
+			rest = rest[:j]
+		}
+		return rest
 	}
 	if i := strings.LastIndex(image, ":"); i >= 0 && i < len(image)-1 {
 		return image[i+1:]
 	}
 	return image
+}
+
+// dockerImageClient is the subset of the Docker client API used by
+// pullImageAndDrain. Declared as an interface so tests can inject a
+// fake without spinning up a daemon.
+type dockerImageClient interface {
+	ImagePull(ctx context.Context, ref string, opts dockerimage.PullOptions) (io.ReadCloser, error)
+}
+
+// pullImageAndDrain pulls the given image from its registry and drains
+// the progress stream to completion. The Docker engine pull API is
+// asynchronous — the returned ReadCloser MUST be fully consumed for the
+// pull to finish; returning early leaves the daemon mid-pull. We
+// discard the progress payload because operators read container logs
+// for boot diagnostics, not pull chatter.
+func pullImageAndDrain(ctx context.Context, cli dockerImageClient, ref string) error {
+	rc, err := cli.ImagePull(ctx, ref, dockerimage.PullOptions{})
+	if err != nil {
+		return fmt.Errorf("ImagePull: %w", err)
+	}
+	defer rc.Close()
+	if _, err := io.Copy(io.Discard, rc); err != nil {
+		return fmt.Errorf("drain pull stream: %w", err)
+	}
+	return nil
 }

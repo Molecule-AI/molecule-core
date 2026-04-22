@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,11 @@ import (
 )
 
 const terminalSessionTimeout = 30 * time.Minute
+
+// canCommunicateCheck is the communication-authorization predicate used by
+// HandleConnect to enforce the KI-005 workspace-hierarchy guard.
+// Exposed as a package var so tests can stub it without DB fixtures.
+var canCommunicateCheck = registry.CanCommunicate
 
 var termUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -53,11 +59,6 @@ type TerminalHandler struct {
 func NewTerminalHandler(cli *client.Client) *TerminalHandler {
 	return &TerminalHandler{docker: cli}
 }
-
-// canCommunicateCheck is the communication-authorization predicate used by
-// HandleConnect to enforce the KI-005 workspace-hierarchy guard.
-// Exposed as a package var so tests can stub it without DB fixtures.
-var canCommunicateCheck = registry.CanCommunicate
 
 // HandleConnect handles WS /workspaces/:id/terminal. Routes to the remote
 // path (aws ec2-instance-connect ssh + docker exec) when the workspace row
@@ -96,7 +97,6 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 	}
 
 	workspaceID := targetID
-
 	// Check for CP-provisioned workspace (instance_id persisted by
 	// provisionWorkspaceCP → migration 038). Null instance_id means the
 	// workspace runs as a local Docker container on this tenant.
@@ -477,7 +477,9 @@ func pickFreePort() (int, error) {
 // its local port before we dial ssh at it.
 func waitForPort(ctx context.Context, host string, port int, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	addr := fmt.Sprintf("%s:%d", host, port)
+	// JoinHostPort handles IPv6 bracketing; `%s:%d` does not. Caught by
+	// `go vet` on ubuntu-latest (newer Go toolchain than the Mac mini).
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	for time.Now().Before(deadline) {
 		if ctx.Err() != nil {
 			return ctx.Err()

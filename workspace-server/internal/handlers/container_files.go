@@ -171,7 +171,12 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 
 	resp, err := h.docker.ContainerCreate(ctx, &container.Config{
 		Image: "alpine:latest",
-		Cmd:   []string{"rm", "-rf", "/configs/" + filePath},
+		// F1085 fix: concat filePath into the rm path so rm processes ".."
+		// literally. rm -rf /configs/foo/../bar -> rm -rf /configs/bar (safe).
+		// Previous 2-arg form: rm -rf /configs filePath let rm process ".."
+		// in filePath literally, enabling volume escape: rm -rf /configs foo/../bar
+		// deleted BOTH /configs AND bar (outside container).
+		Cmd: []string{"rm", "-rf", "/configs/" + filePath},
 	}, &container.HostConfig{
 		Binds: []string{volumeName + ":/configs"},
 	}, nil, nil, "")
