@@ -8,6 +8,20 @@ import (
 	"strings"
 )
 
+// ssrfCheckEnabled controls whether isSafeURL performs real validation.
+// Tests disable it via setSSRFCheckForTest so that httptest.NewServer
+// loopback URLs and fake hostnames (*.example) don't trigger SSRF
+// rejections. Production code never mutates this.
+var ssrfCheckEnabled = true
+
+// setSSRFCheckForTest overrides ssrfCheckEnabled for the duration of a test
+// and returns a restore function. Use with defer in *_test.go only.
+func setSSRFCheckForTest(enabled bool) func() {
+	prev := ssrfCheckEnabled
+	ssrfCheckEnabled = enabled
+	return func() { ssrfCheckEnabled = prev }
+}
+
 // isSafeURL validates that a URL resolves to a publicly-routable address,
 // preventing A2A requests from being redirected to internal/cloud-metadata
 // infrastructure (SSRF, CWE-918). Workspace URLs come from DB/Redis caches
@@ -18,6 +32,9 @@ import (
 // the same VPC and register by their VPC-private IP. Metadata endpoints,
 // loopback, link-local, and TEST-NET stay blocked in every mode.
 func isSafeURL(rawURL string) error {
+	if !ssrfCheckEnabled {
+		return nil
+	}
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
