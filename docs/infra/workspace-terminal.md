@@ -63,6 +63,15 @@ Pick SSM later if compliance needs session recording. For now EIC is strictly le
 
 `instance_id` is persisted on provision by migration `038_workspace_instance_id`. Terminal handler branches on `instance_id IS NOT NULL`.
 
+## Topology (verified from molecule-controlplane code)
+
+- Workspaces launch in a **shared workspace VPC** (`p.VPCID`), not the tenant's VPC
+- Each workspace gets its own SG created by `createPerTenantSG("workspace", <ws-short>, workspaceIngressRules())`
+- Current `workspaceIngressRules()` opens only `8000/tcp` from `0.0.0.0/0` — no port 22
+- CP already tags every workspace instance with `Role=workspace` (+ `WorkspaceID`, `Runtime`, `SGID`, `ManagedBy=molecule-cp`)
+
+Because tenant EC2 and workspace EC2 are in **different VPCs**, a direct SG CIDR rule for port 22 is awkward (would require VPC peering + tenant-CIDR bookkeeping). **EIC Endpoint** is the natural fit — it's a VPC resource that acts as a TLS tunnel to any instance in its VPC, keyed on IAM permissions rather than source CIDR.
+
 ## IAM policy addition for `molecule-cp`
 
 ```json
@@ -78,11 +87,14 @@ Pick SSM later if compliance needs session recording. For now EIC is strictly le
     {
       "Sid": "PushEphemeralSSHKeyToWorkspaceInstances",
       "Effect": "Allow",
-      "Action": ["ec2-instance-connect:SendSSHPublicKey"],
+      "Action": [
+        "ec2-instance-connect:SendSSHPublicKey",
+        "ec2-instance-connect:OpenTunnel"
+      ],
       "Resource": "arn:aws:ec2:*:*:instance/*",
       "Condition": {
         "StringEquals": {
-          "aws:ResourceTag/molecule:role": "workspace"
+          "aws:ResourceTag/Role": "workspace"
         }
       }
     }
@@ -90,23 +102,28 @@ Pick SSM later if compliance needs session recording. For now EIC is strictly le
 }
 ```
 
-Rationale for the tag condition: if CP tags workspace EC2s with `molecule:role=workspace` at launch, this policy can't be weaponized to push keys into unrelated instances. **Action: CP launch code must set that tag** — otherwise drop the Condition block (broader blast radius; less safe).
+Tag key is **`Role`** (capitalized) — CP already sets this at launch in `ec2.go:1126`. No CP change needed for the policy's scoping to work fleet-wide.
 
-## Security group rule
+## EIC Endpoint (one-time setup in the workspace VPC)
 
-On each workspace EC2's security group, allow inbound `22/tcp` from the tenant VPC's CIDR only:
-
-```
-Inbound:
-  Port: 22
-  Protocol: TCP
-  Source: <tenant-vpc-cidr>  (NOT 0.0.0.0/0)
-  Description: Tenant workspace-server → EIC-pushed SSH for canvas terminal
+```bash
+aws ec2 create-instance-connect-endpoint \
+  --subnet-id <any-subnet-in-workspace-vpc> \
+  --security-group-ids <sg-id-allowing-egress-only> \
+  --tag-specifications 'ResourceType=instance-connect-endpoint,Tags=[{Key=Name,Value=molecule-workspace-eic}]'
 ```
 
-Two notes:
-- EIC does NOT open 0.0.0.0/0 on port 22. The ingress must already allow the caller IP (here: the tenant). EIC only pushes the key — you still need network reachability.
-- If tenant and workspace EC2s live in different VPCs (likely), use VPC peering or EIC Endpoint instead of a direct CIDR rule.
+One endpoint per workspace VPC. Free for the resource (pay only for data transferred). Replaces both "open port 22 in every SG" and "establish VPC peering for tenant→workspace SSH" — no change to `workspaceIngressRules()` needed, no change to tenant VPC routing needed.
+
+## Alternative: direct SG rule (not recommended)
+
+If you really want direct SSH instead of EIC Endpoint:
+
+1. Add `22/tcp` to `workspaceIngressRules()` in `molecule-controlplane`, sourced from the tenant VPC's CIDR
+2. Establish VPC peering between tenant VPC and workspace VPC
+3. Update the route tables on both sides
+
+Three more failure modes + ongoing bookkeeping per tenant. Skip unless you have a specific reason EIC Endpoint doesn't fit.
 
 ## Key lifetime
 
@@ -127,18 +144,11 @@ Two notes:
 
 ## Rollout checklist
 
-### 1. Infra prep (CP side)
+### 1. Infra prep (one-time)
 
-- [ ] CP tags new workspace EC2s with `molecule:role=workspace` on launch (add a 5-line change to the RunInstances call in the CP service)
-- [ ] Backfill tag on existing workspace EC2s:
-      ```
-      aws ec2 create-tags --resources $(aws ec2 describe-instances \
-        --filters 'Name=tag:Component,Values=molecule-workspace' \
-        --query 'Reservations[].Instances[].InstanceId' --output text) \
-        --tags Key=molecule:role,Value=workspace
-      ```
-- [ ] Add the IAM policy above to `molecule-cp`
-- [ ] Update workspace security group to allow port 22 from tenant VPC CIDR
+- [ ] Add IAM policy above to `molecule-cp` user (tag key is `Role`, already set by CP at launch — no CP change needed)
+- [ ] Create one EIC Endpoint in the workspace VPC (see command above)
+- [ ] No change to `workspaceIngressRules()` — EIC Endpoint bypasses SG ingress
 
 ### 2. Tenant code (this repo)
 
@@ -150,7 +160,7 @@ Two notes:
 - [ ] After PR 1 merges + deploys, provision a new CP workspace → verify `SELECT instance_id FROM workspaces` returns the EC2 id
 - [ ] After PR 2 merges + deploys, open Terminal tab on a CP workspace → bash prompt appears
 - [ ] Intentionally terminate the EC2 → Terminal tab shows the "instance no longer exists" message
-- [ ] Pull the `ec2-instance-connect` action from molecule-cp temporarily → Terminal shows "tenant lacks EIC permission"
+- [ ] Pull the `ec2-instance-connect:OpenTunnel` action from molecule-cp temporarily → Terminal shows "tenant lacks EIC permission"
 
 ## Future work (not in scope)
 
