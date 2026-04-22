@@ -523,11 +523,9 @@ func TestAdminAuth_OrgToken_SetsOrgID(t *testing.T) {
 			mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
 				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-			// Single-round-trip Validate: id + prefix + org_id. The
-			// secondary org_id SELECT has been consolidated into this
-			// query, so tt.orgIDFromDB goes into the same row instead of
-			// being returned by a second ExpectQuery. Note: org tokens
-			// are checked BEFORE the workspace token path
+			// orgtoken.Validate: org token hash matches, returns id + prefix + org_id.
+			// The org_id is returned directly from the primary query.
+			// Note: org tokens are checked BEFORE the workspace token path
 			// (ValidateAnyToken), so ValidateAnyToken is NOT called here.
 			mock.ExpectQuery(orgTokenValidateQueryV1).
 				WithArgs(orgTokenHash[:]).
