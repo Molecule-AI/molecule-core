@@ -409,6 +409,11 @@ def test_extract_history_non_list():
 async def test_set_current_task_updates_heartbeat():
     """set_current_task updates heartbeat fields."""
     heartbeat = MagicMock()
+    # PR #37 changed active_tasks from binary 0/1 to a counter incremented
+    # on task start and decremented on clear.  getattr on an unconfigured
+    # MagicMock returns a new MagicMock (not 0), so we pre-seed the value
+    # as an integer so the +1 / -1 arithmetic yields the correct results.
+    heartbeat.active_tasks = 0
     await set_current_task(heartbeat, "Doing work")
     assert heartbeat.current_task == "Doing work"
     assert heartbeat.active_tasks == 1
