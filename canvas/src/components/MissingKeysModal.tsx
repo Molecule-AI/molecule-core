@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import { getKeyLabel } from "@/lib/deploy-preflight";
 
@@ -38,6 +38,7 @@ export function MissingKeysModal({
 }: Props) {
   const [entries, setEntries] = useState<KeyEntry[]>([]);
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const firstInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize entries when modal opens or missingKeys change
   useEffect(() => {
@@ -55,7 +56,14 @@ export function MissingKeysModal({
     setGlobalError(null);
   }, [open, missingKeys]);
 
-  // Keyboard handler
+  // Focus first input when modal opens
+  useEffect(() => {
+    if (!open) return;
+    const raf = requestAnimationFrame(() => {
+      firstInputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
@@ -134,7 +142,12 @@ export function MissingKeysModal({
       />
 
       {/* Dialog */}
-      <div className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl shadow-black/50 max-w-[440px] w-full mx-4 overflow-hidden">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="missing-keys-title"
+        className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl shadow-black/50 max-w-[440px] w-full mx-4 overflow-hidden"
+      >
         {/* Header */}
         <div className="px-5 py-4 border-b border-zinc-800">
           <div className="flex items-center gap-2 mb-1">
@@ -150,7 +163,7 @@ export function MissingKeysModal({
                 <circle cx="6" cy="8.5" r="0.5" fill="#fbbf24" />
               </svg>
             </div>
-            <h3 className="text-sm font-semibold text-zinc-100">
+            <h3 id="missing-keys-title" className="text-sm font-semibold text-zinc-100">
               Missing API Keys
             </h3>
           </div>
@@ -193,7 +206,7 @@ export function MissingKeysModal({
                     onChange={(e) => updateEntry(index, { value: e.target.value.trimStart() })}
                     placeholder={entry.key.includes("API_KEY") ? "sk-..." : "Enter value"}
                     type="password"
-                    autoFocus={index === 0}
+                    ref={index === 0 ? firstInputRef : undefined}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && entry.value.trim()) {
                         handleSaveKey(index);

@@ -159,7 +159,7 @@ export function Toolbar() {
           title={`Stop all running tasks (${counts.activeTasks} active)`}
           aria-label={stopping ? "Stopping all running tasks" : `Stop all running tasks (${counts.activeTasks} active)`}
         >
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="text-red-400">
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="text-red-400" aria-hidden="true">
             <rect x="2" y="2" width="12" height="12" rx="2" />
           </svg>
           <span className="text-[10px] text-red-300 font-medium">
@@ -177,7 +177,7 @@ export function Toolbar() {
           title={`Restart ${needsRestartNodes.length} workspace${needsRestartNodes.length === 1 ? "" : "s"} that need to pick up config or secret changes`}
           aria-label={restartingAll ? "Restarting workspaces" : `Restart ${needsRestartNodes.length} workspace${needsRestartNodes.length === 1 ? "" : "s"} pending config or secret changes`}
         >
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="text-amber-400">
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="text-amber-400" aria-hidden="true">
             <path d="M2 8a6 6 0 1 1 1.76 4.24M2 13v-3h3" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <span className="text-[10px] text-amber-300 font-medium">
@@ -253,7 +253,7 @@ export function Toolbar() {
         onClick={() => useCanvasStore.getState().setSearchOpen(true)}
         className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-700/40 rounded-lg transition-colors"
       >
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="text-zinc-500">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="text-zinc-500" aria-hidden="true">
           <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5" />
           <path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
@@ -269,7 +269,7 @@ export function Toolbar() {
           aria-expanded={helpOpen}
           aria-label="Open quick help"
         >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="text-zinc-500">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="text-zinc-500" aria-hidden="true">
             <path d="M8 12v.5M6.5 6.3A1.9 1.9 0 1 1 9 8.1c-.7.4-1 .8-1 1.7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.2" />
           </svg>
