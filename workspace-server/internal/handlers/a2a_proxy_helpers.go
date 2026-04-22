@@ -345,38 +345,4 @@ func isSafeURL(rawURL string) error {
 	return nil
 }
 
-// isPrivateOrMetadataIP returns true for RFC-1918 private, carrier-grade NAT,
-// link-local, and cloud metadata ranges.
-func isPrivateOrMetadataIP(ip net.IP) bool {
-	var privateRanges = []net.IPNet{
-		{IP: net.ParseIP("10.0.0.0"), Mask: net.CIDRMask(8, 32)},
-		{IP: net.ParseIP("172.16.0.0"), Mask: net.CIDRMask(12, 32)},
-		{IP: net.ParseIP("192.168.0.0"), Mask: net.CIDRMask(16, 32)},
-		{IP: net.ParseIP("169.254.0.0"), Mask: net.CIDRMask(16, 32)},
-		{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)},
-		{IP: net.ParseIP("192.0.2.0"), Mask: net.CIDRMask(24, 32)},
-		{IP: net.ParseIP("198.51.100.0"), Mask: net.CIDRMask(24, 32)},
-		{IP: net.ParseIP("203.0.113.0"), Mask: net.CIDRMask(24, 32)},
-	}
-	ip = ip.To4()
-	if ip == nil {
-		return false
-	}
-	for _, r := range privateRanges {
-		if r.Contains(ip) {
-			return true
-		}
-	}
-	return false
-}
 
-// validateRelPath checks that a file path is relative and does not escape
-// the destination via absolute paths or ".." traversal. Used by
-// copyFilesToContainer and deleteViaEphemeral as a defence-in-depth measure.
-func validateRelPath(filePath string) error {
-	clean := filepath.Clean(filePath)
-	if filepath.IsAbs(clean) || strings.Contains(clean, "..") {
-		return fmt.Errorf("path traversal or absolute path not allowed: %s", filePath)
-	}
-	return nil
-}
