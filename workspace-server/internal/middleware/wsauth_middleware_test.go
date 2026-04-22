@@ -473,11 +473,14 @@ func TestAdminAuth_InvalidBearer_Returns401(t *testing.T) {
 // token (org_id="ws-org-1").
 // ────────────────────────────────────────────────────────────────────────────
 
-// orgTokenValidateQueryV1 is matched for orgtoken.Validate(). Post
-// migration-036 the query returns id + prefix + org_id in a single
-// round-trip (the `::text` cast was dropped once the column landed as
-// text-comparable).
+// orgTokenValidateQueryV1 is matched for orgtoken.Validate().
+// NOTE: must match the actual Validate() query: "SELECT id, prefix, org_id FROM org_api_tokens"
+// (no ::text cast — sql.NullString handles the NULL scan natively).
 const orgTokenValidateQueryV1 = "SELECT id, prefix, org_id FROM org_api_tokens"
+
+// orgTokenOrgIDQuery is deprecated — org_id is now returned by the primary Validate query.
+// Kept here to avoid breaking other test files that may reference it.
+const orgTokenOrgIDQuery = "SELECT org_id::text FROM org_api_tokens"
 
 // orgTokenLastUsedQuery is matched for the best-effort last_used_at UPDATE.
 const orgTokenLastUsedQuery = "UPDATE org_api_tokens SET last_used_at"
@@ -520,11 +523,9 @@ func TestAdminAuth_OrgToken_SetsOrgID(t *testing.T) {
 			mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
 				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-			// Single-round-trip Validate: id + prefix + org_id. The
-			// secondary org_id SELECT has been consolidated into this
-			// query, so tt.orgIDFromDB goes into the same row instead of
-			// being returned by a second ExpectQuery. Note: org tokens
-			// are checked BEFORE the workspace token path
+			// orgtoken.Validate: org token hash matches, returns id + prefix + org_id.
+			// The org_id is returned directly from the primary query.
+			// Note: org tokens are checked BEFORE the workspace token path
 			// (ValidateAnyToken), so ValidateAnyToken is NOT called here.
 			mock.ExpectQuery(orgTokenValidateQueryV1).
 				WithArgs(orgTokenHash[:]).
