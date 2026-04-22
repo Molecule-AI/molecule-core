@@ -1,0 +1,119 @@
+{
+  "audited_at": "2026-04-22T05:57:08Z",
+  "audited_url": "https://docs.molecule.ai/blog/chrome-devtools-mcp (LIVE UNREACHABLE \u2014 source audit)",
+  "audit_method": "source-level static analysis (live URL inaccessible from this environment)",
+  "audits": {
+    "chrome-devtools-mcp (canonical)": {
+      "title": "Browser Automation Meets Production Standards \u2014 Chrome DevTools MCP and the Governance Layer",
+      "description": "Chrome DevTools MCP gives any compatible AI agent full browser control through a standards-based interface. That's powerful for prototypes. For production, you need a governance layer. Here's where Molecule AI fits in.",
+      "desc_len": 218,
+      "slug": "chrome-devtools-mcp",
+      "date": "2026-04-20",
+      "tags": "[browser-automation, mcp, governance, chrome-devtools, security]",
+      "word_count": 813,
+      "h1s": [
+        "Browser Automation Meets Production Standards"
+      ],
+      "h2s": [
+        "The Problem With Raw CDP Access",
+        "Molecule AI's MCP Governance Layer",
+        "Real-World Use Cases the Governance Layer Enables",
+        "Setup"
+      ],
+      "h3s": 3,
+      "images": {
+        "total": 0,
+        "no_alt": 0
+      },
+      "links": {
+        "internal": 3,
+        "external": 0
+      },
+      "kw_density": {
+        "mcp": 14,
+        "chrome devtools": 7,
+        "browser automation": 4,
+        "governance": 5,
+        "audit": 8,
+        "security": 2
+      },
+      "avg_sentence_len": 15.4,
+      "has_frontmatter": true,
+      "has_slug": true,
+      "has_date": true
+    },
+    "chrome-devtools-mcp-seo (variant)": {
+      "title": "Give Your AI Agent a Real Browser: MCP + Chrome DevTools",
+      "description": "Learn how to add browser automation to your AI agents using Chrome DevTools and the Model Context Protocol. Full Python code examples \u2014 no Puppeteer wrappers, no SaaS dependencies.",
+      "desc_len": 180,
+      "slug": "browser-automation-ai-agents-mcp",
+      "date": "2026-04-20",
+      "tags": "[MCP, browser-automation, AI-agents, CDP, tutorial]",
+      "word_count": 1888,
+      "h1s": [
+        "Give Your AI Agent a Real Browser: MCP + Chrome DevTools",
+        "Start the CDP session \u2014 connects to Chrome's remote debugging port",
+        "Attach browser tools as MCP tools on the agent",
+        "Run the task",
+        "macOS",
+        "Linux",
+        "Windows",
+        "Set your browser MCP server endpoint via the platform API"
+      ],
+      "h2s": [
+        "Why MCP for Browser Automation",
+        "The Chrome DevTools Protocol + MCP Bridge",
+        "Full Code Example: AI Agent That Researches Competitors",
+        "Real-World Use Cases",
+        "Getting Started with Molecule AI"
+      ],
+      "h3s": 2,
+      "images": {
+        "total": 0,
+        "no_alt": 0
+      },
+      "links": {
+        "internal": 2,
+        "external": 6
+      },
+      "kw_density": {
+        "mcp": 49,
+        "chrome devtools": 6,
+        "browser automation": 5,
+        "governance": 0,
+        "audit": 0,
+        "security": 0
+      },
+      "avg_sentence_len": 16.7,
+      "has_frontmatter": true,
+      "has_slug": true,
+      "has_date": true
+    }
+  },
+  "seo_score_estimate": "78/100",
+  "summary": {
+    "critical_issues": [
+      "Meta description too long on canonical variant (218 chars, target <160)",
+      "Meta description too long on SEO variant (180 chars, target <160)",
+      "SEO variant has 8 H1 tags (WCAG: should be exactly 1)"
+    ],
+    "warnings": [
+      "Live URL SSL-inaccessible \u2014 cannot verify og:image, canonical tag, or runtime SEO",
+      "og:image tag present in frontmatter but image accessibility unverified"
+    ],
+    "passed": [
+      "Single H1 on canonical variant",
+      "No images without alt text",
+      "Proper frontmatter (slug, date, tags) on both variants",
+      "Keyword density appropriate on canonical (MCP 1.72%, governance 0.62%)",
+      "Readability: avg sentence ~15-17 words (good for technical audience)"
+    ]
+  },
+  "recommendations": [
+    "Trim canonical description to \u2264160 chars \u2014 current 218 chars will truncate in SERPs",
+    "Convert 7 extra H1s in SEO variant to H2 tags (WCAG compliance)",
+    "Verify live site canonical tag matches expected URL once site is accessible",
+    "Confirm og:image dimensions (1200\u00d7630 required for most social cards)",
+    "Schedule MCP server list audit for ~Apr 25 (per Dev Lead directive)"
+  ]
+}
