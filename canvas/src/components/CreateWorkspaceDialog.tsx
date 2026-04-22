@@ -166,7 +166,6 @@ export function CreateWorkspaceButton() {
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" />
         <Dialog.Content
           className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-zinc-900 border border-zinc-700/60 rounded-2xl shadow-2xl shadow-black/40 w-[400px] max-h-[90vh] overflow-y-auto p-6"
-          aria-describedby={undefined}
         >
           <Dialog.Title className="text-base font-semibold text-zinc-100 mb-1">
             Create Workspace
