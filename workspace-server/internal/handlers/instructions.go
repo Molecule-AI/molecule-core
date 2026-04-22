@@ -3,11 +3,16 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/gin-gonic/gin"
 )
+
+// maxInstructionContentLen caps content size to prevent token-budget DoS via
+// oversized instructions being prepended to every agent's system prompt.
+const maxInstructionContentLen = 8192
 
 type InstructionsHandler struct{}
 
@@ -28,51 +33,36 @@ type Instruction struct {
 }
 
 // List returns instructions filtered by scope. Agents call this at startup
-// to fetch their full instruction set (global + team + workspace).
+// to fetch their full instruction set (global + workspace).
 //
 // GET /instructions?scope=global
-// GET /instructions?workspace_id=<uuid>  (returns global + team + workspace)
+// GET /instructions?workspace_id=<uuid>  (returns global + workspace)
+//
+// Team scope is reserved in the schema but not yet wired — teams/team_members
+// tables don't exist in any migration. Adding team support requires a new
+// migration first.
 func (h *InstructionsHandler) List(c *gin.Context) {
 	ctx := c.Request.Context()
 	scope := c.Query("scope")
 	workspaceID := c.Query("workspace_id")
 
-	var rows_ interface{ Close() error }
-	var err error
-
 	if workspaceID != "" {
-		// Agent bootstrap: fetch all applicable instructions (global + team + workspace)
-		// ordered by scope priority (global first) then user priority descending.
-		var teamSlug *string
-		db.DB.QueryRowContext(ctx,
-			`SELECT t.slug FROM teams t
-			 JOIN team_members tm ON tm.team_id = t.id
-			 WHERE tm.workspace_id = $1 LIMIT 1`, workspaceID).Scan(&teamSlug)
-
 		query := `SELECT id, scope, scope_target, title, content, priority, enabled, created_at, updated_at
 			FROM platform_instructions
 			WHERE enabled = true AND (
 				scope = 'global'
-				OR (scope = 'team' AND scope_target = $1)
-				OR (scope = 'workspace' AND scope_target = $2)
+				OR (scope = 'workspace' AND scope_target = $1)
 			)
-			ORDER BY CASE scope WHEN 'global' THEN 0 WHEN 'team' THEN 1 WHEN 'workspace' THEN 2 END,
+			ORDER BY CASE scope WHEN 'global' THEN 0 WHEN 'workspace' THEN 2 END,
 			         priority DESC`
-
-		teamTarget := ""
-		if teamSlug != nil {
-			teamTarget = *teamSlug
-		}
-		r, qErr := db.DB.QueryContext(ctx, query, teamTarget, workspaceID)
+		r, qErr := db.DB.QueryContext(ctx, query, workspaceID)
 		if qErr != nil {
 			log.Printf("Instructions list error: %v", qErr)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 			return
 		}
-		rows_ = r
 		defer r.Close()
-		instructions := scanInstructions(r)
-		c.JSON(http.StatusOK, instructions)
+		c.JSON(http.StatusOK, scanInstructions(r))
 		return
 	}
 
@@ -92,8 +82,6 @@ func (h *InstructionsHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
-	rows_ = r
-	_ = rows_
 	defer r.Close()
 	c.JSON(http.StatusOK, scanInstructions(r))
 }
@@ -112,12 +100,20 @@ func (h *InstructionsHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "scope, title, and content are required"})
 		return
 	}
-	if body.Scope != "global" && body.Scope != "team" && body.Scope != "workspace" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "scope must be global, team, or workspace"})
+	if body.Scope != "global" && body.Scope != "workspace" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scope must be global or workspace (team scope not yet supported)"})
 		return
 	}
-	if body.Scope != "global" && (body.ScopeTarget == nil || *body.ScopeTarget == "") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "scope_target required for team/workspace scope"})
+	if body.Scope == "workspace" && (body.ScopeTarget == nil || *body.ScopeTarget == "") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scope_target required for workspace scope"})
+		return
+	}
+	if len(body.Content) > maxInstructionContentLen {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "content exceeds 8192 chars"})
+		return
+	}
+	if len(body.Title) > 200 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "title exceeds 200 chars"})
 		return
 	}
 
@@ -147,6 +143,14 @@ func (h *InstructionsHandler) Update(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	if body.Content != nil && len(*body.Content) > maxInstructionContentLen {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "content exceeds 8192 chars"})
+		return
+	}
+	if body.Title != nil && len(*body.Title) > 200 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "title exceeds 200 chars"})
 		return
 	}
 
@@ -190,41 +194,38 @@ func (h *InstructionsHandler) Delete(c *gin.Context) {
 }
 
 // Resolve returns the merged instruction text for a workspace — all enabled
-// instructions across global → team → workspace scope, concatenated in order.
+// instructions across global → workspace scope, concatenated in order.
 // This is what the Python runtime calls to get the full instruction set.
 //
-// GET /instructions/resolve?workspace_id=<uuid>
+// GET /workspaces/:id/instructions/resolve
+//
+// Mounted under wsAuth so the caller must hold a valid bearer token for
+// :id, preventing cross-workspace enumeration of operator policy.
 func (h *InstructionsHandler) Resolve(c *gin.Context) {
-	workspaceID := c.Query("workspace_id")
+	workspaceID := c.Param("id")
 	if workspaceID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "workspace_id required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "workspace id required"})
 		return
 	}
 	ctx := c.Request.Context()
-
-	var teamSlug string
-	db.DB.QueryRowContext(ctx,
-		`SELECT COALESCE(t.slug, '') FROM teams t
-		 JOIN team_members tm ON tm.team_id = t.id
-		 WHERE tm.workspace_id = $1 LIMIT 1`, workspaceID).Scan(&teamSlug)
 
 	rows, err := db.DB.QueryContext(ctx,
 		`SELECT scope, title, content FROM platform_instructions
 		 WHERE enabled = true AND (
 			scope = 'global'
-			OR (scope = 'team' AND scope_target = $1)
-			OR (scope = 'workspace' AND scope_target = $2)
+			OR (scope = 'workspace' AND scope_target = $1)
 		 )
-		 ORDER BY CASE scope WHEN 'global' THEN 0 WHEN 'team' THEN 1 WHEN 'workspace' THEN 2 END,
+		 ORDER BY CASE scope WHEN 'global' THEN 0 WHEN 'workspace' THEN 2 END,
 		          priority DESC`,
-		teamSlug, workspaceID)
+		workspaceID)
 	if err != nil {
+		log.Printf("Instructions resolve error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
 	defer rows.Close()
 
-	var merged string
+	var b strings.Builder
 	currentScope := ""
 	for rows.Next() {
 		var scope, title, content string
@@ -232,21 +233,25 @@ func (h *InstructionsHandler) Resolve(c *gin.Context) {
 			continue
 		}
 		if scope != currentScope {
-			scopeLabel := map[string]string{
-				"global":    "Platform-Wide Rules",
-				"team":      "Team Rules",
-				"workspace": "Role-Specific Rules",
-			}[scope]
-			merged += "\n## " + scopeLabel + "\n\n"
+			scopeLabel := "Platform-Wide Rules"
+			if scope == "workspace" {
+				scopeLabel = "Role-Specific Rules"
+			}
+			b.WriteString("\n## ")
+			b.WriteString(scopeLabel)
+			b.WriteString("\n\n")
 			currentScope = scope
 		}
-		merged += "### " + title + "\n" + content + "\n\n"
+		b.WriteString("### ")
+		b.WriteString(title)
+		b.WriteString("\n")
+		b.WriteString(content)
+		b.WriteString("\n\n")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"workspace_id": workspaceID,
-		"team_slug":    teamSlug,
-		"instructions": merged,
+		"instructions": b.String(),
 	})
 }
 
