@@ -3,7 +3,7 @@
 **Date:** 2026-04-22
 **Author:** Content Marketer (SEO gap filing)
 **Campaign:** EC2 Instance Connect SSH Terminal Support
-**Status:** BRIEF DRAFT — for SEO Analyst review and keyword validation
+**KD (SEO Analyst):** EC2 Instance Connect ~25-40 | AI agent SSH access ~10-25 | SSH bastion host alternative ~20-35
 
 ---
 
