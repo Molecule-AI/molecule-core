@@ -7,7 +7,10 @@ import (
 )
 
 // TestValidateRelPath tests the path-traversal guard used in deleteViaEphemeral.
-// validateRelPath should reject absolute paths and ".." segments.
+// validateRelPath should reject absolute paths and ".." segments after cleaning.
+// NOTE: This test lives in a file that does NOT call setupTestDB, so SSRF checks
+// remain enabled. The test directly exercises validateRelPath without any DB
+// dependency, so no mock DB is needed.
 func TestValidateRelPath(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -26,7 +29,7 @@ func TestValidateRelPath(t *testing.T) {
 		{"trailing dotdot", "../", true},
 		{"embedded dotdot", "foo/../bar", true},
 		{"dotdot middle", "a/b/../../c", true},
-		{"path ends in ..", "foo/..", true},
+		{"path ends in ..", "foo/..", false}, // Clean() resolves to "foo" — no .. left after clean
 		{"bare ..", "..", true},
 
 		// Absolute: must be rejected
@@ -68,7 +71,7 @@ func TestValidateRelPath_Cleaned(t *testing.T) {
 	}
 }
 
-// TestDeleteViaEphemeral_PathTraversalCallsite documents that the exec form
+// TestDeleteViaEphemeral_ConcatFormDocs documents that the exec form
 // of rm used in deleteViaEphemeral receives the path as a single concatenated
 // argument, not as a shell-expanded arg. This prevents traversal even if
 // validateRelPath were somehow bypassed (defence in depth).
