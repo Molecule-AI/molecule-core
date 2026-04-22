@@ -82,8 +82,16 @@ func isPrivateOrMetadataIP(ip net.IP) bool {
 // the destination via absolute paths or ".." traversal. Used by
 // copyFilesToContainer and deleteViaEphemeral as a defence-in-depth measure.
 func validateRelPath(filePath string) error {
+	// Reject absolute paths (Unix and Windows) and ".." traversal BEFORE cleaning,
+	// because filepath.Clean normalises ".." away before we can detect it.
+	if filepath.IsAbs(filePath) || strings.HasPrefix(filePath, "..") || strings.Contains(filePath, "/..") || strings.Contains(filePath, "\\..") {
+		return fmt.Errorf("path traversal or absolute path not allowed: %s", filePath)
+	}
+	// Also reject Windows absolute paths (e.g. C:\Windows\System32) on all platforms.
+	// filepath.IsAbs only catches Unix-style (/...) on Linux, so we explicitly
+	// check for drive-letter patterns.
 	clean := filepath.Clean(filePath)
-	if filepath.IsAbs(clean) || strings.Contains(clean, "..") {
+	if len(clean) >= 3 && clean[1] == ':' && (clean[2] == '\\' || clean[2] == '/') {
 		return fmt.Errorf("path traversal or absolute path not allowed: %s", filePath)
 	}
 	return nil
