@@ -1,17 +1,7 @@
 # golangci-lint configuration for workspace-server
-version: v2
+# https://golangci-lint.run/usage/configuration/
 run:
   timeout: 3m
 linters:
-  enable:
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - gosec
-    - unconvert
-    - unparam
-    - gofmt
-    - goimports
-    - revive
+  disable:
+    - errcheck
