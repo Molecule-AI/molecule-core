@@ -402,8 +402,11 @@ func (h *TemplatesHandler) DeleteFile(c *gin.Context) {
 
 	// Delete via docker exec when container is running
 	if containerName := h.findContainer(ctx, workspaceID); containerName != "" {
-		containerPath := "/configs/" + filePath
-		_, err := h.execInContainer(ctx, containerName, []string{"rm", "-rf", containerPath})
+		// Two-arg exec form: rm -rf /configs filePath.
+		// Passes /configs as working dir and filePath as the target arg separately,
+		// so filePath is never interpolated into a shell path that could escape
+		// the /configs volume bind mount.
+		_, err := h.execInContainer(ctx, containerName, []string{"rm", "-rf", "/configs", filePath})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to delete: %v", err)})
 			return
@@ -459,7 +462,7 @@ func (h *TemplatesHandler) SharedContext(c *gin.Context) {
 			if err := validateRelPath(relPath); err != nil {
 				continue
 			}
-			content, err := h.execInContainer(ctx, containerName, []string{"cat", "/configs/" + relPath})
+			content, err := h.execInContainer(ctx, containerName, []string{"cat", "/configs", relPath})
 			if err != nil {
 				continue
 			}
