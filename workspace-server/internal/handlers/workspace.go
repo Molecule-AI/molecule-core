@@ -20,7 +20,6 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/models"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
-	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
 	"github.com/Molecule-AI/molecule-monorepo/platform/pkg/provisionhook"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
