@@ -59,6 +59,8 @@ HandleConnect(workspace)
                                   -- docker exec -it <container-id> /bin/bash
                             └── PTY (creack/pty) wraps the session for TTY semantics
                             └── PTY ↔ Canvas WebSocket bridge
+
+> **Note:** PR [#1531](https://github.com/Molecule-AI/molecule-core/pull/1531) persists the `instance_id` on the workspace record at provisioning time — so the Terminal tab can route to the EIC Endpoint path without a separate lookup at session open.
 ```
 
 The `sshCommandFactory` is a configurable variable — the tests stub it to avoid spawning real `aws-cli` processes during CI, but in production it produces the command above. The subprocess bridges the PTY to the Canvas WebSocket, so the browser terminal and the remote bash session stay in sync.
