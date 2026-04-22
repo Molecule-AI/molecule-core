@@ -185,7 +185,14 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 		if id, prefix, orgID, err := orgtoken.Validate(ctx, database, tok); err == nil {
 			c.Set("org_token_id", id)
 			c.Set("org_token_prefix", prefix)
-			c.Set("org_id", orgID)
+			// F1097 guard: pre-migration tokens have org_id=NULL in the DB.
+			// Setting an empty-string key makes c.Get("org_id") return
+			// (exists=true, value="") which breaks callers that check
+			// existence to decide if the token is org-scoped. Only set the
+			// key when orgID is non-empty.
+			if orgID != "" {
+				c.Set("org_id", orgID)
+			}
 			c.Next()
 			return
 		} else if !errors.Is(err, orgtoken.ErrInvalidToken) {
