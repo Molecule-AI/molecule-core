@@ -72,6 +72,7 @@ Track competitor releases and market events that affect Phase 30 positioning. En
 | Date | Event | Competitor | PMM Action |
 |------|-------|-----------|------------|
 | 2026-03-12 | **A2A v1.0 officially shipped** — LF, 23.3k stars, 5 official SDKs, 383 community implementations | Linux Foundation / ecosystem | A2A v1.0 is standardized — Molecule AI's native A2A is now a reference implementation story (issue #1286). Position as canonical hosted reference before AWS/GCP/Azure absorb it. |
+| 2026-04-22 | LangGraph PR verification deferred: GH API 401 for external repos. LangGraph PRs #6645, #7113, #7205 still VERIFY. A2A blog uses PR#6645 as governance-gap evidence — if PRs merged, blog claim is stale. | PMM | GH API 401 for external repos — cannot verify |
 | 2026-04-21 | Battlecard v0.3 shipped — added A2A live-today vs LangGraph in-progress side-by-side table; LangGraph counters updated to lead with live production status; buyer bottom line added | PMM | Battlecard updated within same cycle as ecosystem check |
 | 2026-04-21 | LangGraph PR verification: #6645, #7113, #7205 not found in langchain-ai/langgraph open PR list. Possible merge, close, or re-number. **PMM action:** ecosystem-watch updated with VERIFY flags. Battlecard v0.3 LangGraph status is stale until re-verified. | PMM |
 | 2026-04-20 | Chrome DevTools MCP shipped — browser automation now standard MCP tool | MCP ecosystem | Positioned as governance story, not browser story. |
@@ -115,7 +116,7 @@ Track competitor releases and market events that affect Phase 30 positioning. En
 - **Check frequency:** Every marketing cycle
 - **Trigger:** Any competitor shipping something that invalidates a Phase 30 positioning claim
 - **File location:** `docs/ecosystem-watch.md` (origin/main)
-- **Last updated by:** PMM | 2026-04-21
+- **Last updated by:** PMM | 2026-04-22 (LangGraph PR VERIFY note added — GH API 401 for external repos)
 
 ---
 
