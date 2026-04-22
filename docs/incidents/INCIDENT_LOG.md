@@ -5,7 +5,7 @@
 
 ---
 
-*Last updated: 2026-04-22T07:45Z by Core-DevOps — WORKSPACE_ID fixes committed; P0 still active*
+*Last updated: 2026-04-22T08:20Z by Infra-SRE — WORKSPACE_ID: all builtin_tools gaps closed (d838b73 + f3204c2); P0 still active, push blocked*
 
 ---
 
@@ -76,24 +76,25 @@ Multiple cascading failures:
    ```
 5. **PM workspace + EC2 recovery** — Infra team to restore PM workspace (f0897ffd) and EC2 cascade
 
-### Known Issue — builtin_tools WORKSPACE_ID validation (INCIDENT LOG #1124) — ✅ FIXED
+### Known Issue — builtin_tools WORKSPACE_ID validation (INCIDENT LOG #1124) — ✅ FULLY FIXED
 
-Five builtin_tools modules had `WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")` with no validation, silently producing empty-string IDs when the env var was unset. **Fixed by commit `d838b73`:**
+All builtin_tools modules with empty-string WORKSPACE_ID defaults have been patched:
 
-| File | Change |
-|------|--------|
-| `builtin_tools/memory.py` | RuntimeError guard on empty WORKSPACE_ID |
-| `builtin_tools/approval.py` | RuntimeError guard on empty WORKSPACE_ID |
-| `builtin_tools/audit.py` | RuntimeError guard on empty WORKSPACE_ID |
-| `builtin_tools/delegation.py` | RuntimeError guard on empty WORKSPACE_ID |
-| `builtin_tools/governance.py` | RuntimeError guard on empty WORKSPACE_ID |
+| File | Commit | Change |
+|------|--------|--------|
+| `builtin_tools/memory.py` | `d838b73` | RuntimeError guard (module-level) |
+| `builtin_tools/approval.py` | `d838b73` | RuntimeError guard (module-level) |
+| `builtin_tools/audit.py` | `d838b73` | RuntimeError guard (module-level) |
+| `builtin_tools/delegation.py` | `d838b73` | RuntimeError guard (module-level) |
+| `builtin_tools/governance.py` | `d838b73` | RuntimeError guard (module-level) |
+| `builtin_tools/a2a_tools.py` | `f3204c2` | RuntimeError guard (module-level) |
+| `builtin_tools/hitl.py` | `f3204c2` | RuntimeError guard (3 function-local sites: pause_task, resume_task, _notify_all_channels) |
 
-Also fixed same issue in `builtin_tools/a2a_tools.py`, `builtin_tools/hitl.py`, and other modules with empty-string defaults (a2a_cli.py, coordinator.py, molecule_ai_status.py already had guards). See commit `d838b73` on branch `ship/security-fixes-to-main-0516`.
+Branch: `ship/security-fixes-to-main-0516` — 7 unpushed commits, GH_TOKEN 401 blocks push.
 
-**Remaining gaps (low priority, not yet fixed):**
-- `builtin_tools/telemetry.py` — uses `"unknown"` default, may be intentional for optional telemetry
-- `builtin_tools/awareness_client.py` — uses `""` default, only active when awareness is configured
-- `executor_helpers.py`, `main.py`, `shared_runtime.py`, `hermes_executor.py` — see above
+**Known exceptions (low priority, intentional defaults):**
+- `builtin_tools/telemetry.py` — `"unknown"` default for optional OTEL telemetry
+- `builtin_tools/awareness_client.py` — `""` default; function returns early when awareness not configured
 
 ---
 
