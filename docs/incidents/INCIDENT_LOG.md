@@ -5,7 +5,7 @@
 
 ---
 
-*Last updated: 2026-04-22T13:05Z by Infra-SRE — PR #1498 CI: 3/10 passed (Go=hk-claw cache, Py=hk-m1-mini env), E2E fails Go cache; PR #1573 mergeable=false (dirty/conflicts); GH App workaround still works*
+*Last updated: 2026-04-22T13:07Z by Infra-SRE — PM workspace RECOVERED (online, 142m uptime); 3 App&Docs children online; PR #1498 CI: 6/10 green, 3 runner-specific failures (hk-claw Go cache, hk-m1-mini Python env); GH App workaround confirmed working*
 
 ---
 
@@ -27,10 +27,11 @@ Multiple cascading failures:
 
 | System | Status |
 |--------|--------|
-| Platform API | ❌ Unreachable |
-| GitHub (gh api, git push) | ❌ 401 org-wide |
-| PM workspace (f0897ffd) | ❌ DOWN |
-| Self-hosted CI runners | ⚠️ Runner hongming-claws has corrupt Go module cache |
+| Platform API | ✅ Operational |
+| GitHub (gh api, git push) | ✅ GitHub App token via platform API workaround (still working) |
+| PM workspace (f0897ffd / 590e9116) | ✅ **RECOVERED** — online, 142m uptime, 0 errors |
+| App & Docs workspaces (3 children) | ✅ All online, 142m uptime, 0 errors (Technical Writer, Doc Specialist, App-FE) |
+| Self-hosted CI runners | ⚠️ hongming-claw: Go cache corrupt (`undefined: pq`); hongming-m1-mini: sqlalchemy import broken |
 | GCP staging CP | ❌ 403 on `/cp/admin/orgs` — missing IAM policy (KI-007) |
 
 ### GitHub Token Status
@@ -85,7 +86,7 @@ Multiple cascading failures:
      --role=roles/container.clusterAdmin \
      --member="serviceAccount:staging@YOUR_PROJECT.iam.gserviceaccount.com"
    ```
-8. **PM workspace + EC2 recovery** — Infra team to restore PM workspace (f0897ffd) and EC2 cascade
+8. **~~PM workspace + EC2 recovery~~** — **✅ RECOVERED** (2026-04-22T13:05Z): PM workspace online, 142m uptime, 0 errors. Cascade EC2 instances may still need health-check.
 
 ### Known Issue — builtin_tools WORKSPACE_ID validation (INCIDENT LOG #1124) — ✅ FULLY FIXED
 
