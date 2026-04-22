@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -198,30 +200,83 @@ func (h *TerminalHandler) handleLocalConnect(c *gin.Context, workspaceID string)
 	<-done
 }
 
-// sshCommandFactory builds the argv that opens an interactive shell into a
-// CP-provisioned workspace. Exposed as a var so tests can override it.
-// Real builds invoke the AWS CLI's EIC shortcut, which handles ephemeral
-// key generation, SendSSHPublicKey, OpenTunnel, and SSH in one command.
-// Requires aws-cli v2 + openssh-client in the tenant image.
-var sshCommandFactory = func(instanceID, osUser, containerName string) *exec.Cmd {
+// eicSSHOptions bundles the per-session inputs for spawning the EIC tunnel
+// and the ssh client that rides on top of it. Fields are plain data so
+// tests can stub the two factories below without fighting exec.Cmd.
+type eicSSHOptions struct {
+	InstanceID    string
+	OSUser        string
+	Region        string
+	LocalPort     int
+	PrivateKeyPath string
+}
+
+// openTunnelCmd builds the argv that opens a TLS-tunneled TCP port from
+// the local machine to the workspace EC2's sshd via the EIC Endpoint.
+// Long-lived: stays up for the whole terminal session.
+var openTunnelCmd = func(o eicSSHOptions) *exec.Cmd {
+	args := []string{
+		"ec2-instance-connect", "open-tunnel",
+		"--instance-id", o.InstanceID,
+		"--local-port", fmt.Sprintf("%d", o.LocalPort),
+	}
+	if o.Region != "" {
+		args = append([]string{"--region", o.Region}, args...)
+	}
+	return exec.Command("aws", args...)
+}
+
+// sshCommandCmd builds the argv for the interactive ssh client that rides
+// on the open tunnel. The remote side is the workspace EC2's sshd bound
+// to 22; with CP provisioning today the workspace runs as a native
+// process under the ubuntu user, so landing at ubuntu's shell IS the
+// terminal experience.
+var sshCommandCmd = func(o eicSSHOptions) *exec.Cmd {
 	return exec.Command(
-		"aws", "ec2-instance-connect", "ssh",
-		"--instance-id", instanceID,
-		"--connection-type", "eice", // via EIC Endpoint
-		"--os-user", osUser,
-		"--",
-		"docker", "exec", "-it", containerName, "/bin/bash",
+		"ssh",
+		"-i", o.PrivateKeyPath,
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "ServerAliveInterval=30",
+		"-o", "ServerAliveCountMax=3",
+		"-p", fmt.Sprintf("%d", o.LocalPort),
+		fmt.Sprintf("%s@127.0.0.1", o.OSUser),
 	)
 }
 
-// handleRemoteConnect tunnels a terminal session to a workspace running on
-// a separate EC2 via EC2 Instance Connect. Design: docs/infra/workspace-terminal.md.
+// sendSSHPublicKey pushes an ephemeral public key to the EIC service so
+// the workspace's sshd accepts the paired private key for the next 60s.
+// Exposed as a var so tests can stub the AWS call.
+var sendSSHPublicKey = func(ctx context.Context, region, instanceID, osUser, pubKey string) error {
+	cmd := exec.CommandContext(ctx, "aws", "ec2-instance-connect", "send-ssh-public-key",
+		"--region", region,
+		"--instance-id", instanceID,
+		"--instance-os-user", osUser,
+		"--ssh-public-key", pubKey)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("send-ssh-public-key: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// handleRemoteConnect opens a terminal session on a workspace EC2 using:
+//
+//	aws ec2-instance-connect send-ssh-public-key   (push ephemeral key)
+//	aws ec2-instance-connect open-tunnel           (TLS tunnel to :22)
+//	ssh -p <tunnel-port> ubuntu@127.0.0.1          (interactive shell)
+//
+// CP-provisioned workspaces run as native processes under ubuntu, not
+// Docker. Design: docs/infra/workspace-terminal.md.
 func (h *TerminalHandler) handleRemoteConnect(c *gin.Context, workspaceID, instanceID string) {
 	osUser := os.Getenv("WORKSPACE_EC2_OS_USER")
 	if osUser == "" {
-		osUser = "ec2-user" // AL2023 default; override via env if AMI changes
+		osUser = "ubuntu" // Ubuntu 24.04 AMI, default CP workspace runtime user
 	}
-	containerName := provisioner.ContainerName(workspaceID)
+	region := os.Getenv("AWS_REGION")
+	if region == "" {
+		region = "us-east-2" // CP default — override via env
+	}
 
 	conn, err := termUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -230,22 +285,85 @@ func (h *TerminalHandler) handleRemoteConnect(c *gin.Context, workspaceID, insta
 	}
 	defer conn.Close()
 
-	// PTY so interactive bash works (prompts, line editing, colors).
-	// os/exec alone can't allocate a controlling terminal; creack/pty
-	// opens the pty pair and wires it to the child's stdin/stdout/stderr.
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()
-	cmd := sshCommandFactory(instanceID, osUser, containerName)
-	cmd.Env = os.Environ() // inherit AWS_REGION, AWS credentials, etc.
+
+	// Ephemeral keypair — never hits disk after the session ends, and is
+	// only valid for <60s on the instance side regardless.
+	keyDir, err := os.MkdirTemp("", "molecule-terminal-*")
+	if err != nil {
+		log.Printf("Terminal keydir mkdir for ws=%s: %v", workspaceID, err)
+		_ = conn.WriteMessage(websocket.TextMessage,
+			[]byte("Error: failed to allocate session keypair\r\n"))
+		return
+	}
+	defer func() { _ = os.RemoveAll(keyDir) }()
+	keyPath := keyDir + "/id"
+	keygen := exec.CommandContext(ctx, "ssh-keygen", "-t", "ed25519", "-f", keyPath, "-N", "", "-q", "-C", "molecule-terminal")
+	if out, kerr := keygen.CombinedOutput(); kerr != nil {
+		log.Printf("Terminal ssh-keygen for ws=%s: %v (%s)", workspaceID, kerr, out)
+		_ = conn.WriteMessage(websocket.TextMessage,
+			[]byte("Error: failed to generate session keypair\r\n"))
+		return
+	}
+	pubKey, err := os.ReadFile(keyPath + ".pub")
+	if err != nil {
+		log.Printf("Terminal pubkey read for ws=%s: %v", workspaceID, err)
+		return
+	}
+
+	// 1. Push public key — sshd accepts matching private for 60s.
+	if err := sendSSHPublicKey(ctx, region, instanceID, osUser, strings.TrimSpace(string(pubKey))); err != nil {
+		log.Printf("Terminal EIC send-key for ws=%s instance=%s: %v", workspaceID, instanceID, err)
+		_ = conn.WriteMessage(websocket.TextMessage,
+			[]byte("Error: failed to push session key (check tenant IAM + see docs/infra/workspace-terminal.md)\r\n"))
+		return
+	}
+
+	// 2. Open tunnel on an OS-picked free port; retry briefly because
+	//    tunnel takes ~1-2s to start listening after exec.
+	localPort, err := pickFreePort()
+	if err != nil {
+		log.Printf("Terminal free port pick failed: %v", err)
+		return
+	}
+	opts := eicSSHOptions{
+		InstanceID:     instanceID,
+		OSUser:         osUser,
+		Region:         region,
+		LocalPort:      localPort,
+		PrivateKeyPath: keyPath,
+	}
+	tunnel := openTunnelCmd(opts)
+	tunnel.Env = os.Environ()
+	if err := tunnel.Start(); err != nil {
+		log.Printf("Terminal tunnel start for ws=%s: %v", workspaceID, err)
+		_ = conn.WriteMessage(websocket.TextMessage,
+			[]byte("Error: failed to open EIC tunnel (check EIC Endpoint + SG 22 from endpoint SG; see docs/infra/workspace-terminal.md)\r\n"))
+		return
+	}
+	defer func() {
+		if tunnel.Process != nil {
+			_ = tunnel.Process.Kill()
+		}
+		_ = tunnel.Wait()
+	}()
+	if err := waitForPort(ctx, "127.0.0.1", localPort, 10*time.Second); err != nil {
+		log.Printf("Terminal tunnel never listened for ws=%s: %v", workspaceID, err)
+		_ = conn.WriteMessage(websocket.TextMessage,
+			[]byte("Error: EIC tunnel didn't come up in time\r\n"))
+		return
+	}
+
+	// 3. SSH over the tunnel, pty-wrapped so bash behaves interactively.
+	cmd := sshCommandCmd(opts)
+	cmd.Env = os.Environ()
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		// Most likely causes: aws CLI missing, EIC Endpoint not set up,
-		// IAM perms missing. Report a specific hint, not the raw error
-		// (avoids leaking account ids or ARNs to the client).
-		log.Printf("Terminal EIC start error for ws=%s instance=%s: %v", workspaceID, instanceID, err)
+		log.Printf("Terminal ssh pty.Start for ws=%s: %v", workspaceID, err)
 		_ = conn.WriteMessage(websocket.TextMessage,
-			[]byte("Error: failed to open EIC tunnel — check tenant aws CLI + IAM (see docs/infra/workspace-terminal.md)\r\n"))
+			[]byte("Error: failed to launch ssh client\r\n"))
 		return
 	}
 	defer func() { _ = ptmx.Close() }()
@@ -300,4 +418,38 @@ func (h *TerminalHandler) handleRemoteConnect(c *gin.Context, workspaceID, insta
 		_ = cmd.Process.Kill()
 	}
 	_ = cmd.Wait()
+}
+
+// pickFreePort asks the OS for an unused TCP port in the ephemeral range.
+// There's an unavoidable TOCTOU window between close() and the EIC tunnel
+// binding the port; in practice the window is short enough that we've
+// never seen a collision in testing.
+func pickFreePort() (int, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+	return port, nil
+}
+
+// waitForPort polls 127.0.0.1:<port> until something is listening or the
+// deadline passes. Used to wait for the EIC tunnel subprocess to bind
+// its local port before we dial ssh at it.
+func waitForPort(ctx context.Context, host string, port int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	addr := fmt.Sprintf("%s:%d", host, port)
+	for time.Now().Before(deadline) {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		c, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+		if err == nil {
+			_ = c.Close()
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("timed out waiting for %s", addr)
 }
