@@ -439,7 +439,7 @@ func pickFreePort() (int, error) {
 // its local port before we dial ssh at it.
 func waitForPort(ctx context.Context, host string, port int, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	for time.Now().Before(deadline) {
 		if ctx.Err() != nil {
 			return ctx.Err()
