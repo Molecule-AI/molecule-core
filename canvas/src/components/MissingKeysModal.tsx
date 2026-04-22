@@ -137,6 +137,7 @@ export function MissingKeysModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
       <div
+        aria-hidden="true"
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         onClick={onCancel}
       />
@@ -151,8 +152,8 @@ export function MissingKeysModal({
         {/* Header */}
         <div className="px-5 py-4 border-b border-zinc-800">
           <div className="flex items-center gap-2 mb-1">
-            <div className="w-5 h-5 rounded-md bg-amber-600/20 border border-amber-500/30 flex items-center justify-center">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <div className="w-5 h-5 rounded-md bg-amber-600/20 border border-amber-500/30 flex items-center justify-center" aria-hidden="true">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                 <path
                   d="M6 1L11 10H1L6 1Z"
                   stroke="#fbbf24"
@@ -191,7 +192,7 @@ export function MissingKeysModal({
                 </div>
                 {entry.saved && (
                   <span className="text-[9px] text-emerald-400 bg-emerald-900/30 px-1.5 py-0.5 rounded flex items-center gap-1">
-                    <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                    <svg width="8" height="8" viewBox="0 0 8 8" fill="none" aria-hidden="true">
                       <path d="M1.5 4L3.5 6L6.5 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                     Saved
