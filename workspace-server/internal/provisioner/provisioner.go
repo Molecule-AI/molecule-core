@@ -240,7 +240,7 @@ func (p *Provisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string, e
 	// GHCR on miss so tenant hosts don't need a pre-build step anymore.
 	// The pull is best-effort: if it fails (network, auth, rate limit) the
 	// subsequent ContainerCreate still surfaces the actionable error below.
-	imgInspect, _, imgErr := p.cli.ImageInspectWithRaw(ctx, image)
+	imgInspect, imgErr := p.cli.ImageInspect(ctx, image)
 	if imgErr == nil {
 		log.Printf("Provisioner: creating %s from image %s (ID: %s, created: %s)",
 			name, image, imgInspect.ID[:19], imgInspect.Created[:19])
@@ -487,11 +487,11 @@ func applyTierResources(hostCfg *container.HostConfig, tier int) (memMB, cpuShar
 	memMB = getTierMemoryMB(tier)
 	cpuShares = getTierCPUShares(tier)
 	if memMB > 0 {
-		hostCfg.Resources.Memory = memMB * 1024 * 1024
+		hostCfg.Memory = memMB * 1024 * 1024
 	}
 	if cpuShares > 0 {
 		// shares -> NanoCPUs: 1024 shares == 1 CPU == 1e9 NanoCPUs
-		hostCfg.Resources.NanoCPUs = (cpuShares * 1_000_000_000) / 1024
+		hostCfg.NanoCPUs = (cpuShares * 1_000_000_000) / 1024
 	}
 	return memMB, cpuShares
 }
@@ -696,7 +696,7 @@ func (p *Provisioner) ReadFromVolume(ctx context.Context, volumeName, filePath s
 	if err != nil {
 		return nil, err
 	}
-	defer p.cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+	defer func() { _ = p.cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true}) }()
 
 	if err := p.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return nil, err
@@ -713,7 +713,7 @@ func (p *Provisioner) ReadFromVolume(ctx context.Context, volumeName, filePath s
 	if err != nil {
 		return nil, err
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, err
@@ -729,20 +729,6 @@ func (p *Provisioner) ReadFromVolume(ctx context.Context, volumeName, filePath s
 		data = data[8+size:]
 	}
 	return clean, nil
-}
-
-// execInContainer runs a command inside a running container as root.
-// Best-effort: logs errors but does not fail the caller.
-func (p *Provisioner) execInContainer(ctx context.Context, containerID string, cmd []string) {
-	execCfg := container.ExecOptions{Cmd: cmd, User: "root"}
-	execID, err := p.cli.ContainerExecCreate(ctx, containerID, execCfg)
-	if err != nil {
-		log.Printf("Provisioner: exec create failed: %v", err)
-		return
-	}
-	if err := p.cli.ContainerExecStart(ctx, execID.ID, container.ExecStartOptions{}); err != nil {
-		log.Printf("Provisioner: exec start failed: %v", err)
-	}
 }
 
 // RemoveVolume removes the config volume for a workspace.
@@ -910,7 +896,7 @@ func (p *Provisioner) VolumeHasFile(ctx context.Context, workspaceID, relPath st
 	if err != nil {
 		return false, err
 	}
-	defer p.cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+	defer func() { _ = p.cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true}) }()
 
 	if err := p.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return false, err
@@ -985,7 +971,7 @@ func pullImageAndDrain(ctx context.Context, cli dockerImageClient, ref string) e
 	if err != nil {
 		return fmt.Errorf("ImagePull: %w", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	if _, err := io.Copy(io.Discard, rc); err != nil {
 		return fmt.Errorf("drain pull stream: %w", err)
 	}

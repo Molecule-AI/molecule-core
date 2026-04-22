@@ -85,7 +85,6 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing workspace auth token"})
-		return
 	}
 }
 

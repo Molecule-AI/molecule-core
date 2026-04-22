@@ -90,15 +90,15 @@ func Handler() gin.HandlerFunc {
 		// ── Go runtime ─────────────────────────────────────────────────────
 		writeln(w, "# HELP go_goroutines Number of goroutines currently running.")
 		writeln(w, "# TYPE go_goroutines gauge")
-		fmt.Fprintf(w, "go_goroutines %d\n", runtime.NumGoroutine())
+		_, _ = fmt.Fprintf(w, "go_goroutines %d\n", runtime.NumGoroutine())
 
 		writeln(w, "# HELP go_memstats_alloc_bytes Bytes of allocated heap objects.")
 		writeln(w, "# TYPE go_memstats_alloc_bytes gauge")
-		fmt.Fprintf(w, "go_memstats_alloc_bytes %d\n", ms.Alloc)
+		_, _ = fmt.Fprintf(w, "go_memstats_alloc_bytes %d\n", ms.Alloc)
 
 		writeln(w, "# HELP go_memstats_sys_bytes Total bytes of memory obtained from the OS.")
 		writeln(w, "# TYPE go_memstats_sys_bytes gauge")
-		fmt.Fprintf(w, "go_memstats_sys_bytes %d\n", ms.Sys)
+		_, _ = fmt.Fprintf(w, "go_memstats_sys_bytes %d\n", ms.Sys)
 
 		writeln(w, "# HELP go_memstats_heap_inuse_bytes Bytes in in-use heap spans.")
 		writeln(w, "# TYPE go_memstats_heap_inuse_bytes gauge")
@@ -148,5 +148,5 @@ func Handler() gin.HandlerFunc {
 }
 
 func writeln(w http.ResponseWriter, s string) {
-	fmt.Fprintln(w, s)
+	_, _ = fmt.Fprintln(w, s)
 }

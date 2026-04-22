@@ -16,7 +16,7 @@ func TestIssue_StoresHashNotPlaintext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Can't predict the generated plaintext, but we can verify the
 	// INSERT arguments are a hash (bytea) + short prefix + optional
@@ -46,7 +46,7 @@ func TestIssue_EmptyNameAndCreatedByStoreNull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	// Empty name + createdBy + orgID → NULL in DB so `WHERE name IS NULL`
 	// works for future queries that want "unnamed" tokens.
 	mock.ExpectQuery(`INSERT INTO org_api_tokens`).

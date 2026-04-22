@@ -144,7 +144,6 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 		candidatePath, resolveErr := resolveInsideRoot(h.configsDir, template)
 		if resolveErr != nil {
 			log.Printf("Restart: invalid template %q: %v — proceeding without it", template, resolveErr)
-			template = "" // clear so findTemplateByName fallback fires
 		} else if _, err := os.Stat(candidatePath); err == nil {
 			templatePath = candidatePath
 			configLabel = template
