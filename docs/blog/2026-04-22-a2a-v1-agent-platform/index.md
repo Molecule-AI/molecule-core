@@ -66,6 +66,8 @@ For enterprise buyers, this is a validation of the approach, not a commoditizati
 
 The differentiation isn't the protocol. It's the governance story underneath.
 
+LangGraph's A2A implementation (PRs [#6645](https://github.com/langchain-ai/langgraph/pull/6645) and [#7113](https://github.com/langchain-ai/langgraph/pull/7113)) adds A2A client capability — inbound and outbound — but does not yet include a governance layer. There is no workspace-scoped token enforcement, no immutable audit attribution per org key, and no revocation model. The LangGraph A2A is "connect agents." Molecule AI's A2A is "connect agents with full control."
+
 ## What This Means in Practice
 
 If you're evaluating an enterprise AI agent platform, the A2A question is a proxy for the governance question. "Agents can talk to each other" is table stakes by 2026. The enterprise AI agent platform worth deploying is the one that answers the question your compliance team will ask in the first review: which agent accessed which workspace, and what did it do with the data?
