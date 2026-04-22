@@ -92,7 +92,7 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 	id := uuid.New().String()
 	awarenessNamespace := workspaceAwarenessNamespace(id)
 	if payload.Tier == 0 {
-		payload.Tier = 1
+		payload.Tier = 3
 	}
 
 	// Detect runtime from template config.yaml if not specified in request.

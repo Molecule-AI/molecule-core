@@ -32,9 +32,25 @@ COPY workspace-server/migrations /migrations
 COPY --from=templates /workspace-configs-templates /workspace-configs-templates
 COPY --from=templates /org-templates /org-templates
 COPY --from=templates /plugins /plugins
-# Non-root runtime — platform binary doesn't need root; dropping privileges
-# prevents container escape attacks from reaching host UID 0.
+# Non-root runtime with Docker socket access — platform binary manages workspace
+# containers via the Docker API. The entrypoint detects the socket GID at runtime
+# and adds the platform user to that group before exec'ing the binary.
 RUN addgroup -g 1000 platform && adduser -u 1000 -G platform -s /bin/sh -D platform
 EXPOSE 8080
-USER platform
+COPY <<'ENTRY' /entrypoint.sh
+#!/bin/sh
+# Detect Docker socket GID and add platform user to it
+if [ -S /var/run/docker.sock ]; then
+  SOCK_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || stat -f '%g' /var/run/docker.sock 2>/dev/null)
+  if [ -n "$SOCK_GID" ] && [ "$SOCK_GID" != "0" ]; then
+    addgroup -g "$SOCK_GID" docker 2>/dev/null || true
+    addgroup platform docker 2>/dev/null || true
+  else
+    addgroup platform root 2>/dev/null || true
+  fi
+fi
+exec su-exec platform /platform "$@"
+ENTRY
+RUN chmod +x /entrypoint.sh && apk add --no-cache su-exec
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["/platform"]
