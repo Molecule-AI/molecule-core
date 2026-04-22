@@ -8,6 +8,7 @@ author: Molecule AI
 og_title: "Discord Adapter: Connect Your AI Agent to Discord"
 og_description: "The Discord adapter lets your Molecule AI agent respond in Discord channels. No webhook code. No permission engineering. Just connect and go."
 twitter_card: summary_large_image
+og_image: /docs/assets/blog/2026-04-22-discord-adapter-og.png
 ---
 
 # Discord Adapter: Connect Your AI Agent to Discord
