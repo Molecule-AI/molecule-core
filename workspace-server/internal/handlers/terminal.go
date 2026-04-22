@@ -16,6 +16,8 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
@@ -25,6 +27,11 @@ import (
 )
 
 const terminalSessionTimeout = 30 * time.Minute
+
+// canCommunicateCheck is the communication-authorization predicate used by
+// HandleConnect to enforce the KI-005 workspace-hierarchy guard.
+// Exposed as a package var so tests can stub it without DB fixtures.
+var canCommunicateCheck = registry.CanCommunicate
 
 var termUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -61,6 +68,26 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 	workspaceID := c.Param("id")
 	ctx := c.Request.Context()
 
+	// KI-005: enforce CanCommunicate hierarchy check before granting terminal
+	// access. WorkspaceAuth validates the bearer's token, but the token is
+	// scoped to a specific workspace ID — Workspace A's token can reach
+	// Workspace A's terminal. Without CanCommunicate, Workspace A could also
+	// reach Workspace B's terminal if it knows B's UUID (enumeration via
+	// canvas, logs, or delegation). Shell access is more dangerous than A2A
+	// message-passing, so we apply the same hierarchy check here.
+	callerID := c.GetHeader("X-Workspace-ID")
+	if callerID != "" {
+		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
+		if tok != "" {
+			if err := wsauth.ValidateAnyToken(ctx, db.DB, tok); err == nil {
+				if !canCommunicateCheck(callerID, workspaceID) {
+					c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to access this workspace's terminal"})
+					return
+				}
+			}
+		}
+	}
+
 	// Check for CP-provisioned workspace (instance_id persisted by
 	// provisionWorkspaceCP → migration 038). Null instance_id means the
 	// workspace runs as a local Docker container on this tenant.
@@ -80,43 +107,10 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 // handleLocalConnect attaches to a Docker container running on this
 // tenant's Docker daemon. Original behavior preserved exactly.
 func (h *TerminalHandler) handleLocalConnect(c *gin.Context, workspaceID string) {
-// canCommunicateCheck is the communication-authorization predicate used by
-// HandleConnect to enforce the KI-005 workspace-hierarchy guard.
-// Exposed as a package var so tests can stub it without DB fixtures.
-var canCommunicateCheck = registry.CanCommunicate
-
-// HandleConnect handles WS /workspaces/:id/terminal
-func (h *TerminalHandler) HandleConnect(c *gin.Context) {
-	targetID := c.Param("id")
-	ctx := c.Request.Context()
-
-	// KI-005 fix: enforce CanCommunicate hierarchy check before granting
-	// terminal access. WorkspaceAuth validates the bearer's token, but the
-	// token is scoped to a specific workspace ID — Workspace A's token can
-	// reach Workspace A's terminal. Without CanCommunicate, Workspace A could
-	// also reach Workspace B's terminal if it knows B's UUID (enumeration
-	// via canvas, logs, or delegation). Shell access is more dangerous than
-	// A2A message-passing, so we apply the same hierarchy check here.
-	callerID := c.GetHeader("X-Workspace-ID")
-	if callerID != "" {
-		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
-		if tok != "" {
-			if err := wsauth.ValidateAnyToken(ctx, db.DB, tok); err == nil {
-				if !canCommunicateCheck(callerID, targetID) {
-					c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to access this workspace's terminal"})
-					return
-				}
-			}
-		}
-	}
-
 	if h.docker == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Docker not available"})
 		return
 	}
-
-	ctx := c.Request.Context()
-	workspaceID := targetID
 
 	// Try multiple container name patterns:
 	// 1. Provisioner naming: ws-{id[:12]}
