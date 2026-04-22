@@ -145,7 +145,7 @@ func TestList_NewestFirst(t *testing.T) {
 
 	now := time.Now()
 	earlier := now.Add(-1 * time.Hour)
-	mock.ExpectQuery(`SELECT id, prefix.*FROM org_api_tokens.*ORDER BY created_at DESC`).
+	mock.ExpectQuery(`SELECT id, prefix, name, org_id, created_by, created_at, last_used_at FROM org_api_tokens ORDER BY created_at DESC`).
 		WithArgs(listMax).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "name", "org_id", "created_by", "created_at", "last_used_at"}).
 			AddRow("t2", "abcd1234", "zapier", "org-1", "user_01", now, now).
