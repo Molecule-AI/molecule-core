@@ -85,9 +85,27 @@ The differentiation isn't the protocol. It's the governance story underneath.
 
 LangGraph's A2A implementation (PRs [#6645](https://github.com/langchain-ai/langgraph/pull/6645) and [#7113](https://github.com/langchain-ai/langgraph/pull/7113)) adds A2A client capability — inbound and outbound — but does not yet include a governance layer. There is no workspace-scoped token enforcement, no immutable audit attribution per org key, and no revocation model. The LangGraph A2A is "connect agents." Molecule AI's A2A is "connect agents with full control."
 
-### What LangGraph's A2A GA Doesn't Include (Yet)
+## Why This Matters Now: The Governance Gap in Competing Implementations
 
-LangGraph's A2A implementation — shipping via PRs in Q2-Q3 2026 — covers the protocol layer. It does not yet include a governance layer. Workspace-scoped token enforcement, immutable audit attribution, org-level token revocation, and per-workspace bearer token isolation are Molecule AI-specific capabilities not present in LangGraph's current A2A PRs. A2A v1.0 makes the protocol standard; what you build on top of it is still the differentiator.
+A2A v1.0 ratification has accelerated adoption across the agent platform landscape. LangGraph shipped A2A support in Q1 2026 (PRs [#6645](https://github.com/langchain-ai/langgraph/pull/6645) and [#7113](https://github.com/langchain-ai/langgraph/pull/7113) — still in review after 3+ months). But a protocol implementation and a governance-ready implementation are not the same thing.
+
+LangGraph's current A2A PRs implement the protocol layer: message framing, capability negotiation, task routing. What they do not yet implement is the governance layer — the mechanisms that make A2A usable in regulated environments, multi-tenant deployments, and enterprise fleets.
+
+**What LangGraph's A2A PRs cover:**
+- A2A protocol message format and transport
+- Agent discovery via A2A `agentCard`
+- Task state and push notifications
+
+**What LangGraph's A2A PRs do not cover:**
+- Workspace-scoped authentication tokens (per-agent, revocable)
+- Per-workspace resource isolation and access control
+- Immutable audit attribution (who sent what, when, from where)
+- Org-level revocation (revoke an agent's access without disrupting the fleet)
+- Cross-network federation (agents behind NAT, different clouds)
+
+Molecule AI shipped all six of these in Phase 30. They are not roadmap items — they are production features that determine whether A2A works safely in your organization today.
+
+**The architectural difference:** governance built into the protocol layer means it cannot be bypassed by a misconfigured integration. A governance layer on top of a protocol layer can be.
 
 ## What This Means in Practice
 
