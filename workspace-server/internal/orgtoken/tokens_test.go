@@ -72,9 +72,9 @@ func TestValidate_HappyPath(t *testing.T) {
 	plaintext := "known-plaintext-for-test"
 	hash := sha256.Sum256([]byte(plaintext))
 
-	mock.ExpectQuery(`SELECT id, prefix FROM org_api_tokens`).
+	mock.ExpectQuery(`SELECT id, prefix, org_id FROM org_api_tokens`).
 		WithArgs(hash[:]).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).AddRow("tok-live", "abcd1234", nil))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).AddRow("tok-live", "abcd1234", nil))
 	mock.ExpectExec(`UPDATE org_api_tokens SET last_used_at`).
 		WithArgs("tok-live").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -106,7 +106,7 @@ func TestValidate_UnknownHashErrInvalid(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectQuery(`SELECT id, prefix FROM org_api_tokens`).
+	mock.ExpectQuery(`SELECT id, prefix, org_id FROM org_api_tokens`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnError(sql.ErrNoRows)
 
@@ -123,7 +123,7 @@ func TestValidate_RevokedTokenNotAccepted(t *testing.T) {
 	defer db.Close()
 	// Query has `AND revoked_at IS NULL` — sqlmock will return
 	// ErrNoRows because the revoked row is filtered out.
-	mock.ExpectQuery(`SELECT id, prefix FROM org_api_tokens`).
+	mock.ExpectQuery(`SELECT id, prefix, org_id FROM org_api_tokens`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnError(sql.ErrNoRows)
 
