@@ -2,6 +2,14 @@
 
 How a workspace-server code change reaches the prod tenant fleet — and how to stop it if something's wrong.
 
+> **⚠️ State note (2026-04-22):** this doc describes the **intended design**. As of this write, the canary fleet described below is **not actually running** — no canary tenants are provisioned, `CANARY_TENANT_URLS` / `CANARY_ADMIN_TOKENS` / `CANARY_CP_SHARED_SECRET` are empty in repo secrets, and `canary-verify.yml` fails every run.
+>
+> Current merges gate on manual `promote-latest.yml` dispatches, not canary. See [molecule-controlplane/docs/canary-tenants.md](https://github.com/Molecule-AI/molecule-controlplane/blob/main/docs/canary-tenants.md) for the Phase 1 code work that's already shipped + the Phase 2 plan for actually standing up the fleet + a "should we even do this now?" decision framework.
+>
+> **Account-specific identifiers (AWS account ID, IAM role name) referenced below in the original design have been redacted from this public doc.** The actual values — if they exist — are in `Molecule-AI/internal/runbooks/canary-fleet.md`. If you're implementing Phase 2, start there.
+>
+> When Phase 2 lands, delete this note and reconcile the two docs.
+
 ## The loop
 
 ```
@@ -28,7 +36,7 @@ canary-verify.yml waits 6 min, runs scripts/canary-smoke.sh
 
 ## Canary fleet
 
-Lives in a separate AWS account (`molecule-canary`, `004947743811`) via an assumed role (`MoleculeStagingProvisioner`). The CP's `is_canary` org flag routes provisioning there; every other org goes to the default staging account. See `docs/architecture/saas-prod-migration-2026-04-19.md` for the account bootstrap.
+Lives in a separate AWS account via an assumed role. The CP's `is_canary` org flag routes provisioning there; every other org goes to the default account. Specific account ID and role name are tracked in the internal runbook (`Molecule-AI/internal/runbooks/canary-fleet.md`) rather than here, so rotating them doesn't require rewriting public git history.
 
 Canary tenants are configured to pull `:staging-<sha>` (not `:latest`) via `TENANT_IMAGE` on their provisioner, so they ingest each new build before prod does.
 
@@ -48,7 +56,7 @@ Expand by editing the script — each `check "name" "expected" "$response"` call
 
 1. `POST /cp/orgs` — create the org normally (is_canary defaults to false)
 2. `POST /cp/admin/orgs/<slug>/canary` with `{"is_canary": true}` — admin only, refuses to flip if already provisioned
-3. Re-trigger provision (or delete + recreate if the org was already provisioned into staging) — the fresh EC2 lands in account `004947743811`
+3. Re-trigger provision (or delete + recreate if the org was already provisioned into staging) — the fresh EC2 lands in the canary AWS account (see internal runbook for the specific ID)
 
 Then set repo secrets:
 - `CANARY_TENANT_URLS` — append the new tenant's URL
