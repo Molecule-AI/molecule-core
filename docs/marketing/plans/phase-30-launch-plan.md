@@ -25,7 +25,7 @@
 ## Confirmed Content
 
 - **Brief:** `docs/marketing/briefs/2026-04-20-chrome-devtools-mcp-seo-brief.md`
-- **Blog post:** `docs/marketing/blog/2026-04-20-how-to-add-browser-automation-to-ai-agents-with-mcp.md`
+- **Blog post:** `/blog/browser-automation-ai-agents-mcp`
 - **P0 keywords:** "MCP browser automation", "Chrome DevTools MCP"
 - **P1 keywords:** "AI agent browser control", "MCP protocol tutorial"
 
