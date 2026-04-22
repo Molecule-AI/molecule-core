@@ -83,18 +83,18 @@ jobs:
           working-directory: workspace-server
           args: --timeout 3m
         continue-on-error: true  # Warn but don't block until codebase is clean
-      - name: Run tests with race detection and coverage (disabled — pre-existing failures)
-        if: false  # Pre-existing failures on main; disable until test infra is fixed
-      - name: Check coverage baseline (disabled — tests disabled)
-        if: false
-        run: |
-          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-          echo "Total coverage: ${COVERAGE}%"
-          THRESHOLD=25
-          awk "BEGIN{if ($COVERAGE < $THRESHOLD) exit 1}" || {
-            echo "::error::Coverage ${COVERAGE}% is below the ${THRESHOLD}% threshold"
-            exit 1
-          }
+      # - name: Run tests with race detection and coverage (disabled — pre-existing failures) [disabled - pre-existing failures]
+      # if: false  # Pre-existing failures on main; disable until test infra is fixed [disabled]
+      # - name: Check coverage baseline (disabled — tests disabled) [disabled - tests disabled]
+      # if: false [disabled]
+      # run: | [disabled]
+      # COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//') [disabled]
+      # echo "Total coverage: ${COVERAGE}%" [disabled]
+      # THRESHOLD=25 [disabled]
+      # awk "BEGIN{if ($COVERAGE < $THRESHOLD) exit 1}" || { [disabled]
+      # echo "::error::Coverage ${COVERAGE}% is below the ${THRESHOLD}% threshold" [disabled]
+      # exit 1 [disabled]
+      # } [disabled]
 
   canvas-build:
     name: Canvas (Next.js)
