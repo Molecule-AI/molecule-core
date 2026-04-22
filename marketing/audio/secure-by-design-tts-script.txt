@@ -1,0 +1,25 @@
+# TTS Script — Secure by Design
+**Blog:** docs.molecule.ai/blog/beta-auth-hardening
+**Duration:** ~90s at ~150 wpm
+**Date:** 2026-04-20
+**Author:** Content Marketer (auto-generated)
+
+---
+
+Four PR chains merged today. Together they close a week's worth of security gaps, eliminate shared secret sprawl, and put Molecule AI's beta on a production-grade auth footing.
+
+The biggest user-facing change: every Molecule AI org can now mint named, revocable bearer tokens from the Canvas Settings panel. No more copying the bootstrap admin token into scripts, CI pipelines, or Zapier integrations.
+
+One key per integration. Revocation is immediate — delete the key, and it returns unauthorized on the very next request. Every action is audited — server logs, database created-by fields, and activity log entries all carry the key's prefix. Ten mints per hour per IP rate limit on the token creation endpoint means a compromised key can't mint a flood of new credentials.
+
+Unlike other agent platforms where API keys show a user prefix, a Molecule org key shows the org prefix in server logs, every audit row, and the token list. Trivial correlation, full auditability.
+
+Canvas now accepts a session-verification step that runs before the bearer check. When your browser sends the WorkOS session cookie, the platform verifies it belongs to a member of your specific tenant — not just someone logged into moleculesai.app. This is the security constraint that makes session auth safe in a multi-tenant environment.
+
+The tenant provisioning work closed several credential and isolation gaps. Secrets are now created before any update — fixing a race that left partial credential state on failure. The control plane's IAM role now has the permissions it needs to boot workspaces cleanly. And cross-tenant isolation is hardened so that a tenant can't forge requests on behalf of another tenant through the control plane proxy.
+
+Canvas now gates unauthenticated visitors on a tenant membership route — a request that verifies the user is a member of an approved org before any workspace data is served. Non-members hit a waitlist contact form instead.
+
+If you're already using Molecule AI as a self-hosted deployment, nothing changes today — these improvements are SaaS-only until you opt into multi-tenant mode.
+
+If you're evaluating Molecule AI: this launch marks the point where the platform's security posture is intentional and documented, not accumulated accident. Org keys, session auth, and tenant isolation are all covered in the architecture docs — not just the marketing claims.

@@ -1,0 +1,25 @@
+# TTS Script — Container or Remote
+**Blog:** docs.molecule.ai/blog/container-vs-remote
+**Duration:** ~75s at ~150 wpm
+**Date:** 2026-04-20
+**Author:** Content Marketer (auto-generated)
+
+---
+
+One of the first decisions when you add an agent to a Molecule AI org is: where does it run?
+
+Before Phase 30, that question had one answer — a Docker container on the platform. Now it has two. And for most teams, that turns out to be a feature, not a complication.
+
+Container runtime is the right default when you want zero-infrastructure agent management. The platform handles provisioning, boot, resource limits, health checks, and restarts. You write the agent; Molecule AI handles the ops.
+
+Choose remote runtime when the agent is already running somewhere — your developer has an agent on their laptop, your data pipeline is an existing Python process in AWS, your enterprise has a legacy agent on an on-premises server. You don't want to containerize and redeploy. You want it on the canvas as-is.
+
+Remote runtime is also the right choice when you need agents across multiple networks or clouds. PM on GCP, researcher on AWS, pipeline on an on-premises datacenter. Remote runtime means they all connect to the same platform without a shared network.
+
+The strongest use case for remote runtime isn't all agents are remote. It's some agents are remote, most are containers, all are on the same canvas.
+
+The PM talks to the researcher and the data pipeline via A2A. The canvas shows all four as online workspaces with the same status indicators, activity logs, and chat tabs. The only difference is a badge indicating which are managed containers and which are remote.
+
+This is the pattern Phase 30 enables: one org, mixed fleet, single governance surface.
+
+The runtime field is a deployment property, not a permanent identity. An agent that starts as a container can be replaced by a remote agent with the same workspace ID. An agent that starts as remote can be containerized later. The canvas, the org hierarchy, the A2A relationships, and the audit trail all survive the transition.
