@@ -1,0 +1,29 @@
+# TTS Script — Org-Scoped API Keys
+**Blog:** docs.molecule.ai/blog/org-scoped-api-keys
+**Duration:** ~90s at ~150 wpm
+**Date:** 2026-04-21
+**Author:** Content Marketer (auto-generated)
+
+---
+
+When your engineering team scales from two agents to twenty, the last thing you want is a single admin token hardcoded in your environment. It's a single point of failure, impossible to rotate without downtime, and impossible to audit. Molecule AI's org-scoped API keys change that.
+
+Org-scoped API keys are named, revocable, audit-trail-enabled tokens that live at the organization level and reach every workspace in your org without breaking the security model.
+
+Each key has a display name you choose — something like CI deploy bot or devops reverse proxy. The platform stores a SHA-256 hash of the plaintext — the key itself is shown exactly once at creation and never again. You get a prefix, visible in listings so you can identify keys without exposing secrets. And immediate revocation — drop a key and it stops being accepted on the very next request.
+
+The keys work across all workspaces in your org. Not just admin-surface endpoints, but also per-workspace routes like channels and secrets.
+
+A single environment variable token works fine for prototypes. For production multi-agent systems, it creates three compounding risks.
+
+Rotation requires downtime. You can't rotate a token used by ten agents simultaneously.
+
+No attribution. When something calls your API, you have no idea which agent or integration is responsible.
+
+And no compartmentalization. One compromised token compromises everything.
+
+Org-scoped keys give each integration its own credential with its own identity. Rotate without downtime. Identify the caller per request. Revoke a single integration without touching the others. Use the key prefix in your observability pipeline to trace every call back to the key that made it.
+
+Give each team its own named key. The devops reverse proxy key only talks to the observability stack. The data pipeline key only accesses workspaces running the data pipeline agent. If one key is compromised, revoke it without touching the others.
+
+Navigate to Settings, Org API Keys in the Canvas to mint your first key, or use the REST API directly. Store the plaintext when it is returned — it will not be shown again. Revoke and rotate at any time from the same screen.
