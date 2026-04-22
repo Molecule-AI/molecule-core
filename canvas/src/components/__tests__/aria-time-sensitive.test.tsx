@@ -64,6 +64,51 @@ describe("ApprovalBanner — ARIA time-sensitive (Fix 1)", () => {
     );
     expect(warningSpan).not.toBeNull();
   });
+
+  it("Approve and Deny buttons have type='button' to prevent accidental form submission", async () => {
+    render(<ApprovalBanner />);
+    await screen.findByRole("alert");
+
+    const buttons = screen.getAllByRole("button");
+    expect(buttons.length).toBeGreaterThanOrEqual(2);
+
+    const approveBtn = buttons.find((b) => b.textContent?.trim() === "Approve");
+    const denyBtn = buttons.find((b) => b.textContent?.trim() === "Deny");
+
+    expect(approveBtn).not.toBeNull();
+    expect(approveBtn?.getAttribute("type")).toBe("button");
+
+    expect(denyBtn).not.toBeNull();
+    expect(denyBtn?.getAttribute("type")).toBe("button");
+  });
+
+  it("Approve button calls handleDecide with 'approved' on click", async () => {
+    const postSpy = vi.mocked(api.post);
+    render(<ApprovalBanner />);
+    await screen.findByRole("alert");
+
+    const approveBtn = screen.getAllByRole("button").find((b) => b.textContent?.trim() === "Approve");
+    await fireEvent.click(approveBtn!);
+
+    expect(postSpy).toHaveBeenCalledWith(
+      `/workspaces/ws-1/approvals/a1/decide`,
+      expect.objectContaining({ decision: "approved", decided_by: "human" })
+    );
+  });
+
+  it("Deny button calls handleDecide with 'denied' on click", async () => {
+    const postSpy = vi.mocked(api.post);
+    render(<ApprovalBanner />);
+    await screen.findByRole("alert");
+
+    const denyBtn = screen.getAllByRole("button").find((b) => b.textContent?.trim() === "Deny");
+    await fireEvent.click(denyBtn!);
+
+    expect(postSpy).toHaveBeenCalledWith(
+      `/workspaces/ws-1/approvals/a1/decide`,
+      expect.objectContaining({ decision: "denied", decided_by: "human" })
+    );
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
