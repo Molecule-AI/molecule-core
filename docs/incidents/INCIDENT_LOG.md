@@ -224,6 +224,8 @@ The `fix/cwe78-delete-via-ephemeral-shell-injection` branch was the right diagno
 
 Both CWEs are fully resolved on both branches. The regression branch is superseded and must not be merged as-is.
 
+**UPDATE 2026-04-22**: Commit `49ab614` ("CWE-78/CWE-22 — block shell injection") introduced an F1085 regression by changing the rm concat form `"/configs/" + filePath` to the unscoped 2-arg form `"/configs", filePath`. This was subsequently fixed in commit `a432df5` (branch `f1085-fix`). Both the concat form and `validateRelPath` defence-in-depth are now in place. The 2-arg form must not be re-introduced.
+
 ### Verification (staging `ce2491e`)
 
 `copyFilesToContainer` (container_files.go:73-99):
@@ -238,8 +240,11 @@ header := &tar.Header{Name: safeName, ...}  ✅
 
 `deleteViaEphemeral` (container_files.go:152-168):
 ```go
-validateRelPath(filePath)  ✅
-Cmd: []string{"rm", "-rf", "/configs", filePath}  ✅ exec form, no shell interpolation
+validateRelPath(filePath)  ✅ defence-in-depth against CWE-22
+// NOTE: 2-arg "/configs", filePath form has F1085 (volume scope) defect.
+// Correct form: "/configs/" + filePath (single concat arg, rm only touches
+// files inside /configs). The 2-arg form passes /configs as an rm target,
+// so rm -rf /configs attempts to delete the entire volume mount.
 ```
 
 ---
