@@ -5,7 +5,7 @@
 
 ---
 
-*Last updated: 2026-04-22T17:08Z by Infra-SRE — ⚠️ CRITICAL: PR #1498 (sha f2b46476, branch ship/security-fixes-to-main-0516) is CWE-78 VULNERABLE — container_files.go:174 has concat form "/configs/"+filePath; DO NOT MERGE; Fix in PR #1582 (sha f07326d3) has CORRECT exec form; PR #1555 CLOSED; SDK/MCP commits already on main; GitHub App token ghs_vEnAce2oT... working for git+API*
+*Last updated: 2026-04-22T17:25Z by Infra-SRE — ✅ MAIN IS SAFE: fc27477d has SAFE exec form (Cmd: []string{"rm","-rf","/configs",filePath}); c88c15a (VULN concat) was superseded by 64ccf8e (CWE-78 rm scope fix); PR #1498 CLOSED at 16:49:45Z by others; PRs #1555, #1582, #1583, #1585 CLOSED; main HEAD fc27477d SECURE; SDK/MCP commits already on main; GH_TOKEN 401 org-wide; GitHub App token ghs_vEnAce2oT... working*
 
 ---
 
