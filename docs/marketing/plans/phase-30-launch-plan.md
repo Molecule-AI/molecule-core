@@ -29,7 +29,7 @@
 | Day 2 | Apr 22 | Discord Adapter | ✅ Ready |
 | Day 3 | Apr 23 | Org API Keys | ✅ Ready |
 | Day 4 | Apr 24 | EC2 Console Output | ✅ APPROVED — social copy written by Marketing Lead (PR #1178 + demo storyboard) |
-| Day 5 | Apr 25 | Cloudflare Artifacts | ✅ APPROVED — "sub-100ms" softened to "fast edge-based clone times" |
+| Day 5 | Apr 25 | Cloudflare Artifacts | ⚠️ APPROVED — PM ruling 2026-04-22: "sub-100ms" claim is UNSUBSTANTIATED. Do not soften. Flag in published copy. Sourcing gap doc: `docs/marketing/sourcing-gaps/cloudflare-artifacts-sub-100ms.md` |
 | Day 5+ | Apr 25+ | Org-Scoped API Keys | ✅ Approved | |
 
 ---

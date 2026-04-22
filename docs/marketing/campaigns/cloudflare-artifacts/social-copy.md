@@ -3,7 +3,7 @@
 **URL:** /blog/cloudflare-artifacts-molecule-ai (pending publish)
 **Date:** 2026-04-21
 **Author:** Content Marketer
-**Status:** ✅ APPROVED by Marketing Lead (PMM ruling: soften "sub-100ms" claim — see Post 2)
+**Status:** ⚠️ APPROVED — PM ruling 2026-04-22: "sub-100ms" claim is UNSUBSTANTIATED. Do not soften. Flag in all published copy. See sourcing gap doc: `docs/marketing/sourcing-gaps/cloudflare-artifacts-sub-100ms.md`
 
 ---
 
@@ -22,7 +22,8 @@ Git-native. Versioned by default. Agents push, pull, and branch — the same wor
 **Post 2 (What it is):**
 > Cloudflare Artifacts is git-native object storage.
 
-Git pull and git push semantics. Fast edge-based clone times from anywhere on Cloudflare's global network. No S3 bandwidth bills.
+Git pull and git push semantics. Cloudflare's edge-based storage delivers fast clone times from anywhere. No S3 bandwidth bills.
+> ⚠️ **[SOURCING GAP — UNSUBSTANTIATED]** The specific sub-100ms claim ("fast edge-based clone times from anywhere on Cloudflare's global network") is not currently sourced to a Cloudflare benchmark or official spec. Do not soften further. Flag in all published copy. Sourcing required before reuse.
 
 Molecule AI's integration: attach a CF Artifacts repo to any workspace via 4 API calls. Agents clone, commit, push — and their work survives the session.
 
@@ -74,7 +75,8 @@ We've shipped Cloudflare Artifacts support for Molecule AI workspaces — and it
 
 The problem: AI agent outputs are mostly transient. Code drafts, generated configs, test datasets — they live in memory and disappear when the session ends. Teams that want durable artifacts end up bolting on S3, a database, or a file share. All introduce a new API surface, new auth scheme, new workflow.
 
-Git-native storage is different. Cloudflare Artifacts speaks git — pull, push, branch, fork. Agents already know it. Your team already knows it. And Cloudflare's edge means sub-100ms clone times from anywhere.
+Git-native storage is different. Cloudflare Artifacts speaks git — pull, push, branch, fork. Agents already know it. Your team already knows it. And Cloudflare's edge delivers fast clone times.
+> ⚠️ **[SOURCING GAP — UNSUBSTANTIATED]** The specific sub-100ms claim ("sub-100ms clone times from anywhere") is not currently sourced to a Cloudflare benchmark or official spec. Do not soften further. Flag in all published copy. Sourcing required before reuse.
 
 The Molecule AI integration exposes four API endpoints:
 - Attach a CF Artifacts repo to any workspace
