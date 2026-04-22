@@ -25,7 +25,7 @@ RUN useradd -m -s /bin/bash agent
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy runtime code (adapters/ has been removed — adapters now live in standalone
+# Copy runtime code (adapters/ has been removed -- adapters now live in standalone
 # template repos and install molecule-ai-workspace-runtime from PyPI)
 COPY *.py ./
 COPY entrypoint.sh ./
@@ -38,7 +38,7 @@ COPY policies/ ./policies/
 RUN ln -s /app/a2a_cli.py /usr/local/bin/a2a && chmod +x /app/a2a_cli.py /app/a2a_mcp_server.py && \
     ln -s /app/molecule_ai_status.py /usr/local/bin/molecule-monorepo-status && chmod +x /app/molecule_ai_status.py
 
-# gh wrapper — auto-prefixes PR / issue titles with the agent role + appends
+# gh wrapper -- auto-prefixes PR / issue titles with the agent role + appends
 # a body footer. Every agent in the template shares one GitHub PAT so plain
 # `gh pr list` can't distinguish workspaces; the wrapper reads GIT_AUTHOR_NAME
 # (set by the platform provisioner, "Molecule AI <Role>") and rewrites the
@@ -56,11 +56,18 @@ RUN chmod +x /usr/local/bin/gh
 COPY scripts/molecule-git-token-helper.sh ./scripts/
 RUN chmod +x ./scripts/molecule-git-token-helper.sh
 
+# Copy the background token refresh daemon. Runs as a background process
+# started by entrypoint.sh -- refreshes gh CLI auth and the credential
+# helper cache every 45 min so tokens never expire mid-operation.
+COPY scripts/molecule-gh-token-refresh.sh ./scripts/
+RUN chmod +x ./scripts/molecule-gh-token-refresh.sh
+
 # Dirs and permissions
-RUN mkdir -p /workspace /plugins /home/agent/.claude /home/agent/.config /home/agent/.local && \
+RUN mkdir -p /workspace /plugins /home/agent/.claude /home/agent/.config /home/agent/.local \
+    /home/agent/.molecule-token-cache && \
     chown -R agent:agent /app /home/agent /workspace
 
-# Install gosu for clean root → agent user handoff in entrypoint.
+# Install gosu for clean root -> agent user handoff in entrypoint.
 # The entrypoint starts as root to fix volume ownership, then exec's
 # as the agent user so Claude Code's --dangerously-skip-permissions works.
 RUN apt-get update && apt-get install -y --no-install-recommends gosu && \
@@ -71,5 +78,5 @@ VOLUME /workspace
 
 EXPOSE 8000
 RUN chmod +x /app/entrypoint.sh
-# Start as root — entrypoint fixes volume permissions then drops to agent
+# Start as root -- entrypoint fixes volume permissions then drops to agent
 CMD ["./entrypoint.sh"]

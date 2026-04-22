@@ -154,11 +154,8 @@ async def set_current_task(heartbeat: Any, task: str) -> None:
     """Update current task on heartbeat and push immediately to platform.
 
     Uses increment/decrement instead of binary 0/1 so agents can track
-    multiple concurrent tasks (e.g. a cron running while an A2A delegation
-    arrives). The counter never goes below 0.
-
-    Pushes immediately on BOTH increment and decrement to avoid phantom-busy
-    (#1372) where active_tasks=1 persisted in the platform DB indefinitely.
+    multiple concurrent tasks (#1408). Pushes immediately on both
+    increment and decrement to avoid phantom-busy (#1372).
     """
     if heartbeat:
         if task:

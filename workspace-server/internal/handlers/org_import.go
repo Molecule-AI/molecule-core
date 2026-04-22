@@ -46,7 +46,7 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 		tier = defaults.Tier
 	}
 	if tier == 0 {
-		tier = 2
+		tier = 3
 	}
 
 	id := uuid.New().String()
