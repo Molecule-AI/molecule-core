@@ -1,0 +1,53 @@
+# TTS Script — Discord Adapter for Molecule AI
+**Blog:** docs.molecule.ai/blog/discord-adapter
+**Duration:** ~90s at ~150 wpm
+**Date:** 2026-04-21
+**Author:** Content Marketer (auto-generated)
+
+---
+
+Your team is in Discord. Your AI agents are in Molecule AI. Until now, those two places didn't talk to each other without building a full Discord bot.
+
+That's now one webhook URL.
+
+Molecule AI workspaces can now connect to Discord. Here's what shipped.
+
+## The Problem with Traditional Discord Bot Setup
+
+Most Discord bot integrations follow the same pattern: create an app in the Developer Portal, set up OAuth2, handle the Gateway connection, configure intents and permissions, manage rate limits. That's a significant chunk of work before your agent can say hello in a channel.
+
+For internal tooling and team workflows, that overhead rarely pays for itself. The Molecule AI Discord adapter takes a different approach — two standard Discord primitives, no bot account required.
+
+## What the Adapter Does
+
+**Outbound: your agent sends to Discord.**
+
+You create a Discord Incoming Webhook — one URL, generated from any channel's Integrations settings. That URL encodes the channel and the bot credentials. You paste it into your Molecule AI workspace config. That's the only credential.
+
+Your workspace agent can now send messages to that Discord channel. Long responses are automatically split into Discord-safe chunks — the two-thousand-character limit is handled automatically.
+
+**Inbound: slash commands route to your agent.**
+
+Users type a forward-slash command — something like, "what's the deployment status?" — in a Discord channel. Discord posts a signed JSON payload to the platform's Interactions endpoint. The adapter parses the command and routes it to your workspace agent. The agent's response goes back to the same channel.
+
+No polling. No Gateway. No message-reading permissions.
+
+## What to Actually Use It For
+
+The adapter fits naturally into workflows your team already runs in Discord.
+
+Incident triage: an agent receives a slash command, runs checks, and posts a formatted status report back to the incident channel.
+
+Deployment coordination: a CI/CD agent posts build results, rollback recommendations, and health checks to a DevOps channel.
+
+Community management: a Community Manager agent receives a support slash command, routes to the right sub-agent, and returns the answer to Discord.
+
+Slash commands are the interface. The agent decides what to do and how to respond. Your Discord server is the front-end your team already knows.
+
+## Setup: Less Than a Minute
+
+Create a Discord Incoming Webhook from any channel's Integrations settings. Copy the webhook URL. Open your Molecule AI workspace, go to the Channels tab, click Connect, choose Discord, and paste the URL.
+
+That's the entire setup.
+
+The Discord adapter is live now. Connect a workspace in under a minute and start with a slash command.
