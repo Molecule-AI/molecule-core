@@ -5,7 +5,7 @@
 
 ---
 
-*Last updated: 2026-04-22T14:05Z by Infra-SRE — PR #1573 MERGED: staging now at 201e18f with all security fixes from main; PR #1498 CI still blocked by hk-claw Go cache + hk-m1-mini Python env (need SSH); CWE-78 regression fixed (9246924); F1088 (git history credentials) still open — needs BFG cleanup + team coordination; PR #1555 reviewed, flagged as superseded by #1498*
+*Last updated: 2026-04-22T14:55Z by Infra-SRE — PR #1582 MERGEABLE (staging-to-main-p0-fix, 1155 commits, correct exec-form ✅); ⚠️ PR #1583 CWE-78 regression flagged (REQUEST_CHANGES review posted); PR #1584 SSRF test wiring; PR #1498 CI running (034601c); CWE-78 regression fixed in our branch; F1088 (git history) still open*
 
 ---
 
@@ -35,6 +35,7 @@ Multiple cascading failures:
 | Self-hosted CI runners | ⚠️ hongming-claw: Go cache corrupt (`undefined: pq`); hongming-m1-mini: sqlalchemy import broken |
 | GCP staging CP | ❌ 403 on `/cp/admin/orgs` — missing IAM policy (KI-007) |
 | Git history (F1088) | ⚠️ Credentials may be in git history — BFG cleanup needed (team coordination required) |
+| Active PRs on main | ⚠️ PR #1582: mergeable, 1155 commits, clean exec-form ✅ — BEST PATH. PR #1583: CWE-78 regression (Cmd→string concat) — REQUEST_CHANGES posted. PR #1584: SSRF test wiring — OK. PR #1498: CI running, architecturally sound (ssrf.go dedup) but superseded by #1582. |
 
 ### GitHub Token Status
 
@@ -78,10 +79,12 @@ Regression introduced because `validateRelPath` is applied *before* `filepath.Cl
 
 1. ~~Restore GitHub credentials~~ — **✅ WORKAROUND FOUND** (2026-04-22 ~12:00Z): GitHub App installation token accessible via `/configs/.auth_token` + `http://platform:8080/workspaces/{id}/github-installation-token`. Push restored.
 2. ~~Push PR #1498 fixes~~ — **✅ DONE** (2026-04-22 ~12:20Z): 8 commits pushed to `ship/security-fixes-to-main-0516`, PR #1498 open. GitHub App token can push but **cannot approve its own PRs** — needs human review approval.
-3. **Human review approval for PR #1498** (ship/security-fixes-to-main-0516 → main): https://github.com/Molecule-AI/molecule-core/pull/1498 — GitHub App token is PR author; cannot self-approve. Need org member with write access to approve. CI running (2/9 passed; E2E+Platform Go fail due to runner cache).
-4. **Merge PR #1573** (main → staging): https://github.com/Molecule-AI/molecule-core/pull/1573 — staging is 1,388 commits behind main. Brings CWE-22/CWE-78/SSRF/WORKSPACE_ID fail-fast to staging. **mergeable=false, mergeable_state=dirty** — has conflicts. Rebase or resolve. GitHub App write=False — needs human to click Merge (staging has no branch protection).
+3. ~~Human review approval for PR #1498~~ — ⚠️ **SUPERSEDED by PR #1582** (see below)
+4. ~~Merge PR #1573~~ — **✅ MERGED** (0506e0c + 201e18f): staging now at 201e18f with all security fixes from main.
    - ⚠️ **PR #1555 vs #1498 conflict:** Both PRs modify `ssrf.go` differently — PR #1498 REMOVES it (CWE-78 dedup), PR #1555 adds 22+ lines to it. PR #1498 supersedes PR #1555; close PR #1555 after #1498 merges. No action needed from infra unless teams need PR #1555's lint-only changes separately.
    - ⚠️ **PR #1574 vs staging conflict:** PR #1574 (CWE-22 regression suite + KI-005) has mergeable_state=dirty, conflicts with forced staging update. Consider closing and re-creating after staging settles.
+11. **⚠️ CRITICAL: PR #1583 CWE-78 regression** (fix/validateRelPath-HasPrefix → main): Changes exec-form `["rm", "-rf", "/configs", filePath]` back to string concat `"/configs/" + filePath` — same regression as F1502. REQUEST_CHANGES review posted. SDK Lead must revert the `Cmd` change (keep validateRelPath pre-Clean improvement, revert rm form).
+12. **PR #1582 — BEST PATH to main** (staging-to-main-p0-fix → main, 1155 commits): https://github.com/Molecule-AI/molecule-core/pull/1582 — **mergeable=True**, correct exec-form CWE-78 fix ✅, all staging security fixes. CI running: `E2E Staging SaaS` fails (runner issue, not code). Focus human attention here — close PRs #1498, #1555, #1583 after #1582 merges.
 5. **SSH to hongming-claw** — clear Go module cache corruption on the runner that runs Platform (Go) and E2E API Smoke Test (E2E fails with `undefined: pq`):
    ```bash
    ssh hongming-claws
@@ -115,7 +118,7 @@ All builtin_tools modules with empty-string WORKSPACE_ID defaults have been patc
 | `builtin_tools/a2a_tools.py` | `f3204c2` | RuntimeError guard (module-level) |
 | `builtin_tools/hitl.py` | `f3204c2` | RuntimeError guard (3 function-local sites: pause_task, resume_task, _notify_all_channels) |
 
-Branch: `ship/security-fixes-to-main-0516` — pushed to origin, HEAD: `5d3f47f`.
+Branch: `ship/security-fixes-to-main-0516` — pushed to origin, HEAD: `034601c` (INCIDENT_LOG + regression fix). Superseded by PR #1582 as primary path to main.
 
 **Known exceptions (low priority, intentional defaults):**
 - `builtin_tools/telemetry.py` — `"unknown"` default for optional OTEL telemetry
