@@ -30,7 +30,11 @@
 | Day 3 | Apr 23 | Org API Keys | ✅ Ready |
 | Day 4 | Apr 24 | EC2 Console Output | ✅ APPROVED — social copy written by Marketing Lead (PR #1178 + demo storyboard) |
 | Day 5 | Apr 25 | Cloudflare Artifacts | ✅ APPROVED — "sub-100ms" softened to "fast edge-based clone times" |
-| Day 5+ | Apr 25+ | Org-Scoped API Keys | ✅ Approved | |
+| Day 5+ | Apr 25+ | Org-Scoped API Keys | ✅ Approved |
+| Apr 22 | Apr 22 | A2A Enterprise | ✅ Ready — blog committed staging (1980c92) |
+| Apr 22 | Apr 22 | EC2 Instance Connect SSH | ✅ Ready — blog committed staging (2b5a89b), social copy done |
+| Apr 22 | Apr 22 | MCP Server List | ✅ Social copy done — needs blog post |
+| Apr 21 | Apr 21 | Cloudflare Artifacts | ✅ Approved — blog live, social copy in `cloudflare-artifacts-launch/` | |
 
 ---
 
