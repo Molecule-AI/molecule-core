@@ -50,3 +50,4 @@ exec su-exec platform /platform "$@"
 ENTRY
 RUN chmod +x /entrypoint.sh && apk add --no-cache su-exec
 ENTRYPOINT ["/entrypoint.sh"]
+# CI trigger 1776892542
