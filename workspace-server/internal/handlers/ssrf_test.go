@@ -5,6 +5,14 @@ import (
 	"testing"
 )
 
+// init wires setSSRFChecker so SetSSRFPermissive is not a no-op.
+// Run automatically when the test package is loaded.
+func init() {
+	setSSRFChecker = func(check func(string) error) {
+		safeURLChecker = check
+	}
+}
+
 // SetSSRFPermissive overrides safeURLChecker with a pass-through stub
 // that lets httptest.Server URLs (including 127.0.0.1:xxxx) through without
 // triggering the SSRF guard. Call from t.Cleanup to restore production
