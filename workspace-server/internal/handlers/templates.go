@@ -41,6 +41,7 @@ type templateSummary struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Tier        int      `json:"tier"`
+	Runtime     string   `json:"runtime"`
 	Model       string   `json:"model"`
 	Skills      []string `json:"skills"`
 	SkillCount  int      `json:"skill_count"`
@@ -85,6 +86,7 @@ func (h *TemplatesHandler) List(c *gin.Context) {
 			Name        string   `yaml:"name"`
 			Description string   `yaml:"description"`
 			Tier        int      `yaml:"tier"`
+			Runtime     string   `yaml:"runtime"`
 			Model       string   `yaml:"model"`
 			Skills      []string `yaml:"skills"`
 		}
@@ -97,6 +99,7 @@ func (h *TemplatesHandler) List(c *gin.Context) {
 			Name:        raw.Name,
 			Description: raw.Description,
 			Tier:        raw.Tier,
+			Runtime:     raw.Runtime,
 			Model:       raw.Model,
 			Skills:      raw.Skills,
 			SkillCount:  len(raw.Skills),

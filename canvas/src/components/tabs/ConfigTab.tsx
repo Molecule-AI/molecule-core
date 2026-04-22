@@ -85,6 +85,24 @@ function AgentCardSection({ workspaceId }: { workspaceId: string }) {
 
 // --- Main ConfigTab ---
 
+interface RuntimeOption {
+  value: string;
+  label: string;
+}
+
+// Fallback used when /templates can't be fetched (offline, older backend).
+// Keep in sync with manifest.json workspace_templates as a defensive default.
+const FALLBACK_RUNTIME_OPTIONS: RuntimeOption[] = [
+  { value: "", label: "LangGraph (default)" },
+  { value: "claude-code", label: "Claude Code" },
+  { value: "crewai", label: "CrewAI" },
+  { value: "autogen", label: "AutoGen" },
+  { value: "deepagents", label: "DeepAgents" },
+  { value: "openclaw", label: "OpenClaw" },
+  { value: "hermes", label: "Hermes" },
+  { value: "gemini-cli", label: "Gemini CLI" },
+];
+
 export function ConfigTab({ workspaceId }: Props) {
   const [config, setConfig] = useState<ConfigData>({ ...DEFAULT_CONFIG });
   const [originalYaml, setOriginalYaml] = useState("");
@@ -94,6 +112,7 @@ export function ConfigTab({ workspaceId }: Props) {
   const [success, setSuccess] = useState(false);
   const [rawMode, setRawMode] = useState(false);
   const [rawDraft, setRawDraft] = useState("");
+  const [runtimeOptions, setRuntimeOptions] = useState<RuntimeOption[]>(FALLBACK_RUNTIME_OPTIONS);
   const successTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
@@ -119,6 +138,25 @@ export function ConfigTab({ workspaceId }: Props) {
   useEffect(() => {
     loadConfig();
   }, [loadConfig]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get<Array<{ id: string; name?: string; runtime?: string }>>("/templates")
+      .then((rows) => {
+        if (cancelled || !Array.isArray(rows)) return;
+        const seen = new Set<string>();
+        const opts: RuntimeOption[] = [{ value: "", label: "LangGraph (default)" }];
+        for (const r of rows) {
+          const v = (r.runtime || "").trim();
+          if (!v || seen.has(v) || v === "langgraph") continue;
+          seen.add(v);
+          opts.push({ value: v, label: r.name || v });
+        }
+        if (opts.length > 1) setRuntimeOptions(opts);
+      })
+      .catch(() => { /* keep fallback */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const update = <K extends keyof ConfigData>(key: K, value: ConfigData[K]) => {
     setConfig((prev) => ({ ...prev, [key]: value }));
@@ -259,12 +297,9 @@ export function ConfigTab({ workspaceId }: Props) {
                   onChange={(e) => update("runtime", e.target.value)}
                   className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
                 >
-                  <option value="">LangGraph (default)</option>
-                  <option value="claude-code">Claude Code</option>
-                  <option value="crewai">CrewAI</option>
-                  <option value="autogen">AutoGen</option>
-                  <option value="deepagents">DeepAgents</option>
-                  <option value="openclaw">OpenClaw</option>
+                  {runtimeOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
                 </select>
               </div>
               <TextInput label="Model" value={config.runtime_config?.model || config.model || ""} onChange={(v) => {
