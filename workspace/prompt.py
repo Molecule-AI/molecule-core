@@ -1,10 +1,13 @@
 """Build the system prompt for the workspace agent."""
 
+import logging
 import os
 from pathlib import Path
 
 from skill_loader.loader import LoadedSkill
 from shared_runtime import build_peer_section
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MEMORY_SNAPSHOT_FILES = ("MEMORY.md", "USER.md")
 
@@ -27,20 +30,31 @@ async def get_peer_capabilities(platform_url: str, workspace_id: str) -> list[di
 
 
 async def get_platform_instructions(platform_url: str, workspace_id: str) -> str:
-    """Fetch resolved platform instructions (global + team + workspace scope)."""
+    """Fetch resolved platform instructions (global + workspace scope).
+
+    Endpoint is gated by WorkspaceAuth — the workspace token (read from env)
+    is sent as a bearer header. Fails open (returns "") on any error so a
+    platform outage doesn't block agent startup. Short timeout (3s) because
+    this runs in the boot hot path.
+    """
     try:
         import httpx
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        token = os.environ.get("MOLECULE_WORKSPACE_TOKEN", "")
+        headers = {"X-Workspace-ID": workspace_id}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        async with httpx.AsyncClient(timeout=3.0) as client:
             resp = await client.get(
-                f"{platform_url}/instructions/resolve",
-                params={"workspace_id": workspace_id},
+                f"{platform_url}/workspaces/{workspace_id}/instructions/resolve",
+                headers=headers,
             )
             if resp.status_code == 200:
                 data = resp.json()
                 return data.get("instructions", "")
     except Exception as e:
-        print(f"Warning: could not fetch platform instructions: {e}")
+        logger.warning("could not fetch platform instructions: %s", e)
     return ""
 
 
