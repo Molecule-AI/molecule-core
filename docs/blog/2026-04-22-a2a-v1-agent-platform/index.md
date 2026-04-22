@@ -5,7 +5,7 @@ date: 2026-04-22
 canonical: https://docs.molecule.ai/blog/a2a-v1-agent-platform
 ---
 
-*Meta description (160 chars): A2A v1.0 is the LAN standard your agent fleet has been waiting for. Here's why native beats bolted-on.*
+*Meta description (160 chars): Before you buy an agent platform, ask how A2A delegation is attributed. The answer reveals everything about governance.*
 
 ---
 
@@ -69,6 +69,22 @@ Molecule AI shipped all six of these in Phase 30. They are not roadmap items —
 
 **The architectural difference:** governance built into the protocol layer means it cannot be bypassed by a misconfigured integration. A governance layer on top of a protocol layer can be.
 
+## Org-Scoped API Keys: Delegation Attribution for Regulated Industries
+
+Enterprise buyers have a specific question before adopting any multi-agent platform: *if an agent delegates a task to another agent, and something goes wrong, can you prove what happened?*
+
+Most platforms answer that question with: "we have logs." Molecule AI's answer is: "every delegation is attributed to a specific org-scoped API key with an immutable audit trail."
+
+When a CI pipeline, Zapier integration, or another automated system calls the delegation API using an org-scoped API key, the key's 8-character prefix (`org:keyId`) appears in every audit log entry for that delegation. The `created_by` field on each key record tracks whether the key was minted from the browser UI, by another org key, or directly via `ADMIN_TOKEN` — giving you a complete chain of custody for every delegation, back to the human or system that created the key.
+
+Key properties for enterprise compliance:
+- **No shared credentials.** Each integration has its own named, revocable key. Revoking one integration's key doesn't affect any other.
+- **Attributable delegations.** Every A2A delegation made with an org key is traceable to that specific key in the audit log.
+- **Immediate revocation.** Revoke a key in Settings → Org API Keys. The key stops working on the next request — no propagation delay, no cached credentials.
+- **No blast radius on key rotation.** Rotate one key without touching any other integration in your stack.
+
+For teams that need to demonstrate SOX, SOC 2, or ISO 27001 controls, this is the difference between a checkbox audit and a real audit trail.
+
 ## See It in Code
 
 The external agent registration flow, simplified to the minimum viable call:
@@ -110,6 +126,8 @@ With protocol-native A2A, you get:
 - **One canvas, any infrastructure.** Agents running on AWS, GCP, on-premises, and in the platform's Docker network appear on the same fleet canvas, with the same monitoring, task assignment, and inter-agent communication.
 - **Governance that travels.** Per-workspace auth tokens and `X-Workspace-ID` enforcement apply regardless of where the agent runs. A compliance team reviewing access patterns sees the same data for a cloud agent and an on-premises agent.
 - **Audit trail that survives.** Immutable `structure_events` records provisioning, hierarchy changes, and health state transitions for every agent, including external agents, in an append-only log.
+- **Org-scoped keys with delegation attribution.** Each integration has a named, revocable API key. Every A2A delegation made with that key carries the `org:keyId` prefix in the audit log — giving you a complete chain of custody back to the system or human that initiated it.
+- **CloudTrail-compatible architecture.** The same AWS IAM-based authentication used by EC2 Instance Connect Endpoint extends to the delegation API. For teams already running Molecule AI on AWS, A2A audit entries integrate with your existing CloudTrail logging without additional instrumentation.
 
 ## Ready to Register an External Agent?
 
