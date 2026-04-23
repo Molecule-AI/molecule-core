@@ -559,8 +559,13 @@ func TestCheckOrgPluginAllowlist_FailOpen_OnCountError(t *testing.T) {
 func TestRequireCallerOwnsOrg_NotOrgTokenCaller(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	// No org_token_id in context → caller is session/admin → returns ("", nil)
-	c.Set("org_token_id", "something") // weird but set to a non-string type
+	// Non-string org_token_id — the type assertion in requireCallerOwnsOrg
+	// fails, so the caller is treated as session/admin and we return ("",
+	// nil) without hitting the DB. (A prior version stored "something" — a
+	// string — which passed the type assertion and triggered a DB lookup
+	// on a bare gin context with no Request, nil-dereferencing inside
+	// requireCallerOwnsOrg.)
+	c.Set("org_token_id", 12345)
 	orgID, err := requireCallerOwnsOrg(c)
 	if err != nil {
 		t.Fatalf("requireCallerOwnsOrg: got err %v", err)
@@ -593,6 +598,9 @@ func TestRequireCallerOwnsOrg_TokenHasMatchingOrgID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	// requireCallerOwnsOrg reads c.Request.Context() to bound the DB query;
+	// a bare test context must be given a Request to exercise the DB path.
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
 	c.Set("org_token_id", "tok-123")
 
 	got, err := requireCallerOwnsOrg(c)
@@ -615,6 +623,7 @@ func TestRequireCallerOwnsOrg_TokenHasNullOrgID_UnanchoredDeny(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
 	c.Set("org_token_id", "tok-old")
 
 	got, err := requireCallerOwnsOrg(c)
@@ -635,6 +644,7 @@ func TestRequireCallerOwnsOrg_TokenDBError_Denies(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
 	c.Set("org_token_id", "tok-bad")
 
 	_, err := requireCallerOwnsOrg(c)
@@ -662,6 +672,7 @@ func TestRequireOrgOwnership_OrgTokenMatchesOwnOrg_Passes(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
 	c.Set("org_token_id", "tok-123")
 
 	if !requireOrgOwnership(c, targetOrg) {
@@ -679,6 +690,7 @@ func TestRequireOrgOwnership_OrgTokenCrossOrg_Denied(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
 	c.Set("org_token_id", "tok-cross")
 
 	if requireOrgOwnership(c, "org-xyz") {
@@ -699,6 +711,7 @@ func TestRequireOrgOwnership_UnanchoredToken_Denied(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
 	c.Set("org_token_id", "tok-unanchored")
 
 	if requireOrgOwnership(c, "org-any") {
@@ -718,6 +731,7 @@ func TestRequireOrgOwnership_DBError_Denied(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
 	c.Set("org_token_id", "tok-err")
 
 	if requireOrgOwnership(c, "org-any") {

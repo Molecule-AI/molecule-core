@@ -59,10 +59,10 @@ roll() {
     echo "  FAIL: $src not found in registry. Did you type the wrong sha?" >&2
     return 1
   fi
-  src_digest=$(crane digest "$src")
+  local src_digest=$(crane digest "$src")
 
   crane tag "$src" latest
-  new_digest=$(crane digest "$dst")
+  local new_digest=$(crane digest "$dst")
 
   if [ "$new_digest" != "$src_digest" ]; then
     echo "  FAIL: $dst digest $new_digest does not match expected $src_digest" >&2

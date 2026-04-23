@@ -63,7 +63,13 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 			if id, prefix, orgID, err := orgtoken.Validate(ctx, database, tok); err == nil {
 				c.Set("org_token_id", id)
 				c.Set("org_token_prefix", prefix)
-				c.Set("org_id", orgID)
+				// org_id may be "" for pre-migration tokens (NULL column).
+				// Don't set the context key in that case so downstream callers
+				// can distinguish "unanchored token" (exists==false) from
+				// "anchored to this org" (exists==true, value non-empty).
+				if orgID != "" {
+					c.Set("org_id", orgID)
+				}
 				c.Next()
 				return
 			} else if !errors.Is(err, orgtoken.ErrInvalidToken) {
@@ -185,7 +191,10 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 		if id, prefix, orgID, err := orgtoken.Validate(ctx, database, tok); err == nil {
 			c.Set("org_token_id", id)
 			c.Set("org_token_prefix", prefix)
-			c.Set("org_id", orgID)
+			// Conditional set — see WorkspaceAuth branch above for rationale.
+			if orgID != "" {
+				c.Set("org_id", orgID)
+			}
 			c.Next()
 			return
 		} else if !errors.Is(err, orgtoken.ErrInvalidToken) {

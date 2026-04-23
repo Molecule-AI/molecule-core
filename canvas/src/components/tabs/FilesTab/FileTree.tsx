@@ -66,6 +66,7 @@ function TreeItem({
           <span className="text-[10px]">📁</span>
           <span className="text-[10px] text-zinc-400 flex-1">{node.name}</span>
           <button
+            aria-label={`Delete ${node.name}`}
             onClick={(e) => {
               e.stopPropagation();
               onDelete(node.path);
@@ -102,6 +103,7 @@ function TreeItem({
       <span className="text-[9px]">{getIcon(node.name, false)}</span>
       <span className="text-[10px] flex-1 truncate font-mono">{node.name}</span>
       <button
+        aria-label={`Delete ${node.name}`}
         onClick={(e) => {
           e.stopPropagation();
           onDelete(node.path);
