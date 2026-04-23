@@ -840,8 +840,12 @@ func TestPluginInstall_EmptySpecAfterSchemeRejected(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("want 400, got %d: %s", w.Code, w.Body.String())
 	}
-	if !bytes.Contains(w.Body.Bytes(), []byte("empty spec")) {
-		t.Errorf("error should mention 'empty spec': %s", w.Body.String())
+	// Handler now returns the generic "invalid plugin source" rather than
+	// propagating the internal ParseSource "empty spec" wording — intentional
+	// so the HTTP surface doesn't leak parser-internal vocabulary. Unit-level
+	// coverage of the "empty spec" wording lives in plugins/source_test.go.
+	if !bytes.Contains(w.Body.Bytes(), []byte("invalid plugin source")) {
+		t.Errorf("error should mention 'invalid plugin source': %s", w.Body.String())
 	}
 }
 

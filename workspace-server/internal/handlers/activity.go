@@ -40,7 +40,7 @@ func (h *ActivityHandler) List(c *gin.Context) {
 
 	// Build query with optional filters
 	query := `SELECT id, workspace_id, activity_type, source_id, target_id, method,
-			   summary, request_body, response_body, duration_ms, status, error_detail, created_at
+			   summary, request_body, response_body, tool_trace, duration_ms, status, error_detail, created_at
 		FROM activity_logs WHERE workspace_id = $1`
 	args := []interface{}{workspaceID}
 	argIdx := 2
@@ -75,12 +75,12 @@ func (h *ActivityHandler) List(c *gin.Context) {
 	for rows.Next() {
 		var id, wsID, actType, status string
 		var sourceID, targetID, method, summary, errorDetail *string
-		var reqBody, respBody []byte
+		var reqBody, respBody, toolTrace []byte
 		var durationMs *int
 		var createdAt time.Time
 
 		if err := rows.Scan(&id, &wsID, &actType, &sourceID, &targetID, &method,
-			&summary, &reqBody, &respBody, &durationMs, &status, &errorDetail, &createdAt); err != nil {
+			&summary, &reqBody, &respBody, &toolTrace, &durationMs, &status, &errorDetail, &createdAt); err != nil {
 			log.Printf("Activity scan error: %v", err)
 			continue
 		}
@@ -103,6 +103,9 @@ func (h *ActivityHandler) List(c *gin.Context) {
 		}
 		if respBody != nil {
 			entry["response_body"] = json.RawMessage(respBody)
+		}
+		if toolTrace != nil {
+			entry["tool_trace"] = json.RawMessage(toolTrace)
 		}
 		activities = append(activities, entry)
 	}
@@ -382,7 +385,7 @@ func LogActivity(ctx context.Context, broadcaster *events.Broadcaster, params Ac
 		respJSON = []byte("null")
 	}
 
-	var reqStr, respStr *string
+	var reqStr, respStr, traceStr *string
 	if params.RequestBody != nil {
 		s := string(reqJSON)
 		reqStr = &s
@@ -391,12 +394,16 @@ func LogActivity(ctx context.Context, broadcaster *events.Broadcaster, params Ac
 		s := string(respJSON)
 		respStr = &s
 	}
+	if len(params.ToolTrace) > 0 {
+		s := string(params.ToolTrace)
+		traceStr = &s
+	}
 
 	_, err := db.DB.ExecContext(ctx, `
-		INSERT INTO activity_logs (workspace_id, activity_type, source_id, target_id, method, summary, request_body, response_body, duration_ms, status, error_detail)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11)
+		INSERT INTO activity_logs (workspace_id, activity_type, source_id, target_id, method, summary, request_body, response_body, tool_trace, duration_ms, status, error_detail)
+		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11, $12)
 	`, params.WorkspaceID, params.ActivityType, params.SourceID, params.TargetID,
-		params.Method, params.Summary, reqStr, respStr,
+		params.Method, params.Summary, reqStr, respStr, traceStr,
 		params.DurationMs, params.Status, params.ErrorDetail)
 	if err != nil {
 		log.Printf("LogActivity insert error: %v", err)
@@ -405,7 +412,7 @@ func LogActivity(ctx context.Context, broadcaster *events.Broadcaster, params Ac
 
 	// Broadcast ACTIVITY_LOGGED event
 	if broadcaster != nil {
-		broadcaster.BroadcastOnly(params.WorkspaceID, "ACTIVITY_LOGGED", map[string]interface{}{
+		payload := map[string]interface{}{
 			"activity_type": params.ActivityType,
 			"method":        params.Method,
 			"summary":       params.Summary,
@@ -413,7 +420,11 @@ func LogActivity(ctx context.Context, broadcaster *events.Broadcaster, params Ac
 			"source_id":     params.SourceID,
 			"target_id":     params.TargetID,
 			"duration_ms":   params.DurationMs,
-		})
+		}
+		if len(params.ToolTrace) > 0 {
+			payload["tool_trace"] = json.RawMessage(params.ToolTrace)
+		}
+		broadcaster.BroadcastOnly(params.WorkspaceID, "ACTIVITY_LOGGED", payload)
 	}
 }
 
@@ -426,6 +437,7 @@ type ActivityParams struct {
 	Summary      *string
 	RequestBody  interface{}
 	ResponseBody interface{}
+	ToolTrace    json.RawMessage // tools/commands the agent actually invoked
 	DurationMs   *int
 	Status       string // ok, error, timeout
 	ErrorDetail  *string

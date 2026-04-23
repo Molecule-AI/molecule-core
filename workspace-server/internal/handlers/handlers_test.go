@@ -55,6 +55,34 @@ func newTestBroadcaster() *events.Broadcaster {
 	return events.NewBroadcaster(hub)
 }
 
+// allowLoopbackForTest flips the ssrf.go testAllowLoopback escape hatch
+// for the duration of the test, so httptest.NewServer's loopback URLs
+// don't trip the SSRF guard. The 169.254 metadata, RFC-1918, TEST-NET,
+// CGNAT, and link-local guards stay active — only 127.0.0.0/8 and ::1
+// are relaxed. Always paired with t.Cleanup to restore; multiple
+// parallel tests won't race because Go test flips it sequentially per
+// test unless t.Parallel() is used, and these tests don't parallelize.
+func allowLoopbackForTest(t *testing.T) {
+	t.Helper()
+	prev := testAllowLoopback
+	testAllowLoopback = true
+	t.Cleanup(func() { testAllowLoopback = prev })
+}
+
+// expectBudgetCheck adds the sqlmock expectation for the budget-check
+// query that ProxyA2A runs before forwarding. checkWorkspaceBudget
+// fails-open on sql.ErrNoRows, so we return a deliberately-empty
+// result — budget_limit NULL + monthly_spend 0 means "no limit".
+// All a2a_proxy_test.go tests that run ProxyA2A (not just
+// dispatchA2A unit tests) need this expectation; it was added to the
+// handler in the 2026-04-18 restructure but the tests never caught up,
+// leaving Platform (Go) CI red for weeks.
+func expectBudgetCheck(mock sqlmock.Sqlmock, workspaceID string) {
+	mock.ExpectQuery(`SELECT budget_limit, COALESCE\(monthly_spend, 0\) FROM workspaces WHERE id = \$1`).
+		WithArgs(workspaceID).
+		WillReturnRows(sqlmock.NewRows([]string{"budget_limit", "monthly_spend"}))
+}
+
 // ---------- TestRegisterHandler ----------
 
 func TestRegisterHandler(t *testing.T) {
@@ -336,17 +364,21 @@ func TestWorkspaceList(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", "/tmp/configs")
 
+	// 21 cols: `max_concurrent_tasks` added between active_tasks and
+	// last_error_rate (see scanWorkspaceRow + COALESCE(w.max_concurrent_tasks, 1)
+	// in workspace.go). Column order must match that scan exactly.
 	columns := []string{
 		"id", "name", "role", "tier", "status", "agent_card", "url",
-		"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
+		"parent_id", "active_tasks", "max_concurrent_tasks",
+		"last_error_rate", "last_sample_error",
 		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
 		"budget_limit", "monthly_spend",
 	}
 	rows := sqlmock.NewRows(columns).
 		AddRow("ws-1", "Agent One", "worker", 1, "online", []byte("null"), "http://localhost:8001",
-			nil, 0, 0.0, "", 100, "", "claude-code", "", 10.0, 20.0, false, nil, int64(0)).
+			nil, 0, 1, 0.0, "", 100, "", "claude-code", "", 10.0, 20.0, false, nil, int64(0)).
 		AddRow("ws-2", "Agent Two", "manager", 2, "provisioning", []byte("null"), "",
-			nil, 0, 0.0, "", 0, "", "langgraph", "", 50.0, 60.0, false, nil, int64(0))
+			nil, 0, 1, 0.0, "", 0, "", "langgraph", "", 50.0, 60.0, false, nil, int64(0))
 
 	mock.ExpectQuery("SELECT w.id, w.name").
 		WillReturnRows(rows)
@@ -385,6 +417,7 @@ func TestWorkspaceList(t *testing.T) {
 func TestProxyA2A_JSONRPCWrapping(t *testing.T) {
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
+	allowLoopbackForTest(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", "/tmp/configs")
 
@@ -400,6 +433,7 @@ func TestProxyA2A_JSONRPCWrapping(t *testing.T) {
 
 	// Cache the agent URL in Redis so the handler finds it
 	mr.Set(fmt.Sprintf("ws:%s:url", "ws-proxy"), agentServer.URL)
+	expectBudgetCheck(mock, "ws-proxy")
 
 	// Expect async activity log INSERT from the LogActivity goroutine
 	mock.ExpectExec("INSERT INTO activity_logs").
@@ -615,15 +649,15 @@ func TestActivityHandler_List(t *testing.T) {
 
 	columns := []string{
 		"id", "workspace_id", "activity_type", "source_id", "target_id", "method",
-		"summary", "request_body", "response_body", "duration_ms", "status", "error_detail", "created_at",
+		"summary", "request_body", "response_body", "tool_trace", "duration_ms", "status", "error_detail", "created_at",
 	}
 	rows := sqlmock.NewRows(columns).
 		AddRow("act-1", "ws-1", "a2a_receive", nil, "ws-1", "message/send",
 			"message/send → ws-1", []byte(`{"method":"message/send"}`), []byte(`{"result":"ok"}`),
-			150, "ok", nil, time.Date(2026, 4, 5, 10, 0, 0, 0, time.UTC)).
+			nil, 150, "ok", nil, time.Date(2026, 4, 5, 10, 0, 0, 0, time.UTC)).
 		AddRow("act-2", "ws-1", "error", nil, nil, nil,
 			"connection failed", nil, nil,
-			nil, "error", "timeout after 120s", time.Date(2026, 4, 5, 9, 0, 0, 0, time.UTC))
+			nil, nil, "error", "timeout after 120s", time.Date(2026, 4, 5, 9, 0, 0, 0, time.UTC))
 
 	mock.ExpectQuery("SELECT id, workspace_id, activity_type").
 		WithArgs("ws-1", 100).
@@ -667,12 +701,12 @@ func TestActivityHandler_ListByType(t *testing.T) {
 
 	columns := []string{
 		"id", "workspace_id", "activity_type", "source_id", "target_id", "method",
-		"summary", "request_body", "response_body", "duration_ms", "status", "error_detail", "created_at",
+		"summary", "request_body", "response_body", "tool_trace", "duration_ms", "status", "error_detail", "created_at",
 	}
 	rows := sqlmock.NewRows(columns).
 		AddRow("act-1", "ws-1", "error", nil, nil, nil,
 			"connection failed", nil, nil,
-			nil, "error", "timeout", time.Date(2026, 4, 5, 9, 0, 0, 0, time.UTC))
+			nil, nil, "error", "timeout", time.Date(2026, 4, 5, 9, 0, 0, 0, time.UTC))
 
 	mock.ExpectQuery("SELECT id, workspace_id, activity_type").
 		WithArgs("ws-1", "error", 100).
@@ -847,7 +881,7 @@ func TestActivityHandler_ListEmpty(t *testing.T) {
 
 	columns := []string{
 		"id", "workspace_id", "activity_type", "source_id", "target_id", "method",
-		"summary", "request_body", "response_body", "duration_ms", "status", "error_detail", "created_at",
+		"summary", "request_body", "response_body", "tool_trace", "duration_ms", "status", "error_detail", "created_at",
 	}
 	mock.ExpectQuery("SELECT id, workspace_id, activity_type").
 		WithArgs("ws-empty", 100).
@@ -881,7 +915,7 @@ func TestActivityHandler_ListCustomLimit(t *testing.T) {
 
 	columns := []string{
 		"id", "workspace_id", "activity_type", "source_id", "target_id", "method",
-		"summary", "request_body", "response_body", "duration_ms", "status", "error_detail", "created_at",
+		"summary", "request_body", "response_body", "tool_trace", "duration_ms", "status", "error_detail", "created_at",
 	}
 	mock.ExpectQuery("SELECT id, workspace_id, activity_type").
 		WithArgs("ws-1", 10).
@@ -913,7 +947,7 @@ func TestActivityHandler_ListMaxLimit(t *testing.T) {
 
 	columns := []string{
 		"id", "workspace_id", "activity_type", "source_id", "target_id", "method",
-		"summary", "request_body", "response_body", "duration_ms", "status", "error_detail", "created_at",
+		"summary", "request_body", "response_body", "tool_trace", "duration_ms", "status", "error_detail", "created_at",
 	}
 	// Even though client requests 9999, server caps at 500
 	mock.ExpectQuery("SELECT id, workspace_id, activity_type").
@@ -1006,7 +1040,7 @@ func TestWorkspaceGet_CurrentTask(t *testing.T) {
 
 	columns := []string{
 		"id", "name", "role", "tier", "status", "agent_card", "url",
-		"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
+		"parent_id", "active_tasks", "max_concurrent_tasks", "last_error_rate", "last_sample_error",
 		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
 		"budget_limit", "monthly_spend",
 	}
@@ -1014,7 +1048,7 @@ func TestWorkspaceGet_CurrentTask(t *testing.T) {
 		WithArgs("dddddddd-0004-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows(columns).AddRow(
 			"dddddddd-0004-0000-0000-000000000000", "Task Worker", "worker", 1, "online", []byte("null"), "http://localhost:9000",
-			nil, 2, 0.0, "", 300, "Analyzing document", "langgraph", "", 10.0, 20.0, false,
+			nil, 2, 1, 0.0, "", 300, "Analyzing document", "langgraph", "", 10.0, 20.0, false,
 			nil, int64(0),
 		))
 

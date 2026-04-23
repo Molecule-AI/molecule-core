@@ -40,13 +40,13 @@ func TestNewCPProvisioner_FallsBackToProvisionSharedSecret(t *testing.T) {
 	}
 }
 
-// TestAuthHeaders_NoopWhenBothEmpty — the self-hosted path that
-// doesn't gate /cp/workspaces/* must not add stray auth headers
+// TestProvisionAuthHeaders_NoopWhenBothEmpty — the self-hosted path
+// that doesn't gate /cp/workspaces/* must not add stray auth headers
 // (bearer-like content would surprise non-bearer intermediaries).
-func TestAuthHeaders_NoopWhenBothEmpty(t *testing.T) {
+func TestProvisionAuthHeaders_NoopWhenBothEmpty(t *testing.T) {
 	p := &CPProvisioner{sharedSecret: "", adminToken: ""}
 	req := httptest.NewRequest("GET", "http://x/", nil)
-	p.authHeaders(req)
+	p.provisionAuthHeaders(req)
 	if got := req.Header.Get("Authorization"); got != "" {
 		t.Errorf("Authorization set to %q with empty secret; want unset", got)
 	}
@@ -55,13 +55,13 @@ func TestAuthHeaders_NoopWhenBothEmpty(t *testing.T) {
 	}
 }
 
-// TestAuthHeaders_SetsBothWhenBothProvided — happy path for SaaS
-// tenants. Both the platform-wide shared secret and the per-tenant
+// TestProvisionAuthHeaders_SetsBothWhenBothProvided — happy path for
+// SaaS tenants. Both the platform-wide shared secret and the per-tenant
 // admin_token land on every outbound call.
-func TestAuthHeaders_SetsBothWhenBothProvided(t *testing.T) {
+func TestProvisionAuthHeaders_SetsBothWhenBothProvided(t *testing.T) {
 	p := &CPProvisioner{sharedSecret: "the-secret", adminToken: "tok-abc"}
 	req := httptest.NewRequest("GET", "http://x/", nil)
-	p.authHeaders(req)
+	p.provisionAuthHeaders(req)
 	if got := req.Header.Get("Authorization"); got != "Bearer the-secret" {
 		t.Errorf("Authorization = %q, want %q", got, "Bearer the-secret")
 	}
@@ -70,19 +70,88 @@ func TestAuthHeaders_SetsBothWhenBothProvided(t *testing.T) {
 	}
 }
 
-// TestAuthHeaders_OnlyAdminTokenWhenSecretEmpty — in the transition
-// window where the tenant has admin_token but PROVISION_SHARED_SECRET
-// isn't set, still send the admin token. CP middleware decides whether
-// the shared secret is required.
-func TestAuthHeaders_OnlyAdminTokenWhenSecretEmpty(t *testing.T) {
+// TestProvisionAuthHeaders_OnlyAdminTokenWhenSecretEmpty — in the
+// transition window where the tenant has admin_token but
+// PROVISION_SHARED_SECRET isn't set, still send the admin token. CP
+// middleware decides whether the shared secret is required.
+func TestProvisionAuthHeaders_OnlyAdminTokenWhenSecretEmpty(t *testing.T) {
 	p := &CPProvisioner{sharedSecret: "", adminToken: "tok-abc"}
 	req := httptest.NewRequest("GET", "http://x/", nil)
-	p.authHeaders(req)
+	p.provisionAuthHeaders(req)
 	if got := req.Header.Get("Authorization"); got != "" {
 		t.Errorf("Authorization = %q, want unset", got)
 	}
 	if got := req.Header.Get("X-Molecule-Admin-Token"); got != "tok-abc" {
 		t.Errorf("X-Molecule-Admin-Token = %q, want tok-abc", got)
+	}
+}
+
+// TestAdminAuthHeaders_UsesCPAdminAPIKeyNotSharedSecret — /cp/admin/*
+// routes are gated by CP_ADMIN_API_TOKEN on the CP side (distinct from
+// PROVISION_SHARED_SECRET). The tenant must send the admin key as the
+// bearer on these routes or CP returns 401.
+func TestAdminAuthHeaders_UsesCPAdminAPIKeyNotSharedSecret(t *testing.T) {
+	p := &CPProvisioner{
+		sharedSecret:  "provision-secret",
+		adminToken:    "tok-abc",
+		cpAdminAPIKey: "admin-api-key",
+	}
+	req := httptest.NewRequest("GET", "http://x/", nil)
+	p.adminAuthHeaders(req)
+	if got := req.Header.Get("Authorization"); got != "Bearer admin-api-key" {
+		t.Errorf("Authorization = %q, want %q", got, "Bearer admin-api-key")
+	}
+	if got := req.Header.Get("X-Molecule-Admin-Token"); got != "tok-abc" {
+		t.Errorf("X-Molecule-Admin-Token = %q, want tok-abc", got)
+	}
+}
+
+// TestAdminAuthHeaders_FallsBackToSharedSecretWhenAdminKeyUnset —
+// self-hosted and dev deployments set PROVISION_SHARED_SECRET but not
+// CP_ADMIN_API_TOKEN. Fall back so single-secret setups keep working
+// (CP in those deployments either accepts both bearers or doesn't gate
+// /cp/admin/*).
+func TestAdminAuthHeaders_FallsBackToSharedSecretWhenAdminKeyUnset(t *testing.T) {
+	p := &CPProvisioner{
+		sharedSecret:  "provision-secret",
+		adminToken:    "tok-abc",
+		cpAdminAPIKey: "provision-secret", // NewCPProvisioner sets this when env is unset
+	}
+	req := httptest.NewRequest("GET", "http://x/", nil)
+	p.adminAuthHeaders(req)
+	if got := req.Header.Get("Authorization"); got != "Bearer provision-secret" {
+		t.Errorf("Authorization = %q, want fallback %q", got, "Bearer provision-secret")
+	}
+}
+
+// TestNewCPProvisioner_ReadsCPAdminAPIToken — env-to-field wiring.
+// When CP_ADMIN_API_TOKEN is set, cpAdminAPIKey picks it up.
+func TestNewCPProvisioner_ReadsCPAdminAPIToken(t *testing.T) {
+	t.Setenv("MOLECULE_ORG_ID", "org-abc")
+	t.Setenv("MOLECULE_CP_SHARED_SECRET", "shared")
+	t.Setenv("CP_ADMIN_API_TOKEN", "admin-key")
+	p, err := NewCPProvisioner()
+	if err != nil {
+		t.Fatalf("NewCPProvisioner: %v", err)
+	}
+	if p.cpAdminAPIKey != "admin-key" {
+		t.Errorf("cpAdminAPIKey = %q, want %q", p.cpAdminAPIKey, "admin-key")
+	}
+}
+
+// TestNewCPProvisioner_CPAdminAPITokenFallsBackToSharedSecret —
+// operators that don't split the two secrets (dev / self-hosted) still
+// get a working admin bearer via the fallback.
+func TestNewCPProvisioner_CPAdminAPITokenFallsBackToSharedSecret(t *testing.T) {
+	t.Setenv("MOLECULE_ORG_ID", "org-abc")
+	t.Setenv("MOLECULE_CP_SHARED_SECRET", "shared")
+	t.Setenv("CP_ADMIN_API_TOKEN", "")
+	p, err := NewCPProvisioner()
+	if err != nil {
+		t.Fatalf("NewCPProvisioner: %v", err)
+	}
+	if p.cpAdminAPIKey != "shared" {
+		t.Errorf("cpAdminAPIKey fallback = %q, want %q", p.cpAdminAPIKey, "shared")
 	}
 }
 
@@ -514,5 +583,48 @@ func TestClose_Noop(t *testing.T) {
 	p := &CPProvisioner{}
 	if err := p.Close(); err != nil {
 		t.Errorf("Close should return nil, got %v", err)
+	}
+}
+
+// TestGetConsoleOutput_UsesAdminBearer — regression guard for the
+// split-bearer fix. /cp/admin/workspaces/:id/console must send
+// Authorization: Bearer <cpAdminAPIKey>, NOT <sharedSecret>.
+// Previously the tenant sent sharedSecret → CP 401 → tenant 502 on
+// the "View Logs" UI. Symptom log: "cp provisioner: console: unexpected 401"
+// on hongmingwang prod tenant, 2026-04-22.
+func TestGetConsoleOutput_UsesAdminBearer(t *testing.T) {
+	var sawBearer, sawMethod, sawPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawBearer = r.Header.Get("Authorization")
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"output":"boot log"}`)
+	}))
+	defer srv.Close()
+
+	p := &CPProvisioner{
+		baseURL:       srv.URL,
+		orgID:         "org-1",
+		sharedSecret:  "provision-secret-do-not-use-here",
+		adminToken:    "tok-xyz",
+		cpAdminAPIKey: "admin-api-key",
+		httpClient:    srv.Client(),
+	}
+	out, err := p.GetConsoleOutput(context.Background(), "ws-1")
+	if err != nil {
+		t.Fatalf("GetConsoleOutput: %v", err)
+	}
+	if out != "boot log" {
+		t.Errorf("output = %q, want %q", out, "boot log")
+	}
+	if sawMethod != "GET" {
+		t.Errorf("method = %q, want GET", sawMethod)
+	}
+	if sawPath != "/cp/admin/workspaces/ws-1/console" {
+		t.Errorf("path = %q, want /cp/admin/workspaces/ws-1/console", sawPath)
+	}
+	if sawBearer != "Bearer admin-api-key" {
+		t.Errorf("bearer = %q, want Bearer admin-api-key (NOT the provision secret)", sawBearer)
 	}
 }

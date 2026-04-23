@@ -136,17 +136,7 @@ func TestCopyFilesToContainer_CWE22_RejectsTraversal(t *testing.T) {
 	}
 }
 
-// contains is a simple substring check (no external imports needed in this file).
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && len(substr) > 0 && searchSubstring(s, substr)))
-}
-
-func searchSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
+// contains is declared in workspace_provision_test.go (same package).
+// The duplicate definition that used to live here was removed to fix a
+// `contains redeclared in this block` build error on staging after two
+// PRs landed the same helper independently.

@@ -22,11 +22,13 @@ import (
 func TestProxyA2A_InvalidJSON(t *testing.T) {
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
+	allowLoopbackForTest(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
 	// Cache a URL so the handler doesn't fall back to DB
 	mr.Set(fmt.Sprintf("ws:%s:url", "ws-badjson"), "http://localhost:9999")
+	expectBudgetCheck(mock, "ws-badjson")
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -59,6 +61,7 @@ func TestProxyA2A_InvalidJSON(t *testing.T) {
 func TestProxyA2A_AlreadyWrappedJSONRPC(t *testing.T) {
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
+	allowLoopbackForTest(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
@@ -73,6 +76,7 @@ func TestProxyA2A_AlreadyWrappedJSONRPC(t *testing.T) {
 	defer agentServer.Close()
 
 	mr.Set(fmt.Sprintf("ws:%s:url", "ws-wrapped"), agentServer.URL)
+	expectBudgetCheck(mock, "ws-wrapped")
 
 	// Expect async activity log
 	mock.ExpectExec("INSERT INTO activity_logs").
@@ -114,6 +118,7 @@ func TestProxyA2A_AlreadyWrappedJSONRPC(t *testing.T) {
 func TestProxyA2A_DBLookupFallback(t *testing.T) {
 	mock := setupTestDB(t)
 	setupTestRedis(t) // empty Redis — no cached URL
+	allowLoopbackForTest(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
@@ -123,6 +128,9 @@ func TestProxyA2A_DBLookupFallback(t *testing.T) {
 		fmt.Fprint(w, `{"jsonrpc":"2.0","id":"1","result":{"status":"ok"}}`)
 	}))
 	defer agentServer.Close()
+
+	// Budget check runs first (before URL resolution)
+	expectBudgetCheck(mock, "ws-db-fallback")
 
 	// Redis miss → DB lookup → returns URL
 	mock.ExpectQuery("SELECT url, status FROM workspaces WHERE id =").
@@ -162,6 +170,9 @@ func TestProxyA2A_DBLookupError(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
+	// Budget check runs first (before URL resolution)
+	expectBudgetCheck(mock, "ws-dberr")
+
 	// Redis miss → DB lookup → error
 	mock.ExpectQuery("SELECT url, status FROM workspaces WHERE id =").
 		WithArgs("ws-dberr").
@@ -191,6 +202,7 @@ func TestProxyA2A_DBLookupError(t *testing.T) {
 func TestProxyA2A_AgentReturnsError(t *testing.T) {
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
+	allowLoopbackForTest(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
@@ -202,6 +214,7 @@ func TestProxyA2A_AgentReturnsError(t *testing.T) {
 	defer agentServer.Close()
 
 	mr.Set(fmt.Sprintf("ws:%s:url", "ws-agent-err"), agentServer.URL)
+	expectBudgetCheck(mock, "ws-agent-err")
 
 	// Expect async activity log (with "error" status since agent returned 500)
 	mock.ExpectExec("INSERT INTO activity_logs").
@@ -234,6 +247,7 @@ func TestProxyA2A_AgentReturnsError(t *testing.T) {
 func TestProxyA2A_MessageIDInjected(t *testing.T) {
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
+	allowLoopbackForTest(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
@@ -246,6 +260,7 @@ func TestProxyA2A_MessageIDInjected(t *testing.T) {
 	defer agentServer.Close()
 
 	mr.Set(fmt.Sprintf("ws:%s:url", "ws-msgid"), agentServer.URL)
+	expectBudgetCheck(mock, "ws-msgid")
 
 	mock.ExpectExec("INSERT INTO activity_logs").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -284,6 +299,7 @@ func TestProxyA2A_MessageIDInjected(t *testing.T) {
 func TestProxyA2A_CallerIDPropagated(t *testing.T) {
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
+	allowLoopbackForTest(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
@@ -302,6 +318,8 @@ func TestProxyA2A_CallerIDPropagated(t *testing.T) {
 	mock.ExpectQuery("SELECT id, parent_id FROM workspaces WHERE id = ").
 		WithArgs("ws-target").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id"}).AddRow("ws-target", "ws-parent"))
+
+	expectBudgetCheck(mock, "ws-target")
 
 	// Expect activity log with source_id set
 	mock.ExpectExec("INSERT INTO activity_logs").
@@ -377,6 +395,7 @@ func TestProxyA2A_AccessDenied_DifferentParents(t *testing.T) {
 func TestProxyA2A_AllowedSelf_SkipsAccessCheck(t *testing.T) {
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
+	allowLoopbackForTest(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
@@ -386,6 +405,7 @@ func TestProxyA2A_AllowedSelf_SkipsAccessCheck(t *testing.T) {
 	}))
 	defer agentServer.Close()
 	mr.Set(fmt.Sprintf("ws:%s:url", "ws-self"), agentServer.URL)
+	expectBudgetCheck(mock, "ws-self")
 
 	mock.ExpectExec("INSERT INTO activity_logs").WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -659,6 +679,7 @@ func TestProxyA2AError_BusyShape(t *testing.T) {
 func TestProxyA2A_BodyReadFailure_DeliveryConfirmed(t *testing.T) {
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
+	allowLoopbackForTest(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
@@ -687,6 +708,7 @@ func TestProxyA2A_BodyReadFailure_DeliveryConfirmed(t *testing.T) {
 
 	wsID := "ws-bodyreadfail"
 	mr.Set(fmt.Sprintf("ws:%s:url", wsID), agentServer.URL)
+	expectBudgetCheck(mock, wsID)
 
 	// Expect async activity log INSERT (logA2ASuccess is called because
 	// delivery_confirmed is true and the handler detected a 2xx status).
@@ -941,14 +963,18 @@ func TestNormalizeA2APayload_MissingMethodReturnsEmpty(t *testing.T) {
 func TestResolveAgentURL_CacheHit(t *testing.T) {
 	setupTestDB(t)
 	mr := setupTestRedis(t)
+	allowLoopbackForTest(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
-	mr.Set("ws:ws-cached:url", "http://cached.example/a2a")
+	// Use loopback IP (unlocked by allowLoopbackForTest) so isSafeURL passes —
+	// cached.example does not resolve and would trip the DNS guard.
+	cached := "http://127.0.0.1:9999/a2a"
+	mr.Set("ws:ws-cached:url", cached)
 
 	url, perr := handler.resolveAgentURL(context.Background(), "ws-cached")
 	if perr != nil {
 		t.Fatalf("unexpected error: %+v", perr)
 	}
-	if url != "http://cached.example/a2a" {
+	if url != cached {
 		t.Errorf("got %q, want cached URL", url)
 	}
 }
@@ -956,21 +982,24 @@ func TestResolveAgentURL_CacheHit(t *testing.T) {
 func TestResolveAgentURL_CacheMissDBHit(t *testing.T) {
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
+	allowLoopbackForTest(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
 
+	// Use loopback IP (unlocked by allowLoopbackForTest) so isSafeURL passes.
+	dbURL := "http://127.0.0.1:9998"
 	mock.ExpectQuery("SELECT url, status FROM workspaces WHERE id =").
 		WithArgs("ws-dbhit").
-		WillReturnRows(sqlmock.NewRows([]string{"url", "status"}).AddRow("http://dbhit.example", "online"))
+		WillReturnRows(sqlmock.NewRows([]string{"url", "status"}).AddRow(dbURL, "online"))
 
 	url, perr := handler.resolveAgentURL(context.Background(), "ws-dbhit")
 	if perr != nil {
 		t.Fatalf("unexpected error: %+v", perr)
 	}
-	if url != "http://dbhit.example" {
-		t.Errorf("got %q, want http://dbhit.example", url)
+	if url != dbURL {
+		t.Errorf("got %q, want %q", url, dbURL)
 	}
 	// Verify cached now
-	if v, err := mr.Get("ws:ws-dbhit:url"); err != nil || v != "http://dbhit.example" {
+	if v, err := mr.Get("ws:ws-dbhit:url"); err != nil || v != dbURL {
 		t.Errorf("expected Redis cache populated; got v=%q err=%v", v, err)
 	}
 }
@@ -1020,6 +1049,7 @@ func TestResolveAgentURL_DockerRewrite(t *testing.T) {
 	// covered by TestResolveAgentURL_DockerRewrite_NilProvisionerNoRewrite.
 	mr := setupTestRedis(t)
 	setupTestDB(t)
+	allowLoopbackForTest(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
 	mr.Set("ws:ws-dock:url", "http://127.0.0.1:55555")
 
