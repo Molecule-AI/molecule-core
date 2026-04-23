@@ -36,7 +36,7 @@ done
 echo "    Postgres ready."
 
 echo "==> Starting Platform (Go :8080)..."
-cd "$ROOT/platform"
+cd "$ROOT/workspace-server"
 go run ./cmd/server &
 PLATFORM_PID=$!
 

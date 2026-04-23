@@ -88,6 +88,7 @@ export function CookieConsent() {
   return (
     <div
       role="dialog"
+      aria-modal="true"
       aria-labelledby="cookie-consent-title"
       aria-describedby="cookie-consent-body"
       className="fixed bottom-0 left-0 right-0 z-[9999] border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-sm p-4 shadow-[0_-4px_12px_rgba(0,0,0,0.4)]"
