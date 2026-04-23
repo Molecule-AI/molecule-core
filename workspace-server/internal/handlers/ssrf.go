@@ -8,11 +8,26 @@ import (
 	"strings"
 )
 
+// ssrfCheckEnabled is the runtime gate for isSafeURL. Production keeps it
+// true; tests that need to exercise loopback URLs (sqlmock + httptest
+// servers bind to 127.0.0.1) flip it to false via setSSRFCheckForTest.
+// Not safe with t.Parallel — tests that use the bypass must run serially.
+var ssrfCheckEnabled = true
+
+// setSSRFCheckForTest toggles the SSRF gate for the duration of a test.
+// Only callable from this package's _test.go files (lowercase identifier).
+func setSSRFCheckForTest(enabled bool) {
+	ssrfCheckEnabled = enabled
+}
+
 // isSafeURL validates that a URL resolves to a publicly-routable address,
 // preventing A2A requests from being redirected to internal/cloud-metadata
 // infrastructure (SSRF, CWE-918). Workspace URLs come from DB/Redis caches
 // so we validate before making any outbound HTTP call.
 func isSafeURL(rawURL string) error {
+	if !ssrfCheckEnabled {
+		return nil
+	}
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
