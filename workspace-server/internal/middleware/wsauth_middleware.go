@@ -90,6 +90,21 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		// Local-dev escape hatch. Mirrors the Tier-1b branch in AdminAuth:
+		// on `go run ./cmd/server` + `npm run dev` the Canvas (at
+		// localhost:3000) calls the platform (at localhost:8080) cross-port,
+		// so isSameOriginCanvas's Host==Referer check fails. Without a
+		// bearer, every GET /workspaces/:id/activity / /delegations call
+		// 401s and the Canvas can't show chat history or agent comms.
+		// Gated on MOLECULE_ENV=development + ADMIN_TOKEN unset so SaaS
+		// (always MOLECULE_ENV=production + ADMIN_TOKEN set) never hits it.
+		if os.Getenv("ADMIN_TOKEN") == "" {
+			env := strings.ToLower(strings.TrimSpace(os.Getenv("MOLECULE_ENV")))
+			if env == "development" || env == "dev" {
+				c.Next()
+				return
+			}
+		}
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing workspace auth token"})
 		return
 	}
