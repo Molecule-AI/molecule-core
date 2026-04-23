@@ -426,7 +426,7 @@ func (h *MemoriesHandler) Search(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "search failed"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	memories := make([]map[string]interface{}, 0)
 	for rows.Next() {

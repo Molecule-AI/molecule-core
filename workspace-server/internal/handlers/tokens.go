@@ -56,7 +56,7 @@ func (h *TokenHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list tokens"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	tokens := []tokenListItem{}
 	for rows.Next() {

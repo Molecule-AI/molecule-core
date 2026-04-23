@@ -170,7 +170,7 @@ func (h *TeamHandler) Collapse(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query children"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	removed := make([]string, 0)
 	for rows.Next() {

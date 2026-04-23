@@ -28,7 +28,7 @@ func (h *EventsHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	events := make([]map[string]interface{}, 0)
 	for rows.Next() {
@@ -67,7 +67,7 @@ func (h *EventsHandler) ListByWorkspace(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	events := make([]map[string]interface{}, 0)
 	for rows.Next() {

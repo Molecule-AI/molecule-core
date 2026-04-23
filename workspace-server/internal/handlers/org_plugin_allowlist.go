@@ -207,7 +207,7 @@ func (h *OrgPluginAllowlistHandler) GetAllowlist(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch allowlist"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	entries := make([]allowlistEntry, 0)
 	for rows.Next() {

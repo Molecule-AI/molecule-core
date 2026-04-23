@@ -257,7 +257,7 @@ func queryPeerMaps(query string, args ...interface{}) ([]map[string]interface{},
 		log.Printf("queryPeerMaps error: %v", err)
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var result []map[string]interface{}
 	for rows.Next() {
