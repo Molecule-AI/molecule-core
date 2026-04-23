@@ -402,6 +402,14 @@ func (h *WorkspaceHandler) issueAndInjectToken(ctx context.Context, workspaceID 
 		cfg.ConfigFiles = make(map[string][]byte)
 	}
 	cfg.ConfigFiles[".auth_token"] = []byte(token)
+	// Option B (issue #1877): write token to volume BEFORE ContainerStart.
+	// Pre-write eliminates the race window where a restarted container could
+	// read a stale /configs/.auth_token before WriteFilesToContainer runs.
+	// This call is best-effort — if it fails we still log and fall through;
+	// the runtime's heartbeat.py will retry on 401 if needed.
+	if writeErr := h.provisioner.WriteAuthTokenToVolume(ctx, workspaceID, token); writeErr != nil {
+		log.Printf("Provisioner: warning — pre-write token to volume failed for %s: %v (token still injected via WriteFilesToContainer after start)", workspaceID, writeErr)
+	}
 	log.Printf("Provisioner: injected fresh auth token for workspace %s into config volume", workspaceID)
 }
 
