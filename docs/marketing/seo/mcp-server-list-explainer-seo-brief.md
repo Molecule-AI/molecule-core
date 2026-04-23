@@ -1,5 +1,5 @@
 # MCP Server List Explainer — SEO Brief
-**Campaign:** MCP server list cluster (Phase backlog)
+**Campaign:** MCP server list cluster
 **Author:** SEO Analyst (5b277fc4)
 **Date:** 2026-04-23
 **Status:** Brief — ready for Content Marketer
@@ -7,185 +7,115 @@
 
 ---
 
-## Overview
-
-This brief covers a single long-form explainer post targeting the "MCP server list" / "Model Context Protocol servers" keyword cluster. The post should become the definitive resource for developers evaluating or getting started with MCP servers — reference implementations, official integrations, community registries, and server frameworks.
-
-Existing keyword research at `docs/marketing/seo/mcp-server-list-keywords.md` provides the full keyword table. This brief adds on-page SEO specifications and content structure guidance for Content Marketer execution.
-
----
-
 ## Target Post
 
-- **File:** `docs/blog/2026-04-21-mcp-server-list/index.md` (directory already exists)
-- **Slug:** `mcp-server-list`
-- **Target URL:** `https://molecule.ai/blog/mcp-server-list`
-- **Target length:** 1,800–2,200 words
+- **Issue:** #1493
+- **Target length:** ~700 words
 - **Owner:** Content Marketer
 
 ---
 
-## SEO Specifications
+## Keyword Cluster
 
-### Title Tag (≤60 chars)
+**Primary keyword:** `MCP server list`
+- Intent: Informational — builders looking for what MCP servers exist
+- Competition: Low — emerging category, early-mover advantage
 
-```
-The Complete MCP Server List: Reference, Official & Community (2026)
-```
-_(65 chars — over by 5. Alternative:)_
-```
-Every Model Context Protocol Server You Need in 2026
-```
-_(51 chars — clean)_
-```
-MCP Server List 2026: Reference, Official & Community Servers
-```
-_(56 chars — recommended)_
+**LSI keywords (3 required):**
+| Keyword | Intent |
+|---------|--------|
+| `Model Context Protocol servers` | Informational |
+| `MCP tools catalogue` | Informational / navigational |
+| `available MCP integrations` | Informational |
 
-### Meta Description (≤155 chars)
+---
 
-```
-Complete list of MCP servers: reference implementations, official integrations, community registries,
-and server frameworks. Install commands included. Updated 2026.
-```
-_(133 chars)_
+## On-Page SEO Specifications
 
-### H1
+**Title tag (≤60 chars):**
+```
+The Complete MCP Server List for Molecule AI
+```
+_(48 chars) ✅_
 
+**Meta description (≤155 chars):**
 ```
-The Complete MCP Server List: Reference, Official, and Community (2026)
+Browse every MCP server available in Molecule AI — browser automation, code execution, file access, and more. Updated for 2026.
+```
+_(123 chars) ✅_
+
+**H1:**
+```
+Every MCP Server Available in Molecule AI (2026)
 ```
 
-### og_title (≤60 chars)
-
-```
-The Complete MCP Server List (2026)
-```
-_(37 chars)_
-
-### og_description (≤97 chars)
-
-```
-Every Model Context Protocol server you need: reference, official, community, and frameworks. Install commands included.
-```
-_(116 chars — trim:)_
-```
-Every MCP server you need: reference, official, community, and frameworks. Install commands included.
-```
-_(96 chars)_
-
-### slug
-
+**Slug:**
 ```
 mcp-server-list
 ```
 
-### keywords frontmatter
-
-```yaml
-keywords: [MCP server list, MCP servers, Model Context Protocol, MCP integration,
-  best MCP servers, MCP server examples, MCP framework, MCP official servers,
-  MCP community servers, list of MCP servers]
+**Target URL:**
 ```
-
----
-
-## Keyword Targeting
-
-| Keyword | Target | Frequency |
-|---------|--------|-----------|
-| `MCP server list` | H1 lead, intro, 2× H2s, meta | 8–12× |
-| `MCP servers` | Body, H2s | 10–15× |
-| `Model Context Protocol` | Intro + first H2 | 5–8× |
-| `MCP server` | Body (singular) | 15–20× |
-| `MCP integration` | Framework + integration sections | 3–5× |
-| `server framework` | Framework section | 3–5× |
-| `reference server` | Reference server section | 3–5× |
-| `official integration` | Official integrations section | 2–3× |
-
----
-
-## Recommended Heading Structure
-
-```
-H1: The Complete MCP Server List: Reference, Official, and Community (2026)
-
-  H2: What Is the Model Context Protocol?
-    (80–100 words — brief MCP intro; link to official spec)
-
-  H2: Reference Servers — Official MCP Implementations
-    (install command table: Fetch, Filesystem, Git, Memory, Sequential Thinking, Time)
-
-  H2: Official Integrations — Enterprise MCP Servers
-    (GitHub, Google Workspace, AWS KB Retrieval, Slack, PostgreSQL — with use-case + install command)
-
-  H2: Server Frameworks — Build Your Own MCP Server
-    (FastMCP, EasyMCP, MCP-Framework — when to use each; Python ecosystem)
-
-  H2: Community Registries and Discovery Tools
-    (Smithery.ai, MCPHub — when to use registries vs. self-host)
-
-  H2: How to Install and Configure MCP Servers
-    (general setup steps; link to docs/mcp-server-setup)
-
-  H2: Choosing the Right MCP Server for Your Use Case
-    (decision table or comparison — "start here" guidance)
-
-  H2: MCP Servers on Molecule AI — Enterprise Governance Built In
-    (brief Molecule AI differentiator — MCP server management at scale)
+https://molecule.ai/blog/mcp-server-list
 ```
 
 ---
 
 ## Internal Linking Plan
 
-**Links from this post:**
-| Target | Anchor |
-|--------|--------|
-| `docs/blog/2026-04-20-chrome-devtools-mcp/` | "MCP browser automation server" |
-| `docs/blog/2026-04-22-a2a-v1-agent-platform/` | "A2A agent orchestration" |
-| `docs/mcp-server-setup/` | "MCP server setup guide" |
-| `docs/architecture/` | "enterprise MCP governance" |
-| `docs/quickstart/` | "get started with Molecule AI" |
+**Links TO this post** (inject into existing posts):
+| Source post | Anchor text |
+|-------------|-------------|
+| Tool Trace / AI Agent Observability post | "MCP server list" or "MCP tools catalogue" |
+| A2A v1 post | "MCP integrations" or "available MCP integrations" |
+| Chrome DevTools MCP post | "full MCP server list" or "MCP tools catalogue" |
 
-**Links to this post (inject into existing posts):**
-| Source | Anchor |
-|--------|--------|
-| `chrome-devtools-mcp` post | "full MCP server list" |
-| `a2a-v1-agent-platform` post | "MCP integrations" |
+**Links FROM this post:**
+| Target | Anchor text |
+|--------|-------------|
+| Chrome DevTools MCP blog | "browser automation MCP server" or "Chrome DevTools MCP" |
+| Cloudflare Artifacts blog | "Cloudflare Artifacts" or "artifact storage MCP" |
 
 ---
 
-## Technical SEO Requirements
+## Content Structure
 
-- [ ] **og_image:** `/assets/blog/2026-04-21-mcp-server-list-og.png` — Social Media Brand to create (1200×630)
-- [ ] **JSON-LD:** Article schema + FAQPage schema (FAQPage captures long-tail "how to install" queries)
-- [ ] **Anchor IDs** on all H2s and H3s
-- [ ] **External links** to modelcontextprotocol.io/examples and github.com/modelcontextprotocol/servers
-- [ ] **Structured table** for reference servers with columns: Name | Use Case | Install Command | Language
-- [ ] **No render-blocking syntax highlighting** — use lazy-loaded code blocks
+```
+H1: Every MCP Server Available in Molecule AI (2026)
+
+H2: What Is an MCP Server?
+  (Brief 2-sentence definition — link to official spec)
+
+H2: MCP Servers Available in Molecule AI
+  (Categorized list: browser automation, code execution, file access,
+  memory, and more — install commands or links where applicable)
+
+H2: Adding MCP Servers to Your Agents
+  (How to connect MCP servers to Molecule AI agents — 2–3 sentences)
+
+H2: Related Resources
+  (Internal links: Chrome DevTools MCP, Cloudflare Artifacts)
+```
+
+Target word count: ~700 words. Concise and scannable — this is a reference post, not a tutorial.
 
 ---
 
 ## Content Guardrails
 
-- Do NOT list servers that are unmaintained or archived — verify against modelcontextprotocol/servers README before publishing.
-- MCP server frameworks section: be specific about TypeScript-first ecosystem; acknowledge Python alternatives but don't over-prioritize them.
-- Do NOT frame Molecule AI as a "registry" — position it as the **platform that manages MCP servers at enterprise scale** (governance, observability, billing attribution). The Molecule AI section should be brief (1–2 paragraphs) to avoid keyword cannibalization within the post.
-- Include at least one table — reference server install commands table is the single most-linkable asset in this post.
+- Keep it factual and list-oriented. This is a catalogue, not a how-to.
+- Do NOT claim Molecule AI built the MCP servers — they are third-party / community servers that Molecule AI agents can connect to.
+- Do not list servers that are archived or unmaintained.
+- The Molecule AI differentiator: agents running on Molecule AI can connect to any MCP server via the standard MCP SDK — emphasize ease of setup, not server ownership.
 
 ---
 
-## Success Metrics
+## Technical Requirements
 
-| Metric | Target |
-|--------|--------|
-| SERP position for `MCP server list` | Top 5 within 30 days |
-| SERP position for `MCP servers` | Top 10 within 30 days |
-| SERP position for `Model Context Protocol servers` | Top 3 within 30 days |
-| Internal link CTR from MCP-related posts | ≥ 5% of sessions |
-| Referral from MCP spec / community sites | Baseline measurement |
+- **og_image:** Social Media Brand to create at `/assets/blog/mcp-server-list-og.png` (1200×630)
+- **JSON-LD:** Article schema
+- **Anchor IDs** on all H2s
 
 ---
 
-*Brief maintained by SEO Analyst (5b277fc4). Full keyword research at `docs/marketing/seo/mcp-server-list-keywords.md`.*
+*Brief maintained by SEO Analyst (5b277fc4). Brief written 2026-04-23 per Marketing Lead specs.*

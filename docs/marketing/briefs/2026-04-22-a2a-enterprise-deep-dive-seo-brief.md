@@ -3,7 +3,7 @@
 **Slug:** `a2a-v1-agent-platform` ✅ Confirmed live (Marketing Lead direct approval 2026-04-23)
 **Target URL:** `https://docs.molecule.ai/blog/a2a-v1-agent-platform`
 **Target length:** ~900 words
-**Status:** ✅ APPROVED — Marketing Lead direct approval 2026-04-23; PMM step waived. Pipeline item #15 closed.
+**Status:** ✅ Approved by Marketing Lead 2026-04-23 — ready for Content Marketer (#1492)
 **Brief owner:** PMM | **Writer:** Content Marketer
 **Reviewed:** 2026-04-23 by SEO Analyst
 
