@@ -30,7 +30,7 @@ func isSafeURL(rawURL string) error {
 		return fmt.Errorf("empty hostname")
 	}
 	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
+		if (ip.IsLoopback() && !testAllowLoopback) || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
 			return fmt.Errorf("forbidden loopback/unspecified/link-local IP: %s", ip)
 		}
 		if isPrivateOrMetadataIP(ip) {
@@ -50,7 +50,7 @@ func isSafeURL(rawURL string) error {
 		if ip == nil {
 			continue
 		}
-		if ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
+		if (ip.IsLoopback() && !testAllowLoopback) || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
 			return fmt.Errorf("hostname %s resolves to forbidden link-local/loopback IP: %s", host, ip)
 		}
 		if isPrivateOrMetadataIP(ip) {
@@ -59,6 +59,16 @@ func isSafeURL(rawURL string) error {
 	}
 	return nil
 }
+
+// testAllowLoopback is a test-only escape hatch. When true, isSafeURL
+// accepts 127.0.0.0/8 and ::1 so unit tests that stub workspace URLs
+// with httptest.NewServer (which binds to loopback) can reach their
+// own mock backends. Flipped via allowLoopbackForTest(t) in tests —
+// never set in production code paths.
+//
+// The 169.254 metadata, RFC-1918, TEST-NET, CGNAT, and link-local
+// guards are NOT relaxed by this flag — only loopback.
+var testAllowLoopback = false
 
 // isPrivateOrMetadataIP returns true for IPs that must not be reached via A2A.
 //
@@ -106,8 +116,9 @@ func isPrivateOrMetadataIP(ip net.IP) bool {
 	}
 
 	// IPv6 path — .To4() was nil so this is a real v6 address.
-	// ::1 (loopback) — treat as blocked here too for defense-in-depth.
-	if ip.IsLoopback() {
+	// ::1 (loopback) — treat as blocked here too for defense-in-depth,
+	// unless tests have opted into loopback via testAllowLoopback.
+	if ip.IsLoopback() && !testAllowLoopback {
 		return true
 	}
 	// Link-local fe80::/10 — always blocked.
