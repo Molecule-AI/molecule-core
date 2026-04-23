@@ -284,6 +284,10 @@ Then open `http://localhost:3000`:
 - [Workspace Runtime](./docs/agent-runtime/workspace-runtime.md)
 - [Canvas UI](./docs/frontend/canvas.md)
 - [Local Development](./docs/development/local-development.md)
+- [Backend Parity Matrix](./docs/architecture/backends.md) — Docker vs EC2 feature parity tracker
+- [Testing Strategy](./docs/engineering/testing-strategy.md) — tiered coverage floors, not blanket 100%
+- [PR Hygiene](./docs/engineering/pr-hygiene.md) — small PRs, clean branches, cherry-pick on drift
+- [Engineering Postmortems](./docs/engineering/) — architecture + testing lessons from real incidents
 - [Ecosystem Watch](./docs/ecosystem-watch.md) — adjacent projects we track (Holaboss, Hermes, gstack, …)
 - [Glossary](./docs/glossary.md) — how we use "harness", "workspace", "plugin", "flow" vs. ecosystem neighbors
 
