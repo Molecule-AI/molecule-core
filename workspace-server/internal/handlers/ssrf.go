@@ -44,6 +44,28 @@ func setSSRFCheckForTest(enabled bool) func() {
 	return func() { ssrfCheckEnabled = prev }
 }
 
+// devModeAllowsLoopback reports whether the SSRF defence should permit
+// http://127.0.0.1:<port> workspace URLs. True only when MOLECULE_ENV is
+// a dev value — this is the same convention the middleware dev-mode
+// escape hatch uses (handlers/admin_test_token.go, middleware/devmode.go).
+//
+// Why: on a self-hosted Docker setup the provisioner publishes each
+// container's A2A port on 127.0.0.1:<ephemeral> and writes that URL
+// to workspaces.url. The A2A proxy on the host platform needs to POST
+// to that same 127.0.0.1:<port> to reach the container — there's no
+// other reachable address. SaaS never hits this branch because hosted
+// tenants run MOLECULE_ENV=production (enforced by the crypto strict-
+// init path) and the workspace URL is the tenant EC2's VPC-private IP.
+//
+// The relaxation is narrowly scoped to loopback IPv4 + ::1 — the
+// metadata, CGNAT, TEST-NET, and link-local guards stay blocked even
+// in dev mode.
+func devModeAllowsLoopback() bool {
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("MOLECULE_ENV")))
+	return env == "development" || env == "dev"
+}
+}
+
 // isSafeURL validates that a URL resolves to a publicly-routable address,
 // preventing A2A requests from being redirected to internal/cloud-metadata
 // infrastructure (SSRF, CWE-918). Workspace URLs come from DB/Redis caches
