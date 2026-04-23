@@ -31,17 +31,82 @@ tags: [A2A, enterprise, multi-cloud, agent-orchestration, governance]
   "url": "https://molecule.ai/blog/a2a-enterprise-any-agent-any-infrastructure"
 }
 </script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  "name": "Enable Agent-to-Agent Communication with Molecule AI A2A Protocol",
+  "description": "Set up A2A protocol communication between agents running in different environments — cloud, on-prem, or laptop — with org API key attribution and full audit trail.",
+  "step": [
+    {
+      "@type": "HowToStep",
+      "name": "Register agents with the platform registry",
+      "text": "Each agent registers with GET /registry/discover/:id on startup. The platform returns the agent's endpoint and agent card without placing the platform in the message path."
+    },
+    {
+      "@type": "HowToStep",
+      "name": "Verify org API key attribution on the calling workspace",
+      "text": "Confirm the workspace has an org API key scoped for A2A delegation. Every delegation record written by the platform carries the org_api_key_id of the calling workspace."
+    },
+    {
+      "@type": "HowToStep",
+      "name": "Delegate tasks peer-to-peer via WebSocket",
+      "text": "Agents exchange tasks via JSON-RPC 2.0 over the established WebSocket connection. The platform observes delegation metadata — caller, callee, timestamp, outcome — but the task payload stays between the two agents."
+    },
+    {
+      "@type": "HowToStep",
+      "name": "Audit delegation records in the platform activity log",
+      "text": "Query delegation records via the platform API to retrieve org_api_key_id, caller_agent, callee_agent, timestamp, and outcome for every delegation across all environments."
+    }
+  ]
+}
+</script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "How does Molecule AI A2A protocol differ from hub-and-spoke agent architectures?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "In hub-and-spoke architectures, every inter-agent call routes through a central control plane. In Molecule AI A2A, the platform handles discovery only — after the initial handshake, agents exchange tasks directly over a WebSocket connection without the platform in the message path."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How does org API key attribution work for agent-to-agent delegations?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Every delegation in Molecule AI carries the org API key of the calling agent's workspace. The audit record is written at the platform level — not derived from agent self-reporting — and includes caller_agent, callee_agent, timestamp, and outcome."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can A2A agents coordinate across different cloud providers and on-premises environments?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Platform discovery replaces VPN-based service mesh. An agent in us-east-1 and an agent in eu-west-1 share the same registry. On-prem agents register via outbound WebSocket — no inbound firewall rules required."
+      }
+    }
+  ]
+}
+</script>
+
 author: Molecule AI
 og_title: "A2A Protocol for Enterprise: Any Agent. Any Infrastructure. Full Audit Trail."
 og_description: "A2A protocol for cross-infrastructure agent communication — cloud, on-prem, laptop — with org API key attribution and full audit trail on every delegation."
-og_image: /assets/blog/2026-04-22-2026-04-22-a2a-v1-agent-platform-og.png
+og_image: /assets/blog/2026-04-22-a2a-v1-agent-platform-og.png
 twitter_card: summary_large_image
 canonical: https://molecule.ai/blog/a2a-enterprise-any-agent-any-infrastructure
 keywords:
 
 
 
-# Enterprise AI Agent Platform: A2A Protocol for Any Agent. Any Infrastructure.
+# A2A Protocol for Enterprise: Any Agent. Any Infrastructure. Full Audit Trail.
 
 Most `enterprise AI agent platform` buyers hit the same wall: the platform advertises `multi-cloud AI agent orchestration` — but under the hood, every agent-to-agent call routes through a central control plane. Every task delegation passes through your cloud vendor's hub. Every cross-cloud handoff adds latency. And when something breaks, the audit trail tells you what failed, but not who was responsible for which step.
 
