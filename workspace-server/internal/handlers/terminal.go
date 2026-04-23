@@ -51,6 +51,11 @@ type TerminalHandler struct {
 	docker *client.Client
 }
 
+// canCommunicateCheck is the communication-authorization predicate used by
+// handleLocalConnect to enforce the KI-005 workspace-hierarchy guard.
+// Exposed as a package var so tests can stub it without DB fixtures.
+var canCommunicateCheck = registry.CanCommunicate
+
 func NewTerminalHandler(cli *client.Client) *TerminalHandler {
 	return &TerminalHandler{docker: cli}
 }
@@ -79,31 +84,16 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 }
 
 // handleLocalConnect attaches to a Docker container running on this
-// tenant's Docker daemon. Original behavior preserved exactly.
+// tenant's Docker daemon. The KI-005 workspace-hierarchy guard is enforced
+// here so it covers both the local Docker path and (transitively) the
+// remote EIC path (which is selected before this function is reached).
 func (h *TerminalHandler) handleLocalConnect(c *gin.Context, workspaceID string) {
-// canCommunicateCheck is the communication-authorization predicate used by
-// HandleConnect to enforce the KI-005 workspace-hierarchy guard.
-// Exposed as a package var so tests can stub it without DB fixtures.
-var canCommunicateCheck = registry.CanCommunicate
-
-// HandleConnect handles WS /workspaces/:id/terminal
-func (h *TerminalHandler) HandleConnect(c *gin.Context) {
-	targetID := c.Param("id")
-	ctx := c.Request.Context()
-
-	// KI-005 fix: enforce CanCommunicate hierarchy check before granting
-	// terminal access. WorkspaceAuth validates the bearer's token, but the
-	// token is scoped to a specific workspace ID — Workspace A's token can
-	// reach Workspace A's terminal. Without CanCommunicate, Workspace A could
-	// also reach Workspace B's terminal if it knows B's UUID (enumeration
-	// via canvas, logs, or delegation). Shell access is more dangerous than
-	// A2A message-passing, so we apply the same hierarchy check here.
 	callerID := c.GetHeader("X-Workspace-ID")
-	if callerID != "" {
+	if callerID != "" && callerID != workspaceID {
 		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
 		if tok != "" {
-			if err := wsauth.ValidateAnyToken(ctx, db.DB, tok); err == nil {
-				if !canCommunicateCheck(callerID, targetID) {
+			if err := wsauth.ValidateToken(ctx, db.DB, callerID, tok); err == nil {
+				if !canCommunicateCheck(callerID, workspaceID) {
 					c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to access this workspace's terminal"})
 					return
 				}
@@ -115,9 +105,6 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Docker not available"})
 		return
 	}
-
-	ctx := c.Request.Context()
-	workspaceID := targetID
 
 	// Try multiple container name patterns:
 	// 1. Provisioner naming: ws-{id[:12]}
