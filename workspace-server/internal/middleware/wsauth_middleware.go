@@ -90,20 +90,11 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		// Local-dev escape hatch. Mirrors the Tier-1b branch in AdminAuth:
-		// on `go run ./cmd/server` + `npm run dev` the Canvas (at
-		// localhost:3000) calls the platform (at localhost:8080) cross-port,
-		// so isSameOriginCanvas's Host==Referer check fails. Without a
-		// bearer, every GET /workspaces/:id/activity / /delegations call
-		// 401s and the Canvas can't show chat history or agent comms.
-		// Gated on MOLECULE_ENV=development + ADMIN_TOKEN unset so SaaS
-		// (always MOLECULE_ENV=production + ADMIN_TOKEN set) never hits it.
-		if os.Getenv("ADMIN_TOKEN") == "" {
-			env := strings.ToLower(strings.TrimSpace(os.Getenv("MOLECULE_ENV")))
-			if env == "development" || env == "dev" {
-				c.Next()
-				return
-			}
+		// Local-dev escape hatch — see devmode.go. Unreachable on SaaS
+		// (hosted tenants always have ADMIN_TOKEN + MOLECULE_ENV=production).
+		if isDevModeFailOpen() {
+			c.Next()
+			return
 		}
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing workspace auth token"})
 		return
@@ -163,24 +154,13 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 			}
 		}
 
-		// Tier 1b: Local-dev escape hatch. On `go run ./cmd/server` the
-		// Canvas has no bearer token (there's no WorkOS session, no
-		// baked NEXT_PUBLIC_ADMIN_TOKEN), so the moment the first
-		// workspace token lands in the DB Tier 1 closes and Canvas → 401
-		// on every GET /workspaces. This reopens fail-open *only* when
-		//   - ADMIN_TOKEN is empty (i.e. the operator has not opted in
-		//     to the Phase-30 closure), AND
-		//   - MOLECULE_ENV is explicitly a dev mode.
-		// SaaS never hits this branch because tenant provisioning sets
-		// both ADMIN_TOKEN and MOLECULE_ENV=production. Matches the
-		// existing convention in handlers/admin_test_token.go which
-		// gates the test-token endpoint on MOLECULE_ENV != "production".
-		if adminSecret == "" {
-			env := strings.ToLower(strings.TrimSpace(os.Getenv("MOLECULE_ENV")))
-			if env == "development" || env == "dev" {
-				c.Next()
-				return
-			}
+		// Tier 1b: Local-dev escape hatch — see devmode.go. Lets the
+		// Canvas dashboard keep working after the first workspace token
+		// lands in the DB on `go run ./cmd/server`. Unreachable on SaaS
+		// (hosted tenants always have ADMIN_TOKEN + MOLECULE_ENV=production).
+		if isDevModeFailOpen() {
+			c.Next()
+			return
 		}
 
 		// SaaS-canvas path: when the request carries a WorkOS session
