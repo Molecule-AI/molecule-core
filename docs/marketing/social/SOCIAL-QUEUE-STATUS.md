@@ -25,6 +25,17 @@
 - **Blocking:** Marketing Lead publish approval + X credentials
 - **Visual assets needed:** 3-item checklist graphic (Lighthouse/Regression/Auth) + fleet diagram (reusable)
 
+### 2026-04-21 — Cloudflare Artifacts ✅ DRAFT (PMM, catch-up)
+- **File:** `2026-04-21-cloudflare-artifacts/social-copy.md`
+- **Status:** PMM pre-write complete (commit 56ea6375). Awaiting Marketing Lead approval → approved queue.
+- **Content:** 5-post X thread + LinkedIn + Reddit + HN copy
+- **Blog:** Live 2026-04-21 (`moleculesai.app/blog/cloudflare-artifacts-molecule-ai`)
+- **Angle:** "Git for agents" — pain story first, technology as answer
+- **Owner:** PMM → Social Media Brand
+- **Blocking:** Marketing Lead approval + X credentials
+- **Visual assets needed:** Artifacts repo attach flow screenshot + git commit terminal output
+- **Note:** Blog shipped April 21; social copy delayed, now catching up. Cloudflare Artifacts is in beta — do not claim GA.
+
 ### 2026-04-22 — EC2 Instance Connect SSH ✅ APPROVED (PMM positioning)
 - **File:** `2026-04-22-ec2-instance-connect-ssh/social-copy.md`
 - **Status:** PMM positioning approved (GH #1637). Social Media Brand unblocked for Versions A + D.
