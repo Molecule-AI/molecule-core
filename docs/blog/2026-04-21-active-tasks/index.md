@@ -37,12 +37,14 @@ twitter_card: summary_large_image
 author: Molecule AI
 og_title: "How Molecule AI Tracks Active Agent Tasks: Concurrency Control in Production"
 og_description: "Running a fleet of AI agents in production means running many tasks concurrently. Here's how Molecule AI's active_tasks counter tracks concurrency, prevents overscheduling, and keeps your agent fleet from overwhelming your infrastructure."
-og_image: /assets/blog/2026-04-21-2026-04-21-active-tasks-og.png
+og_image: /assets/blog/2026-04-21-active-tasks-og.png
 twitter_card: summary_large_image
 canonical: https://molecule.ai/blog/active-tasks-concurrency
 keywords:
-
-
+  - "AI agent fleet management"
+  - "multi-tenant AI agents"
+  - "AI agent concurrency control"
+  - "AI agent deployment platform"
 
 # How Molecule AI Tracks Active Agent Tasks: Concurrency Control in Production
 
@@ -138,7 +140,7 @@ Queue depth alone can't tell you whether you're at capacity. `active_tasks` can.
 
 Set a `max_concurrent` limit on your workspace and watch the fleet view. If you're hitting limits consistently, that's a capacity planning signal — not a platform failure.
 
-→ [Scheduler Architecture Documentation](#) | → [Canvas Fleet View Documentation](#) | → [Phase 30 Launch Blog](#)
+→ [Scheduler Architecture Documentation](/docs/architecture/scheduler) | → [Canvas Fleet View Documentation](/docs/guides/canvas) | → [Phase 30 Launch Blog](/docs/blog/remote-workspaces-ga)
 
 ---
 
