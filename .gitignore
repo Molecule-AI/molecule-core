@@ -117,12 +117,11 @@ backups/
 
 # Cloned-via-manifest dirs — populated locally by scripts/clone-manifest.sh,
 # tracked in their own standalone repos. Never commit to core.
-# org-templates live in Molecule-AI/molecule-ai-org-template-* repos.
+# org-templates live in Molecule-AI/molecule-ai-org-template-* repos
+# (canonical source of truth; previous molecule-dev exception removed
+#  so the monorepo doesn't drift from the standalone repo).
 # plugins live in Molecule-AI/molecule-ai-plugin-* repos.
-# Exception: molecule-dev is checked in so it doubles as the internal-team
-# seed template (not fetched via clone-manifest).
-/org-templates/*
-!/org-templates/molecule-dev/
+/org-templates/
 /plugins/
 /workspace-configs-templates/
 # Cloned by publish-workspace-server-image.yml so the Dockerfile's
