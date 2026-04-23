@@ -52,24 +52,28 @@ export function CreateWorkspaceButton() {
   const [hermesApiKey, setHermesApiKey] = useState("");
 
   // Tier picker: on SaaS every workspace gets its own EC2 VM (Full Access
-  // by construction), so we hide the T1/T2 sandbox options and lock to T3.
-  // On self-hosted we still offer all three because Docker-sandbox tiers
-  // are a real choice there. useMemo is SSR-safe via the isSaaSTenant()
-  // contract (returns false on server); first client render may flip the
-  // picker — acceptable one-frame reflow, no data loss.
+  // by construction), so we hide the T1/T2/T3 Docker-sandbox tiers and
+  // lock to T4 — the full-host access tier, which maps to t3.large at the
+  // CP level. On self-hosted we still offer T1/T2/T3 because the Docker-
+  // sandbox distinction is a real choice there; T4 is available too for
+  // operators who want the full-host tier.
+  //
+  // SSR-safe via isSaaSTenant() contract (returns false on server); first
+  // client render may flip the picker — acceptable one-frame reflow.
   const isSaaS = useMemo(() => isSaaSTenant(), []);
   const TIERS = useMemo(
     () =>
       isSaaS
-        ? [{ value: 3, label: "T3", desc: "Full Access" }]
+        ? [{ value: 4, label: "T4", desc: "Full Access" }]
         : [
             { value: 1, label: "T1", desc: "Sandboxed" },
             { value: 2, label: "T2", desc: "Standard" },
-            { value: 3, label: "T3", desc: "Full Access" },
+            { value: 3, label: "T3", desc: "Privileged" },
+            { value: 4, label: "T4", desc: "Full Access" },
           ],
     [isSaaS],
   );
-  const defaultTier = isSaaS ? 3 : 1;
+  const defaultTier = isSaaS ? 4 : 1;
   const [tier, setTier] = useState(defaultTier);
 
   // Refs for roving tabIndex on the tier radio group (WCAG 2.1 arrow-key nav)
@@ -228,9 +232,9 @@ export function CreateWorkspaceButton() {
               <div
                 role="radiogroup"
                 aria-label="Workspace tier"
-                className={`grid gap-1.5 ${isSaaS ? "grid-cols-1" : "grid-cols-3"}`}
+                className={`grid gap-1.5 ${isSaaS ? "grid-cols-1" : "grid-cols-4"}`}
               >
-                <div className={`text-[11px] text-zinc-400 mb-1 ${isSaaS ? "" : "col-span-3"}`}>
+                <div className={`text-[11px] text-zinc-400 mb-1 ${isSaaS ? "" : "col-span-4"}`}>
                   Tier{isSaaS ? " — dedicated VM" : ""}
                 </div>
                 {TIERS.map((t, idx) => (
