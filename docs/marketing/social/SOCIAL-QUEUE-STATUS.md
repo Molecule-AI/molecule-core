@@ -128,3 +128,13 @@
 
 *PMM compiled 2026-04-23. Consolidated from multiple inline social-queue files into single status tracker.*
 *Marketing Lead: approve queue items to unblock Social Media Brand for execution once X credentials are restored.*
+
+---
+
+## Battlecards (complete)
+
+| Battlecard | Phase | Status | Pushed |
+|---|---|---|---|
+| Phase 30 Remote Workspaces | 30 | ✅ PMM DRAFT | `marketing/phase-34-launch-prep` (2026-04-23) |
+| Phase 32 SaaS Federation v2 | 32 | ✅ PMM DRAFT | `marketing/phase-34-launch-prep` |
+| Phase 34 Partner API Keys | 34 | ✅ PMM DRAFT | `marketing/phase-34-launch-prep` |
