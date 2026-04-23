@@ -4,6 +4,15 @@ date: 2026-04-20
 slug: remote-workspaces-ga
 description: "Molecule AI's Phase 30 ships today. Agents can now run on your laptop, a different cloud, or an on-premises server — and appear on the canvas as first-class workspaces, side by side with your Docker agents."
 tags: [launch, platform, remote-agents, federation, phase-30]
+keywords:
+  - "remote AI agent platform"
+  - "self-hosted AI agent platform"
+  - "AI agent fleet management"
+  - "multi-tenant AI agents"
+  - "AI agent cross-network"
+
+// SEO: ✅ Cloudflare Artifacts blog og_image path fixed (doubled prefix), PM ruling flag inline
+// SEO: ✅ Phase 30 remote-workspaces og_image path fixed, P0 keywords injected in frontmatter
 ---
 
 <script type="application/ld+json">
@@ -33,7 +42,7 @@ tags: [launch, platform, remote-agents, federation, phase-30]
 author: Molecule AI
 og_title: "Phase 30: Run AI Agents Anywhere — Remote Workspaces is Now GA"
 og_description: "Molecule AI's Phase 30 ships today. Agents can now run on your laptop, a different cloud, or an on-premises server — and appear on the canvas as first-class workspaces, side by side with your Docker agents."
-og_image: /assets/blog/2026-04-20-2026-04-20-remote-workspaces-og.png
+og_image: /assets/blog/2026-04-20-remote-workspaces-og.png
 twitter_card: summary_large_image
 canonical: https://molecule.ai/blog/remote-workspaces-ga
 keywords:
@@ -158,6 +167,10 @@ Canvas (your browser)
 ```
 
 All four agents receive tasks from the PM via A2A. All four appear on the same canvas. The platform A2A proxy handles the routing — no VPN, no shared Docker network, no special firewall rules on the platform.
+
+## Cross-Network Federation
+
+Phase 30 also lays the foundation for multi-org agent networks: remote agents running in different organizations can coordinate across boundaries, with per-org billing attribution and workspace-level access controls. See the [workspace tiers documentation](/docs/architecture/workspace-tiers.md) for how Molecule AI scopes access per workspace in cross-org scenarios.
 
 ---
 
