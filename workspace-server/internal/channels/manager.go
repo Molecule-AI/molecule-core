@@ -497,7 +497,7 @@ func (m *Manager) FetchWorkspaceChannelContext(ctx context.Context, workspaceID 
 		return ""
 	}
 	var config map[string]interface{}
-	json.Unmarshal(configJSON, &config)
+	_ = json.Unmarshal(configJSON, &config)
 	if err := DecryptSensitiveFields(config); err != nil {
 		return ""
 	}
@@ -554,8 +554,8 @@ func (m *Manager) loadChannel(ctx context.Context, channelID string) (ChannelRow
 	if err != nil {
 		return ch, fmt.Errorf("channel %s not found: %w", channelID, err)
 	}
-	json.Unmarshal(configJSON, &ch.Config)
-	json.Unmarshal(allowedJSON, &ch.AllowedUsers)
+	_ = json.Unmarshal(configJSON, &ch.Config)
+	_ = json.Unmarshal(allowedJSON, &ch.AllowedUsers)
 	// #319: decrypt bot_token / webhook_secret — SendOutbound and adapter
 	// methods downstream read them as plaintext strings.
 	if err := DecryptSensitiveFields(ch.Config); err != nil {

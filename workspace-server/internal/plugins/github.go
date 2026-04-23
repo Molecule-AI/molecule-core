@@ -90,7 +90,7 @@ func (r *GithubResolver) Fetch(ctx context.Context, spec string, dst string) (st
 	if err != nil {
 		return "", fmt.Errorf("github resolver: tempdir: %w", err)
 	}
-	defer os.RemoveAll(workDir)
+	defer func() { _ = os.RemoveAll(workDir) }()
 
 	cloneTarget := filepath.Join(workDir, "repo")
 	args := []string{"clone", "--depth=1"}

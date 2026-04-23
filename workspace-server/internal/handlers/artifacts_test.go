@@ -79,7 +79,7 @@ func TestArtifactsCreate_Success(t *testing.T) {
 			CreatedAt: time.Now(),
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(cfSuccessResponse(t, repo))
+		_, _ = w.Write(cfSuccessResponse(t, repo))
 	})
 
 	// Existence probe — no existing link

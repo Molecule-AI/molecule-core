@@ -91,7 +91,7 @@ func Import(
 			if err != nil {
 				markFailed(provCtx, wsID, broadcaster, err)
 			} else if url != "" {
-				db.DB.ExecContext(provCtx, `UPDATE workspaces SET url = $1 WHERE id = $2`, url, wsID)
+				_, _ = db.DB.ExecContext(provCtx, `UPDATE workspaces SET url = $1 WHERE id = $2`, url, wsID)
 			}
 		}()
 	}
@@ -130,7 +130,7 @@ func buildBundleConfigFiles(b *Bundle) map[string][]byte {
 }
 
 func markFailed(ctx context.Context, wsID string, broadcaster *events.Broadcaster, err error) {
-	db.DB.ExecContext(ctx,
+	_, _ = db.DB.ExecContext(ctx,
 		`UPDATE workspaces SET status = 'failed', updated_at = now() WHERE id = $1`, wsID)
 	_ = broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", wsID, map[string]interface{}{
 		"error": err.Error(),

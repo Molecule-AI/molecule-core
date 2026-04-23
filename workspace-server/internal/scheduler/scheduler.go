@@ -193,7 +193,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 		log.Printf("Scheduler: tick query error: %v", err)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxConcurrent)
@@ -526,7 +526,7 @@ func (s *Scheduler) repairNullNextRunAt(ctx context.Context) {
 		log.Printf("Scheduler: startup repair query error: %v", err)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type repairRow struct {
 		ID       string

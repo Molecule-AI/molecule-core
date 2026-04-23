@@ -13,7 +13,7 @@ func resetKey() {
 
 func TestInit_NoEnvVar(t *testing.T) {
 	resetKey()
-	os.Unsetenv("SECRETS_ENCRYPTION_KEY")
+	_ = os.Unsetenv("SECRETS_ENCRYPTION_KEY")
 	Init()
 	if IsEnabled() {
 		t.Error("expected encryption disabled when env var not set")
@@ -27,8 +27,8 @@ func TestInit_ValidBase64Key(t *testing.T) {
 	for i := range key {
 		key[i] = byte(i + 1)
 	}
-	os.Setenv("SECRETS_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(key))
-	defer os.Unsetenv("SECRETS_ENCRYPTION_KEY")
+	_ = os.Setenv("SECRETS_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(key))
+	defer func() { _ = os.Unsetenv("SECRETS_ENCRYPTION_KEY") }()
 
 	Init()
 
@@ -42,8 +42,8 @@ func TestInit_Valid32ByteRawKey(t *testing.T) {
 	resetKey()
 	// 32-byte key that is NOT valid base64 — forces raw byte path
 	rawKey := "abcdefghijklmnopqrstuvwxyz!@#$%^" // 32 chars, not valid base64
-	os.Setenv("SECRETS_ENCRYPTION_KEY", rawKey)
-	defer os.Unsetenv("SECRETS_ENCRYPTION_KEY")
+	_ = os.Setenv("SECRETS_ENCRYPTION_KEY", rawKey)
+	defer func() { _ = os.Unsetenv("SECRETS_ENCRYPTION_KEY") }()
 
 	Init()
 
@@ -55,7 +55,7 @@ func TestInit_Valid32ByteRawKey(t *testing.T) {
 
 func TestInit_InvalidKey_TooShort(t *testing.T) {
 	resetKey()
-	os.Setenv("SECRETS_ENCRYPTION_KEY", "tooshort")
+	_ = os.Setenv("SECRETS_ENCRYPTION_KEY", "tooshort")
 	defer os.Unsetenv("SECRETS_ENCRYPTION_KEY")
 
 	Init()

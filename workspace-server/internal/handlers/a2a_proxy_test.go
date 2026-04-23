@@ -26,7 +26,7 @@ func TestProxyA2A_InvalidJSON(t *testing.T) {
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
 	// Cache a URL so the handler doesn't fall back to DB
-	mr.Set(fmt.Sprintf("ws:%s:url", "ws-badjson"), "http://localhost:9999")
+	_ = mr.Set(fmt.Sprintf("ws:%s:url", "ws-badjson"), "http://localhost:9999")
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -65,14 +65,14 @@ func TestProxyA2A_AlreadyWrappedJSONRPC(t *testing.T) {
 	// Create a mock agent that captures the forwarded request
 	var receivedBody map[string]interface{}
 	agentServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&receivedBody)
+		_ = json.NewDecoder(r.Body).Decode(&receivedBody)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"jsonrpc":"2.0","id":"original-id","result":{"status":"ok"}}`)
+		_, _ = fmt.Fprint(w, `{"jsonrpc":"2.0","id":"original-id","result":{"status":"ok"}}`)
 	}))
 	defer agentServer.Close()
 
-	mr.Set(fmt.Sprintf("ws:%s:url", "ws-wrapped"), agentServer.URL)
+	_ = mr.Set(fmt.Sprintf("ws:%s:url", "ws-wrapped"), agentServer.URL)
 
 	// Expect async activity log
 	mock.ExpectExec("INSERT INTO activity_logs").
@@ -120,7 +120,7 @@ func TestProxyA2A_DBLookupFallback(t *testing.T) {
 	// Create mock agent
 	agentServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"jsonrpc":"2.0","id":"1","result":{"status":"ok"}}`)
+		_, _ = fmt.Fprint(w, `{"jsonrpc":"2.0","id":"1","result":{"status":"ok"}}`)
 	}))
 	defer agentServer.Close()
 
@@ -197,11 +197,11 @@ func TestProxyA2A_AgentReturnsError(t *testing.T) {
 	agentServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, `{"jsonrpc":"2.0","id":"1","error":{"code":-32000,"message":"agent error"}}`)
+		_, _ = fmt.Fprint(w, `{"jsonrpc":"2.0","id":"1","error":{"code":-32000,"message":"agent error"}}`)
 	}))
 	defer agentServer.Close()
 
-	mr.Set(fmt.Sprintf("ws:%s:url", "ws-agent-err"), agentServer.URL)
+	_ = mr.Set(fmt.Sprintf("ws:%s:url", "ws-agent-err"), agentServer.URL)
 
 	// Expect async activity log (with "error" status since agent returned 500)
 	mock.ExpectExec("INSERT INTO activity_logs").
@@ -239,9 +239,9 @@ func TestProxyA2A_MessageIDInjected(t *testing.T) {
 
 	var receivedBody map[string]interface{}
 	agentServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&receivedBody)
+		_ = json.NewDecoder(r.Body).Decode(&receivedBody)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"jsonrpc":"2.0","id":"1","result":{"status":"ok"}}`)
+		_, _ = fmt.Fprint(w, `{"jsonrpc":"2.0","id":"1","result":{"status":"ok"}}`)
 	}))
 	defer agentServer.Close()
 
@@ -679,7 +679,7 @@ func TestProxyA2A_BodyReadFailure_DeliveryConfirmed(t *testing.T) {
 		if hj, ok := w.(http.Hijacker); ok {
 			conn, _, _ := hj.Hijack()
 			if conn != nil {
-				conn.Close()
+				_ = conn.Close()
 			}
 		}
 	}))
@@ -1071,7 +1071,7 @@ func TestDispatchA2A_CanvasTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if cancel == nil {
 		t.Fatal("canvas caller (empty callerID) must set a timeout + return cancel")
 	}
@@ -1092,7 +1092,7 @@ func TestDispatchA2A_AgentTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if cancel == nil {
 		t.Fatal("agent-to-agent caller must set a timeout + return cancel")
 	}
@@ -1118,7 +1118,7 @@ func TestDispatchA2A_ContextDeadline_NoCancelAdded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if cancel != nil {
 		t.Error("cancel should be nil when ctx already has a deadline")
 		cancel()

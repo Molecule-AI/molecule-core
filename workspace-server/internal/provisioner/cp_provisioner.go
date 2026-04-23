@@ -163,7 +163,7 @@ func (p *CPProvisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string,
 	// DoS by a compromised upstream.
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	var result cpProvisionResponse
-	json.Unmarshal(respBody, &result)
+	_ = json.Unmarshal(respBody, &result)
 
 	if resp.StatusCode != http.StatusCreated {
 		// Prefer the structured {"error":"..."} field. Do NOT fall back

@@ -79,7 +79,7 @@ func hibernateIdleWorkspaces(ctx context.Context, onHibernate HibernateHandler) 
 		log.Printf("Hibernation monitor: query error: %v", err)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var ids []string
 	for rows.Next() {
