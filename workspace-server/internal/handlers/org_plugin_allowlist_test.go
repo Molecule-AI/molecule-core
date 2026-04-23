@@ -559,8 +559,11 @@ func TestCheckOrgPluginAllowlist_FailOpen_OnCountError(t *testing.T) {
 func TestRequireCallerOwnsOrg_NotOrgTokenCaller(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	// No org_token_id in context → caller is session/admin → returns ("", nil)
-	c.Set("org_token_id", "something") // weird but set to a non-string type
+	// org_token_id present but not a string → type assertion fails →
+	// caller treated as session/admin → returns ("", nil) without DB lookup.
+	// Bug fix: previous fixture passed a string ("something") which DID
+	// pass the assertion and reached OrgIDByTokenID with nil db.DB → panic.
+	c.Set("org_token_id", 12345) // intentionally non-string
 	orgID, err := requireCallerOwnsOrg(c)
 	if err != nil {
 		t.Fatalf("requireCallerOwnsOrg: got err %v", err)
