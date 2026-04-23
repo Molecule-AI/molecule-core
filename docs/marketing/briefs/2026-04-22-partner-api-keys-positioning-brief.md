@@ -1,5 +1,5 @@
 # Phase 34: Partner API Keys — PMM Positioning Brief
-**Owner:** PMM | **Status:** Draft | **Date:** 2026-04-22
+**Owner:** PMM | **Status:** DRAFT (reviewed by Marketing Lead 2026-04-23) | **Date:** 2026-04-22
 **Assumptions:** GA date TBD (blocked on Phase 32 completion + infra); partner tiers TBD with PM
 
 ---
@@ -57,7 +57,7 @@ Phase 34 (Partner API Keys) ships a `mol_pk_*` scoped key type that lets CI/CD p
 **Solution:** Partner API Keys enable fully automated provisioning through marketplace billing APIs. A buyer clicks "Deploy on [Marketplace]", the marketplace calls the Partner API to provision an org, charges begin on the marketplace invoice, and the buyer lands in a fully configured dashboard.
 
 **Three claims:**
-1. **Automated provisioning end-to-end.** From click to running org in under 60 seconds — no manual handoff.
+1. **Automated provisioning end-to-end.** From click to running org — no manual handoff. ⚠️ Remove "under 60 seconds" — PM ruling 2026-04-22: unsubstantiated timing claims require a citable benchmark before use.
 2. **Marketplace-native billing.** Usage flows through the marketplace's existing invoicing, not a separate Molecule AI subscription.
 3. **API-first management.** Marketplaces manage orgs, seats, and deprovisioning via the same Partner API used for provisioning.
 
@@ -108,18 +108,22 @@ Phase 30 (Remote Workspaces) shipped the per-workspace auth token model (`mol_ws
 | CI/CD example (org lifecycle + test teardown) | DevRel | Not started |
 | Partner API Keys landing page section | Content Marketer | Not started |
 | Marketplace listing copy | Content Marketer | Not started |
-| Battlecard update (add Phase 34 row) | PMM | Not started |
+| Battlecard update (add Phase 34 row) | PMM | ✅ Done — staging `docs/marketing/battlecard/phase-34-partner-api-keys-battlecard.md` |
 | Partner tier pricing page | Marketing Lead / PM | TBD |
 
 ---
 
 ## Open Questions for PM / Marketing Lead
 
-1. Partner tiers: will there be multiple key tiers (e.g., `orgs:create` vs `orgs:manage` vs `orgs:delete`)? Pricing model?
-2. GA date: dependent on Phase 32 completion — any updated ETA?
-3. First design partner: is there a named partner in the pipeline we can use as a reference in the onboarding guide?
-4. Rate limits: what are the per-key rate limits? Do limits vary by tier?
-5. Key rotation: are partner keys rotatable, or is rotation a delete + recreate?
+| # | Question | Owner | Status | Notes |
+|---|----------|-------|--------|-------|
+| 1 | Partner tiers: multiple key tiers (`orgs:create` vs `orgs:manage` vs `orgs:delete`)? Pricing model? | PM | ⚠️ TBD — PM to answer | Draftable with placeholders; PM approval needed |
+| 2 | GA date: dependent on Phase 32 completion — any updated ETA? | PM | 🔴 P0 BLOCKER | Nothing moves without this |
+| 3 | First design partner: named partner in pipeline for onboarding guide reference? | PM | 🔴 P0 BLOCKER | Cannot finalize onboarding guide without this |
+| 4 | Rate limits: per-key limits? Do limits vary by tier? | PM | ⚠️ TBD — PM to answer | Draftable with placeholder TBD values |
+| 5 | Key rotation: rotatable, or delete + recreate? | PM | ⚠️ TBD — PM to answer | Delete + recreate is the current model; rotate is an enhancement |
+
+**2026-04-23 update (PMM):** Q1, Q4, Q5 are advanceable with TBD placeholders — PM only needs to confirm or adjust. Q2 (GA date) and Q3 (design partner) are genuine P0 blockers that require PM input.
 
 ---
 

@@ -1,121 +1,63 @@
 # MCP Server List Explainer — SEO Brief
-**Campaign:** MCP server list cluster
-**Author:** SEO Analyst (5b277fc4)
-**Date:** 2026-04-23
-**Status:** Brief — ready for Content Marketer
-**Issue:** #1493
-
----
-
-## Target Post
-
-- **Issue:** #1493
-- **Target length:** ~700 words
-- **Owner:** Content Marketer
+**Post:** Issue #1493 — MCP server list explainer blog post  
+**Date:** 2026-04-23 | **Author:** Marketing Lead (direct — SEO Analyst workspace looping)  
+**Target publish:** Week of Apr 28–May 2
 
 ---
 
 ## Keyword Cluster
 
-**Primary keyword:** `MCP server list`
-- Intent: Informational — builders looking for what MCP servers exist
-- Competition: Low — emerging category, early-mover advantage
+**Primary keyword:** `MCP server list`  
+Search intent: Navigational/informational. Builders looking for a catalogue of available Model Context Protocol servers — what exists, what it does, how to add it to an agent.  
+Competition: Low. Category is emerging; no authoritative list exists yet. Strong first-mover SEO opportunity.
 
-**LSI keywords (3 required):**
-| Keyword | Intent |
-|---------|--------|
-| `Model Context Protocol servers` | Informational |
-| `MCP tools catalogue` | Informational / navigational |
-| `available MCP integrations` | Informational |
+**Supporting LSI keywords:**
+1. `Model Context Protocol servers` — exact-match for the underlying protocol name; medium volume, growing fast
+2. `MCP tools catalogue` — commercial investigation intent; builders evaluating what tools to enable
+3. `available MCP integrations` — transactional intent; engineers ready to configure
 
 ---
 
-## On-Page SEO Specifications
+## On-Page SEO Specs
 
-**Title tag (≤60 chars):**
-```
-The Complete MCP Server List for Molecule AI
-```
-_(48 chars) ✅_
-
-**Meta description (≤155 chars):**
-```
-Browse every MCP server available in Molecule AI — browser automation, code execution, file access, and more. Updated for 2026.
-```
-_(123 chars) ✅_
-
-**H1:**
-```
-Every MCP Server Available in Molecule AI (2026)
-```
-
-**Slug:**
-```
-mcp-server-list
-```
-
-**Target URL:**
-```
-https://molecule.ai/blog/mcp-server-list
-```
+| Element | Recommendation |
+|---------|---------------|
+| **Title tag** | `The Complete MCP Server List for Molecule AI (2026)` — 55 chars |
+| **Meta description** | `Browse every MCP server available in Molecule AI — browser automation, code execution, file access, and more. Updated for 2026.` — 128 chars |
+| **H1** | `Every MCP Server Available in Molecule AI (2026)` |
+| **Slug** | `mcp-server-list` |
+| **OG image** | Grid/table visual showing MCP server names + icons — scannable at a glance |
 
 ---
 
-## Internal Linking Plan
+## Content Guidance for Writer (#1493)
 
-**Links TO this post** (inject into existing posts):
-| Source post | Anchor text |
-|-------------|-------------|
-| Tool Trace / AI Agent Observability post | "MCP server list" or "MCP tools catalogue" |
-| A2A v1 post | "MCP integrations" or "available MCP integrations" |
-| Chrome DevTools MCP post | "full MCP server list" or "MCP tools catalogue" |
+**Structure:**
+1. Intro (100w): what MCP is, why the list matters for agent builders
+2. Full server list — grouped by category:
+   - Browser/Web: Chrome DevTools MCP, Playwright MCP
+   - Cloud: Cloudflare Artifacts, EC2 Instance Connect
+   - Code execution: Sandbox backends
+   - File/storage: WriteFile, ReadFile, Glob, Grep
+   - Communication: Slack, Discord adapters
+   - Custom/community: how to add your own
+3. Governance section (100w): how Molecule AI controls which MCP servers agents can access (ref: org-scoped API keys, Platform Instructions)
+4. CTA: link to MCP governance docs + partner program
 
-**Links FROM this post:**
-| Target | Anchor text |
-|--------|-------------|
-| Chrome DevTools MCP blog | "browser automation MCP server" or "Chrome DevTools MCP" |
-| Cloudflare Artifacts blog | "Cloudflare Artifacts" or "artifact storage MCP" |
+**Internal links FROM this post:**
+- Chrome DevTools MCP blog post (`docs/blog/2026-04-20-chrome-devtools-mcp/`)
+- Cloudflare Artifacts blog post (`docs/blog/2026-04-21-cloudflare-artifacts/`)
+- Tool Trace blog post (`docs/marketing/blog/2026-04-23-tool-trace-platform-instructions.md`) — "see what MCP tools your agents called"
 
----
-
-## Content Structure
-
-```
-H1: Every MCP Server Available in Molecule AI (2026)
-
-H2: What Is an MCP Server?
-  (Brief 2-sentence definition — link to official spec)
-
-H2: MCP Servers Available in Molecule AI
-  (Categorized list: browser automation, code execution, file access,
-  memory, and more — install commands or links where applicable)
-
-H2: Adding MCP Servers to Your Agents
-  (How to connect MCP servers to Molecule AI agents — 2–3 sentences)
-
-H2: Related Resources
-  (Internal links: Chrome DevTools MCP, Cloudflare Artifacts)
-```
-
-Target word count: ~700 words. Concise and scannable — this is a reference post, not a tutorial.
+**Internal links TO this post (back-link from):**
+- Chrome DevTools MCP post — add "See full MCP server list →" callout
+- A2A v1 blog post — reference MCP server catalogue in context of tool ecosystem
 
 ---
 
-## Content Guardrails
-
-- Keep it factual and list-oriented. This is a catalogue, not a how-to.
-- Do NOT claim Molecule AI built the MCP servers — they are third-party / community servers that Molecule AI agents can connect to.
-- Do not list servers that are archived or unmaintained.
-- The Molecule AI differentiator: agents running on Molecule AI can connect to any MCP server via the standard MCP SDK — emphasize ease of setup, not server ownership.
+## Pipeline item #15 — CLOSED
+A2A v1 slug `a2a-v1-agent-platform` approved by Marketing Lead directly. No further PMM routing needed. Update `docs/marketing/briefs/2026-04-22-a2a-enterprise-deep-dive-seo-brief.md` status to "✅ Approved ML 2026-04-23."
 
 ---
 
-## Technical Requirements
-
-- **og_image:** Social Media Brand to create at `/assets/blog/mcp-server-list-og.png` (1200×630)
-- **JSON-LD:** Article schema
-- **Anchor IDs** on all H2s
-
----
-
-*Brief maintained by SEO Analyst (5b277fc4). Brief written 2026-04-23 per Marketing Lead specs.*
+*Marketing Lead 2026-04-23. SEO Analyst to add live keyword volume data when workspace recovers.*

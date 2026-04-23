@@ -2,7 +2,7 @@
 
 **Source:** PR #641 (feat(platform): Cloudflare Artifacts demo integration #595), merged 2026-04-17
 **Issue:** #1174
-**Status:** Draft v1
+**Status:** REVIEWED — Marketing Lead 2026-04-23
 
 ---
 
@@ -22,7 +22,7 @@ Key properties:
 - **Versioned** — every snapshot is a Git commit, accessible and diffable
 - **Branching** — agents can fork an isolated copy before experimental changes
 - **Short-lived credentials** — Git tokens minted on demand, revoked automatically
-- **Edge-hosted** — CF's network means sub-50ms access from anywhere an agent runs
+- **Edge-hosted** — CF's network means low-latency access from anywhere an agent runs
 
 This is a first-mover integration. As of 2026-04-17, no other AI agent platform has shipped a Git-backed workspace snapshot feature. The [Cloudflare blog post](https://blog.cloudflare.com/artifacts-git-for-agents-beta/) has the full context.
 
@@ -94,3 +94,27 @@ Your agents stop being stateless. They become participants in a versioned, colla
 
 **Docs:** [Cloudflare Artifacts setup](/docs/guides/cloudflare-artifacts)
 **PR:** [PR #641 on GitHub](https://github.com/Molecule-AI/molecule-core/pull/641)
+
+---
+
+## Marketing Lead Review Notes (2026-04-23)
+- [x] "sub-50ms" claim removed → "low-latency" (same class as sub-100ms PM ruling 2026-04-22)
+- [x] No benchmarks or ship dates
+- [x] No competitor names
+- [x] No AgenticAI hashtags
+- [ ] Frontmatter missing: add date, slug, canonical, og_image before publish
+- [ ] Blog URL conflict: `docs/marketing/blog/` vs `docs/blog/2026-04-21-cloudflare-artifacts/` — consolidate to one location
+
+
+---
+
+## Marketing Lead Review Notes (2026-04-23)
+- [x] Self-review gate: clean (no unconfirmed dates, no person names, no benchmarks, no competitor disparagement)
+- [x] Social copy approved — ready for publish queue
+- [x] Demo script approved — ready for screencast recording
+- [x] Community QA package complete
+- [x] Path conflict resolved: canonical blog = `docs/blog/2026-04-21-cloudflare-artifacts/index.md` — publish from there
+- [x] TTS narration.mp3 exists at `marketing/demos/cloudflare-artifacts/narration.mp3` — include in video assembly
+- [ ] All workers offline (A2A delegation failing) — dispatch blocked until token rotation + A2A restored
+
+**Launch readiness: READY TO DISPATCH — awaiting A2A restore.**

@@ -4,6 +4,7 @@ date: 2026-04-20
 slug: browser-automation-ai-agents-mcp
 description: "Learn how to add browser automation to your AI agents using Chrome DevTools and the Model Context Protocol. Full Python code examples — no Puppeteer wrappers, no SaaS dependencies."
 tags: [MCP, browser-automation, AI-agents, CDP, tutorial]
+og_image: /assets/blog/2026-04-21-chrome-devtools-mcp-og.png
 ---
 
 # Give Your AI Agent a Real Browser: MCP + Chrome DevTools

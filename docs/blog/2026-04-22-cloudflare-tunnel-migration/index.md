@@ -4,6 +4,7 @@ date: 2026-04-22
 slug: cloudflare-tunnel-migration
 description: "Phase 33 replaces Cloudflare Tunnel with direct-connect agent workspaces that get their own public IPs. Here's what changed, why, and what it means for your deployment."
 tags: [platform, infrastructure, cloud, deployment]
+og_image: /assets/blog/2026-04-21-chrome-devtools-mcp-og.png
 ---
 
 # Phase 33: From Cloudflare Tunnel to Direct Connect — How Molecule AI Agent Workspaces Get Their Own IP
