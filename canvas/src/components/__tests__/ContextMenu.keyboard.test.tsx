@@ -55,11 +55,21 @@ const mockStore = {
 // Factory body runs under vi.mock's hoist — cannot reference outer scope,
 // so we build the mock function inside and reach `mockStore` via `globalThis`.
 vi.mock("@/store/canvas", () => {
-  const fn = vi.fn((selector: (s: typeof mockStore) => unknown) =>
-    selector(mockStore),
+  (globalThis as Record<string, unknown>).__mockStore = {
+    contextMenu: null,
+    closeContextMenu: vi.fn(),
+    updateNodeData: vi.fn(),
+    selectNode: vi.fn(),
+    setPanelTab: vi.fn(),
+    nestNode: vi.fn(),
+    setPendingDelete: vi.fn(),
+    nodes: [] as Array<{ id: string; data: { parentId: string | null } }>,
+  };
+  const fn = vi.fn((selector: (s: typeof globalThis.__mockStore) => unknown) =>
+    selector((globalThis as Record<string, unknown>).__mockStore),
   );
   return {
-    useCanvasStore: Object.assign(fn, { getState: () => mockStore }),
+    useCanvasStore: Object.assign(fn, { getState: () => (globalThis as Record<string, unknown>).__mockStore }),
   };
 });
 
