@@ -76,22 +76,6 @@ func TestAdminAuth_OrgToken_SetsOrgIDContext(t *testing.T) {
 				WithArgs("tok-org-1").
 				WillReturnResult(sqlmock.NewResult(0, 1))
 
-			// orgtoken.Validate: 3-column scan — id, prefix, org_id (sql.NullString).
-			orgIDRow := sqlmock.NewRows([]string{"id", "prefix", "org_id"})
-			if tt.orgIDFromDB == nil {
-				orgIDRow = orgIDRow.AddRow("tok-org-1", "tok-org-1", nil)
-			} else {
-				orgIDRow = orgIDRow.AddRow("tok-org-1", "tok-org-1", tt.orgIDFromDB)
-			}
-			mock.ExpectQuery(orgTokenValidateQueryV1).
-				WithArgs(orgTokenHash[:]).
-				WillReturnRows(orgIDRow)
-
-			// Best-effort last_used_at bump after Validate succeeds.
-			mock.ExpectExec(orgTokenLastUsedQuery).
-				WithArgs("tok-org-1").
-				WillReturnResult(sqlmock.NewResult(0, 1))
-
 			r := gin.New()
 			var gotOrgID string
 			var haveOrgID bool
@@ -126,6 +110,10 @@ func TestAdminAuth_OrgToken_SetsOrgIDContext(t *testing.T) {
 	}
 }
 
+// TestWorkspaceAuth_OrgToken_SetsOrgIDContext verifies that WorkspaceAuth sets
+// org_token_id, org_token_prefix, and org_id in the gin context when a valid
+// org token is presented. Validate() returns org_id inline (3-column scan).
+func TestWorkspaceAuth_OrgToken_SetsOrgIDContext(t *testing.T) {
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
