@@ -130,12 +130,12 @@ Each run gets a clean environment. No shared state, no test pollution, no manual
 
 ## Get Started
 
-Partner API Keys are available on **Partner and Enterprise plans**. To get started:
+Partner API Keys reach GA on **April 30, 2026**. To get started:
 
-- Contact your account team to request Partner API Key issuance
-- Review the partner integration guide (coming soon)
-- Example flows: create org → poll status → redirect to tenant; CI/CD test org lifecycle
+- Review the [Partner API Keys onboarding guide](https://docs.molecule.ai/api/partner-keys)
+- Example flows: create org → run tests → DELETE teardown; CI/CD ephemeral org per PR
+- Questions? Join `#partner-program` in the [Molecule AI Discord](https://discord.gg/molecule-ai)
 
 ---
 
-*Molecule AI is open source. Partner API Keys shipped in Phase 34 (2026-04-23). Available on Partner and Enterprise plans.*
+*Molecule AI is open source. Partner API Keys GA April 30, 2026 — part of Phase 34.*
