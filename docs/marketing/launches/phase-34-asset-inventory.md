@@ -73,14 +73,14 @@ Social posts cannot go out until X credentials resolved or Day 2 without social.
 | Git push blocked (token) | Social copy drafts can't reach remote | Wait for ops token fix |
 | X credentials (issue #1865) | No external social on Apr 30 | mol-ops to provide `X_API_KEY` + `X_API_SECRET` |
 | GitHub API 401 | Can't check PR merge state | Token issue, ops-level fix |
-| Partner API Keys social copy | Missing Day 1 content | Need writer assignment |
+| **All assets written** | ✅ Phase 34 complete | None — pending push + publish |
 
 ---
 
 ## Day 2 Plan (April 30 ~16:00 UTC)
 
-1. Reddit r/MachineLearning: `phase34-reddit-post.md`
-2. HackerNews Show HN: `phase34-hn-post.md` + pinned tool_trace code sample
+1. Reddit r/MachineLearning: `phase-34-reddit-post.md`
+2. HackerNews Show HN: `phase-34-hn-show-hn.md` + pinned tool_trace code sample
 3. Monitor 2h (Reddit) / 3h (HN), 30-min reply SLA
 
 ---
