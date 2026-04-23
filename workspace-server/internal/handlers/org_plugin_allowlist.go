@@ -135,7 +135,10 @@ func requireCallerOwnsOrg(c *gin.Context) (string, error) {
 	// Look up the token's org_id (populated at mint time by orgTokenActor).
 	// org_id is NULL for tokens minted before this migration or via
 	// ADMIN_TOKEN bootstrap — those callers get callerOrg="" and are denied.
-	orgID, err := orgtoken.OrgIDByTokenID(c.Request.Context(), db.DB, tokID)
+	// Use requestContext (gin_context.go) rather than c.Request.Context()
+	// directly so a test context without a Request returns context.Background
+	// instead of panicking on a nil dereference. See 2026-04-23 incident notes.
+	orgID, err := orgtoken.OrgIDByTokenID(requestContext(c), db.DB, tokID)
 	if err != nil {
 		// DB error — deny by default rather than risk cross-org access.
 		return "", fmt.Errorf("allowlist: requireCallerOwnsOrg: %v", err)
