@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -616,5 +617,132 @@ func TestDiscoverHostPeer_Smoke_Success(t *testing.T) {
 	discoverHostPeer(context.Background(), c, "ws-ok")
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+// ==================== Cookie-auth (CP session) via Peers ====================
+
+// mockCPServer mirrors the helper from middleware/session_auth_test.go.
+// Returns a test server that serves the given status + body for
+// /cp/auth/tenant-member calls.
+func mockCPServer(t *testing.T, status int, body string) *httptest.Server {
+	t.Helper()
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/cp/auth/tenant-member" {
+			t.Errorf("unexpected CP path: %s", r.URL.Path)
+		}
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(s.Close)
+	return s
+}
+
+// TestPeers_CookieAuth_ValidSession tests the cookie-auth path in validateDiscoveryCaller:
+// CP_UPSTREAM_URL + valid session cookie → Peers returns 200 (live token check passes,
+// CP returns member=true, cookie accepted).
+func TestPeers_CookieAuth_ValidSession(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewDiscoveryHandler()
+
+	// HasAnyLiveToken passes (legacy workspace)
+	mock.ExpectQuery("SELECT COUNT").
+		WithArgs("ws-self").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	// CP server returns valid membership
+	cpSrv := mockCPServer(t, 200, `{"member":true,"user_id":"u1","role":"owner","org_id":"org1"}`)
+	t.Setenv("CP_UPSTREAM_URL", cpSrv.URL)
+	t.Setenv("MOLECULE_ORG_SLUG", "acme")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-self"}}
+	c.Request = httptest.NewRequest("GET", "/registry/ws-self/peers", nil)
+	c.Request.Header.Set("Cookie", "session=valid-session-token")
+	// No X-Workspace-ID header — validateDiscoveryCaller skips legacy check
+	// but the Peers handler itself doesn't require it
+
+	handler.Peers(c)
+
+	// Live-token=0 → legacy → cookie auth runs
+	// Cookie valid + CP returns member=true → 200
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200 (valid session), got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestPeers_CookieAuth_InvalidSession tests the invalid-cookie path:
+// CP returns 401/unauthorized → validateDiscoveryCaller returns 401.
+func TestPeers_CookieAuth_InvalidSession(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewDiscoveryHandler()
+
+	// HasAnyLiveToken passes (legacy workspace)
+	mock.ExpectQuery("SELECT COUNT").
+		WithArgs("ws-self").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	// CP server returns 401 (invalid/expired session)
+	cpSrv := mockCPServer(t, 401, `{"error":"unauthorized"}`)
+	t.Setenv("CP_UPSTREAM_URL", cpSrv.URL)
+	t.Setenv("MOLECULE_ORG_SLUG", "acme")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-self"}}
+	c.Request = httptest.NewRequest("GET", "/registry/ws-self/peers", nil)
+	c.Request.Header.Set("Cookie", "session=expired-token")
+
+	handler.Peers(c)
+
+	// Cookie presented but invalid → 401
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected status 401 (invalid session), got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestPeers_CookieAuth_CPUnreachable tests the CP-is-down path:
+// CP returns 502 (upstream unavailable) → cache miss → cookie presented → fails-open
+// because the cache TTL for failures is 5s and the request hits CP once.
+// The result is 401 (presented but not verified within test timeframe).
+func TestPeers_CookieAuth_CPUnreachable(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewDiscoveryHandler()
+
+	// HasAnyLiveToken passes (legacy workspace)
+	mock.ExpectQuery("SELECT COUNT").
+		WithArgs("ws-self").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	// CP server is unreachable (connection refused) — verifiedCPSession
+	// will attempt the HTTP request, fail, and the cache miss means cookie
+	// is presented but not verified → 401.
+	t.Setenv("CP_UPSTREAM_URL", "http://localhost:59999")
+	t.Setenv("MOLECULE_ORG_SLUG", "acme")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-self"}}
+	c.Request = httptest.NewRequest("GET", "/registry/ws-self/peers", nil)
+	c.Request.Header.Set("Cookie", "session=some-session")
+
+	handler.Peers(c)
+
+	// Cookie presented but CP unreachable → (false, true) → 401
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected status 401 (CP unreachable), got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
 }
