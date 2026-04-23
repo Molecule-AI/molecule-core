@@ -69,6 +69,24 @@ func allowLoopbackForTest(t *testing.T) {
 	t.Cleanup(func() { testAllowLoopback = prev })
 }
 
+// newTestGinContext returns a recorder + gin.Context with Request pre-set
+// to an empty GET "/". Use this instead of bare gin.CreateTestContext
+// anywhere a handler or helper reaches for c.Request.Context(), so the
+// DB/ HTTP path doesn't nil-deref on a missing Request. Pairs with the
+// defensive requestContext helper in gin_context.go — together they make
+// it hard to regress into the 2026-04-23 panic-chain pattern (PR #1755).
+//
+// Callers that need a specific method/path/body should still build the
+// Request explicitly — this helper is the "I don't care, just give me a
+// gin context that won't panic" shortcut.
+func newTestGinContext(t *testing.T) (*httptest.ResponseRecorder, *gin.Context) {
+	t.Helper()
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	return w, c
+}
+
 // expectBudgetCheck adds the sqlmock expectation for the budget-check
 // query that ProxyA2A runs before forwarding. checkWorkspaceBudget
 // fails-open on sql.ErrNoRows, so we return a deliberately-empty
