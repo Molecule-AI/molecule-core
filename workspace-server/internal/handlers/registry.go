@@ -68,12 +68,26 @@ func saasMode() bool {
 
 var saasModeWarnUnknownOnce sync.Once
 
+// QueueDrainFunc dispatches one queued A2A item on behalf of the caller.
+// Injected at construction to avoid a WorkspaceHandler import cycle in
+// RegistryHandler. Called from a goroutine spawned inside Heartbeat when
+// the workspace reports spare capacity (#1870 Phase 1).
+type QueueDrainFunc func(ctx context.Context, workspaceID string)
+
 type RegistryHandler struct {
 	broadcaster *events.Broadcaster
+	drainQueue  QueueDrainFunc // nil-safe: Heartbeat skips drain when unset
 }
 
 func NewRegistryHandler(b *events.Broadcaster) *RegistryHandler {
 	return &RegistryHandler{broadcaster: b}
+}
+
+// SetQueueDrainFunc wires the drain hook. Router wires this to
+// WorkspaceHandler.DrainQueueForWorkspace after both are constructed, which
+// keeps RegistryHandler's import list clean.
+func (h *RegistryHandler) SetQueueDrainFunc(f QueueDrainFunc) {
+	h.drainQueue = f
 }
 
 // validateAgentURL rejects URLs that could be used as SSRF vectors against
@@ -451,20 +465,41 @@ func (h *RegistryHandler) evaluateStatus(c *gin.Context, payload models.Heartbea
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_ONLINE", payload.WorkspaceID, map[string]interface{}{})
 	}
 
-	// Auto-recovery: if a workspace is marked "failed" or "provisioning" but is
-	// actively sending heartbeats, it has clearly booted successfully. Transition
-	// to "online" so the scheduler and dashboard reflect reality. This catches
-	// cases where the provisioner crashed mid-setup or an earlier error left the
-	// status stale.
-	if currentStatus == "failed" || currentStatus == "provisioning" {
-		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'online', updated_at = now() WHERE id = $1 AND status IN ('failed', 'provisioning')`, payload.WorkspaceID); err != nil {
-			log.Printf("Heartbeat: failed to auto-recover %s from %s to online: %v", payload.WorkspaceID, currentStatus, err)
+	// Auto-recovery: if a workspace is marked "provisioning" but is actively sending
+	// heartbeats, it has successfully started up. Transition to "online" so the scheduler
+	// and A2A proxy can dispatch tasks to it. The provisioner does not call
+	// /registry/register on container start — only the heartbeat loop does, so this
+	// transition is the only mechanism that moves newly-started workspaces out of
+	// the phantom-idle state. (#1784)
+	if currentStatus == "provisioning" {
+		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'online', updated_at = now() WHERE id = $1 AND status = 'provisioning'`, payload.WorkspaceID); err != nil {
+			log.Printf("Heartbeat: failed to transition %s from provisioning to online: %v", payload.WorkspaceID, err)
 		} else {
-			log.Printf("Heartbeat: auto-recovered %s from %s to online (heartbeat received)", payload.WorkspaceID, currentStatus)
+			log.Printf("Heartbeat: transitioned %s from provisioning to online (heartbeat received)", payload.WorkspaceID)
 		}
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_ONLINE", payload.WorkspaceID, map[string]interface{}{
 			"recovered_from": currentStatus,
 		})
+	}
+
+	// #1870 Phase 1: drain one queued A2A request if the target reports
+	// spare capacity. The heartbeat's active_tasks field reflects what the
+	// workspace runtime is ACTUALLY running right now, independent of
+	// whatever we've counted server-side. Fire-and-forget goroutine — the
+	// drain dispatches via ProxyA2ARequest which already has its own
+	// timeouts, retry logic, and activity_logs wiring.
+	if h.drainQueue != nil {
+		var maxConcurrent int
+		_ = db.DB.QueryRowContext(ctx,
+			`SELECT COALESCE(max_concurrent_tasks, 1) FROM workspaces WHERE id = $1`,
+			payload.WorkspaceID,
+		).Scan(&maxConcurrent)
+		if payload.ActiveTasks < maxConcurrent {
+			// context.WithoutCancel: heartbeat handler's ctx is about to
+			// expire as soon as we return. The drain needs to outlive it.
+			drainCtx := context.WithoutCancel(ctx)
+			go h.drainQueue(drainCtx, payload.WorkspaceID)
+		}
 	}
 }
 

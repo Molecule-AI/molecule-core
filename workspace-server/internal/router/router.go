@@ -220,6 +220,9 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 
 	// Registry
 	rh := handlers.NewRegistryHandler(broadcaster)
+	// #1870 Phase 1: wire the queue drain hook so Heartbeat can dispatch
+	// a queued A2A request when the workspace reports spare capacity.
+	rh.SetQueueDrainFunc(wh.DrainQueueForWorkspace)
 	r.POST("/registry/register", rh.Register)
 	r.POST("/registry/heartbeat", rh.Heartbeat)
 	r.POST("/registry/update-card", rh.UpdateCard)

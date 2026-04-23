@@ -143,27 +143,61 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 	cfg := h.buildProvisionerConfig(workspaceID, templatePath, configFiles, payload, envVars, pluginsPath, awarenessNamespace)
 	cfg.ResetClaudeSession = resetClaudeSession // #12
 
-	// Preflight #17: refuse to start a container we already know will crash on missing config.yaml.
-	// When the caller supplies neither a template dir nor in-memory configFiles (the auto-restart
-	// path), probe the existing Docker named volume. If it's empty/missing config.yaml, mark the
-	// workspace 'failed' instead of handing it to Docker's unless-stopped restart policy, which
-	// would otherwise loop forever on FileNotFoundError.
+	// Preflight #17: detect + auto-recover the "empty config volume" crashloop.
+	//
+	// When the caller supplies neither a template dir nor in-memory configFiles
+	// (the auto-restart path), probe the existing Docker named volume. If the
+	// volume is empty / missing config.yaml, we can't just hand the container
+	// to Docker's unless-stopped restart policy — molecule-runtime will crash
+	// on FileNotFoundError and loop forever.
+	//
+	// Before #1858: bail out and mark the workspace 'failed'. Required operator
+	// intervention (manual `docker run --rm -v <vol>:/configs -v <tmpl>:/src
+	// alpine cp -r /src/. /configs/`).
+	//
+	// After #1858: attempt recovery by resolving the workspace's runtime-default
+	// template from h.configsDir (same path the Restart handler uses for
+	// apply_template=true) and wiring it in. The volume will be rewritten from
+	// the template on container start, same as first-provision. Only if the
+	// recovery template itself is missing do we bail.
 	if srcErr := provisioner.ValidateConfigSource(templatePath, configFiles); srcErr != nil {
 		hasConfig, probeErr := h.provisioner.VolumeHasFile(ctx, workspaceID, "config.yaml")
 		if probeErr != nil {
 			log.Printf("Provisioner: config.yaml preflight probe failed for %s: %v (proceeding)", workspaceID, probeErr)
 		} else if !hasConfig {
-			msg := fmt.Sprintf("cannot start workspace %s: no config.yaml source and config volume is empty — delete the workspace or provide a template", workspaceID)
-			log.Printf("Provisioner: %s", msg)
-			if _, dbErr := db.DB.ExecContext(ctx,
-				`UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
-				workspaceID, msg); dbErr != nil {
-				log.Printf("Provisioner: failed to mark workspace %s as failed: %v", workspaceID, dbErr)
+			// Try to recover by applying the runtime-default template. payload.Runtime
+			// is populated by the caller (Restart handler / Create handler) from the
+			// DB row — same source of truth the apply_template=true path uses.
+			recovered := false
+			if payload.Runtime != "" {
+				runtimeTemplate := filepath.Join(h.configsDir, payload.Runtime+"-default")
+				if _, statErr := os.Stat(runtimeTemplate); statErr == nil {
+					log.Printf("Provisioner: auto-recover for %s — config volume empty, applying %s-default template (#1858)",
+						workspaceID, payload.Runtime)
+					templatePath = runtimeTemplate
+					// Rebuild cfg with the recovered template path so Start() sees it.
+					cfg = h.buildProvisionerConfig(workspaceID, templatePath, configFiles, payload, envVars, pluginsPath, awarenessNamespace)
+					cfg.ResetClaudeSession = resetClaudeSession
+					recovered = true
+				} else {
+					log.Printf("Provisioner: auto-recover for %s — runtime template %s not found: %v",
+						workspaceID, runtimeTemplate, statErr)
+				}
 			}
-			h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
-				"error": msg,
-			})
-			return
+
+			if !recovered {
+				msg := fmt.Sprintf("cannot start workspace %s: no config.yaml source and config volume is empty — delete the workspace or provide a template", workspaceID)
+				log.Printf("Provisioner: %s", msg)
+				if _, dbErr := db.DB.ExecContext(ctx,
+					`UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
+					workspaceID, msg); dbErr != nil {
+					log.Printf("Provisioner: failed to mark workspace %s as failed: %v", workspaceID, dbErr)
+				}
+				h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+					"error": msg,
+				})
+				return
+			}
 		}
 	}
 

@@ -17,16 +17,19 @@ development workflow, conventions, and how to get your changes merged.
 
 ```bash
 # Clone the repo
-git clone https://github.com/Molecule-AI/molecule-monorepo.git
-cd molecule-monorepo
+git clone https://github.com/Molecule-AI/molecule-core.git
+cd molecule-core
 
 # Install git hooks
 git config core.hooksPath .githooks
 
+# Copy and edit .env (generate ADMIN_TOKEN + SECRETS_ENCRYPTION_KEY)
+cp .env.example .env
+
 # Start infrastructure (Postgres, Redis, Langfuse, Temporal)
 ./infra/scripts/setup.sh
 
-# Build and run the platform
+# Build and run the platform — applies pending migrations on first boot
 cd workspace-server
 go run ./cmd/server
 
