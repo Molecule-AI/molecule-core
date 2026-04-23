@@ -52,6 +52,11 @@ var termUpgrader = websocket.Upgrader{
 	},
 }
 
+// canCommunicateCheck is the communication-authorization predicate used by
+// HandleConnect to enforce the KI-005 workspace-hierarchy guard.
+// Exposed as a package var so tests can stub it without DB fixtures.
+var canCommunicateCheck = registry.CanCommunicate
+
 type TerminalHandler struct {
 	docker *client.Client
 }
@@ -73,17 +78,23 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 	// Workspace A's terminal. Without CanCommunicate, Workspace A could also
 	// reach Workspace B's terminal if it knows B's UUID (enumeration via
 	// canvas, logs, or delegation). Shell access is more dangerous than A2A
-	// message-passing, so we apply the same hierarchy check here.
+	// message-passing, so we apply the same hierarchy check here.)
 	callerID := c.GetHeader("X-Workspace-ID")
-	if callerID != "" {
+	if callerID != "" && callerID != workspaceID {
 		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
 		if tok != "" {
-			if err := wsauth.ValidateAnyToken(ctx, db.DB, tok); err == nil {
-				if !canCommunicateCheck(callerID, workspaceID) {
-					c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to access this workspace's terminal"})
-					return
-				}
+			// Verify the bearer token belongs to the claimed workspace identity.
+			// ValidateToken is more restrictive than ValidateAnyToken — it
+			// binds the token to the specific X-Workspace-ID claim, preventing
+			// Workspace A from forging B's identity with a valid org-scoped token.
+			if err := wsauth.ValidateToken(ctx, db.DB, callerID, tok); err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token for claimed workspace"})
+				return
 			}
+		}
+		if !canCommunicateCheck(callerID, workspaceID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to access this workspace's terminal"})
+			return
 		}
 	}
 
