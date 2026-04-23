@@ -78,20 +78,20 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 	createdDirs := map[string]bool{}
 	for name, content := range files {
 		clean := filepath.Clean(name)
-		// Block raw paths starting with ".." (e.g. "../etc/passwd", URL-encoded "..%2F..").
-		// Check BEFORE IsAbs(archiveName) because Join("/configs", "../etc") = "/etc" (absolute)
-		// and would incorrectly trigger the path-escapes check instead of this one.
-		if strings.HasPrefix(clean, "..") {
-			return fmt.Errorf("unsafe file path in archive: %s", name)
-		}
 		// Block absolute paths (e.g. "/etc/passwd").
 		if filepath.IsAbs(clean) {
 			return fmt.Errorf("unsafe file path in archive: %s", name)
 		}
+		// Block raw paths starting with ".." (e.g. "../etc/passwd").
+		// Must check raw `name`, NOT `clean`, because filepath.Clean("foo/../../../etc")
+		// → "/etc" (absolute) which would incorrectly hit the IsAbs check above.
+		if strings.HasPrefix(name, "..") {
+			return fmt.Errorf("unsafe file path in archive: %s", name)
+		}
 		// Prepend destPath so relative paths land inside the volume mount.
 		archiveName := filepath.Join(destPath, clean)
-		// Defence-in-depth: catch any remaining path that resolves to absolute
-		// (e.g. Join("/configs", "foo/../../../etc") = "/etc" on some platforms).
+		// Defence-in-depth: catch mid-path traversal that Join + Clean resolve
+		// to an absolute path (e.g. "foo/../../../etc" → "/etc").
 		if filepath.IsAbs(archiveName) {
 			return fmt.Errorf("path escapes destination: %s", name)
 		}
