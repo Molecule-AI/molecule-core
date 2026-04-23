@@ -2,128 +2,123 @@
 **Campaign:** Phase 34 GA (April 30, 2026)
 **Owner:** Community Manager
 **Issue:** [Molecule-AI/molecule-core#1836](https://github.com/Molecule-AI/molecule-core/issues/1836)
-**Status:** ✅ Draft complete — review before publish
+**Status:** ✅ Draft complete — ready for April 30 publish
 
 ---
 
 ```
 🚀 Phase 34 shipped!
 
-Four features dropped today that make Molecule AI meaningfully better for
-teams running agents in production. Let's dig in.
+If you've been running agents in production and wondering what they actually
+did under the hood — today we shipped the visibility to answer that.
+Four platform-level features, no SDK required.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 What's new
 
-🔍 Tool Trace — see exactly what your agent did
+🔍 Tool Trace — finally, see what your agents are doing
 ──────────────────────────────────────────────
-Every A2A response now includes a tool_trace[] array in the response
-metadata. For each tool call, you get: tool name, input params, output
-preview — in order, with run_id pairing for parallel calls.
+Every A2A response now carries a tool_trace[] array in Message.metadata.
+For every tool call: the tool name, the input you sent, and a snippet
+of the output — in the order they happened, with run_id pairing so
+parallel calls are traced correctly.
 
-If you've ever spent an hour reverse-engineering an agent's behavior from
-final outputs, you'll understand why this matters. Tool Trace is in every
-response. No SDK, no sidecar, no sampling.
+If you've ever spent time reverse-engineering agent behavior from final
+outputs alone, Tool Trace is for you.
 
-Enable activity logging on your workspace and every task gets a full
-execution record, stored in activity_logs.
+Capped at 200 entries per task (prevents runaway loops). Stored in
+activity_logs. Zero extra infrastructure — it's in the response
+envelope your agent already produces.
 
-Docs: docs.moleculesai.app/blog/ai-agent-observability-without-overhead (live on staging)
+Docs: docs.moleculesai.app/blog/ai-agent-observability-without-overhead
 PR: #1686 (merged 2026-04-23)
 
 
-📋 Platform Instructions — governance before the agent runs
+📋 Platform Instructions — system prompt for your whole org
 ──────────────────────────────────────────────
-Org admins can now configure system-level instructions via API:
-POST /cp/platform-instructions
+Org admins can now configure workspace-level instructions via:
+PUT /cp/platform-instructions
 
-Think of it as a system prompt for your entire org. You can inject shared
-context, enforce behavioral rules, or set compliance guardrails — and they
-take effect at workspace startup, before the agent reads its own config.
+Think of it as a system prompt that applies to every agent in your org —
+no need to update config files per workspace. Set it once, it applies
+to every agent at startup.
 
-"Never commit to main without a review."
-"Tag all security-sensitive operations."
-"Don't write outside the project directory."
+Example rules:
+  "Never commit directly to main — always open a PR first."
+  "Tag all security-sensitive operations with a audit tag."
+  "Confirm before running destructive commands in production."
 
-These rules prepend to every agent's effective system prompt in your org,
-regardless of individual workspace config. Governance happens before
-execution, not after an incident.
+Rules prepend to each agent's effective system prompt, before the
+agent reads its own config. Governance happens before execution,
+not after an incident.
 
-Docs: docs.moleculesai.app/blog/platform-instructions-governance (live on staging)
+Docs: docs.moleculesai.app/blog/platform-instructions-governance
 
 
-🔑 Partner API Keys (GA April 30)
+🔑 Partner API Keys (GA April 30) — first agent platform with a
+first-class partner provisioning API
 ──────────────────────────────────────────────
-Programmatic org provisioning via API — no browser, no manual handoff.
-
-CI/CD pipelines, marketplace integrations, platform builders: you can now
-create and manage Molecule AI orgs entirely via API using scoped,
+Marketplaces, CI/CD pipelines, and platform builders: you can now
+provision and manage Molecule AI orgs entirely via API, using scoped
 revocable tokens with the mol_pk_* prefix.
 
-Common pattern: ephemeral test orgs per PR.
-  POST /cp/orgs → run your test suite → DELETE → billing stops.
+Ephemeral test orgs per PR:
+  PUT /cp/orgs → run your test suite → DELETE → billing stops.
 
-Default rate limit: 60 req/min per key (configurable). Keys are scoped,
-irreversibly revocable, and logged in the audit trail.
+Tokens are scoped to the orgs they're authorized for, rate-limited
+(60 req/min default, configurable per key), and fully audit-logged.
+Revocation is immediate — no grace period.
 
-This is, to our knowledge, the first partner provisioning API of its kind
-in the agent platform space.
-
-Docs: docs.moleculesai.app/blog/partner-api-keys (live on staging)
-GA: April 30, 2026
+GA: April 30, 2026. Docs and early access requests:
+docs.moleculesai.app/blog/partner-api-keys
 
 
-☁️ SaaS Federation v2
+☁️ SaaS Federation v2 — improved multi-org federation
 ──────────────────────────────────────────────
-Federation improvements for multi-org deployments: better cross-tenant
-isolation, improved org lifecycle management, and tighter alignment with
-the Partner API Keys infrastructure.
+Better cross-tenant isolation, cleaner org lifecycle management, and
+tighter alignment with the Partner API Keys infrastructure. If you're
+operating multiple orgs — for partners, internal teams, or separate
+products — the federation improvements make multi-org setups more
+robust at scale.
 
-If you're running multiple orgs — for partners, for internal teams, or
-for different products — the improvements to federation architecture make
-it more robust to operate at scale.
-
-Docs: docs.moleculesai.app/guides/external-workspace-quickstart (live on staging)
+Docs: docs.moleculesai.app/guides/external-workspace-quickstart
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Quick start
 
-Tool Trace is live now — enabled by default for all workspaces.
-Check your A2A responses for message.metadata.tool_trace[].
+Tool Trace: live now. Inspect message.metadata.tool_trace[] in any
+A2A response — no SDK, no activation step needed.
+Walkthrough: docs.moleculesai.app/blog/ai-agent-observability-without-overhead
 
-Platform Instructions: POST /cp/platform-instructions (org admin only)
-Docs: docs.moleculesai.app/blog/platform-instructions-governance (live on staging)
+Platform Instructions: PUT /cp/platform-instructions (org admin only)
+Walkthrough: docs.moleculesai.app/blog/platform-instructions-governance
 
-Partner API Keys: GA April 30 — docs.moleculesai.app/blog/partner-api-keys
-Apply for early access via GitHub Discussions if you want to test ahead.
+Partner API Keys: GA April 30.
+Docs: docs.moleculesai.app/blog/partner-api-keys
 
-SaaS Fed v2: docs.moleculesai.app/guides/external-workspace-quickstart (live on staging)
+SaaS Fed v2: docs.moleculesai.app/guides/external-workspace-quickstart
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Try it / tell us what you think
+Try it & tell us what you think
 
-Questions on any of these? Reply here — DevRel and the platform team are
-monitoring.
+Questions on any of these? Reply here — DevRel and the platform team
+are watching.
 
-Got feedback on Tool Trace? We want to know what you'd use it for.
-Drop it in GitHub Discussions: github.com/Molecule-AI/molecule-core/discussions
+Tool Trace feedback especially welcome — we want to know what you'd
+use the trace data for. Drop it in GitHub Discussions:
+github.com/Molecule-AI/molecule-core/discussions
 
-Full blog coverage on staging:
-- docs.moleculesai.app/blog/tool-trace-platform-instructions (combined overview)
-- docs.moleculesai.app/blog/ai-agent-observability-without-overhead (Tool Trace deep-dive)
-- docs.moleculesai.app/blog/platform-instructions-governance (Platform Instructions)
-- docs.moleculesai.app/blog/partner-api-keys (Partner API Keys)
-- docs.moleculesai.app/guides/external-workspace-quickstart (SaaS Fed v2)
-
-Full messaging matrix: docs/marketing/briefs/phase34-positioning.md
-
-Documentation across all four features is linked above — if something
-is missing or unclear, open an issue and tag @community.
+Full Phase 34 blog coverage on staging:
+  docs.moleculesai.app/blog/tool-trace-platform-instructions (overview)
+  docs.moleculesai.app/blog/ai-agent-observability-without-overhead (Tool Trace)
+  docs.moleculesai.app/blog/platform-instructions-governance (Platform Instructions)
+  docs.moleculesai.app/blog/partner-api-keys (Partner API Keys)
+  docs.moleculesai.app/guides/external-workspace-quickstart (SaaS Fed v2)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -132,11 +127,11 @@ is missing or unclear, open an issue and tag @community.
 
 ---
 
-## Publishing notes
+## Publishing checklist
 
-- **Post on:** Discord `#announcements` + `#general`, Slack `#announcements`
-- **Timing:** April 30, 2026 GA day, ~09:00 Pacific
-- **Blog must be live first** — coordinate with Content Marketer before posting
-- **Partner API Keys:** Do NOT claim it's live before April 30. Frame as "GA April 30."
-- **Do NOT name specific design partners** in community posts
-- **Engagement:** Monitor threads for 2 hours after posting; route technical questions to DevRel
+- [ ] Discord `#announcements` + `#general` — April 30, ~09:00 PT
+- [ ] Slack `#announcements` — same time
+- [ ] Blog must be live before announcement post goes out
+- [ ] Partner API Keys: do not claim it's live before April 30
+- [ ] Do NOT name design partners in community copy
+- [ ] Monitor threads for 2 hours after posting; route DevRel questions accordingly
