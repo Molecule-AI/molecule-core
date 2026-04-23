@@ -268,9 +268,7 @@ func (h *TemplatesHandler) ListFiles(c *gin.Context) {
 func (h *TemplatesHandler) ReadFile(c *gin.Context) {
 	workspaceID := c.Param("id")
 	filePath := c.Param("path")
-	if strings.HasPrefix(filePath, "/") {
-		filePath = filePath[1:]
-	}
+	filePath = strings.TrimPrefix(filePath, "/")
 
 	if err := validateRelPath(filePath); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
@@ -334,9 +332,7 @@ func (h *TemplatesHandler) ReadFile(c *gin.Context) {
 func (h *TemplatesHandler) WriteFile(c *gin.Context) {
 	workspaceID := c.Param("id")
 	filePath := c.Param("path")
-	if strings.HasPrefix(filePath, "/") {
-		filePath = filePath[1:]
-	}
+	filePath = strings.TrimPrefix(filePath, "/")
 
 	if err := validateRelPath(filePath); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
@@ -398,9 +394,7 @@ func (h *TemplatesHandler) WriteFile(c *gin.Context) {
 func (h *TemplatesHandler) DeleteFile(c *gin.Context) {
 	workspaceID := c.Param("id")
 	filePath := c.Param("path")
-	if strings.HasPrefix(filePath, "/") {
-		filePath = filePath[1:]
-	}
+	filePath = strings.TrimPrefix(filePath, "/")
 
 	if err := validateRelPath(filePath); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})

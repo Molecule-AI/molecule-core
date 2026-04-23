@@ -240,7 +240,7 @@ func (p *Provisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string, e
 	// GHCR on miss so tenant hosts don't need a pre-build step anymore.
 	// The pull is best-effort: if it fails (network, auth, rate limit) the
 	// subsequent ContainerCreate still surfaces the actionable error below.
-	imgInspect, _, imgErr := p.cli.ImageInspectWithRaw(ctx, image)
+	imgInspect, imgErr := p.cli.ImageInspect(ctx, image)
 	if imgErr == nil {
 		log.Printf("Provisioner: creating %s from image %s (ID: %s, created: %s)",
 			name, image, imgInspect.ID[:19], imgInspect.Created[:19])
