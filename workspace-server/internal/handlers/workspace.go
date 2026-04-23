@@ -95,9 +95,18 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		payload.Tier = 1
 	}
 
-	// Detect runtime from template config.yaml if not specified in request.
-	// Must happen before DB insert so the correct runtime is persisted.
-	if payload.Runtime == "" && payload.Template != "" {
+	// Detect runtime + default model from template config.yaml when the
+	// caller omitted them. Must happen before DB insert so persisted
+	// fields match the template's intent.
+	//
+	// Model default pre-fills the hermes-trap gap (PR #1714 + TemplatePalette
+	// patch): any create path (canvas dialog, TemplatePalette, direct API)
+	// that names a template but forgets a model slug now inherits the
+	// template's `runtime_config.model` — without it, hermes-agent falls
+	// back to its compiled-in Anthropic default and 401s when the user's
+	// key is for a different provider. Non-hermes runtimes are unaffected
+	// (the server still passes model through, they just don't use it).
+	if payload.Template != "" && (payload.Runtime == "" || payload.Model == "") {
 		// #226: payload.Template is attacker-controllable. resolveInsideRoot
 		// rejects absolute paths and any ".." that escapes configsDir so the
 		// provisioner can't be pointed at host directories.
@@ -111,10 +120,32 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		if readErr != nil {
 			log.Printf("Create: could not read config.yaml for template %q: %v", payload.Template, readErr)
 		}
-		for _, line := range strings.Split(string(cfgData), "\n") {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "runtime:") {
-				payload.Runtime = strings.TrimSpace(strings.TrimPrefix(line, "runtime:"))
+		// Two-pass line scanner: the old parser found top-level `runtime:`
+		// by substring match on trimmed lines. We extend it to also find
+		// the nested `runtime_config.model:` (new format) and top-level
+		// `model:` (legacy format). A minimal state var tracks whether
+		// we're inside the runtime_config block based on indentation.
+		inRuntimeConfig := false
+		for _, rawLine := range strings.Split(string(cfgData), "\n") {
+			// Track indentation to detect block transitions.
+			trimmed := strings.TrimLeft(rawLine, " \t")
+			indented := len(rawLine) > len(trimmed)
+			if !indented {
+				// Left the runtime_config block (or never entered it).
+				inRuntimeConfig = strings.HasPrefix(trimmed, "runtime_config:")
+			}
+			stripped := strings.TrimSpace(rawLine)
+			switch {
+			case payload.Runtime == "" && !indented && strings.HasPrefix(stripped, "runtime:") && !strings.HasPrefix(stripped, "runtime_config"):
+				payload.Runtime = strings.TrimSpace(strings.TrimPrefix(stripped, "runtime:"))
+			case payload.Model == "" && !indented && strings.HasPrefix(stripped, "model:"):
+				// Legacy top-level `model:` — pre-runtime_config templates.
+				payload.Model = strings.Trim(strings.TrimSpace(strings.TrimPrefix(stripped, "model:")), `"'`)
+			case payload.Model == "" && indented && inRuntimeConfig && strings.HasPrefix(stripped, "model:"):
+				// Nested `runtime_config.model:` — current format (hermes etc.).
+				payload.Model = strings.Trim(strings.TrimSpace(strings.TrimPrefix(stripped, "model:")), `"'`)
+			}
+			if payload.Runtime != "" && payload.Model != "" {
 				break
 			}
 		}
