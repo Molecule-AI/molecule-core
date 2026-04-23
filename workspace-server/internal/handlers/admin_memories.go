@@ -51,7 +51,7 @@ func (h *AdminMemoriesHandler) Export(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "export query failed"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	memories := make([]memoryExportEntry, 0)
 	for rows.Next() {

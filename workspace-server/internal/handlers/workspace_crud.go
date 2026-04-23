@@ -401,8 +401,12 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 			}
 		}
 		// Null out parent_id / forwarded_to references
-		db.DB.ExecContext(ctx, "UPDATE workspaces SET parent_id = NULL WHERE parent_id = ANY($1::uuid[])", purgeIDs)
-		db.DB.ExecContext(ctx, "UPDATE workspaces SET forwarded_to = NULL WHERE forwarded_to = ANY($1::uuid[])", purgeIDs)
+		if _, err := db.DB.ExecContext(ctx, "UPDATE workspaces SET parent_id = NULL WHERE parent_id = ANY($1::uuid[])", purgeIDs); err != nil {
+			log.Printf("Purge null-out parent_id error for %v: %v", allIDs, err)
+		}
+		if _, err := db.DB.ExecContext(ctx, "UPDATE workspaces SET forwarded_to = NULL WHERE forwarded_to = ANY($1::uuid[])", purgeIDs); err != nil {
+			log.Printf("Purge null-out forwarded_to error for %v: %v", allIDs, err)
+		}
 		// Hard delete the workspace row
 		if _, err := db.DB.ExecContext(ctx, "DELETE FROM workspaces WHERE id = ANY($1::uuid[])", purgeIDs); err != nil {
 			log.Printf("Purge workspace row error for %v: %v", allIDs, err)

@@ -64,7 +64,8 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 	// provisionWorkspaceCP → migration 038). Null instance_id means the
 	// workspace runs as a local Docker container on this tenant.
 	var instanceID string
-	db.DB.QueryRowContext(ctx,
+	// COALESCE makes ErrNoRows safe — empty instanceID falls through to local-Docker path.
+	_ = db.DB.QueryRowContext(ctx,
 		`SELECT COALESCE(instance_id, '') FROM workspaces WHERE id = $1`,
 		workspaceID).Scan(&instanceID)
 
