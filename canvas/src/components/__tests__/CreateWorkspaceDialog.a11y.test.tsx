@@ -77,7 +77,9 @@ describe("CreateWorkspaceDialog — accessibility", () => {
   it("tier buttons have role=radio and aria-checked reflects selection", async () => {
     await openDialog();
     const radios = screen.getAllByRole("radio");
-    expect(radios.length).toBe(3);
+    // Non-SaaS build (jsdom hostname is localhost) shows all four tiers:
+    // T1 Sandboxed, T2 Standard, T3 Privileged, T4 Full Access.
+    expect(radios.length).toBe(4);
     // T1 is default selection
     const t1 = radios.find((r) => r.textContent?.includes("T1"));
     const t2 = radios.find((r) => r.textContent?.includes("T2"));
@@ -98,10 +100,12 @@ describe("CreateWorkspaceDialog — accessibility", () => {
     const t1 = radios.find((r) => r.textContent?.includes("T1"))!;
     const t2 = radios.find((r) => r.textContent?.includes("T2"))!;
     const t3 = radios.find((r) => r.textContent?.includes("T3"))!;
-    // T1 is default selected
+    const t4 = radios.find((r) => r.textContent?.includes("T4"))!;
+    // T1 is default selected (non-SaaS test env; SaaS would default to T4)
     expect(t1.getAttribute("tabindex")).toBe("0");
     expect(t2.getAttribute("tabindex")).toBe("-1");
     expect(t3.getAttribute("tabindex")).toBe("-1");
+    expect(t4.getAttribute("tabindex")).toBe("-1");
   });
 
   it("ArrowDown moves selection from T1 to T2", async () => {
@@ -127,15 +131,15 @@ describe("CreateWorkspaceDialog — accessibility", () => {
     await waitFor(() => expect(t3.getAttribute("aria-checked")).toBe("true"));
   });
 
-  it("ArrowDown wraps from T3 back to T1", async () => {
+  it("ArrowDown wraps from T4 back to T1", async () => {
     await openDialog();
     const radios = screen.getAllByRole("radio");
     const t1 = radios.find((r) => r.textContent?.includes("T1"))!;
-    const t3 = radios.find((r) => r.textContent?.includes("T3"))!;
-    fireEvent.click(t3); // select T3 first
-    await waitFor(() => expect(t3.getAttribute("aria-checked")).toBe("true"));
-    t3.focus();
-    fireEvent.keyDown(t3, { key: "ArrowDown" });
+    const t4 = radios.find((r) => r.textContent?.includes("T4"))!;
+    fireEvent.click(t4); // select T4 (last) first
+    await waitFor(() => expect(t4.getAttribute("aria-checked")).toBe("true"));
+    t4.focus();
+    fireEvent.keyDown(t4, { key: "ArrowDown" });
     await waitFor(() => expect(t1.getAttribute("aria-checked")).toBe("true"));
   });
 
@@ -151,14 +155,14 @@ describe("CreateWorkspaceDialog — accessibility", () => {
     await waitFor(() => expect(t1.getAttribute("aria-checked")).toBe("true"));
   });
 
-  it("ArrowLeft wraps from T1 back to T3", async () => {
+  it("ArrowLeft wraps from T1 back to T4", async () => {
     await openDialog();
     const radios = screen.getAllByRole("radio");
     const t1 = radios.find((r) => r.textContent?.includes("T1"))!;
-    const t3 = radios.find((r) => r.textContent?.includes("T3"))!;
+    const t4 = radios.find((r) => r.textContent?.includes("T4"))!;
     t1.focus();
     fireEvent.keyDown(t1, { key: "ArrowLeft" });
-    await waitFor(() => expect(t3.getAttribute("aria-checked")).toBe("true"));
+    await waitFor(() => expect(t4.getAttribute("aria-checked")).toBe("true"));
   });
 });
 
