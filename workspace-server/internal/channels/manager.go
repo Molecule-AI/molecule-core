@@ -463,7 +463,7 @@ func (m *Manager) BroadcastToWorkspaceChannels(ctx context.Context, workspaceID,
 	if err != nil {
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var channelID string
 		if rows.Scan(&channelID) == nil {
@@ -488,7 +488,7 @@ func (m *Manager) FetchWorkspaceChannelContext(ctx context.Context, workspaceID 
 	if err != nil {
 		return ""
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	if !rows.Next() {
 		return ""
 	}

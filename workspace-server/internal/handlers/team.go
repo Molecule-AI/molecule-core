@@ -179,9 +179,10 @@ func (h *TeamHandler) Collapse(c *gin.Context) {
 			continue
 		}
 
-		// Stop container if provisioner available
+		// Stop container if provisioner available.
+		// best-effort: cleanup path, container may already be gone or unreachable.
 		if h.provisioner != nil {
-			h.provisioner.Stop(ctx, childID)
+			_ = h.provisioner.Stop(ctx, childID)
 		}
 
 		// Mark as removed

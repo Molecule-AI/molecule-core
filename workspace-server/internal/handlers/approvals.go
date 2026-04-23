@@ -51,7 +51,7 @@ func (h *ApprovalsHandler) Create(c *gin.Context) {
 		return
 	}
 
-	h.broadcaster.RecordAndBroadcast(ctx, "APPROVAL_REQUESTED", workspaceID, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "APPROVAL_REQUESTED", workspaceID, map[string]interface{}{
 		"approval_id": approvalID,
 		"action":      body.Action,
 		"reason":      body.Reason,
@@ -62,7 +62,7 @@ func (h *ApprovalsHandler) Create(c *gin.Context) {
 	var parentID *string
 	_ = db.DB.QueryRowContext(ctx, `SELECT parent_id FROM workspaces WHERE id = $1`, workspaceID).Scan(&parentID)
 	if parentID != nil {
-		h.broadcaster.RecordAndBroadcast(ctx, "APPROVAL_ESCALATED", *parentID, map[string]interface{}{
+		_ = h.broadcaster.RecordAndBroadcast(ctx, "APPROVAL_ESCALATED", *parentID, map[string]interface{}{
 			"approval_id":       approvalID,
 			"from_workspace_id": workspaceID,
 			"action":            body.Action,
@@ -205,7 +205,7 @@ func (h *ApprovalsHandler) Decide(c *gin.Context) {
 		eventType = "APPROVAL_DENIED"
 	}
 
-	h.broadcaster.RecordAndBroadcast(ctx, eventType, workspaceID, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, eventType, workspaceID, map[string]interface{}{
 		"approval_id": approvalID,
 		"decision":    body.Decision,
 		"decided_by":  decidedBy,

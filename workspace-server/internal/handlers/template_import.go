@@ -227,7 +227,9 @@ func (h *TemplatesHandler) ReplaceFiles(c *gin.Context) {
 			if _, err := h.execInContainer(ctx, containerName, []string{"test", "-f", "/configs/config.yaml"}); err != nil {
 				cfg := generateDefaultConfig(wsName, body.Files)
 				singleFile := map[string]string{"config.yaml": cfg}
-				h.copyFilesToContainer(ctx, containerName, "/configs", singleFile)
+				if err := h.copyFilesToContainer(ctx, containerName, "/configs", singleFile); err != nil {
+					log.Printf("ReplaceFiles: failed to copy default config.yaml to %s: %v", workspaceID, err)
+				}
 			}
 		}
 
@@ -250,7 +252,11 @@ func (h *TemplatesHandler) ReplaceFiles(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write files to workspace"})
 			return
 		}
-		os.MkdirAll(destDir, 0o755)
+		if err := os.MkdirAll(destDir, 0o755); err != nil {
+			log.Printf("ReplaceFiles: failed to create template dir %s for %s: %v", destDir, workspaceID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create template dir"})
+			return
+		}
 		if err := writeFiles(destDir, body.Files); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return

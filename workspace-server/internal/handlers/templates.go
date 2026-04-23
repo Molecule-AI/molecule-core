@@ -231,7 +231,7 @@ func (h *TemplatesHandler) ListFiles(c *gin.Context) {
 	}
 
 	var files []fileEntry
-	filepath.Walk(walkRoot, func(path string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(walkRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil || path == walkRoot {
 			return nil
 		}
@@ -256,7 +256,10 @@ func (h *TemplatesHandler) ListFiles(c *gin.Context) {
 			Dir:  info.IsDir(),
 		})
 		return nil
-	})
+	}); err != nil {
+		log.Printf("ListFiles: filepath.Walk failed for %s: %v", walkRoot, err)
+		// Non-fatal: return whatever entries we did collect rather than error 500.
+	}
 
 	if files == nil {
 		files = []fileEntry{}

@@ -158,8 +158,8 @@ func (h *TerminalHandler) handleLocalConnect(c *gin.Context, workspaceID string)
 	}
 	if execErr != nil {
 		log.Printf("Terminal exec error: %v", execErr)
-		conn.WriteMessage(websocket.TextMessage, []byte("Error: failed to create shell session\r\n"))
-		conn.Close()
+		_ = conn.WriteMessage(websocket.TextMessage, []byte("Error: failed to create shell session\r\n"))
+		_ = conn.Close()
 		return
 	}
 
@@ -179,7 +179,7 @@ func (h *TerminalHandler) handleLocalConnect(c *gin.Context, workspaceID string)
 				if err != io.EOF {
 					log.Printf("Terminal read error: %v", err)
 				}
-				conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+				_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 				return
 			}
 		}
@@ -194,8 +194,9 @@ func (h *TerminalHandler) handleLocalConnect(c *gin.Context, workspaceID string)
 		if _, err := resp.Conn.Write(msg); err != nil {
 			break
 		}
-		// Reset read deadline on activity
-		conn.SetReadDeadline(time.Now().Add(terminalSessionTimeout))
+		// Reset read deadline on activity.
+		// best-effort: if the deadline can't be set the conn just lacks an idle timeout.
+		_ = conn.SetReadDeadline(time.Now().Add(terminalSessionTimeout))
 	}
 
 	<-done
@@ -284,7 +285,7 @@ func (h *TerminalHandler) handleRemoteConnect(c *gin.Context, workspaceID, insta
 		log.Printf("Terminal WebSocket upgrade error (remote): %v", err)
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()
@@ -405,7 +406,8 @@ func (h *TerminalHandler) handleRemoteConnect(c *gin.Context, workspaceID, insta
 				cancel()
 				return
 			}
-			conn.SetReadDeadline(time.Now().Add(terminalSessionTimeout))
+			// best-effort: if the deadline can't be set the conn just lacks an idle timeout.
+			_ = conn.SetReadDeadline(time.Now().Add(terminalSessionTimeout))
 		}
 	}()
 

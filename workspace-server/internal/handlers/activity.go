@@ -69,7 +69,7 @@ func (h *ActivityHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	activities := make([]map[string]interface{}, 0)
 	for rows.Next() {
