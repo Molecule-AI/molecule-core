@@ -51,7 +51,7 @@ func (h *MCPHandler) toolListPeers(ctx context.Context, workspaceID string) (str
 	var peers []peer
 
 	scanPeers := func(rows *sql.Rows) error {
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var p peer
 			if err := rows.Scan(&p.ID, &p.Name, &p.Role, &p.Status, &p.Tier); err != nil {
@@ -431,7 +431,7 @@ func (h *MCPHandler) toolRecallMemory(ctx context.Context, workspaceID string, a
 	if err != nil {
 		return "", fmt.Errorf("memory search failed: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type memEntry struct {
 		ID        string `json:"id"`

@@ -256,7 +256,7 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check children"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var children []map[string]string
 	for rows.Next() {
@@ -366,7 +366,7 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 			}
 		}
 		db.ClearWorkspaceKeys(ctx, descID)
-		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_REMOVED", descID, map[string]interface{}{})
+		_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_REMOVED", descID, map[string]interface{}{})
 	}
 
 	// Stop + remove volume for the workspace itself
@@ -379,7 +379,7 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 	}
 	db.ClearWorkspaceKeys(ctx, id)
 
-	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_REMOVED", id, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_REMOVED", id, map[string]interface{}{
 		"cascade_deleted": len(descendantIDs),
 	})
 

@@ -448,7 +448,7 @@ func (h *DelegationHandler) ListDelegations(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var delegations []map[string]interface{}
 	for rows.Next() {

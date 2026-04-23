@@ -41,7 +41,7 @@ func (h *MemoryHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	entries := make([]MemoryEntry, 0)
 	for rows.Next() {
