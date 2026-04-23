@@ -139,7 +139,7 @@ func loadRestartContextData(ctx context.Context, workspaceID string) restartCont
 				keySet[k] = struct{}{}
 			}
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 	if rows, err := db.DB.QueryContext(ctx,
 		`SELECT key FROM workspace_secrets WHERE workspace_id = $1`, workspaceID,
@@ -150,7 +150,7 @@ func loadRestartContextData(ctx context.Context, workspaceID string) restartCont
 				keySet[k] = struct{}{}
 			}
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 	for k := range keySet {
 		d.EnvKeys = append(d.EnvKeys, k)
