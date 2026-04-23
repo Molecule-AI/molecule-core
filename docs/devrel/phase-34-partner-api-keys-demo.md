@@ -1,8 +1,7 @@
 # Phase 34 Partner API Keys — DevRel Demo Script
 **Phase:** 34 | **Feature:** `mol_pk_*`
-**Status:** SKELETON — PM answers needed to fill placeholders `[DATE]` `[PARTNER NAME]`
+**Status:** DRAFT — GA date confirmed (Apr 30). Remaining placeholders: `[DESIGN PARTNER NAME]` (PM), rate limits (PMM lookup in progress)
 **Owner:** DevRel Engineer
-**Write token:** ❌ blocked — stage locally until token restored
 
 ---
 
@@ -96,7 +95,7 @@ curl -X GET https://your-deployment.moleculesai.app/cp/admin/partner-keys \
 
 **Demo narration:** "Compromised partner key? One DELETE. The key is dead on the next request. No propagation delay. No cached credentials surviving. That's the security model."
 
-**⚠️ PM NEEDED:** Confirm revocation is immediate (no async propagation).
+**✅ CONFIRMED:** Revocation is immediate — key is checked synchronously on every request, no async propagation. Access stops on the next inbound request (source: Partner API Keys positioning brief + engineering confirmation).
 
 ---
 
@@ -147,7 +146,7 @@ echo "Partner provisioned: $PARTNER_ORG"
 
 ### ⚠️ Placeholders to fill after PM confirmation
 - [DESIGN PARTNER NAME] — first design partner name
-- [DATE] — GA ship date
+- 2026-04-30 — GA ship date
 - Rate limits — pending PM confirmation
 - Key rotation policy — pending PM confirmation
 ```
@@ -158,7 +157,7 @@ echo "Partner provisioned: $PARTNER_ORG"
 
 | Scene | Duration | What happens |
 |---|---|---|
-| 1. Title card | 5s | "Partner API Keys — Phase 34" + date `[DATE]` |
+| 1. Title card | 5s | "Partner API Keys — Phase 34" + date `2026-04-30` |
 | 2. Problem framing | 10s | "Your CI pipeline needs test orgs. How do you provision them programmatically?" |
 | 3. Key creation | 15s | Terminal: `POST /cp/admin/partner-keys` → key returned |
 | 4. Ephemeral org | 20s | CI script: create org → run tests → DELETE org |
@@ -178,7 +177,7 @@ echo "Partner provisioned: $PARTNER_ORG"
 | 1 | Rate limits per partner key? | Cannot show safe CI/CD limits in demo |
 | 2 | Key rotation policy (TTL/forced/manual)? | Cannot document rotation in README |
 | 3 | Design partner name? | Cannot name first partner in demo narration |
-| 4 | GA date? | Cannot remove [DATE] placeholder |
+| 4 | GA date? | ✅ RESOLVED — April 30, 2026 |
 | 5 | Partner tier differences? | Cannot differentiate tiers in demo |
 
 *Skeleton by Marketing Lead 2026-04-23 — fill placeholders when PM responds.*
