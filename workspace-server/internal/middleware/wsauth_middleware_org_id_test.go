@@ -10,11 +10,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// orgTokenValidateQuery is matched for orgtoken.Validate in both
+// orgTokenValidateQueryForTestForTest is matched for orgtoken.Validate in both
 // WorkspaceAuth and AdminAuth middleware paths. The query selects
 // id, prefix, and org_id from org_api_tokens where token_hash matches
-// and revoked_at IS NULL.
-const orgTokenValidateQuery = "SELECT id, prefix, org_id FROM org_api_tokens WHERE token_hash"
+// and revoked_at IS NULL. Named distinctly to avoid redeclaring the
+// same constant in wsauth_middleware_test.go (same package scope).
+const orgTokenValidateQueryForTestForTest = "SELECT id, prefix, org_id FROM org_api_tokens WHERE token_hash"
 
 func TestWorkspaceAuth_ValidOrgToken_SetsOrgIDContext(t *testing.T) {
 	// F1097 (#1218): org tokens validated via WorkspaceAuth must have
@@ -30,7 +31,7 @@ func TestWorkspaceAuth_ValidOrgToken_SetsOrgIDContext(t *testing.T) {
 	tokenHash := sha256.Sum256([]byte(orgToken))
 
 	// orgtoken.Validate — returns id, prefix, org_id (all 3 columns scanned).
-	mock.ExpectQuery(orgTokenValidateQuery).
+	mock.ExpectQuery(orgTokenValidateQueryForTest).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
 			AddRow("tok-org-abc", "tok_test", "00000000-0000-0000-0000-000000000001"))
@@ -79,7 +80,7 @@ func TestWorkspaceAuth_ValidOrgToken_OrgIDNULL_DoesNotSetContext(t *testing.T) {
 
 	// orgtoken.Validate — returns id, prefix, org_id (all 3 columns scanned).
 	// org_id NULL signals pre-migration token → no org_id context key set.
-	mock.ExpectQuery(orgTokenValidateQuery).
+	mock.ExpectQuery(orgTokenValidateQueryForTest).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
 			AddRow("tok-old-xyz", "tok_old_", nil))
@@ -125,7 +126,7 @@ func TestAdminAuth_ValidOrgToken_SetsOrgIDContext(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	// orgtoken.Validate via AdminAuth — returns id, prefix, org_id (all 3 columns scanned).
-	mock.ExpectQuery(orgTokenValidateQuery).
+	mock.ExpectQuery(orgTokenValidateQueryForTest).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
 			AddRow("tok-admin-org", "tok_adm_", "00000000-0000-0000-0000-000000000042"))
@@ -172,7 +173,7 @@ func TestAdminAuth_ValidOrgToken_OrgIDNULL_DoesNotSetContext(t *testing.T) {
 
 	// orgtoken.Validate — org_id NULL signals pre-migration token.
 	// No org_id context key set; caller handles via requireCallerOwnsOrg deny.
-	mock.ExpectQuery(orgTokenValidateQuery).
+	mock.ExpectQuery(orgTokenValidateQueryForTest).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
 			AddRow("tok-old-admin", "tok_old_", nil))
@@ -212,14 +213,14 @@ func TestWorkspaceAuth_OrgToken_DBRowScanError_DoesNotPanic(t *testing.T) {
 	orgToken := "tok_token_ok"
 	tokenHash := sha256.Sum256([]byte(orgToken))
 
-	mock.ExpectQuery(orgTokenValidateQuery).
+	mock.ExpectQuery(orgTokenValidateQueryForTest).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).
 			AddRow("tok-ok", "tok_tok_"))
 
 	// orgtoken.Validate — returns id, prefix, org_id (all 3 columns scanned).
 	// org_id NULL means no org_id context key set; token is still valid.
-	mock.ExpectQuery(orgTokenValidateQuery).
+	mock.ExpectQuery(orgTokenValidateQueryForTest).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
 			AddRow("tok-ok", "tok_tok_", nil))
@@ -261,7 +262,7 @@ func TestWorkspaceAuth_OrgToken_SetsAllContextKeys(t *testing.T) {
 	// orgtoken.Validate — returns id, prefix, org_id (all 3 columns scanned).
 	// org_id is NULL for this test row (pre-migration token), resulting in
 	// an empty string orgID in context — token is still valid.
-	mock.ExpectQuery(orgTokenValidateQuery).
+	mock.ExpectQuery(orgTokenValidateQueryForTest).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
 			AddRow("tok-full", "tok_fu_", expectedOrgID))

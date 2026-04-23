@@ -473,11 +473,13 @@ func TestAdminAuth_InvalidBearer_Returns401(t *testing.T) {
 // token (org_id="ws-org-1").
 // ────────────────────────────────────────────────────────────────────────────
 
-// orgTokenValidateQuery is matched for orgtoken.Validate().
+// orgTokenValidateQueryForTest is matched for orgtoken.Validate() in this file.
+// Named distinctly to avoid redeclaring the same constant exported in
+// wsauth_middleware_org_id_test.go (same middleware package scope).
 // org_id::text returns the UUID as text (postgres serialises NULL to nil
 // for sql.NullString scanning). The secondary org_id lookup is no longer
 // needed — Validate returns org_id directly from the single SELECT.
-const orgTokenValidateQuery = "SELECT id, prefix, org_id FROM org_api_tokens WHERE token_hash"
+const orgTokenValidateQueryForTest = "SELECT id, prefix, org_id FROM org_api_tokens WHERE token_hash"
 
 // orgTokenLastUsedQuery is matched for the best-effort last_used_at UPDATE.
 const orgTokenLastUsedQuery = "UPDATE org_api_tokens SET last_used_at"
@@ -523,7 +525,7 @@ func TestAdminAuth_OrgToken_SetsOrgID(t *testing.T) {
 			// orgtoken.Validate: org token hash matches, returns id + prefix.
 			// Note: org tokens are checked BEFORE the workspace token path
 			// (ValidateAnyToken), so ValidateAnyToken is NOT called here.
-			mock.ExpectQuery(orgTokenValidateQuery).
+			mock.ExpectQuery(orgTokenValidateQueryForTest).
 				WithArgs(orgTokenHash[:]).
 				WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
 					AddRow("tok-org-1", "tok-org-1", tt.orgIDFromDB))
