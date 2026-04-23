@@ -1,5 +1,7 @@
 name: CI
 
+# CI workflow for molecule-core
+
 on:
   push:
     branches: [main, staging]
