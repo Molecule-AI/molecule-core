@@ -6,40 +6,6 @@ description: "Named, revocable, audit-trail-enabled tokens for every integration
 tags: [security, enterprise, API-keys, multi-agent, audit]
 ---
 
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "Article",
-  "headline": "Org-Scoped API Keys: Enterprise Key Management for Multi-Agent Teams",
-  "datePublished": "2026-04-21",
-  "dateModified": "2026-04-22",
-  "author": {
-    "@type": "Organization",
-    "name": "Molecule AI"
-  },
-  "publisher": {
-    "@type": "Organization",
-    "name": "Molecule AI",
-    "logo": {
-      "@type": "ImageObject",
-      "url": "https://molecule.ai/logo.png"
-    }
-  },
-  "description": "Named, revocable, audit-trail-enabled tokens for every integration in your organization. Replace shared ADMIN_TOKEN with org-level keys that rotate without downtime and trace every call back to the key that made it.",
-  "keywords": "Named, revocable, audit-trail-enabled tokens for every integration in your organization. Replace sha",
-  "url": "https://molecule.ai/blog/org-scoped-api-keys"
-}
-</script>
-author: Molecule AI
-og_title: "Org-Scoped API Keys: Enterprise Key Management for Multi-Agent Teams"
-og_description: "Named, revocable, audit-trail-enabled tokens for every integration in your organization. Replace shared ADMIN_TOKEN with org-level keys that rotate without downtime and trace every call back to the key that made it."
-og_image: /assets/blog/2026-04-21-2026-04-21-org-scoped-api-keys-og.png
-twitter_card: summary_large_image
-canonical: https://molecule.ai/blog/org-scoped-api-keys
-keywords:
-
-
-
 # Org-Scoped API Keys: Enterprise Key Management for Multi-Agent Teams
 
 When your engineering team scales from two agents to twenty, the last thing you want is a single `ADMIN_TOKEN` hardcoded in your environment. It's a single point of failure, impossible to rotate without downtime, and impossible to audit. Today's launch changes that.

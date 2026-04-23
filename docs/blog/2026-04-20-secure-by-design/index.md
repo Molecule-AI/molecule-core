@@ -6,40 +6,6 @@ description: "Today's launch hardens Molecule AI's multi-tenant architecture acr
 tags: [security, platform, multi-tenant, auth, launch]
 ---
 
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "Article",
-  "headline": "Secure by Design \u2014 Molecule AI's Beta Auth Hardening Push",
-  "datePublished": "2026-04-20",
-  "dateModified": "2026-04-22",
-  "author": {
-    "@type": "Organization",
-    "name": "Molecule AI"
-  },
-  "publisher": {
-    "@type": "Organization",
-    "name": "Molecule AI",
-    "logo": {
-      "@type": "ImageObject",
-      "url": "https://molecule.ai/logo.png"
-    }
-  },
-  "description": "Today's launch hardens Molecule AI's multi-tenant architecture across four dimensions: org-scoped API keys, browser session auth, tenant provisioning security, and a waitlist gate. Here's what changed and why.",
-  "keywords": "Today's launch hardens Molecule AI's multi-tenant architecture across four dimensions: org-scoped AP",
-  "url": "https://molecule.ai/blog/beta-auth-hardening"
-}
-</script>
-author: Molecule AI
-og_title: "Secure by Design — Molecule AI's Beta Auth Hardening Push"
-og_description: "Today's launch hardens Molecule AI's multi-tenant architecture across four dimensions: org-scoped API keys, browser session auth, tenant provisioning security, and a waitlist gate. Here's what changed and why."
-og_image: /assets/blog/2026-04-20-2026-04-20-secure-by-design-og.png
-twitter_card: summary_large_image
-canonical: https://molecule.ai/blog/beta-auth-hardening
-keywords:
-
-
-
 # Secure by Design — Molecule AI's Beta Auth Hardening Push
 
 Four PR chains merged today. Together they close a week's worth of security gaps, eliminate shared secret sprawl, and put Molecule AI's beta on a production-grade auth footing. This post explains each piece and what it means for you.

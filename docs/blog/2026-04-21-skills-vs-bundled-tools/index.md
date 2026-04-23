@@ -6,40 +6,6 @@ description: "Hermes v0.10.0 bundles 4 platform tools. Molecule AI installs them
 tags: [skills, hermes, comparison, composability, AI-agents, tutorial]
 ---
 
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "Article",
-  "headline": "Skills Over Bundled Tools: Why Composable AI Beats Platform Primitives",
-  "datePublished": "2026-04-21",
-  "dateModified": "2026-04-22",
-  "author": {
-    "@type": "Organization",
-    "name": "Molecule AI"
-  },
-  "publisher": {
-    "@type": "Organization",
-    "name": "Molecule AI",
-    "logo": {
-      "@type": "ImageObject",
-      "url": "https://molecule.ai/logo.png"
-    }
-  },
-  "description": "Hermes v0.10.0 bundles 4 platform tools. Molecule AI installs them as skills. This piece explains why composability beats convenience for production multi-agent teams.",
-  "keywords": "Hermes v0.10.0 bundles 4 platform tools. Molecule AI installs them as skills. This piece explains wh",
-  "url": "https://molecule.ai/blog/skills-vs-bundled-tools-ai-agent-platforms"
-}
-</script>
-author: Molecule AI
-og_title: "Skills Over Bundled Tools: Why Composable AI Beats Platform Primitives"
-og_description: "Hermes v0.10.0 bundles 4 platform tools. Molecule AI installs them as skills. This piece explains why composability beats convenience for production multi-agent teams."
-og_image: /assets/blog/2026-04-21-2026-04-21-skills-vs-bundled-tools-og.png
-twitter_card: summary_large_image
-canonical: https://molecule.ai/blog/skills-vs-bundled-tools-ai-agent-platforms
-keywords:
-
-
-
 # Skills Over Bundled Tools: Why Composable AI Beats Platform Primitives
 
 Hermes v0.10.0 launched Tool Gateway — a set of built-in tools (web search, image generation, TTS, browser automation) available to paid Portal subscribers. If you're evaluating AI agent platforms, you might see a feature list comparison that looks like this:

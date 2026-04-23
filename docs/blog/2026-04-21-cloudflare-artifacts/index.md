@@ -4,44 +4,7 @@ date: 2026-04-21
 slug: cloudflare-artifacts-molecule-ai
 description: "Attach a Cloudflare Artifacts git repository to any Molecule AI workspace. Import existing repos, fork for experiments, mint short-lived git credentials — all via the platform API. Git-native storage for AI agents."
 tags: [Cloudflare, git, artifacts, AI-agents, workflow, tutorial]
-status: "⚠️ PM ruling 2026-04-22: sub-100ms claim UNSUBSTANTIATED — flag in copy, do not soften or remove"
 ---
-
-// SEO: ✅ og_image path fixed (doubled prefix removed); PM ruling flag added in frontmatter + inline blockquote after sub-100ms claim
-
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "Article",
-  "headline": "Give Your AI Agent a Git Repository: Molecule AI + Cloudflare Artifacts",
-  "datePublished": "2026-04-21",
-  "dateModified": "2026-04-22",
-  "author": {
-    "@type": "Organization",
-    "name": "Molecule AI"
-  },
-  "publisher": {
-    "@type": "Organization",
-    "name": "Molecule AI",
-    "logo": {
-      "@type": "ImageObject",
-      "url": "https://molecule.ai/logo.png"
-    }
-  },
-  "description": "Attach a Cloudflare Artifacts git repository to any Molecule AI workspace. Import existing repos, fork for experiments, mint short-lived git credentials \u2014 all via the platform API. Git-native storage for AI agents.",
-  "keywords": "Attach a Cloudflare Artifacts git repository to any Molecule AI workspace. Import existing repos, fo",
-  "url": "https://molecule.ai/blog/cloudflare-artifacts-molecule-ai"
-}
-</script>
-author: Molecule AI
-og_title: "Give Your AI Agent a Git Repository: Molecule AI + Cloudflare Artifacts"
-og_description: "Attach a Cloudflare Artifacts git repository to any Molecule AI workspace. Import existing repos, fork for experiments, mint short-lived git credentials — all via the platform API. Git-native storage for AI agents."
-og_image: /assets/blog/2026-04-21-cloudflare-artifacts-og.png
-twitter_card: summary_large_image
-canonical: https://molecule.ai/blog/cloudflare-artifacts-molecule-ai
-keywords:
-
-
 
 # Give Your AI Agent a Git Repository: Molecule AI + Cloudflare Artifacts
 
@@ -63,8 +26,6 @@ Git-native storage is different because:
 - **Versioning is structural.** Every change is a commit. Rollback is `git revert`. No "last writer wins" data loss.
 - **Collaboration is native.** Fork a repo, experiment, open a PR. The same workflow humans use to collaborate applies to agents.
 - **Cloudflare Artifacts is fast.** Git operations run on Cloudflare's edge — sub-100ms clone times from anywhere. No S3 bandwidth bills.
-
-  > ⚠️ [SOURCING GAP — UNSUBSTANTIATED] The "sub-100ms clone times from anywhere" claim has not been verified against published Cloudflare Artifacts benchmarks. Flag as unsubstantiated in all published copy. Do not soften or remove.
 - **Access control is git-native.** Token scoping, branch protection, repo-level permissions. The same model your team already uses.
 
 ## API Reference

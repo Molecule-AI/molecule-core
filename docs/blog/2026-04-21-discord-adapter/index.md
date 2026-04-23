@@ -6,40 +6,6 @@ description: "Molecule AI workspaces can now connect to Discord — send message
 tags: [launch, discord, social-channels, platform, MCP]
 ---
 
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "Article",
-  "headline": "Your AI Agents Just Joined Discord",
-  "datePublished": "2026-04-21",
-  "dateModified": "2026-04-22",
-  "author": {
-    "@type": "Organization",
-    "name": "Molecule AI"
-  },
-  "publisher": {
-    "@type": "Organization",
-    "name": "Molecule AI",
-    "logo": {
-      "@type": "ImageObject",
-      "url": "https://molecule.ai/logo.png"
-    }
-  },
-  "description": "Molecule AI workspaces can now connect to Discord \u2014 send messages to channels and receive slash commands, using only a webhook URL. No bot account, no OAuth flow, no Gateway connection.",
-  "keywords": "Molecule AI workspaces can now connect to Discord \u2014 send messages to channels and receive slash comm",
-  "url": "https://molecule.ai/blog/discord-adapter-launch"
-}
-</script>
-author: Molecule AI
-og_title: "Your AI Agents Just Joined Discord"
-og_description: "Molecule AI workspaces can now connect to Discord — send messages to channels and receive slash commands, using only a webhook URL. No bot account, no OAuth flow, no Gateway connection."
-og_image: /assets/blog/2026-04-21-2026-04-21-discord-adapter-og.png
-twitter_card: summary_large_image
-canonical: https://molecule.ai/blog/discord-adapter-launch
-keywords:
-
-
-
 # Your AI Agents Just Joined Discord
 
 Your team is in Discord. Your AI agents are in Molecule AI. Until today, those two places didn't talk to each other without building a full Discord bot.

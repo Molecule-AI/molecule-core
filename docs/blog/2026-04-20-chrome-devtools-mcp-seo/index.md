@@ -6,40 +6,6 @@ description: "Learn how to add browser automation to your AI agents using Chrome
 tags: [MCP, browser-automation, AI-agents, CDP, tutorial]
 ---
 
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "Article",
-  "headline": "Give Your AI Agent a Real Browser: MCP + Chrome DevTools",
-  "datePublished": "2026-04-20",
-  "dateModified": "2026-04-22",
-  "author": {
-    "@type": "Organization",
-    "name": "Molecule AI"
-  },
-  "publisher": {
-    "@type": "Organization",
-    "name": "Molecule AI",
-    "logo": {
-      "@type": "ImageObject",
-      "url": "https://molecule.ai/logo.png"
-    }
-  },
-  "description": "Learn how to add browser automation to your AI agents using Chrome DevTools and the Model Context Protocol. Full Python code examples \u2014 no Puppeteer wrappers, no SaaS dependencies.",
-  "keywords": "Learn how to add browser automation to your AI agents using Chrome DevTools and the Model Context Pr",
-  "url": "https://molecule.ai/blog/browser-automation-ai-agents-mcp"
-}
-</script>
-author: Molecule AI
-og_title: "Give Your AI Agent a Real Browser: MCP + Chrome DevTools"
-og_description: "Learn how to add browser automation to your AI agents using Chrome DevTools and the Model Context Protocol. Full Python code examples — no Puppeteer wrappers, no SaaS dependencies."
-og_image: /assets/blog/2026-04-20-2026-04-20-chrome-devtools-mcp-seo-og.png
-twitter_card: summary_large_image
-canonical: https://molecule.ai/blog/browser-automation-ai-agents-mcp
-keywords:
-
-
-
 # Give Your AI Agent a Real Browser: MCP + Chrome DevTools
 
 Most AI agents hit the same wall: they can reason, plan, and call APIs — but the moment a task requires clicking through a website, filling a form, or reading a page that has no API, they're stuck.

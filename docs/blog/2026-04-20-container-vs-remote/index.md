@@ -6,40 +6,6 @@ description: "Phase 30 ships remote workspaces. Phase 31 ships container workspa
 tags: [platform, runtime, deployment, remote-agents, containers, decision-guide]
 ---
 
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "Article",
-  "headline": "Container or Remote? How to Choose Your Agent Runtime in Molecule AI",
-  "datePublished": "2026-04-20",
-  "dateModified": "2026-04-22",
-  "author": {
-    "@type": "Organization",
-    "name": "Molecule AI"
-  },
-  "publisher": {
-    "@type": "Organization",
-    "name": "Molecule AI",
-    "logo": {
-      "@type": "ImageObject",
-      "url": "https://molecule.ai/logo.png"
-    }
-  },
-  "description": "Phase 30 ships remote workspaces. Phase 31 ships container workspaces. Here's how to choose between them \u2014 and when to use both in the same org.",
-  "keywords": "Phase 30 ships remote workspaces. Phase 31 ships container workspaces. Here's how to choose between ",
-  "url": "https://molecule.ai/blog/container-vs-remote"
-}
-</script>
-author: Molecule AI
-og_title: "Container or Remote? How to Choose Your Agent Runtime in Molecule AI"
-og_description: "Phase 30 ships remote workspaces. Phase 31 ships container workspaces. Here's how to choose between them — and when to use both in the same org."
-og_image: /assets/blog/2026-04-20-2026-04-20-container-vs-remote-og.png
-twitter_card: summary_large_image
-canonical: https://molecule.ai/blog/container-vs-remote
-keywords:
-
-
-
 # Container or Remote? How to Choose Your Agent Runtime in Molecule AI
 
 One of the first decisions when you add an agent to a Molecule AI org is: **where does it run?**
