@@ -446,8 +446,10 @@ func TestValidateAgentURL(t *testing.T) {
 		wantErr bool
 	}{
 		// ── Valid URLs (public hostnames / DNS names) ──────────────────────────
-		{"valid public https", "https://agent.example.com:443", false},
-		{"valid public http", "http://agent.example.com:8000", false},
+		// example.com (RFC-2606) resolves globally; agent.example.com
+		// is NXDOMAIN on most resolvers and made this test flake.
+		{"valid public https", "https://example.com:443", false},
+		{"valid public http", "http://example.com:8000", false},
 		// localhost by name is allowed — agents in local-dev use this form.
 		{"valid localhost name", "http://localhost:8000", false},
 
@@ -596,8 +598,12 @@ func TestRegister_C18_HijackBlockedNoBearer(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	// No Authorization header — simulates attacker with no credentials.
+	// URL uses example.com (resolves globally) so the validateAgentURL
+	// pre-check doesn't short-circuit with 400 "invalid request body"
+	// before the C18 auth check fires. We're testing that C18 gates
+	// produce 401, not that URL validation produces 400.
 	c.Request = httptest.NewRequest("POST", "/registry/register",
-		bytes.NewBufferString(`{"id":"ws-victim","url":"http://attacker.example.com:9999/steal","agent_card":{"name":"hijacked"}}`))
+		bytes.NewBufferString(`{"id":"ws-victim","url":"http://example.com:9999/steal","agent_card":{"name":"hijacked"}}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	handler.Register(c)
