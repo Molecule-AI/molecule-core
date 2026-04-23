@@ -80,6 +80,7 @@ docs.moleculesai.app/blog/tool-trace-platform-instructions
 docs.moleculesai.app/blog/ai-agent-observability-without-overhead
 docs.moleculesai.app/blog/platform-instructions-governance
 docs.moleculesai.app/blog/partner-api-keys
+docs.moleculesai.app/guides/external-workspace-quickstart
 ```
 
 ---
@@ -93,7 +94,6 @@ docs.moleculesai.app/blog/partner-api-keys
 5. If channel has stale pins, clear old ones and pin Phase 34 FAQ
 
 **FAQ should be pinned before the announcement goes out** so people can find it immediately when they arrive.
-
 **Day 2 update:** After the announcement settles, consider pinning the announcement itself in `#announcements` so it stays at the top of the channel.
 
 ---
