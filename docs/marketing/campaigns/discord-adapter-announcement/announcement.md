@@ -137,7 +137,7 @@ Docs → [Social Channels guide](https://github.com/Molecule-AI/molecule-core/bl
 
 GitHub → [PR #656 — Discord adapter](https://github.com/Molecule-AI/molecule-core/pull/656)
 
-Blog post → [Molecule AI Discord adapter launch](https://moleculesai.app/blog/discord-adapter)
+Blog post → [Molecule AI Discord adapter launch](https://moleculesai.app/blog/2026-04-21-discord-adapter)
 
 ---
 
@@ -166,7 +166,7 @@ Setup is under a minute: Canvas → Channels tab → + Connect → Discord → p
 
 Demo + full docs: https://github.com/Molecule-AI/molecule-core/blob/main/docs/agent-runtime/social-channels.md
 
-Blog post → [Molecule AI Discord adapter launch](https://moleculesai.app/blog/discord-adapter)
+Blog post → [Molecule AI Discord adapter launch](https://moleculesai.app/blog/2026-04-21-discord-adapter)
 
 ---
 
