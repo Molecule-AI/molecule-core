@@ -1,9 +1,13 @@
 """Build the system prompt for the workspace agent."""
 
+import logging
+import os
 from pathlib import Path
 
 from skill_loader.loader import LoadedSkill
 from shared_runtime import build_peer_section
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MEMORY_SNAPSHOT_FILES = ("MEMORY.md", "USER.md")
 
@@ -25,6 +29,35 @@ async def get_peer_capabilities(platform_url: str, workspace_id: str) -> list[di
     return []
 
 
+async def get_platform_instructions(platform_url: str, workspace_id: str) -> str:
+    """Fetch resolved platform instructions (global + workspace scope).
+
+    Endpoint is gated by WorkspaceAuth — the workspace token (read from env)
+    is sent as a bearer header. Fails open (returns "") on any error so a
+    platform outage doesn't block agent startup. Short timeout (3s) because
+    this runs in the boot hot path.
+    """
+    try:
+        import httpx
+
+        token = os.environ.get("MOLECULE_WORKSPACE_TOKEN", "")
+        headers = {"X-Workspace-ID": workspace_id}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(
+                f"{platform_url}/workspaces/{workspace_id}/instructions/resolve",
+                headers=headers,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("instructions", "")
+    except Exception as e:
+        logger.warning("could not fetch platform instructions: %s", e)
+    return ""
+
+
 def build_system_prompt(
     config_path: str,
     workspace_id: str,
@@ -34,6 +67,7 @@ def build_system_prompt(
     plugin_rules: list[str] | None = None,
     plugin_prompts: list[str] | None = None,
     parent_context: list[dict] | None = None,
+    platform_instructions: str = "",
 ) -> str:
     """Build the complete system prompt.
 
@@ -49,6 +83,12 @@ def build_system_prompt(
     - Default: system-prompt.md
     """
     parts = []
+
+    # Platform instructions (global → team → workspace scope) go first so
+    # they take highest precedence in the context window.
+    if platform_instructions:
+        parts.append("# Platform Instructions\n")
+        parts.append(platform_instructions)
 
     # Load prompt files in order
     files_to_load = list(prompt_files or [])

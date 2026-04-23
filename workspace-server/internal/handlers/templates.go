@@ -353,13 +353,28 @@ func (h *TemplatesHandler) WriteFile(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	var wsName string
-	if err := db.DB.QueryRowContext(ctx, `SELECT name FROM workspaces WHERE id = $1`, workspaceID).Scan(&wsName); err != nil {
+	var wsName, instanceID, runtime string
+	if err := db.DB.QueryRowContext(ctx,
+		`SELECT name, COALESCE(instance_id, ''), COALESCE(runtime, '') FROM workspaces WHERE id = $1`,
+		workspaceID,
+	).Scan(&wsName, &instanceID, &runtime); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
 		return
 	}
 
-	// Write via Docker CopyToContainer when container is running
+	// SaaS workspace (EC2-per-workspace) — no Docker on this tenant. Write
+	// via SSH through the EIC endpoint to the runtime-specific path.
+	if instanceID != "" {
+		if err := writeFileViaEIC(ctx, instanceID, runtime, filePath, []byte(body.Content)); err != nil {
+			log.Printf("WriteFile EIC for %s path=%s: %v", workspaceID, filePath, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to write file: %v", err)})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "saved", "path": filePath})
+		return
+	}
+
+	// Local Docker path — write via CopyToContainer when container is running
 	if containerName := h.findContainer(ctx, workspaceID); containerName != "" {
 		singleFile := map[string]string{filePath: body.Content}
 		if err := h.copyFilesToContainer(ctx, containerName, "/configs", singleFile); err != nil {
