@@ -39,8 +39,8 @@
   <a href="./docs/agent-runtime/workspace-runtime.md"><strong>Workspace Runtime</strong></a>
 </p>
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/Molecule-AI/molecule-monorepo)
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Molecule-AI/molecule-monorepo)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/Molecule-AI/molecule-core)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Molecule-AI/molecule-core)
 
 </div>
 
@@ -249,8 +249,12 @@ Workspace Runtime (Python image with adapters)
 ## Quick Start
 
 ```bash
-git clone https://github.com/Molecule-AI/molecule-monorepo.git
-cd molecule-monorepo
+git clone https://github.com/Molecule-AI/molecule-core.git
+cd molecule-core
+
+cp .env.example .env
+# Defaults boot the stack locally out of the box. See .env.example for
+# production hardening knobs (ADMIN_TOKEN, SECRETS_ENCRYPTION_KEY, etc.).
 
 ./infra/scripts/setup.sh
 # Boots Postgres (:5432), Redis (:6379), Langfuse (:3001),
@@ -259,7 +263,7 @@ cd molecule-monorepo
 # no auth on localhost — dev-only; production must gate it.
 
 cd workspace-server
-go run ./cmd/server
+go run ./cmd/server   # applies pending migrations on first boot
 
 cd ../canvas
 npm install

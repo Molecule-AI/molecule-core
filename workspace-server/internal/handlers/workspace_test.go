@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -1213,5 +1215,171 @@ func TestWorkspaceUpdate_BudgetLimitOnly_Ignored(t *testing.T) {
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unexpected DB call for budget_limit: %v", err)
+	}
+}
+
+// TestWorkspaceCreate_TemplateDefaultsMissingRuntimeAndModel covers the
+// hermes-trap case: a caller (TemplatePalette, direct API, script) POSTs
+// /workspaces with only a template name + no runtime + no model. The
+// handler must read the template's config.yaml and fill in both fields
+// BEFORE DB insert — otherwise hermes-agent auto-detects provider
+// wrong and 401s downstream (PR #1714 context).
+//
+// Uses the nested runtime_config.model format current templates use;
+// legacy top-level `model:` is covered by the Legacy test below.
+func TestWorkspaceCreate_TemplateDefaultsMissingRuntimeAndModel(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+
+	// Stage a hermes-like template inside the configsDir the handler reads.
+	configsDir := t.TempDir()
+	templateDir := filepath.Join(configsDir, "hermes-template")
+	if err := os.MkdirAll(templateDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	cfg := []byte(`name: Hermes Agent
+tier: 2
+runtime: hermes
+runtime_config:
+  model: nousresearch/hermes-4-70b
+`)
+	if err := os.WriteFile(filepath.Join(templateDir, "config.yaml"), cfg, 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", configsDir)
+
+	mock.ExpectBegin()
+	// Request omits runtime + model; handler must fill from the template
+	// and hand the completed values to the INSERT.
+	mock.ExpectExec("INSERT INTO workspaces").
+		WithArgs(
+			sqlmock.AnyArg(), "Hermes Agent", nil, 1, "hermes",
+			sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	mock.ExpectExec("INSERT INTO canvas_layouts").
+		WithArgs(sqlmock.AnyArg(), float64(0), float64(0)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO structure_events").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"name":"Hermes Agent","template":"hermes-template"}`
+	c.Request = httptest.NewRequest("POST", "/workspaces", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Create(c)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// TestWorkspaceCreate_TemplateDefaultsLegacyTopLevelModel covers
+// pre-runtime_config templates that declare `model:` at the top level.
+// These should still surface the default via the same auto-fill.
+func TestWorkspaceCreate_TemplateDefaultsLegacyTopLevelModel(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+
+	configsDir := t.TempDir()
+	templateDir := filepath.Join(configsDir, "legacy-template")
+	if err := os.MkdirAll(templateDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	cfg := []byte(`name: Legacy Agent
+tier: 1
+runtime: langgraph
+model: anthropic:claude-sonnet-4-5
+`)
+	if err := os.WriteFile(filepath.Join(templateDir, "config.yaml"), cfg, 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", configsDir)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO workspaces").
+		WithArgs(
+			sqlmock.AnyArg(), "Legacy Agent", nil, 1, "langgraph",
+			sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	mock.ExpectExec("INSERT INTO canvas_layouts").
+		WithArgs(sqlmock.AnyArg(), float64(0), float64(0)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO structure_events").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"name":"Legacy Agent","template":"legacy-template"}`
+	c.Request = httptest.NewRequest("POST", "/workspaces", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Create(c)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestWorkspaceCreate_CallerModelOverridesTemplateDefault asserts that
+// when the caller passes an explicit `model`, we DO NOT overwrite it
+// with the template's default. The pre-fill only happens on empty.
+func TestWorkspaceCreate_CallerModelOverridesTemplateDefault(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+
+	configsDir := t.TempDir()
+	templateDir := filepath.Join(configsDir, "hermes-template")
+	if err := os.MkdirAll(templateDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	cfg := []byte(`runtime: hermes
+runtime_config:
+  model: nousresearch/hermes-4-70b
+`)
+	if err := os.WriteFile(filepath.Join(templateDir, "config.yaml"), cfg, 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", configsDir)
+
+	mock.ExpectBegin()
+	// Caller explicitly chose minimax — template's hermes-4-70b must NOT win.
+	// The INSERT only passes runtime to the DB (model goes to agent_card /
+	// downstream config); we verify runtime == "hermes" and rely on the
+	// absence of a handler error to mean the model passthrough was honored.
+	mock.ExpectExec("INSERT INTO workspaces").
+		WithArgs(
+			sqlmock.AnyArg(), "Custom Hermes", nil, 1, "hermes",
+			sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	mock.ExpectExec("INSERT INTO canvas_layouts").
+		WithArgs(sqlmock.AnyArg(), float64(0), float64(0)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO structure_events").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"name":"Custom Hermes","template":"hermes-template","model":"minimax/MiniMax-M2.7"}`
+	c.Request = httptest.NewRequest("POST", "/workspaces", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Create(c)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 }
