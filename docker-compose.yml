@@ -82,10 +82,13 @@ services:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-dev}:${POSTGRES_PASSWORD:-dev}@postgres:5432/langfuse
-      CLICKHOUSE_URL: clickhouse://langfuse:langfuse@langfuse-clickhouse:9000/langfuse
+      # Langfuse v2 expects the HTTP interface (port 8123). The previous
+      # clickhouse://...:9000 native-protocol URL is rejected with
+      # "ClickHouse URL protocol must be either http or https".
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
       CLICKHOUSE_USER: langfuse
       CLICKHOUSE_PASSWORD: langfuse
-      LANGFUSE_AUTO_CLICKHOUSE_MIGRATION_DISABLED: "true"
       NEXTAUTH_SECRET: ${LANGFUSE_SECRET:-changeme-langfuse-secret}
       NEXTAUTH_URL: http://localhost:3001
       SALT: ${LANGFUSE_SALT:-changeme-langfuse-salt}
