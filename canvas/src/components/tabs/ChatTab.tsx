@@ -6,7 +6,7 @@ import remarkGfm from "remark-gfm";
 import { api } from "@/lib/api";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { WS_URL } from "@/store/socket";
-import { type ChatMessage, createMessage } from "./chat/types";
+import { type ChatMessage, createMessage, appendMessageDeduped } from "./chat/types";
 import { extractResponseText, extractRequestText } from "./chat/message-parser";
 import { AgentCommsPanel } from "./chat/AgentCommsPanel";
 import { runtimeDisplayName } from "@/lib/runtime-names";
@@ -206,7 +206,11 @@ function MyChatPanel({ workspaceId, data }: Props) {
     const consume = useCanvasStore.getState().consumeAgentMessages;
     const msgs = consume(workspaceId);
     for (const m of msgs) {
-      setMessages((prev) => [...prev, createMessage("agent", m.content)]);
+      // Dedupe in case the agent proactively pushed the same text the
+      // HTTP /a2a response already delivered (observed with the Hermes
+      // runtime, which emits both a reply body and a send_message_to_user
+      // push for the same content).
+      setMessages((prev) => appendMessageDeduped(prev, createMessage("agent", m.content)));
     }
   }, [pendingAgentMsgs, workspaceId]);
 
@@ -220,7 +224,7 @@ function MyChatPanel({ workspaceId, data }: Props) {
     const msgs = consume(`a2a:${workspaceId}`);
     if (!sendingFromAPIRef.current) return; // HTTP .then() already handled this response
     for (const m of msgs) {
-      setMessages((prev) => [...prev, createMessage("agent", m.content)]);
+      setMessages((prev) => appendMessageDeduped(prev, createMessage("agent", m.content)));
     }
     setSending(false);
     sendingFromAPIRef.current = false;
@@ -340,7 +344,7 @@ function MyChatPanel({ workspaceId, data }: Props) {
         if (!sendingFromAPIRef.current) return;
         const replyText = extractReplyText(resp);
         if (replyText) {
-          setMessages((prev) => [...prev, createMessage("agent", replyText)]);
+          setMessages((prev) => appendMessageDeduped(prev, createMessage("agent", replyText)));
         }
         setSending(false);
         sendingFromAPIRef.current = false;

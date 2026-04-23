@@ -39,11 +39,20 @@ async function request<T>(
     signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
   });
   if (res.status === 401) {
-    // Session expired or credentials lost — redirect to login once.
-    // Import dynamically to avoid circular dependency with auth.ts.
-    const { redirectToLogin } = await import("./auth");
-    redirectToLogin("sign-in");
-    throw new Error("Session expired — redirecting to login");
+    // Session expired or credentials lost. On SaaS (tenant subdomain)
+    // the login page lives at /cp/auth/login and is mounted by the
+    // control-plane reverse proxy — redirect. On self-hosted / local
+    // dev / Vercel preview there IS no /cp/* mount, so redirecting
+    // would navigate to a 404 ("404 page not found") instead of the
+    // real error the user should see. In that case, throw instead
+    // and let the caller render a meaningful failure (retry button,
+    // error banner, etc.).
+    if (slug) {
+      const { redirectToLogin } = await import("./auth");
+      redirectToLogin("sign-in");
+      throw new Error("Session expired — redirecting to login");
+    }
+    throw new Error(`API ${method} ${path}: 401 ${await res.text()}`);
   }
   if (!res.ok) {
     const text = await res.text();
