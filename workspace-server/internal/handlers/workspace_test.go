@@ -22,7 +22,7 @@ func TestWorkspaceGet_Success(t *testing.T) {
 
 	columns := []string{
 		"id", "name", "role", "tier", "status", "agent_card", "url",
-		"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
+		"parent_id", "active_tasks", "max_concurrent_tasks", "last_error_rate", "last_sample_error",
 		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
 		"budget_limit", "monthly_spend",
 	}
@@ -30,7 +30,7 @@ func TestWorkspaceGet_Success(t *testing.T) {
 		WithArgs("cccccccc-0001-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows(columns).
 			AddRow("cccccccc-0001-0000-0000-000000000000", "My Agent", "worker", 1, "online", []byte(`{"name":"test"}`),
-				"http://localhost:8001", nil, 2, 0.05, "", 3600, "working", "langgraph",
+				"http://localhost:8001", nil, 2, 1, 0.05, "", 3600, "working", "langgraph",
 				"", 10.0, 20.0, false,
 				nil, 0))
 
@@ -1036,7 +1036,7 @@ func TestWorkspaceGet_FinancialFieldsStripped(t *testing.T) {
 
 	columns := []string{
 		"id", "name", "role", "tier", "status", "agent_card", "url",
-		"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
+		"parent_id", "active_tasks", "max_concurrent_tasks", "last_error_rate", "last_sample_error",
 		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
 		"budget_limit", "monthly_spend",
 	}
@@ -1045,7 +1045,7 @@ func TestWorkspaceGet_FinancialFieldsStripped(t *testing.T) {
 		WithArgs("cccccccc-0010-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows(columns).
 			AddRow("cccccccc-0010-0000-0000-000000000000", "Finance Test", "worker", 1, "online", []byte(`{}`),
-				"http://localhost:9001", nil, 0, 0.0, "", 0, "", "langgraph",
+				"http://localhost:9001", nil, 0, 1, 0.0, "", 0, "", "langgraph",
 				"", 0.0, 0.0, false,
 				int64(50000), int64(12500))) // budget_limit=500 USD, spend=125 USD
 
@@ -1092,7 +1092,7 @@ func TestWorkspaceGet_SensitiveFieldsStripped(t *testing.T) {
 
 	columns := []string{
 		"id", "name", "role", "tier", "status", "agent_card", "url",
-		"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
+		"parent_id", "active_tasks", "max_concurrent_tasks", "last_error_rate", "last_sample_error",
 		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
 		"budget_limit", "monthly_spend",
 	}
@@ -1100,7 +1100,7 @@ func TestWorkspaceGet_SensitiveFieldsStripped(t *testing.T) {
 		WithArgs("cccccccc-0955-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows(columns).
 			AddRow("cccccccc-0955-0000-0000-000000000000", "Surveillance Test", "worker", 1, "online", []byte(`{}`),
-				"http://localhost:9002", nil, 1, 0.0,
+				"http://localhost:9002", nil, 1, 1, 0.0,
 				"panic: internal error at /secret/path.go:42",
 				100,
 				"Analyzing customer PII for the Q4 report",

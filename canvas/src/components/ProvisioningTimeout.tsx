@@ -196,8 +196,8 @@ export function ProvisioningTimeout({
           >
             <div className="flex items-start gap-3">
               {/* Warning icon */}
-              <div className="w-8 h-8 rounded-lg bg-amber-600/20 border border-amber-500/30 flex items-center justify-center shrink-0 mt-0.5">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <div aria-hidden="true" className="w-8 h-8 rounded-lg bg-amber-600/20 border border-amber-500/30 flex items-center justify-center shrink-0 mt-0.5">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                   <path
                     d="M8 2L14 13H2L8 2Z"
                     stroke="#fbbf24"
@@ -252,7 +252,7 @@ export function ProvisioningTimeout({
       {/* Cancel confirmation dialog */}
       {confirmingCancel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setConfirmingCancel(null)} />
+          <div aria-hidden="true" className="absolute inset-0 bg-black/60" onClick={() => setConfirmingCancel(null)} />
           <div className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-5 max-w-[340px] w-full mx-4">
             <h3 className="text-sm font-semibold text-zinc-100 mb-2">
               Cancel deployment?

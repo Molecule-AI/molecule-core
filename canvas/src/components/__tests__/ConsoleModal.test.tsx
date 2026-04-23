@@ -71,3 +71,54 @@ describe("ConsoleModal", () => {
     expect(onClose).toHaveBeenCalled();
   });
 });
+
+// ── WCAG 2.1 dialog accessibility ─────────────────────────────────────────────
+
+describe("ConsoleModal — WCAG 2.1 dialog accessibility", () => {
+  it("renders role=dialog when open", async () => {
+    mockGet.mockResolvedValueOnce({ output: "" });
+    render(<ConsoleModal workspaceId="ws-1" open={true} onClose={() => {}} />);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeTruthy());
+  });
+
+  it("dialog has aria-modal='true' (WCAG 2.1 SC 1.3.2)", async () => {
+    mockGet.mockResolvedValueOnce({ output: "" });
+    render(<ConsoleModal workspaceId="ws-1" open={true} onClose={() => {}} />);
+    const dialog = await waitFor(() => screen.getByRole("dialog"));
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+  });
+
+  it("dialog has aria-labelledby pointing to the title", async () => {
+    mockGet.mockResolvedValueOnce({ output: "" });
+    render(<ConsoleModal workspaceId="ws-1" open={true} onClose={() => {}} />);
+    const dialog = await waitFor(() => screen.getByRole("dialog"));
+    const labelledBy = dialog.getAttribute("aria-labelledby");
+    expect(labelledBy).toBeTruthy();
+    const titleEl = document.getElementById(labelledBy!);
+    expect(titleEl?.textContent?.trim()).toBe("EC2 console output");
+  });
+
+  it("backdrop div has aria-hidden='true' so screen readers skip it (WCAG 4.1.2)", async () => {
+    mockGet.mockResolvedValueOnce({ output: "" });
+    render(<ConsoleModal workspaceId="ws-1" open={true} onClose={() => {}} />);
+    const backdrop = document.querySelector('[aria-hidden="true"]');
+    expect(backdrop).toBeTruthy();
+    expect(backdrop?.className).toContain("bg-black");
+  });
+
+  it("error div has role=alert (WCAG 4.1.3)", async () => {
+    mockGet.mockRejectedValueOnce(new Error("GET /workspaces/ws-1/console: 404 Not Found"));
+    render(<ConsoleModal workspaceId="ws-1" open={true} onClose={() => {}} />);
+    const alert = await waitFor(() => screen.getByRole("alert"));
+    expect(alert).toBeTruthy();
+    expect(alert.textContent).toMatch(/No EC2 instance found/i);
+  });
+
+  it("Close button has accessible name via aria-label", async () => {
+    mockGet.mockResolvedValueOnce({ output: "" });
+    render(<ConsoleModal workspaceId="ws-1" open={true} onClose={() => {}} />);
+    // Two close buttons: X icon (aria-label="Close") and text "Close" button
+    const closeBtns = await waitFor(() => screen.getAllByRole("button", { name: /close/i }));
+    expect(closeBtns.length).toBeGreaterThanOrEqual(1);
+  });
+});

@@ -81,7 +81,7 @@ export function DeleteCascadeConfirmDialog({
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+      <div aria-hidden="true" className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
 
       {/* Dialog */}
       <div
@@ -101,7 +101,7 @@ export function DeleteCascadeConfirmDialog({
           {/* Warning */}
           <div className="flex gap-3 mb-4">
             <div className="mt-0.5 shrink-0 w-8 h-8 rounded-full bg-red-900/30 flex items-center justify-center">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-red-400">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-red-400" aria-hidden="true">
                 <path d="M8 3L14 13H2L8 3Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
                 <path d="M8 7v3M8 11.5v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               </svg>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
 import { showToast } from "@/components/Toaster";
@@ -27,10 +27,20 @@ export function ConsoleModal({ workspaceId, workspaceName, open, onClose }: Prop
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Focus close button when modal opens
+  useEffect(() => {
+    if (!open) return;
+    const raf = requestAnimationFrame(() => {
+      closeButtonRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -80,7 +90,7 @@ export function ConsoleModal({ workspaceId, workspaceName, open, onClose }: Prop
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div aria-hidden="true" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
       <div
         role="dialog"
         aria-modal="true"
@@ -99,6 +109,7 @@ export function ConsoleModal({ workspaceId, workspaceName, open, onClose }: Prop
             )}
           </div>
           <button
+            ref={closeButtonRef}
             onClick={onClose}
             aria-label="Close"
             className="text-zinc-400 hover:text-zinc-100 text-sm px-2"
@@ -115,6 +126,7 @@ export function ConsoleModal({ workspaceId, workspaceName, open, onClose }: Prop
           )}
           {!loading && error && (
             <div
+              role="alert"
               className="text-[12px] text-amber-300 bg-amber-950/30 border border-amber-900/40 rounded px-3 py-2"
               data-testid="console-error"
             >

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,9 +72,17 @@ func TestGitHubToken_NilRegistry(t *testing.T) {
 	}
 }
 
-// TestGitHubToken_NoTokenProvider — plugin registered but doesn't implement
-// TokenProvider (e.g. a non-GitHub mutator in the chain).
-// Expect 404 — the GitHub App endpoint is not available.
+// TestGitHubToken_NoTokenProvider — plugin registered but doesn't
+// implement TokenProvider (e.g. a non-GitHub mutator in the chain).
+//
+// Post-#960/#1101 the handler now falls back to direct env-based App
+// token generation (GITHUB_APP_ID / INSTALLATION_ID / PRIVATE_KEY_FILE)
+// when no registered provider matches. In the test environment those
+// env vars are unset, so the fallback fails with 500 "token refresh
+// failed" — a clean retryable signal for the workspace credential
+// helper. Previously this path returned 404; the new 500 matches the
+// ProviderError shape so callers don't have to branch on "missing
+// provider" vs "provider failed".
 func TestGitHubToken_NoTokenProvider(t *testing.T) {
 	reg := provisionhook.NewRegistry()
 	reg.Register(&mockMutatorOnly{name: "other-plugin"})
@@ -82,8 +91,12 @@ func TestGitHubToken_NoTokenProvider(t *testing.T) {
 
 	h.GetInstallationToken(c)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 when no TokenProvider, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 (env-based fallback fails with unset GITHUB_APP_* vars), got %d: %s",
+			w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "token refresh failed") {
+		t.Errorf("expected body to contain 'token refresh failed', got: %s", w.Body.String())
 	}
 }
 

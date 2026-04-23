@@ -97,7 +97,6 @@ export function ConversationTraceModal({ open, workspaceId: _workspaceId, onClos
         <Dialog.Content
           className="fixed inset-0 z-[60] flex items-center justify-center p-4"
           aria-label="Conversation trace"
-          aria-describedby={undefined}
         >
           {/* Modal panel */}
           <div className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl max-w-[700px] w-full max-h-[85vh] flex flex-col overflow-hidden">
