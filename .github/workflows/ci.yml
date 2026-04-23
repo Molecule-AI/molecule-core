@@ -73,14 +73,16 @@ jobs:
       # CLI (molecli) moved to standalone repo: github.com/Molecule-AI/molecule-cli
       - run: go vet ./...
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: latest
-          working-directory: workspace-server
-          args: --timeout 3m
-        continue-on-error: true  # Warn but don't block until codebase is clean
+        # Run directly (not via action) so continue-on-error is reliable.
+        # golangci-lint binary exits 3 when issues are found; || true
+        # guarantees this step exits 0 regardless of lint results.
+        # Lint warnings still appear in job log; job proceeds to test step.
+        run: golangci-lint run --timeout 3m ./... || true
       - name: Run tests with race detection and coverage
         run: go test -race -coverprofile=coverage.out ./...
+        # Always run even if lint step ran || true (lint failures are
+        # non-fatal; we still want to catch real test breaks).
+        if: success() || failure()
       - name: Check coverage baseline
         run: |
           COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
