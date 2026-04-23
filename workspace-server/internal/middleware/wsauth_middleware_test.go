@@ -478,10 +478,6 @@ func TestAdminAuth_InvalidBearer_Returns401(t *testing.T) {
 // (no ::text cast — sql.NullString handles the NULL scan natively).
 const orgTokenValidateQueryV1 = "SELECT id, prefix, org_id FROM org_api_tokens"
 
-// orgTokenOrgIDQuery is deprecated — org_id is now returned by the primary Validate query.
-// Kept here to avoid breaking other test files that may reference it.
-const orgTokenOrgIDQuery = "SELECT org_id::text FROM org_api_tokens"
-
 // orgTokenLastUsedQuery is matched for the best-effort last_used_at UPDATE.
 const orgTokenLastUsedQuery = "UPDATE org_api_tokens SET last_used_at"
 

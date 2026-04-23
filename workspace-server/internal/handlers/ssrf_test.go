@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net"
+	"strings"
 	"testing"
 )
 
@@ -169,6 +170,75 @@ func TestIsPrivateOrMetadataIP(t *testing.T) {
 			got := isPrivateOrMetadataIP(ip)
 			if got != tc.want {
 				t.Errorf("isPrivateOrMetadataIP(%s) = %v, want %v", tc.ipStr, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidateRelPath(t *testing.T) {
+	cases := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		// Valid relative paths
+		{"simple filename", "report.txt", false},
+		{"nested relative path", "dir/subdir/file.log", false},
+		{"path with dots in filename", "file.v1.txt", false},
+		// Empty and dot-only: rejected by the explicit guard
+		{"empty string rejected", "", true},
+		{"dot-only rejected", ".", true},
+		// Absolute paths
+		{"absolute /etc/passwd rejected", "/etc/passwd", true},
+		{"absolute /configs rejected", "/configs", true},
+		// Path traversal attempts
+		{"dotdot bar rejected", "../bar", true},
+		{"dotdot etc rejected", "../../etc/passwd", true},
+		{"foo../bar rejected (dotdot in middle)", "foo../bar", true},
+		// Encoded traversal is also just literal ".." after Clean
+		{"foo/../bar valid", "foo/../bar", false},
+		{"foo/./bar valid", "foo/./bar", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateRelPath(tc.path)
+			if tc.wantErr && err == nil {
+				t.Errorf("validateRelPath(%q): expected error, got nil", tc.path)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("validateRelPath(%q): expected nil, got %v", tc.path, err)
+			}
+		})
+	}
+}
+
+// TestValidateRelPath_DotDotInMiddle uses fuzzy coverage to catch variants
+// that might slip through the raw Contains check.
+func TestValidateRelPath_DotDotInMiddle(t *testing.T) {
+	// Strings where ".." appears in the middle after Clean, not at a path separator.
+	// After Clean: "foo" + "/" + ".." + "/" + "bar" → "bar" (no dotdot) so valid.
+	// After Clean: "foo.." alone → "foo.." (no dotdot) so valid.
+	// "foo../bar" → "foo../bar" → has dotdot → invalid.
+	cases := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{"dotdot at end of segment", "foo../bar", true},
+		{"dotdot then slash then bar", ".. /bar", false}, // literal space before slash prevents traversal
+		{"bar/foo.. valid", "bar/foo..", false},
+		{"bar/..foo valid", "bar/..foo", false},
+		{"..foo valid", "..foo", false},
+		{"foo.. valid", "foo..", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateRelPath(tc.path)
+			if tc.wantErr && err == nil {
+				t.Errorf("validateRelPath(%q): expected error, got nil", tc.path)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("validateRelPath(%q): expected nil, got %v", tc.path, err)
 			}
 		})
 	}
