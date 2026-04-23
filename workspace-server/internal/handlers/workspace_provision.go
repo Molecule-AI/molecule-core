@@ -64,7 +64,7 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 	rows, err := db.DB.QueryContext(ctx,
 		`SELECT key, encrypted_value, encryption_version FROM workspace_secrets WHERE workspace_id = $1`, workspaceID)
 	if err == nil {
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var k string
 			var v []byte
@@ -73,10 +73,12 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 				decrypted, decErr := crypto.DecryptVersioned(v, ver)
 				if decErr != nil {
 					log.Printf("Provisioner: FATAL — failed to decrypt workspace secret %s (version=%d) for %s: %v — aborting provision", k, ver, workspaceID, decErr)
-					h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+					_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
 						"error": "failed to decrypt workspace secret",
 					})
-					db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', updated_at = now() WHERE id = $1`, workspaceID)
+					if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', updated_at = now() WHERE id = $1`, workspaceID); err != nil {
+						log.Printf("workspace_provision: failed to mark %s failed: %v", workspaceID, err)
+					}
 					return
 				}
 				envVars[k] = string(decrypted)
@@ -108,7 +110,7 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 		// F1086 / #1206: broadcast and db last_sample_error use generic messages —
 		// env mutator errors (missing tokens, vault paths, etc.) can include
 		// internal credential URIs and file paths that must not reach the caller.
-		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+		_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
 			"error": "plugin env mutator chain failed",
 		})
 		if _, dbErr := db.DB.ExecContext(ctx,
@@ -134,7 +136,7 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 			workspaceID, msg); dbErr != nil {
 			log.Printf("Provisioner: failed to mark workspace %s as failed: %v", workspaceID, dbErr)
 		}
-		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+		_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
 			"error":   msg,
 			"missing": missing,
 		})
@@ -161,7 +163,7 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 				workspaceID, msg); dbErr != nil {
 				log.Printf("Provisioner: failed to mark workspace %s as failed: %v", workspaceID, dbErr)
 			}
-			h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+			_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
 				"error": msg,
 			})
 			return
@@ -191,7 +193,7 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 			workspaceID, "workspace start failed"); dbErr != nil {
 			log.Printf("Provisioner: failed to mark workspace %s as failed: %v", workspaceID, dbErr)
 		}
-		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+		_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
 			"error": "workspace start failed",
 		})
 	} else if url != "" {
@@ -596,8 +598,10 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 	envVars, decryptErr := loadWorkspaceSecrets(ctx, workspaceID)
 	if decryptErr != "" {
 		log.Printf("CPProvisioner: %s for %s", decryptErr, workspaceID)
-		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
-			workspaceID, decryptErr)
+		if _, dbErr := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
+			workspaceID, decryptErr); dbErr != nil {
+			log.Printf("CPProvisioner: failed to mark %s failed: %v", workspaceID, dbErr)
+		}
 		return
 	}
 
@@ -606,8 +610,10 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 		log.Printf("CPProvisioner: env mutator failed for %s: %v", workspaceID, err)
 		// F1086 / #1206: env mutator errors (missing tokens, vault paths) must not
 		// leak into last_sample_error — use generic message.
-		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
-				workspaceID, "plugin env mutator chain failed")
+		if _, dbErr := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
+			workspaceID, "plugin env mutator chain failed"); dbErr != nil {
+			log.Printf("CPProvisioner: failed to mark %s failed: %v", workspaceID, dbErr)
+		}
 		return
 	}
 
@@ -625,11 +631,13 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 		// paths — use generic message for broadcast and last_sample_error.
 		errMsg := "workspace start failed"
 		log.Printf("CPProvisioner: %s for %s: %v", errMsg, workspaceID, err)
-		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+		_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
 			"error": "provisioning failed",
 		})
-		db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
-			workspaceID, "provisioning failed")
+		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', last_sample_error = $2, updated_at = now() WHERE id = $1`,
+			workspaceID, "provisioning failed"); err != nil {
+			log.Printf("CPProvisioner: failed to mark %s failed: %v", workspaceID, err)
+		}
 		return
 	}
 
