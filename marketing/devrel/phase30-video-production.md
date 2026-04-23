@@ -55,7 +55,7 @@ Dark navy background, purple REMOTE workspace boxes, blue platform, green canvas
 **VO:** Final passage of `phase30-video-vo.mp3`:
 > "Phase 30. Remote Workspaces. Your agents. Your infrastructure. One canvas."
 
-**End card:** Molecule AI logo + "Phase 30 — Now GA" + link: `moleculesai.app/docs/guides/remote-workspaces`
+**End card:** Molecule AI logo + "Phase 30 — Now GA" + link: `docs.molecule.ai/guides/remote-workspaces`
 **Duration:** 2s hold, 1s fade to black.
 
 ---

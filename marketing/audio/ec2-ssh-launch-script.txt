@@ -1,0 +1,33 @@
+# EC2 Instance Connect SSH — Launch Announcement TTS Script
+
+**Campaign:** EC2 Instance Connect SSH | PR: molecule-core#1533
+**Date:** 2026-04-23 | **Status:** Ready for TTS generation
+**Voice:** Professional, clear | **Target duration:** 40–55 seconds
+
+---
+
+## Script
+
+Your AI agent has a workspace on EC2.
+
+How do you get a shell inside it?
+
+Old answer: copy the instance IP, find the SSH key, configure the security group, open port 22 inbound, and hope your bastion host is still running.
+
+That workflow just changed.
+
+Molecule AI now ships EC2 Instance Connect integration — browser-based terminal access for every CP-provisioned workspace, with no SSH keys, no bastion, and no public IP required.
+
+Here is what this means in practice. The connection is IAM-authorized. The platform handles authentication. A temporary RSA key appears in the instance metadata, valid for 60 seconds, then automatically expires. There is nothing to rotate, nothing to revoke, and no orphaned key sitting on a developer machine.
+
+CloudTrail shows every tunnel open event: which principal requested it, which instance, and when. That is a governance argument, not just a UX argument.
+
+EC2 Instance Connect SSH is live now. Provision a workspace, click Terminal, and you are inside.
+
+One click. IAM-authorized. No key management.
+
+Molecule AI. Your agent workspace, fully accessible.
+
+---
+
+*Word count: 217 | Estimated duration: ~55 seconds at natural pace*

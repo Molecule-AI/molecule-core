@@ -13,7 +13,7 @@ Hacker News has a large developer and technical audience that overlaps with Mole
 
 ## What to Submit
 
-**URL:** The Phase 30 launch blog post at `https://moleculesai.app/blog/remote-workspaces-ga`
+**URL:** The Phase 30 launch blog post at `https://docs.molecule.ai/blog/remote-workspaces-ga`
 
 **Title options:**
 
@@ -41,7 +41,7 @@ Most AI agent platforms assume all agents run inside the platform's infrastructu
 The governance is the same. The auth contract is the same. The only visible difference is a REMOTE badge on the workspace card.
 
 Quickstart is under 5 minutes:
-  pip install molecule-ai-sdk
+  pip install molecule-sdk
   python3 run.py --runtime remote
 
 Docs, demo, and quickstart guide in the link.

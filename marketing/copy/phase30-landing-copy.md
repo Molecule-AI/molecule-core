@@ -69,7 +69,7 @@
 > Your agents. Your infra. Remote Workspaces are GA — run AI agents on any machine while Canvas keeps them coordinated. MCP governance travels with the agent. → [docs link]
 
 **Option B (buyer audience):**
-> Phase 30 is live: Remote Workspaces let your AI agents run where your data lives — on-prem, in your cloud, anywhere. One Canvas. Mixed fleet. Enterprise controls. → [link]
+> Phase 30 is live: Remote Workspaces let your AI agents run where your data lives — on-prem, in your cloud, anywhere. One Canvas. Mixed fleet. Enterprise controls. → [docs link]
 
 ---
 

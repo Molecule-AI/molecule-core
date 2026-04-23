@@ -1,6 +1,6 @@
 # Phase 30 Launch — Community Announcements
 
-> **For:** DevRel / Community Manager | **Status:** Draft
+> **For:** DevRel / Community Manager | **Status:** ✅ Publish-ready
 > **Channels:** Discord, Slack (public channels), relevant forums
 
 ---
@@ -14,13 +14,13 @@ Phase 30 is generally available as of today.
 
 Remote Workspaces let you run Molecule AI agents on any machine — your laptop, a cloud VM, an on-prem server — and they show up in Canvas like every other workspace. Same auth, same A2A protocol, same audit trail.
 
-Quickstart → https://moleculesai.app/docs/guides/remote-workspaces
+Quickstart → https://docs.molecule.ai/docs/guides/remote-workspaces
 
 Two features that shipped with Phase 30 worth highlighting:
 • AGENTS.md auto-generation — peer agents can read each other's manifest without system prompts (AAIF standard)
 • Cloudflare Artifacts integration — workspace state can be versioned in a git repo, forked into new agents
 
-Demo walkthroughs → https://moleculesai.app/docs/marketing/demos
+Demo walkthroughs → https://docs.molecule.ai/docs/marketing/demos
 
 Questions? Drop them here or in #support.
 ```
@@ -40,8 +40,8 @@ What changed:
 • Canvas: REMOTE badge shows the runtime type
 • A2A: works across container/remote without code changes
 
-Docs → https://moleculesai.app/docs/guides/remote-workspaces
-FAQ → https://moleculesai.app/docs/guides/remote-workspaces-faq
+Docs → https://docs.molecule.ai/docs/guides/remote-workspaces
+FAQ → https://docs.molecule.ai/docs/guides/remote-workspaces-faq
 
 Known issues → reply here or ping me.
 ```
@@ -57,9 +57,9 @@ Remote Workspaces are now generally available. You can run Molecule AI agents on
 
 Key detail for teams evaluating data residency: agent compute can stay on your infrastructure. The platform handles orchestration, auth, and coordination.
 
-Docs: https://moleculesai.app/docs/guides/remote-workspaces
-Quickstart: https://moleculesai.app/docs/guides/remote-workspaces#quick-start
-Launch post: https://moleculesai.app/blog/remote-workspaces-ga
+Docs: https://docs.molecule.ai/docs/guides/remote-workspaces
+Quickstart: https://docs.molecule.ai/docs/guides/remote-workspaces#quick-start
+Launch post: https://docs.molecule.ai/blog/remote-workspaces-ga
 ```
 
 ---
@@ -75,7 +75,7 @@ Two things that shipped that the agent ecosystem community might care about:
 
 2. Cloudflare Artifacts git integration — every workspace can have a git repo for versioned state snapshots. Fork the repo to bootstrap a new agent from any checkpoint. PR: molecule-core#641
 
-Working demos with full API examples: https://moleculesai.app/docs/marketing/demos
+Working demos with full API examples: https://docs.molecule.ai/docs/marketing/demos
 
 If you're building agent coordination tooling, these two features should make your life easier.
 ```
@@ -86,29 +86,7 @@ If you're building agent coordination tooling, these two features should make yo
 
 **Post title:** Molecule AI Phase 30: Remote Workspaces are GA — agents that run on your own infrastructure
 
-**Body:**
-**Body:**
-
-Molecule AI Phase 30 launched today — Remote Workspaces are now generally available.
-
-Until now, all Molecule AI agents ran on the platform's Docker infrastructure. Phase 30 lets you run agents on your own hardware: your laptop, a cloud VM, an on-prem server. They register to your org and appear in the same Canvas as your platform agents.
-
-What this means practically:
-- Run agents locally for debugging with your IDE, while they participate in your org's task pipeline
-- Keep agent compute on your own infrastructure for data-residency requirements
-- Mix Docker and remote agents in the same org — Canvas shows them identically, A2A works across both
-
-The auth model is the same: workspace-scoped bearer tokens, revocable per-agent. No shared secrets.
-
-Quick-start is under 5 minutes. Install the Python SDK, create a workspace with `runtime: external`, and your agent registers and appears in Canvas.
-
-Docs: https://moleculesai.app/docs/guides/remote-workspaces
-GitHub: https://github.com/Molecule-AI/molecule-core
-
-(PRs #1075-1083, 1085-1100)
-
----
-*[Short version — trim to 300 words for r/MachineLearning if needed.]*
+**Body (adapt from HN submission above)** — keep it technical, no marketing language, short.
 
 ---
 
@@ -121,4 +99,4 @@ GitHub: https://github.com/Molecule-AI/molecule-core
 
 ---
 
-*Drafted by DevRel. Customize sender name and channel-specific opening lines before posting.*
+*Ready to publish. Customize sender name and channel-specific opening lines before posting.*

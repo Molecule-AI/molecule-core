@@ -78,9 +78,9 @@ molecule workspace init --name my-agent --runtime remote
 # 4. It appears in Canvas in ~10 seconds
 ```
 
-**Docs:** `moleculesai.app/docs/guides/remote-workspaces`
-**Launch post:** `moleculesai.app/blog/remote-workspaces-ga`
-**Demos:** `moleculesai.app/docs/marketing/demos`
+**Docs:** `docs.molecule.ai/guides/remote-workspaces`
+**Launch post:** `docs.molecule.ai/blog/remote-workspaces-ga`
+**Demos:** `docs.molecule.ai/marketing/demos`
 
 ---
 
@@ -95,4 +95,4 @@ molecule workspace init --name my-agent --runtime remote
 
 ---
 
-*Replace docs links with live URLs before distributing.*
+*Replace docs links with live URLs before distributing. Quick-start commands need verification against actual `molecule` CLI — Phase 30 storyboard uses Python SDK (`python3 run.py --runtime external`). Pricing section requires PMM confirmation.*

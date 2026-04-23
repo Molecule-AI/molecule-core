@@ -1,6 +1,7 @@
 # Phase 30 Launch — Post-Push Execution Checklist
 
 > **For:** DevRel + Marketing Lead | **Trigger:** After GH_TOKEN refreshes + push completes
+> **Status:** All moleculesai.app → docs.molecule.ai URL normalization complete (2026-04-22)
 > **Purpose:** Step-by-step sequencing so nothing gets missed on launch day
 
 ---
@@ -86,8 +87,8 @@ Hand off to whoever can approve — Marketing Lead or a tech lead.
 ### 2.3 After merge: verify docs site publishes
 
 ```bash
-curl -s https://moleculesai.app/docs/guides/remote-workspaces.md | head -20
-curl -s https://moleculesai.app/docs/guides/remote-workspaces-faq.md | head -10
+curl -s https://docs.molecule.ai/guides/remote-workspaces | head -20
+curl -s https://docs.molecule.ai/guides/remote-workspaces-faq | head -10
 ```
 
 Confirm both return 200 with correct frontmatter.
@@ -158,12 +159,12 @@ If any开发者 advocates or agent ecosystem influencers should know about Phase
 
 ```bash
 # Blog posts
-curl -s -o /dev/null -w "%{http_code}" https://moleculesai.app/blog/remote-workspaces-ga
-curl -s -o /dev/null -w "%{http_code}" https://moleculesai.app/blog/chrome-devtools-mcp-governance
+curl -s -o /dev/null -w "%{http_code}" https://docs.molecule.ai/blog/remote-workspaces-ga
+curl -s -o /dev/null -w "%{http_code}" https://docs.molecule.ai/blog/chrome-devtools-mcp
 
 # Guides
-curl -s -o /dev/null -w "%{http_code}" https://moleculesai.app/docs/guides/remote-workspaces
-curl -s -o /dev/null -w "%{http_code}" https://moleculesai.app/docs/guides/remote-workspaces-faq
+curl -s -o /dev/null -w "%{http_code}" https://docs.molecule.ai/guides/remote-workspaces
+curl -s -o /dev/null -w "%{http_code}" https://docs.molecule.ai/guides/remote-workspaces-faq
 
 # Audio (if hosted)
 curl -s -o /dev/null -w "%{http_code}" https://moleculesai.app/audio/phase30-announce.mp3

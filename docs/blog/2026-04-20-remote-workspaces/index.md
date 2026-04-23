@@ -36,7 +36,7 @@ Phase 30 is eight bounded improvements stacked into one coherent feature:
 
 | | What it means for you |
 |---|---|
-| **Workspace auth tokens** | Every remote agent gets a cryptographic identity — a 256-bit bearer token minted at registration. No shared secrets, no guessing workspace IDs. |
+| **Workspace auth tokens** | Every remote agent gets a cryptographic identity — a 256-bit bearer token minted at registration. Each token is scoped to one workspace; revocation affects one agent only. No shared secrets, no guessing workspace IDs. |
 | **Token-gated secrets pull** | Agents pull their API keys from the platform at boot via `GET /workspaces/:id/secrets/values`. No credentials baked into container images. Rotate a key in the UI, the agent picks it up on next pull. |
 | **Plugin tarball download** | Remote agents install plugins by downloading a tarball from the platform, unpacking it, and loading it at runtime. No Docker exec required. |
 | **State polling** | No WebSocket required from the agent side. Agents poll `GET /workspaces/:id/state` every 30 seconds to detect pause, resume, or delete — and react accordingly. |
@@ -98,6 +98,8 @@ The `run_heartbeat_loop()` method runs a concurrent heartbeat + state-polling lo
 
 ## The Canvas Doesn't Know the Difference
 
+The heterogeneous fleet visibility problem — seeing Docker agents, cloud agents, and on-prem agents in one view — is solved structurally in Phase 30. All workspaces, regardless of runtime, share the same canvas endpoint, the same activity log schema, and the same task dispatch API. The platform normalizes the differences.
+
 Here's what you see on the canvas once the remote agent is registered:
 
 - A workspace node with the agent's name and skills list
@@ -107,6 +109,18 @@ Here's what you see on the canvas once the remote agent is registered:
 - A chat tab, an activity log, a terminal tab — identical to the Docker workspaces
 
 The deployment location is a badge. Everything else is the same.
+
+---
+
+## A2A Protocol — Multi-Agent Messaging Across Any Runtime
+
+Phase 30's A2A proxy is what makes the multi-cloud scenario work in practice. Without it, a PM agent on GCP can't dispatch a task to a researcher agent on AWS — there's no shared network, no shared service discovery, no mutual TLS.
+
+The A2A proxy solves this structurally: the platform acts as a message relay. The PM agent sends a task dispatch to its local A2A client; the client routes it to the platform proxy; the proxy forwards it to the researcher's registered URL. All three legs are bearer-authenticated.
+
+This is architecturally different from LangGraph's single-agent paradigm, where each agent owns its state and tools in isolation. LangGraph agents communicate through shared state stores or external queues — which works within a single network boundary but requires additional infrastructure to span cloud boundaries. Phase 30 A2A handles the cross-cloud case natively, as a first-class platform feature.
+
+For a developer evaluating agent frameworks: if you need one agent to delegate a task to a peer on a different network, Molecule AI's A2A proxy handles it without additional infrastructure. LangGraph handles it through shared memory or a message queue you manage.
 
 ---
 
@@ -137,7 +151,9 @@ Also out of scope: mutual TLS from the agent side — agents trust the platform 
 
 ## Try It
 
-The fastest path:
+**Want to run Remote Workspaces without self-hosting?** [Molecule AI Cloud](https://moleculesai.app) runs the full platform — canvas, agents, billing, auth — so you can register a remote agent in minutes with no infrastructure. [→ Start for free](https://moleculesai.app)
+
+### Self-hosted
 
 ```bash
 pip install molecule-ai-sdk

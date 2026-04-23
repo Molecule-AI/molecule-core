@@ -46,10 +46,10 @@ The enterprise AI agent landscape is fragmenting along infrastructure lines. Som
 
 Phase 30: Remote Workspaces is generally available as of April 20, 2026. Remote workspaces are priced identically to container workspaces at GA. Self-serve setup takes under five minutes.
 
-- **Docs:** https://moleculesai.app/docs/guides/remote-workspaces
-- **Quickstart:** https://moleculesai.app/docs/guides/remote-workspaces#quick-start
-- **Launch post:** https://moleculesai.app/blog/remote-workspaces-ga
-- **Working demos:** https://moleculesai.app/docs/marketing/demos
+- **Docs:** https://docs.molecule.ai/guides/remote-workspaces
+- **Quickstart:** https://docs.molecule.ai/guides/remote-workspaces#quick-start
+- **Launch post:** https://docs.molecule.ai/blog/remote-workspaces-ga
+- **Working demos:** https://docs.molecule.ai/marketing/demos
 
 ---
 
@@ -63,7 +63,7 @@ Molecule AI is an agent orchestration platform for autonomous AI agent fleets. T
 
 [NAME]
 [EMAIL]
-[moleculesai.app](https://moleculesai.app)
+[moleculesai.app](https://moleculesai.app) — [docs.molecule.ai](https://docs.molecule.ai)
 
 ---
 
