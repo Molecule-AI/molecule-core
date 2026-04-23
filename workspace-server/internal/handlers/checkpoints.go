@@ -131,7 +131,7 @@ func (h *CheckpointsHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list checkpoints"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	checkpoints := make([]checkpointEntry, 0)
 	for rows.Next() {
