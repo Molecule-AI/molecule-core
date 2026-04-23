@@ -91,23 +91,21 @@ jobs:
           echo "=== Per-file coverage (worst first) ==="
           go tool cover -func=coverage.out \
             | grep -v '^total:' \
-            | awk '{file=$1; sub(/:[0-9]+\..*/, "", file); pct=$NF; gsub(/%/,"",pct); s[file]+=pct; c[file]++}
+            | awk '{file=$1; sub(/:[0-9][0-9.]*:.*/, "", file); pct=$NF; gsub(/%/,"",pct); s[file]+=pct; c[file]++}
                    END {for (f in s) printf "%6.1f%%  %s\n", s[f]/c[f], f}' \
             | sort -n
 
       - name: Check coverage thresholds
         # Enforces two gates from #1823 Layer 1:
-        #   1. Total floor (unchanged at 25% this PR — ratchet plan in
-        #      COVERAGE_FLOOR.md). Keeping it where it was keeps this PR
-        #      strictly additive — the NEW protection is gate 2.
-        #   2. Per-file zero-floor — any .go file (non-test) in a
-        #      security-critical path with coverage ≤10% fails the build.
-        #      Catches the exact case that triggered #1823 (tokens.go at 0%).
+        #   1. Total floor (25% — ratchet plan in COVERAGE_FLOOR.md).
+        #   2. Per-file floor — non-test .go files in security-critical
+        #      paths with coverage <10% fail the build, UNLESS the file
+        #      path is listed in .coverage-allowlist.txt (acknowledged
+        #      historical debt with a tracking issue + expiry).
         run: |
           set -e
           TOTAL_FLOOR=25
-          # Files/paths that cannot drop to 0% coverage. Add here carefully;
-          # this is the "protected paths" list for security-sensitive code.
+          # Security-critical paths where a 0%-coverage file is a real risk.
           CRITICAL_PATHS=(
             "internal/handlers/tokens"
             "internal/handlers/workspace_provision"
@@ -125,32 +123,54 @@ jobs:
             exit 1
           fi
 
-          # Gate 3: critical files must not be 0%
-          FAILED=0
+          # Aggregate per-file coverage → /tmp/perfile.txt: "<fullpath> <pct>"
           go tool cover -func=coverage.out \
             | grep -v '^total:' \
-            | awk '{file=$1; sub(/:[0-9]+\..*/, "", file); pct=$NF; gsub(/%/,"",pct); s[file]+=pct; c[file]++}
+            | awk '{file=$1; sub(/:[0-9][0-9.]*:.*/, "", file); pct=$NF; gsub(/%/,"",pct); s[file]+=pct; c[file]++}
                    END {for (f in s) printf "%s %.1f\n", f, s[f]/c[f]}' \
             > /tmp/perfile.txt
 
+          # Build allowlist — paths relative to workspace-server, one per line.
+          # Lines starting with # are comments.
+          ALLOWLIST=""
+          if [ -f ../.coverage-allowlist.txt ]; then
+            ALLOWLIST=$(grep -vE '^(#|[[:space:]]*$)' ../.coverage-allowlist.txt || true)
+          fi
+
+          FAILED=0
+          WARNED=0
           for path in "${CRITICAL_PATHS[@]}"; do
             while read -r file pct; do
-              if [[ "$file" == *"$path"* ]] && [[ "$file" != *_test.go ]]; then
-                if awk "BEGIN{exit !($pct < 10)}"; then
-                  echo "::error file=workspace-server/$file::Critical file at ${pct}% coverage — must be >=10% (target 80%). See #1823."
-                  FAILED=1
-                fi
+              [[ "$file" == *_test.go ]] && continue
+              [[ "$file" == *"$path"* ]] || continue
+              awk "BEGIN{exit !($pct < 10)}" || continue
+
+              # Strip the package-import prefix so we can match .coverage-allowlist.txt
+              # entries written as paths relative to workspace-server/.
+              rel=$(echo "$file" | sed 's|^github.com/Molecule-AI/molecule-monorepo/platform/||')
+
+              if echo "$ALLOWLIST" | grep -qxF "$rel"; then
+                echo "::warning file=workspace-server/$rel::Critical file at ${pct}% coverage (allowlisted, #1823) — fix before expiry."
+                WARNED=$((WARNED+1))
+              else
+                echo "::error file=workspace-server/$rel::Critical file at ${pct}% coverage — must be >=10% (target 80%). See #1823. To acknowledge as known debt, add this path to .coverage-allowlist.txt."
+                FAILED=$((FAILED+1))
               fi
             done < /tmp/perfile.txt
           done
 
-          if [ "$FAILED" -eq 1 ]; then
+          echo ""
+          echo "Critical-path check: $FAILED new failures, $WARNED allowlisted warnings."
+
+          if [ "$FAILED" -gt 0 ]; then
             echo ""
-            echo "One or more security-critical files have ≤10% test coverage."
-            echo "These paths handle auth, tokens, secrets, or workspace provisioning —"
-            echo "a 0% file here is the exact gap that let CWE-22, CWE-78, KI-005 slip"
-            echo "through in past incidents. Add tests or document an exception in"
-            echo "COVERAGE_FLOOR.md with a linked issue and 14-day expiry."
+            echo "$FAILED security-critical file(s) have <10% test coverage and are"
+            echo "NOT in the allowlist. These paths handle auth, tokens, secrets, or"
+            echo "workspace provisioning — a 0% file here is the exact gap that let"
+            echo "CWE-22, CWE-78, KI-005 slip through in past incidents. Either:"
+            echo "  (a) add tests to raise coverage above 10%, or"
+            echo "  (b) add the path to .coverage-allowlist.txt with an expiry date"
+            echo "      and a tracking issue reference."
             exit 1
           fi
 
