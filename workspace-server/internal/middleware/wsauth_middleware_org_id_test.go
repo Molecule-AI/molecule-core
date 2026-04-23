@@ -10,15 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// orgTokenValidateQueryV1 is matched for orgtoken.Validate().
-// Validate() scans id, prefix, org_id (sql.NullString) — 3 columns,
-// no ::text cast needed.
-const orgTokenValidateQueryV1 = "SELECT id, prefix, org_id FROM org_api_tokens"
-
-// orgTokenLastUsedQuery is matched for the best-effort last_used_at UPDATE
-// inside orgtoken.Validate (called after the SELECT scan succeeds).
-const orgTokenLastUsedQuery = "UPDATE org_api_tokens SET last_used_at"
-
 // TestAdminAuth_OrgToken_SetsOrgIDContext verifies that AdminAuth's org-token
 // tier reads the org_id column returned directly by Validate() and sets it
 // in the gin context so that requireCallerOwnsOrg / orgCallerID can use it
