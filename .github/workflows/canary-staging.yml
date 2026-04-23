@@ -1,0 +1,153 @@
+name: Canary — staging SaaS smoke (every 30 min)
+
+# Minimum viable health check: provisions one Hermes workspace on a fresh
+# staging org, sends one A2A message, verifies PONG, tears down. ~8 min
+# wall clock. Pages on failure by opening a GitHub issue; auto-closes the
+# issue on the next green run.
+#
+# The full-SaaS workflow (e2e-staging-saas.yml) covers the broader surface
+# but runs only on provisioning-critical pushes + nightly — this one
+# catches drift in the 30-min window between those runs (AMI health, CF
+# cert rotation, WorkOS session stability, etc.).
+#
+# Lean mode: E2E_MODE=canary skips the child workspace + HMA memory +
+# peers/activity checks. One parent workspace + one A2A turn is enough
+# to signal "SaaS stack end-to-end is alive."
+
+on:
+  schedule:
+    # Every 30 min. Cron on GitHub-hosted runners has a known drift of
+    # a few minutes under load — that's fine for a canary.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+# Serialise with the full-SaaS workflow so they don't contend for the
+# same org-create quota on staging. Different group key from
+# e2e-staging-saas since we don't mind queueing canaries behind one
+# full run, but two canaries SHOULD queue against each other.
+concurrency:
+  group: canary-staging
+  cancel-in-progress: false
+
+permissions:
+  # Needed to open / close the alerting issue.
+  issues: write
+  contents: read
+
+jobs:
+  canary:
+    name: Canary smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      MOLECULE_CP_URL: https://staging-api.moleculesai.app
+      MOLECULE_ADMIN_TOKEN: ${{ secrets.MOLECULE_STAGING_ADMIN_TOKEN }}
+      E2E_MODE: canary
+      E2E_RUNTIME: hermes
+      E2E_RUN_ID: "canary-${{ github.run_id }}"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify admin token present
+        run: |
+          if [ -z "$MOLECULE_ADMIN_TOKEN" ]; then
+            echo "::error::MOLECULE_STAGING_ADMIN_TOKEN not set"
+            exit 2
+          fi
+
+      - name: Canary run
+        id: canary
+        run: bash tests/e2e/test_staging_full_saas.sh
+
+      # Alerting: open an issue on first failure, auto-close on recovery.
+      # Title includes a stable marker so multiple consecutive failures
+      # don't spam — they just add comments to the existing issue.
+      - name: Open issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '🔴 Canary failing: staging SaaS smoke';
+            const runURL = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body =
+              `Canary run failed at ${new Date().toISOString()}.\n\n` +
+              `Run: ${runURL}\n\n` +
+              `This issue auto-closes on the next green canary run. ` +
+              `Consecutive failures add a comment here rather than a new issue.`;
+
+            // Find an existing open canary issue (stable title match).
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'canary-staging',
+              per_page: 10,
+            });
+            const match = existing.find(i => i.title === title);
+
+            if (match) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: match.number,
+                body: `Canary still failing. ${runURL}`,
+              });
+              core.info(`Commented on existing issue #${match.number}`);
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body,
+                labels: ['canary-staging', 'bug'],
+              });
+              core.info('Opened new canary failure issue');
+            }
+
+      - name: Auto-close canary issue on success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '🔴 Canary failing: staging SaaS smoke';
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'canary-staging',
+              per_page: 10,
+            });
+            const match = open.find(i => i.title === title);
+            if (match) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: match.number,
+                body: `Canary recovered at ${new Date().toISOString()}. Closing.`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: match.number,
+                state: 'closed',
+              });
+              core.info(`Closed recovered canary issue #${match.number}`);
+            }
+
+      - name: Teardown safety net
+        if: always()
+        env:
+          ADMIN_TOKEN: ${{ secrets.MOLECULE_STAGING_ADMIN_TOKEN }}
+        run: |
+          set +e
+          orgs=$(curl -sS "$MOLECULE_CP_URL/cp/admin/orgs" \
+            -H "Authorization: Bearer $ADMIN_TOKEN" 2>/dev/null \
+            | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          today = __import__('datetime').date.today().strftime('%Y%m%d')
+          candidates = [o['slug'] for o in d.get('orgs', [])
+                        if o.get('slug','').startswith(f'e2e-{today}-canary-')
+                        and o.get('status') not in ('purged',)]
+          print('\n'.join(candidates))
+          " 2>/dev/null)
+          for slug in $orgs; do
+            curl -sS -X DELETE "$MOLECULE_CP_URL/cp/admin/tenants/$slug" \
+              -H "Authorization: Bearer $ADMIN_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"confirm\":\"$slug\"}" >/dev/null || true
+          done
+          exit 0

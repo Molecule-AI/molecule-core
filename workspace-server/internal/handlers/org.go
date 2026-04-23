@@ -1,0 +1,349 @@
+package handlers
+
+// org.go — core org handler: types, struct, ListTemplates, Import.
+// Tree creation logic is in org_import.go; utility helpers in org_helpers.go.
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/channels"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/models"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
+	"github.com/gin-gonic/gin"
+	"gopkg.in/yaml.v3"
+)
+
+// OrgHandler manages org template import/export.
+// workspaceCreatePacingMs is the brief delay between sibling workspace creations
+// during org import. Prevents overwhelming Docker when creating many containers.
+const workspaceCreatePacingMs = 2000
+
+// provisionConcurrency limits how many Docker containers can be provisioned
+// simultaneously during org import. Without this, importing 39+ workspaces
+// fires 39 goroutines that all hit Docker at once, causing timeouts (#1084).
+const provisionConcurrency = 3
+
+// orgImportScheduleSQL is the upsert executed for every schedule during
+// org/import. Extracted to a const so TestImport_OrgScheduleSQLShape can
+// assert its shape without regex-scanning org.go (issue #24 follow-up).
+//
+// Guarantees, in one statement:
+//   - INSERT new rows with source='template'
+//   - On (workspace_id, name) collision, only refresh template-source rows
+//     (runtime-added schedules are preserved across re-imports)
+//   - No DELETE — removal is out of scope (additive semantics)
+const orgImportScheduleSQL = `
+INSERT INTO workspace_schedules (workspace_id, name, cron_expr, timezone, prompt, enabled, next_run_at, source)
+VALUES ($1, $2, $3, $4, $5, $6, $7, 'template')
+ON CONFLICT (workspace_id, name) DO UPDATE
+    SET cron_expr   = EXCLUDED.cron_expr,
+        timezone    = EXCLUDED.timezone,
+        prompt      = EXCLUDED.prompt,
+        enabled     = EXCLUDED.enabled,
+        next_run_at = EXCLUDED.next_run_at,
+        updated_at  = now()
+    WHERE workspace_schedules.source = 'template'
+`
+
+type OrgHandler struct {
+	workspace   *WorkspaceHandler
+	broadcaster *events.Broadcaster
+	provisioner *provisioner.Provisioner
+	channelMgr  *channels.Manager
+	configsDir  string
+	orgDir      string // path to org-templates/
+}
+
+func NewOrgHandler(wh *WorkspaceHandler, b *events.Broadcaster, p *provisioner.Provisioner, channelMgr *channels.Manager, configsDir, orgDir string) *OrgHandler {
+	return &OrgHandler{
+		workspace:   wh,
+		broadcaster: b,
+		provisioner: p,
+		channelMgr:  channelMgr,
+		configsDir:  configsDir,
+		orgDir:      orgDir,
+	}
+}
+
+// OrgTemplate is the YAML structure for an org hierarchy.
+type OrgTemplate struct {
+	Name           string              `yaml:"name" json:"name"`
+	Description    string              `yaml:"description" json:"description"`
+	Defaults       OrgDefaults         `yaml:"defaults" json:"defaults"`
+	Workspaces     []OrgWorkspace      `yaml:"workspaces" json:"workspaces"`
+	// GlobalMemories is a list of org-wide memories seeded as GLOBAL scope
+	// on the first root workspace (PM) during org import. Issue #1050.
+	GlobalMemories []models.MemorySeed `yaml:"global_memories" json:"global_memories"`
+}
+
+type OrgDefaults struct {
+	Runtime       string   `yaml:"runtime" json:"runtime"`
+	Tier          int      `yaml:"tier" json:"tier"`
+	Model         string   `yaml:"model" json:"model"`
+	Plugins       []string `yaml:"plugins" json:"plugins"`
+	InitialPrompt string   `yaml:"initial_prompt" json:"initial_prompt"`
+	// InitialPromptFile is a file ref alternative to InitialPrompt. Path is
+	// resolved relative to the workspace's files_dir (or the org base dir
+	// when used at defaults level — defaults don't have their own files_dir,
+	// so the file must live at the org root). Inline InitialPrompt wins
+	// when both are set.
+	InitialPromptFile string `yaml:"initial_prompt_file" json:"initial_prompt_file"`
+	// IdlePrompt / IdleIntervalSeconds are the workspace-default idle-loop
+	// body and cadence (see workspace/heartbeat.py). They were
+	// previously dropped by the org importer because the struct didn't
+	// declare them — causing live configs to boot without idle_prompts
+	// even when org.yaml had them. Phase 1 scalability work adds both
+	// inline + file-ref forms.
+	IdlePrompt           string `yaml:"idle_prompt" json:"idle_prompt"`
+	IdlePromptFile       string `yaml:"idle_prompt_file" json:"idle_prompt_file"`
+	IdleIntervalSeconds  int    `yaml:"idle_interval_seconds" json:"idle_interval_seconds"`
+	// CategoryRouting maps issue/audit category → list of target roles.
+	// Per-workspace blocks UNION + override per-key with these defaults.
+	// Rendered into each workspace's config.yaml so agent prompts can read it
+	// generically (no hardcoded role names in prompts). See issue #51.
+	CategoryRouting map[string][]string `yaml:"category_routing" json:"category_routing"`
+	// InitialMemories are default memories seeded into every workspace at
+	// creation time unless the workspace overrides them. Issue #1050.
+	InitialMemories []models.MemorySeed `yaml:"initial_memories" json:"initial_memories"`
+}
+
+type OrgSchedule struct {
+	Name     string `yaml:"name" json:"name"`
+	CronExpr string `yaml:"cron_expr" json:"cron_expr"`
+	Timezone string `yaml:"timezone" json:"timezone"`
+	Prompt   string `yaml:"prompt" json:"prompt"`
+	// PromptFile is a file ref alternative to inline Prompt. Path is
+	// resolved relative to the workspace's files_dir. Inline Prompt wins
+	// when both are set. Scalability: hourly/weekly cron prompts are the
+	// largest text bodies in org.yaml (~1-5 KB each); externalizing them
+	// cuts the file by ~62%.
+	PromptFile string `yaml:"prompt_file" json:"prompt_file"`
+	Enabled    *bool  `yaml:"enabled" json:"enabled"`
+}
+
+// OrgChannel defines a social channel (Telegram, Slack, etc.) to auto-link
+// when the workspace is created. Config values may reference env vars
+// using ${VAR_NAME} syntax — useful for keeping bot tokens out of YAML.
+type OrgChannel struct {
+	Type         string            `yaml:"type" json:"type"`
+	Config       map[string]string `yaml:"config" json:"config"`
+	AllowedUsers []string          `yaml:"allowed_users" json:"allowed_users"`
+	Enabled      *bool             `yaml:"enabled" json:"enabled"`
+}
+
+type OrgWorkspace struct {
+	Name     string `yaml:"name" json:"name"`
+	Role     string `yaml:"role" json:"role"`
+	Runtime  string `yaml:"runtime" json:"runtime"`
+	Tier     int    `yaml:"tier" json:"tier"`
+	Template string `yaml:"template" json:"template"`
+	FilesDir string `yaml:"files_dir" json:"files_dir"`
+	// SystemPrompt is an inline override. Normally each role's system-prompt.md
+	// lives at `<files_dir>/system-prompt.md` and is copied via the files_dir
+	// template-copy step; inline overrides that path for ad-hoc workspaces.
+	SystemPrompt    string   `yaml:"system_prompt" json:"system_prompt"`
+	Model           string   `yaml:"model" json:"model"`
+	WorkspaceDir    string   `yaml:"workspace_dir" json:"workspace_dir"`
+	WorkspaceAccess string   `yaml:"workspace_access" json:"workspace_access"` // #65: "none" (default), "read_only", "read_write"
+	Plugins         []string `yaml:"plugins" json:"plugins"`
+	// InitialPrompt is the one-shot boot prompt. Agents run this once on first
+	// start; the body often clones the repo, reads CLAUDE.md + system-prompt,
+	// and commits conventions to memory. InitialPromptFile is the file-ref
+	// alternative — read at import time from `<files_dir>/<InitialPromptFile>`.
+	// Inline wins when both are set.
+	InitialPrompt     string `yaml:"initial_prompt" json:"initial_prompt"`
+	InitialPromptFile string `yaml:"initial_prompt_file" json:"initial_prompt_file"`
+	// IdlePrompt / IdleIntervalSeconds drive the idle-loop reflection
+	// pattern (#205). When IdlePrompt is non-empty, the workspace self-sends
+	// this prompt every IdleIntervalSeconds while heartbeat.active_tasks == 0.
+	// Both fields were previously dropped by the org importer (struct didn't
+	// declare them); Phase 1 scalability PR adds them so engineer + researcher
+	// idle loops propagate correctly from org.yaml → /configs/config.yaml.
+	// IdlePromptFile is the file-ref alternative — same semantics as
+	// InitialPromptFile. Inline wins when both are set.
+	IdlePrompt          string `yaml:"idle_prompt" json:"idle_prompt"`
+	IdlePromptFile      string `yaml:"idle_prompt_file" json:"idle_prompt_file"`
+	IdleIntervalSeconds int    `yaml:"idle_interval_seconds" json:"idle_interval_seconds"`
+	// CategoryRouting extends/overrides defaults.category_routing per-workspace.
+	// Merge semantics: workspace keys replace defaults' value for the same key
+	// (empty list drops the category entirely); new keys are added. See
+	// mergeCategoryRouting.
+	CategoryRouting map[string][]string `yaml:"category_routing" json:"category_routing"`
+	// InitialMemories are memories seeded into this workspace at creation
+	// time. If empty, defaults.initial_memories are used. Issue #1050.
+	InitialMemories []models.MemorySeed `yaml:"initial_memories" json:"initial_memories"`
+	Schedules       []OrgSchedule       `yaml:"schedules" json:"schedules"`
+	Channels        []OrgChannel        `yaml:"channels" json:"channels"`
+	External        bool                `yaml:"external" json:"external"`
+	URL             string              `yaml:"url" json:"url"`
+	Canvas          struct {
+		X float64 `yaml:"x" json:"x"`
+		Y float64 `yaml:"y" json:"y"`
+	} `yaml:"canvas" json:"canvas"`
+	Children []OrgWorkspace `yaml:"children" json:"children"`
+}
+
+// ListTemplates handles GET /org/templates — lists available org templates.
+func (h *OrgHandler) ListTemplates(c *gin.Context) {
+	templates := []map[string]interface{}{}
+
+	entries, err := os.ReadDir(h.orgDir)
+	if err != nil {
+		c.JSON(http.StatusOK, templates)
+		return
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		// Look for org.yaml inside the directory
+		templateDir := filepath.Join(h.orgDir, e.Name())
+		orgFile := filepath.Join(templateDir, "org.yaml")
+		data, err := os.ReadFile(orgFile)
+		if err != nil {
+			// Try org.yml
+			orgFile = filepath.Join(templateDir, "org.yml")
+			data, err = os.ReadFile(orgFile)
+			if err != nil {
+				continue
+			}
+		}
+		// Expand !include directives before unmarshal so templates that
+		// split across team/role files still report an accurate workspace
+		// count on the /org/templates listing.
+		if expanded, err := resolveYAMLIncludes(data, templateDir); err == nil {
+			data = expanded
+		}
+		var tmpl OrgTemplate
+		if err := yaml.Unmarshal(data, &tmpl); err != nil {
+			continue
+		}
+		count := countWorkspaces(tmpl.Workspaces)
+		templates = append(templates, map[string]interface{}{
+			"dir":         e.Name(),
+			"name":        tmpl.Name,
+			"description": tmpl.Description,
+			"workspaces":  count,
+		})
+	}
+
+	c.JSON(http.StatusOK, templates)
+}
+
+// Import handles POST /org/import — creates an entire org from a template.
+func (h *OrgHandler) Import(c *gin.Context) {
+	var body struct {
+		Dir      string      `json:"dir"`      // org template directory name
+		Template OrgTemplate `json:"template"` // or inline template
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	var tmpl OrgTemplate
+	var orgBaseDir string // base directory for files_dir resolution
+
+	if body.Dir != "" {
+		// Reject traversal attempts — `dir` must resolve inside h.orgDir.
+		// Without this, `dir: "../../../etc"` gets joined into h.orgDir and
+		// filepath.Join's lexical cleanup resolves it outside the root,
+		// letting an unauthenticated caller probe arbitrary filesystem paths.
+		resolved, err := resolveInsideRoot(h.orgDir, body.Dir)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid org directory"})
+			return
+		}
+		orgBaseDir = resolved
+		orgFile := filepath.Join(orgBaseDir, "org.yaml")
+		data, err := os.ReadFile(orgFile)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("org template not found: %s", body.Dir)})
+			return
+		}
+		// Expand !include directives before unmarshal. Splits org.yaml
+		// into per-team or per-role files; Phase 3 of the scalability
+		// refactor. Fails loudly on missing / cyclic / escaping includes.
+		expanded, err := resolveYAMLIncludes(data, orgBaseDir)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "org template expansion failed"})
+			return
+		}
+		if err := yaml.Unmarshal(expanded, &tmpl); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid org template"})
+			return
+		}
+	} else if body.Template.Name != "" {
+		tmpl = body.Template
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "provide 'dir' or 'template'"})
+		return
+	}
+
+	results := []map[string]interface{}{}
+	var createErr error
+
+	// Semaphore limits concurrent Docker provisioning (#1084).
+	provisionSem := make(chan struct{}, provisionConcurrency)
+
+	// Recursively create workspaces
+	for _, ws := range tmpl.Workspaces {
+		if err := h.createWorkspaceTree(ws, nil, tmpl.Defaults, orgBaseDir, &results, provisionSem); err != nil {
+			createErr = err
+			break
+		}
+	}
+
+	// Seed org-wide global_memories on the first root workspace (issue #1050).
+	// These are GLOBAL scope memories visible to all workspaces in the org.
+	if len(tmpl.GlobalMemories) > 0 && len(results) > 0 {
+		rootID, _ := results[0]["id"].(string)
+		if rootID != "" {
+			rootNS := workspaceAwarenessNamespace(rootID)
+			// Force scope to GLOBAL regardless of what the YAML says.
+			globalSeeds := make([]models.MemorySeed, len(tmpl.GlobalMemories))
+			for i, gm := range tmpl.GlobalMemories {
+				globalSeeds[i] = models.MemorySeed{Content: gm.Content, Scope: "GLOBAL"}
+			}
+			seedInitialMemories(context.Background(), rootID, globalSeeds, rootNS)
+			log.Printf("Org import: seeded %d global memories on root workspace %s", len(globalSeeds), rootID)
+		}
+	}
+
+	// Hot-reload channel manager once after all channels are inserted
+	// (instead of per-workspace, avoiding N redundant DB queries + diffs).
+	if h.channelMgr != nil {
+		hasAnyChannels := false
+		for _, r := range results {
+			if _, ok := r["channels"]; ok {
+				hasAnyChannels = true
+				break
+			}
+		}
+		if hasAnyChannels {
+			h.channelMgr.Reload(context.Background())
+		}
+	}
+
+	status := http.StatusCreated
+	resp := gin.H{
+		"org":        tmpl.Name,
+		"workspaces": results,
+		"count":      len(results),
+	}
+	if createErr != nil {
+		status = http.StatusMultiStatus
+		resp["error"] = createErr.Error()
+	}
+
+	log.Printf("Org import: %s — %d workspaces created", tmpl.Name, len(results))
+	c.JSON(status, resp)
+}
+

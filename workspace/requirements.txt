@@ -1,0 +1,36 @@
+# Base image — bare minimum for A2A server and adapter loading
+# Agent-specific deps are in adapters/<runtime>/requirements.txt
+# and installed at container startup via entrypoint.sh
+
+# A2A protocol
+a2a-sdk[http-server]==0.3.25
+
+# HTTP / server
+httpx>=0.27.0
+uvicorn>=0.30.0
+starlette>=0.38.0
+websockets>=12.0
+
+# Config parsing
+pyyaml>=6.0
+
+# Shared tools framework (used by coordinator, delegation, memory, sandbox)
+langchain-core>=0.3.0
+
+# OpenTelemetry — workspace-level distributed tracing
+# tools/telemetry.py gracefully degrades (noop) when these are absent,
+# but they are required for actual trace export.
+opentelemetry-api>=1.24.0
+opentelemetry-sdk>=1.24.0
+# OTLP/HTTP exporter: sends spans to any OTEL collector and to Langfuse ≥4
+opentelemetry-exporter-otlp-proto-http>=1.24.0
+
+# SQLAlchemy — used by molecule_audit ledger (EU AI Act Annex III compliance)
+sqlalchemy>=2.0.0
+
+# Temporal durable execution (optional)
+# tools/temporal_workflow.py wraps task execution in Temporal workflows so
+# tasks survive crashes and can resume.  The module and TemporalWorkflowWrapper
+# load cleanly without this package — all paths fall back to direct execution.
+# Requires a running Temporal server; set TEMPORAL_HOST=<host>:7233 to enable.
+temporalio>=1.7.0

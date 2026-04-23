@@ -1,0 +1,122 @@
+name: CodeQL
+
+# Controls CodeQL scan triggers for this repo.
+#
+# GitHub's "Code quality" default setup (the UI-configured one) is
+# hardcoded to only scan the default branch — on this repo that's
+# `staging`, so PRs promoting staging→main would otherwise never be
+# scanned. This workflow fills that gap by explicitly scanning both
+# branches on push and PR.
+#
+# Runs on ubuntu-latest (GHA-hosted — public repo, free). GHAS is NOT
+# enabled on this repo, so results are not uploaded to the Security
+# tab — the scan fails the PR check on findings, and the SARIF is
+# kept as a workflow artifact for triage.
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+  schedule:
+    # Weekly run picks up findings in code that hasn't been touched.
+    - cron: '30 1 * * 0'
+
+# Workflow-level concurrency: only one CodeQL run per branch/PR at a time.
+# `cancel-in-progress: false` queues new runs so a quick follow-up push
+# doesn't nuke a 45-min analysis mid-flight.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+  # No security-events: write — we don't call the upload API.
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [go, javascript-typescript, python]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout sibling plugin repo
+        # Same reasoning as publish-workspace-server-image.yml — the Go
+        # module's replace directive needs the plugin source so
+        # CodeQL's "go build" phase can resolve.
+        if: matrix.language == 'go'
+        uses: actions/checkout@v4
+        with:
+          repository: Molecule-AI/molecule-ai-plugin-github-app-auth
+          path: molecule-ai-plugin-github-app-auth
+          token: ${{ secrets.PLUGIN_REPO_PAT || secrets.GITHUB_TOKEN }}
+
+      # jq is pre-installed on ubuntu-latest — no setup step needed.
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # security-extended widens past the default to include the
+          # full security-query set for a public SaaS surface.
+          queries: security-extended
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        id: analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+          # upload: never — GHAS isn't enabled on this repo, so the
+          # upload API 403s. Write SARIF locally instead.
+          upload: never
+          output: sarif-results/${{ matrix.language }}
+
+      - name: Parse SARIF + fail on findings
+        # The analyze step writes <database>.sarif into the output
+        # directory — database name is the short CodeQL lang id, not
+        # the matrix value (e.g. "javascript-typescript" →
+        # javascript.sarif), so glob rather than hardcode.
+        # Filter to error/warning severity: security-extended emits
+        # "note" rows for informational findings we don't want to fail
+        # the build over.
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="sarif-results/${{ matrix.language }}"
+          sarif=$(ls "$dir"/*.sarif 2>/dev/null | head -1 || true)
+          if [ -z "$sarif" ] || [ ! -f "$sarif" ]; then
+            echo "::error::No SARIF file found under $dir"
+            ls -la "$dir" 2>/dev/null || true
+            exit 1
+          fi
+          echo "Parsing $sarif"
+          count=$(jq '[.runs[].results[] | select(.level == "error" or .level == "warning")] | length' "$sarif")
+          echo "CodeQL findings (error+warning) for ${{ matrix.language }}: $count"
+          if [ "$count" -gt 0 ]; then
+            echo "::error::CodeQL found $count issues. Details below; full SARIF in the artifact."
+            jq -r '.runs[].results[] | select(.level == "error" or .level == "warning") | "  - [\(.level)] \(.ruleId // "?"): \(.message.text // "(no message)") @ \(.locations[0].physicalLocation.artifactLocation.uri // "?"):\(.locations[0].physicalLocation.region.startLine // "?")"' "$sarif"
+            exit 1
+          fi
+
+      - name: Upload SARIF artifact
+        # Keep SARIF around on success + failure so triagers can diff.
+        # 14-day retention — longer than default 3, short enough not
+        # to bloat quota.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-sarif-${{ matrix.language }}
+          path: sarif-results/${{ matrix.language }}/
+          retention-days: 14

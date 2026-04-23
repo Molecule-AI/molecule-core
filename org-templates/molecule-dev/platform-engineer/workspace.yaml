@@ -1,0 +1,16 @@
+name: Platform Engineer
+role: >-
+  Owns molecule-ai-status (Upptime monitoring), molecule-ci
+  (shared GitHub Actions), and Molecule-AI/internal (roadmap,
+  runbooks). Maintains CI pipeline health across all org repos,
+  Dependabot config, and shared build tooling.
+tier: 3
+model: opus
+files_dir: platform-engineer
+plugins: [molecule-hitl, molecule-skill-code-review, molecule-freeze-scope]
+idle_interval_seconds: 600
+schedules:
+  - name: Hourly pick up work
+    cron_expr: "18 * * * *"
+    enabled: true
+    prompt_file: schedules/hourly-pick-up-work.md

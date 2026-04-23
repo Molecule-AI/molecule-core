@@ -1,0 +1,119 @@
+name: publish-workspace-server-image
+
+# Builds and pushes Docker images to GHCR when staging is promoted to main.
+# PRs target staging (default branch). Only main push triggers production builds.
+# EC2 tenant instances pull the tenant image from GHCR.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'workspace-server/**'
+      - 'canvas/**'
+      - 'manifest.json'
+      - '.github/workflows/publish-platform-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/molecule-ai/platform
+  TENANT_IMAGE_NAME: ghcr.io/molecule-ai/platform-tenant
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout sibling plugin repo
+        # workspace-server/Dockerfile expects
+        # ./molecule-ai-plugin-github-app-auth at build-context root because
+        # the Go module has a `replace` directive pointing at /plugin inside
+        # the image. Pre-repo-split the plugin lived in the monorepo; the
+        # 2026-04-18 restructure moved it out but didn't add this clone step
+        # — which is why publish was failing after that restructure.
+        #
+        # Uses a fine-grained PAT (PLUGIN_REPO_PAT) because the plugin repo
+        # is private and the default GITHUB_TOKEN is scoped to THIS repo.
+        # The PAT needs Contents:Read on Molecule-AI/molecule-ai-plugin-
+        # github-app-auth. Falls back to the default token for the (rare)
+        # case where an operator made the plugin repo public.
+        uses: actions/checkout@v4
+        with:
+          repository: Molecule-AI/molecule-ai-plugin-github-app-auth
+          path: molecule-ai-plugin-github-app-auth
+          token: ${{ secrets.PLUGIN_REPO_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute tags
+        id: tags
+        run: |
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      # Canary-gated release: we publish :staging-<sha> ONLY here. The
+      # :latest tag (which existing prod tenants auto-pull every 5 min)
+      # is promoted by .github/workflows/canary-verify.yml after the
+      # staging canary fleet green-lights this digest.
+      # That means:
+      #   - Every main merge produces a :staging-<sha> image
+      #   - Canary tenants (configured to pull :staging-<sha>) pick it up
+      #   - canary-verify.yml runs smoke tests against them
+      #   - On green → canary-verify retags :staging-<sha> → :latest
+      #   - On red → :latest stays on the prior good digest, prod is safe
+      - name: Build & push platform image to GHCR (staging-<sha> only)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./workspace-server/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:staging-${{ steps.tags.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.description=Molecule AI platform (Go API server) — pending canary verify
+
+      - name: Build & push tenant image to GHCR (staging-<sha> only)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./workspace-server/Dockerfile.tenant
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.TENANT_IMAGE_NAME }}:staging-${{ steps.tags.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Canvas uses same-origin fetches. The tenant Go platform
+          # reverse-proxies /cp/* to the SaaS CP via its CP_UPSTREAM_URL
+          # env; the tenant's /canvas/viewport, /approvals/pending,
+          # /org/templates etc. live on the tenant platform itself.
+          # Both legs share one origin (the tenant subdomain) so
+          # PLATFORM_URL="" forces canvas to fetch paths as relative,
+          # which land same-origin.
+          #
+          # Self-hosted / private-label deployments override this at
+          # build time with a specific backend (e.g. local dev:
+          # NEXT_PUBLIC_PLATFORM_URL=http://localhost:8080).
+          build-args: |
+            NEXT_PUBLIC_PLATFORM_URL=
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.description=Molecule AI tenant platform + canvas — pending canary verify

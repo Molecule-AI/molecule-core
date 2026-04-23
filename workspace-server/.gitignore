@@ -1,0 +1,2 @@
+# The compiled binary, not the cmd/server package.
+/server

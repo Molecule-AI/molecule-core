@@ -1,0 +1,15 @@
+Every time an agent in your Molecule AI organization does something — delegates a task, calls a tool, reads a secret, or makes an external API call — that event is written to an append-only audit log. That log is chained with HMAC-SHA256 so that any tampering with past entries is detectable, provable, and logged.
+
+This post explains how that system works, and what changed in Pull Request number one-three-three-nine.
+
+The problem with plain audit logs is that nothing stops someone with database access from editing past rows. A malicious actor can remove or modify entries, and the log looks perfectly fine.
+
+Molecule AI's audit ledger is an append-only, chain-verified log. Each entry contains the event data, an HMAC-SHA256 of the current entry signed with a server-side secret, and the HMAC of the previous entry embedded as part of the signing context. This creates a chain — every entry's HMAC depends on the previous entry's HMAC. If you change any past entry, its HMAC changes. That breaks the chain at the next verification step.
+
+Verify Audit Chain walks the log from the beginning, recomputing each HMAC and comparing it against the stored value. If every entry verifies, the chain is intact. If an entry fails to verify, the function returns false. The tamper is detectable.
+
+Organization-scoped API keys are the attribution layer on top of the integrity layer. Each organization key carries a name, a hash, and a prefix. Every authenticated call carries that prefix in the audit row. Combined with the HMAC chain, you get integrity and attribution simultaneously.
+
+The bug Pull Request one-three-three-nine fixed was a panic vulnerability. In Go, slicing a string beyond its length causes a panic. Verify Audit Chain was using a twelve-character truncation on HMACs for log readability. But if an audit row had been corrupted, the stored HMAC could be shorter than twelve bytes, and the verification pass would crash. The fix adds a length check before truncation. The logic is unchanged — if the HMAC is long enough, the same twelve-character prefix is logged. If it is short or missing, a shorter prefix is logged. Either way, the chain verification still runs, and mismatches still fail correctly.
+
+For teams running SOC two or ISO twenty-seven-zero-zero-one, this is the difference between, here's a log, and, here is a cryptographically verifiable, attributable record of everything that happened.
