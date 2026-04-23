@@ -4,6 +4,7 @@ date: 2026-04-21
 slug: cloudflare-artifacts-molecule-ai
 description: "Attach a Cloudflare Artifacts git repository to any Molecule AI workspace. Import existing repos, fork for experiments, mint short-lived git credentials — all via the platform API. Git-native storage for AI agents."
 tags: [Cloudflare, git, artifacts, AI-agents, workflow, tutorial]
+og_image: /assets/2026-04-21-cloudflare-artifacts-og.png
 ---
 
 # Give Your AI Agent a Git Repository: Molecule AI + Cloudflare Artifacts

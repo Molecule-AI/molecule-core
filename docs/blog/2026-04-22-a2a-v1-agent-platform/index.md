@@ -3,6 +3,20 @@ title: "What A2A v1.0 Means for Your Agent Stack: Why Protocol-Native Beats Prot
 description: "A2A v1.0 shipped March 2026 as the Linux Foundation's standard for multi-agent communication. Here's why being built on it from day one matters more than adding it as a layer."
 date: 2026-04-22
 canonical: https://docs.molecule.ai/blog/a2a-v1-agent-platform
+og_image: /assets/blog/2026-04-22-a2a-v1-agent-platform-og.png
+og_title: "What A2A v1.0 Means for Your Agent Stack"
+og_description: "Before you buy an agent platform, ask how A2A delegation is attributed. The answer reveals everything about governance."
+keywords:
+  - "enterprise AI agent platform"
+  - "multi-cloud AI agent orchestration"
+  - "agent delegation audit trail"
+  - "agent-to-agent governance"
+  - "A2A protocol architecture"
+  - "cross-cloud AI agents without VPN"
+  - "multi-agent attribution"
+  - "LangGraph A2A ADR"
+  - "A2A protocol enterprise"
+  - "cross-cloud AI agents"
 ---
 
 *Meta description (160 chars): Before you buy an agent platform, ask how A2A delegation is attributed. The answer reveals everything about governance.*
