@@ -275,8 +275,8 @@ func TestApplyTierConfig_UnknownTier_DefaultsToT2(t *testing.T) {
 	}
 
 	expectedCPU := int64(1_000_000_000)
-	if hc.Resources.NanoCPUs != expectedCPU {
-		t.Errorf("Unknown tier: expected NanoCPUs=%d (1.0 CPU), got %d", expectedCPU, hc.Resources.NanoCPUs)
+	if hc.NanoCPUs != expectedCPU {
+		t.Errorf("Unknown tier: expected NanoCPUs=%d (1.0 CPU), got %d", expectedCPU, hc.NanoCPUs)
 	}
 
 	// Must NOT be privileged
@@ -298,8 +298,8 @@ func TestApplyTierConfig_ZeroTier_DefaultsToT2(t *testing.T) {
 
 	// Zero tier (default int value) should also get T2 resource limits
 	expectedMemory := int64(512 * 1024 * 1024)
-	if hc.Resources.Memory != expectedMemory {
-		t.Errorf("Tier 0: expected Memory=%d, got %d", expectedMemory, hc.Resources.Memory)
+	if hc.Memory != expectedMemory {
+		t.Errorf("Tier 0: expected Memory=%d, got %d", expectedMemory, hc.Memory)
 	}
 	if hc.Privileged {
 		t.Error("Tier 0: must not be privileged")
