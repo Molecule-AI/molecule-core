@@ -246,10 +246,20 @@ if [ -n "${E2E_OPENAI_API_KEY:-}" ]; then
   SECRETS_JSON="{\"OPENAI_API_KEY\":\"$E2E_OPENAI_API_KEY\",\"OPENAI_BASE_URL\":\"https://api.openai.com/v1\",\"MODEL_PROVIDER\":\"openai:gpt-4o\"}"
 fi
 
+# Model slug MUST be provider-prefixed for hermes — the template's
+# derive-provider.sh parses the slug prefix (`openai/…`, `anthropic/…`,
+# `minimax/…`) to set HERMES_INFERENCE_PROVIDER at install time. A bare
+# "gpt-4o" has no prefix → provider falls back to hermes auto-detect →
+# picks Anthropic default → tries Anthropic API with the OpenAI key →
+# 401 on A2A. Same trap that trapped prod users in PR #1714. We pin
+# "openai/gpt-4o" here because the E2E's secret is always the OpenAI
+# key; non-hermes runtimes ignore the prefix.
+MODEL_SLUG="openai/gpt-4o"
+
 log "5/11 Provisioning parent workspace (runtime=$RUNTIME)..."
 PARENT_RESP=$(tenant_call POST /workspaces \
   -H "Content-Type: application/json" \
-  -d "{\"name\":\"E2E Parent\",\"runtime\":\"$RUNTIME\",\"tier\":2,\"model\":\"gpt-4o\",\"secrets\":$SECRETS_JSON}")
+  -d "{\"name\":\"E2E Parent\",\"runtime\":\"$RUNTIME\",\"tier\":2,\"model\":\"$MODEL_SLUG\",\"secrets\":$SECRETS_JSON}")
 PARENT_ID=$(echo "$PARENT_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 log "    PARENT_ID=$PARENT_ID"
 
@@ -259,7 +269,7 @@ if [ "$MODE" = "full" ]; then
   log "6/11 Provisioning child workspace..."
   CHILD_RESP=$(tenant_call POST /workspaces \
     -H "Content-Type: application/json" \
-    -d "{\"name\":\"E2E Child\",\"runtime\":\"$RUNTIME\",\"tier\":2,\"model\":\"gpt-4o\",\"parent_id\":\"$PARENT_ID\",\"secrets\":$SECRETS_JSON}")
+    -d "{\"name\":\"E2E Child\",\"runtime\":\"$RUNTIME\",\"tier\":2,\"model\":\"$MODEL_SLUG\",\"parent_id\":\"$PARENT_ID\",\"secrets\":$SECRETS_JSON}")
   CHILD_ID=$(echo "$CHILD_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
   log "    CHILD_ID=$CHILD_ID"
 else
