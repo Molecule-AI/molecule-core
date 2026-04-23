@@ -5,12 +5,19 @@ on:
     branches: [main, staging]
   pull_request:
     branches: [main, staging]
-  # GitHub merge queue fires `merge_group` for the queue's pre-merge CI run.
+# GitHub merge queue fires `merge_group` for the queue's pre-merge CI run.
   # Required so the queue gets a real check result instead of a false-green
   # from the absence of a triggered workflow. Safe to add unconditionally —
   # the event simply doesn't fire until the queue is enabled on the branch.
   merge_group:
     types: [checks_requested]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or ref to run CI on"
+        required: false
+        type: string
+        default: ""
 
 # Cancel in-progress CI runs when a new commit arrives on the same ref.
 # This prevents stale runs from queuing behind each other. The merge_group
@@ -56,6 +63,10 @@ jobs:
             echo "python=true" >> "$GITHUB_OUTPUT"
             echo "scripts=true" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+          # workflow_dispatch: use the dispatched ref as BASE for diff.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.ref }}" ]; then
+            BASE="${{ inputs.ref }}"
           fi
           DIFF=$(git diff --name-only "$BASE" HEAD 2>/dev/null || echo ".github/workflows/ci.yml")
           echo "platform=$(echo "$DIFF" | grep -qE '^workspace-server/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
