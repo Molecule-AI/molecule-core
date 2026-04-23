@@ -60,7 +60,7 @@ func (h *ApprovalsHandler) Create(c *gin.Context) {
 
 	// Auto-escalate to parent
 	var parentID *string
-	db.DB.QueryRowContext(ctx, `SELECT parent_id FROM workspaces WHERE id = $1`, workspaceID).Scan(&parentID)
+	_ = db.DB.QueryRowContext(ctx, `SELECT parent_id FROM workspaces WHERE id = $1`, workspaceID).Scan(&parentID)
 	if parentID != nil {
 		h.broadcaster.RecordAndBroadcast(ctx, "APPROVAL_ESCALATED", *parentID, map[string]interface{}{
 			"approval_id":       approvalID,
