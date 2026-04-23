@@ -148,6 +148,7 @@
 |---|---|---|---|
 | Phase 30 Remote Workspaces | 30 | ✅ PMM DRAFT | `marketing/phase-34-launch-prep` (2026-04-23) |
 | Phase 32 SaaS Federation v2 | 32 | ✅ PMM DRAFT | `marketing/phase-34-launch-prep` |
+<<<<<<< HEAD
 | Phase 34 Partner API Keys | 34 | ✅ PMM DRAFT | `marketing/phase-34-launch-prep` |
 
 ---
@@ -164,3 +165,6 @@
 ---
 
 *PMM compiled 2026-04-23. Updated 2026-04-23 late cycle: research files section added.*
+=======
+| Phase 34 Partner API Keys | 34 | ✅ PMM DRAFT | `marketing/phase-34-launch-prep` |
+>>>>>>> 78109f59 (docs(marketing): update social queue status — battlecard section added)
