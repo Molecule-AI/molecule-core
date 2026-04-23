@@ -79,29 +79,40 @@ func TestValidateRelPath_Cleaned(t *testing.T) {
 	}
 }
 
-// TestDeleteViaEphemeral_ConcatFormDocs documents that the exec form
-// of rm used in deleteViaEphemeral receives the path as a single concatenated
-// argument, not as a shell-expanded arg. This prevents traversal even if
-// validateRelPath were somehow bypassed (defence in depth).
+// TestDeleteViaEphemeral_SafeForm documents that the F1085 security fix
+// scopes the rm target to /configs/ using filepath.Join + filepath.Clean +
+// strings.HasPrefix. This prevents traversal even if validateRelPath were
+// somehow bypassed (defence in depth).
 //
-// The concat form: []string{"rm", "-rf", "/configs/" + filePath}
-// passes ONE argument "/configs/../../../etc" to rm, which resolves it
-// relative to rm's CWD, NOT the shell's working directory.
+// The safe pattern:
+//   rmTarget := filepath.Join("/configs", filePath)
+//   rmTarget = filepath.Clean(rmTarget)
+//   if !strings.HasPrefix(rmTarget, "/configs/") { return err }
+// passes ONE sanitized argument to rm, which resolves it relative to rm's
+// CWD (/), NOT the shell's working directory.
 //
-// By contrast, the shell-expanded form:
+// By contrast, the vulnerable shell-expanded form:
 //   sh -c "rm -rf /configs $filePath"
 // would treat ".." as path components relative to /configs and could escape.
 //
-// deleteViaEphemeral uses the exec form only (verified in code review).
-func TestDeleteViaEphemeral_ConcatFormDocs(t *testing.T) {
-	// This is a documentation test — it confirms the concat form is present
-	// in the actual codebase by reading the source file directly.
+// deleteViaEphemeral uses the exec form with scoped path (verified in code review).
+func TestDeleteViaEphemeral_SafeForm(t *testing.T) {
+	// This test confirms the safe form is present in the actual codebase.
 	src, err := sourceFile("container_files.go")
 	if err != nil {
 		t.Skip("cannot read source: " + err.Error())
 	}
-	if !strings.Contains(src, `"/configs/" + filePath`) {
-		t.Error("deleteViaEphemeral does not use concat form; F1085 fix may be missing or reverted")
+	// Check for filepath.Join scoping to /configs
+	if !strings.Contains(src, `filepath.Join("/configs", filePath)`) {
+		t.Error("deleteViaEphemeral does not use filepath.Join scoping to /configs; F1085 fix may be missing or reverted")
+	}
+	// Check for filepath.Clean normalization
+	if !strings.Contains(src, `filepath.Clean(rmTarget)`) {
+		t.Error("deleteViaEphemeral does not use filepath.Clean; F1085 fix may be missing or reverted")
+	}
+	// Check for HasPrefix boundary guard
+	if !strings.Contains(src, `strings.HasPrefix(rmTarget, "/configs/")`) {
+		t.Error("deleteViaEphemeral does not use HasPrefix boundary guard; F1085 fix may be missing or reverted")
 	}
 }
 
