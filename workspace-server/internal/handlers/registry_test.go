@@ -134,6 +134,56 @@ func TestHeartbeatHandler_OfflineToOnline(t *testing.T) {
 	}
 }
 
+// ==================== Heartbeat — provisioning → online recovery (#1784) ====================
+
+func TestHeartbeatHandler_ProvisioningToOnline(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewRegistryHandler(broadcaster)
+
+	// Expect prevTask SELECT
+	mock.ExpectQuery("SELECT COALESCE\\(current_task").
+		WithArgs("ws-provisioning").
+		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
+
+	// Expect heartbeat UPDATE
+	mock.ExpectExec("UPDATE workspaces SET").
+		WithArgs("ws-provisioning", 0.0, "", 1, 3000, "").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Expect evaluateStatus SELECT — currently provisioning
+	mock.ExpectQuery("SELECT status FROM workspaces WHERE id =").
+		WithArgs("ws-provisioning").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("provisioning"))
+
+	// Expect status transition to online (#1784)
+	mock.ExpectExec("UPDATE workspaces SET status = 'online'").
+		WithArgs("ws-provisioning").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Expect RecordAndBroadcast INSERT for WORKSPACE_ONLINE
+	mock.ExpectExec("INSERT INTO structure_events").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	body := `{"workspace_id":"ws-provisioning","error_rate":0.0,"sample_error":"","active_tasks":1,"uptime_seconds":3000}`
+	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Heartbeat(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 func TestHeartbeatHandler_BadJSON(t *testing.T) {
 	setupTestDB(t)
 	setupTestRedis(t)
@@ -446,8 +496,10 @@ func TestValidateAgentURL(t *testing.T) {
 		wantErr bool
 	}{
 		// ── Valid URLs (public hostnames / DNS names) ──────────────────────────
-		{"valid public https", "https://agent.example.com:443", false},
-		{"valid public http", "http://agent.example.com:8000", false},
+		// example.com (RFC-2606) resolves globally; agent.example.com
+		// is NXDOMAIN on most resolvers and made this test flake.
+		{"valid public https", "https://example.com:443", false},
+		{"valid public http", "http://example.com:8000", false},
 		// localhost by name is allowed — agents in local-dev use this form.
 		{"valid localhost name", "http://localhost:8000", false},
 
@@ -596,8 +648,12 @@ func TestRegister_C18_HijackBlockedNoBearer(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	// No Authorization header — simulates attacker with no credentials.
+	// URL uses example.com (resolves globally) so the validateAgentURL
+	// pre-check doesn't short-circuit with 400 "invalid request body"
+	// before the C18 auth check fires. We're testing that C18 gates
+	// produce 401, not that URL validation produces 400.
 	c.Request = httptest.NewRequest("POST", "/registry/register",
-		bytes.NewBufferString(`{"id":"ws-victim","url":"http://attacker.example.com:9999/steal","agent_card":{"name":"hijacked"}}`))
+		bytes.NewBufferString(`{"id":"ws-victim","url":"http://example.com:9999/steal","agent_card":{"name":"hijacked"}}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	handler.Register(c)

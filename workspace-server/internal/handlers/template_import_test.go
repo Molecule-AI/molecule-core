@@ -400,7 +400,10 @@ func TestReplaceFiles_WorkspaceNotFound(t *testing.T) {
 
 	handler := NewTemplatesHandler(t.TempDir(), nil)
 
-	mock.ExpectQuery("SELECT name FROM workspaces WHERE id =").
+	// ReplaceFiles now selects (name, instance_id, runtime) for the
+	// restart-cascade. Match the full column list rather than just the
+	// name so the sqlmock regex pins the whole statement.
+	mock.ExpectQuery(`SELECT name, COALESCE\(instance_id, ''\), COALESCE\(runtime, ''\) FROM workspaces WHERE id =`).
 		WithArgs("ws-rf-nf").
 		WillReturnError(sql.ErrNoRows)
 
@@ -428,9 +431,9 @@ func TestReplaceFiles_PathTraversal(t *testing.T) {
 
 	handler := NewTemplatesHandler(t.TempDir(), nil)
 
-	mock.ExpectQuery("SELECT name FROM workspaces WHERE id =").
+	mock.ExpectQuery(`SELECT name, COALESCE\(instance_id, ''\), COALESCE\(runtime, ''\) FROM workspaces WHERE id =`).
 		WithArgs("ws-rf-pt").
-		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Test Agent"))
+		WillReturnRows(sqlmock.NewRows([]string{"name", "instance_id", "runtime"}).AddRow("Test Agent", "", ""))
 
 	body := `{"files": {"../../../etc/passwd": "malicious"}}`
 	w := httptest.NewRecorder()

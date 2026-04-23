@@ -71,12 +71,14 @@ export function ApprovalBanner() {
               )}
               <div className="flex gap-2 mt-3">
                 <button
+                  type="button"
                   onClick={() => handleDecide(approval, "approved")}
                   className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-xs rounded-lg text-white font-medium transition-colors"
                 >
                   Approve
                 </button>
                 <button
+                  type="button"
                   onClick={() => handleDecide(approval, "denied")}
                   className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-xs rounded-lg text-zinc-300 transition-colors"
                 >

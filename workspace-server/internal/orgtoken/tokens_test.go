@@ -72,9 +72,13 @@ func TestValidate_HappyPath(t *testing.T) {
 	plaintext := "known-plaintext-for-test"
 	hash := sha256.Sum256([]byte(plaintext))
 
-	mock.ExpectQuery(`SELECT id, prefix FROM org_api_tokens`).
+	// Migration 036 added org_id column; Validate now scans (id, prefix,
+	// org_id) in one query. nil here models a pre-migration token
+	// (org_id still NULL); Validate returns empty orgID and callers
+	// treat the absence of an org binding as "no cross-org access".
+	mock.ExpectQuery(`SELECT id, prefix, org_id FROM org_api_tokens`).
 		WithArgs(hash[:]).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).AddRow("tok-live", "abcd1234", nil))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).AddRow("tok-live", "abcd1234", nil))
 	mock.ExpectExec(`UPDATE org_api_tokens SET last_used_at`).
 		WithArgs("tok-live").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -106,7 +110,7 @@ func TestValidate_UnknownHashErrInvalid(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectQuery(`SELECT id, prefix FROM org_api_tokens`).
+	mock.ExpectQuery(`SELECT id, prefix, org_id FROM org_api_tokens`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnError(sql.ErrNoRows)
 
@@ -123,7 +127,7 @@ func TestValidate_RevokedTokenNotAccepted(t *testing.T) {
 	defer db.Close()
 	// Query has `AND revoked_at IS NULL` — sqlmock will return
 	// ErrNoRows because the revoked row is filtered out.
-	mock.ExpectQuery(`SELECT id, prefix FROM org_api_tokens`).
+	mock.ExpectQuery(`SELECT id, prefix, org_id FROM org_api_tokens`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnError(sql.ErrNoRows)
 
@@ -141,7 +145,7 @@ func TestList_NewestFirst(t *testing.T) {
 
 	now := time.Now()
 	earlier := now.Add(-1 * time.Hour)
-	mock.ExpectQuery(`SELECT id, prefix.*FROM org_api_tokens.*ORDER BY created_at DESC`).
+	mock.ExpectQuery(`SELECT id, prefix.*FROM org_api_tokens.*ORDER BY created_at DESC( LIMIT $1)?`).
 		WithArgs(listMax).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "name", "org_id", "created_by", "created_at", "last_used_at"}).
 			AddRow("t2", "abcd1234", "zapier", "org-1", "user_01", now, now).
