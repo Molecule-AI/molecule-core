@@ -26,27 +26,17 @@ func init() {
 }
 
 // setupTestDB creates a sqlmock DB and assigns it to the global db.DB.
-// Closes any stale connection from a previous test first to avoid leaking
-// file descriptors. The retry loop gives background goroutines from the
-// previous test (e.g. logA2ASuccess) a chance to finish their db.DB calls.
 func setupTestDB(t *testing.T) sqlmock.Sqlmock {
 	t.Helper()
 	if oldDB := db.DB; oldDB != nil {
-		for i := 0; i < 5; i++ {
-			oldDB.Close()
-			if i < 4 {
-				time.Sleep(100 * time.Millisecond)
-			}
-		}
+		oldDB.Close()
 	}
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("failed to create sqlmock: %v", err)
 	}
 	db.DB = mockDB
-	t.Cleanup(func() {
-		mockDB.Close()
-	})
+	t.Cleanup(func() { mockDB.Close() })
 	return mock
 }
 
