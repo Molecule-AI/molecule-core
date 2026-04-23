@@ -115,7 +115,7 @@ export default function OrgsPage() {
   if (error) {
     return (
       <Shell>
-        <p className="text-red-400">Error: {error}</p>
+        <p role="alert" className="text-red-400">Error: {error}</p>
         <button
           onClick={() => window.location.reload()}
           className="mt-4 rounded bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
@@ -151,10 +151,10 @@ export default function OrgsPage() {
 
 function CheckoutBanner() {
   return (
-    <div className="mb-6 rounded-lg border border-emerald-700 bg-emerald-950 p-4">
+    <div role="status" aria-live="polite" className="mb-6 rounded-lg border border-emerald-700 bg-emerald-950 p-4">
       <p className="text-sm text-emerald-200">
-        ✓ Payment confirmed. Your workspace is spinning up now — this page
-        refreshes automatically when it's ready.
+        <span aria-hidden="true">✓</span> Payment confirmed. Your workspace is spinning up now — this page
+        refreshes automatically when it&apos;s ready.
       </p>
     </div>
   );
@@ -364,28 +364,34 @@ function CreateOrgForm({ onCreated }: { onCreated: (slug: string) => void }) {
 
   return (
     <form onSubmit={submit} className="space-y-3">
-      <label className="block">
-        <span className="text-sm text-zinc-300">Slug (URL)</span>
+      <div>
+        <label htmlFor="org-slug" className="block text-sm text-zinc-300">Slug (URL)</label>
         <input
+          id="org-slug"
           value={slug}
           onChange={(e) => setSlug(e.target.value.toLowerCase())}
           pattern="^[a-z][a-z0-9-]{2,31}$"
           placeholder="acme"
           required
+          aria-describedby="org-slug-hint"
           className="mt-1 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100"
         />
-      </label>
-      <label className="block">
-        <span className="text-sm text-zinc-300">Display name</span>
+        <p id="org-slug-hint" className="mt-1 text-xs text-zinc-500">
+          Lowercase letters, numbers, and hyphens only. Cannot be changed later.
+        </p>
+      </div>
+      <div>
+        <label htmlFor="org-name" className="block text-sm text-zinc-300">Display name</label>
         <input
+          id="org-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Acme Corp"
           required
           className="mt-1 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100"
         />
-      </label>
-      {err && <p className="text-sm text-red-400">{err}</p>}
+      </div>
+      {err && <p role="alert" className="text-sm text-red-400">{err}</p>}
       <button
         type="submit"
         disabled={submitting}
