@@ -157,7 +157,7 @@ func tenantSlug() string {
 	return strings.TrimSpace(os.Getenv("MOLECULE_ORG_SLUG"))
 }
 
-// VerifiedCPSession returns true when the request carries a cookie
+// verifiedCPSession returns true when the request carries a cookie
 // that the CP confirms belongs to a MEMBER of THIS tenant's org (not
 // just "someone is logged in"). The difference is the authz boundary:
 // any WorkOS-authed user could hit /cp/auth/me successfully; only
@@ -171,7 +171,7 @@ func tenantSlug() string {
 // — fail-safe: better to refuse session auth than to accept it
 // without knowing which tenant we ARE. Deployments that want session
 // auth MUST set both CP_UPSTREAM_URL and MOLECULE_ORG_SLUG.
-func VerifiedCPSession(cookieHeader string) (valid, presented bool) {
+func verifiedCPSession(cookieHeader string) (valid, presented bool) {
 	if cookieHeader == "" {
 		return false, false
 	}
@@ -231,10 +231,10 @@ func VerifiedCPSession(cookieHeader string) (valid, presented bool) {
 	return true, true
 }
 
-// VerifiedCPSession is the exported alias for handlers/discovery.go.
-// Internal-only deployments (self-hosted / dev) where CP_UPSTREAM_URL
-// is unset get (false, true) so the session path is skipped and the
-// bearer token path runs as normal.
+// VerifiedCPSession is the exported alias — callers in other packages
+// (discovery.go, wsauth_middleware.go) use this name. Internal-only
+// deployments (self-hosted/dev) where CP_UPSTREAM_URL is unset get
+// (false, true) so the session path is skipped and bearer token auth runs.
 func VerifiedCPSession(cookieHeader string) (valid, presented bool) {
 	return verifiedCPSession(cookieHeader)
 }
