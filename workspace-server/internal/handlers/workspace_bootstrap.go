@@ -84,7 +84,7 @@ func (h *WorkspaceHandler) BootstrapFailed(c *gin.Context) {
 		return
 	}
 
-	h.broadcaster.RecordAndBroadcast(c.Request.Context(), "WORKSPACE_PROVISION_FAILED", id, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(c.Request.Context(), "WORKSPACE_PROVISION_FAILED", id, map[string]interface{}{
 		"error":    errMsg,
 		"log_tail": tail,
 		"source":   "bootstrap_watcher",

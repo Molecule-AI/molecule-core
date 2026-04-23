@@ -56,7 +56,7 @@ func (h *ScheduleHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query schedules"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	schedules := make([]scheduleResponse, 0)
 	for rows.Next() {
@@ -305,7 +305,7 @@ func (h *ScheduleHandler) History(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query history"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type historyEntry struct {
 		Timestamp   time.Time       `json:"timestamp"`
@@ -400,7 +400,7 @@ func (h *ScheduleHandler) Health(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query schedules"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	schedules := make([]scheduleHealthResponse, 0)
 	for rows.Next() {

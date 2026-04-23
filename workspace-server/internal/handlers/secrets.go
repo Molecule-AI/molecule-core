@@ -47,7 +47,7 @@ func (h *SecretsHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var key, createdAt, updatedAt string
@@ -308,7 +308,7 @@ func (h *SecretsHandler) ListGlobal(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	secrets := make([]map[string]interface{}, 0)
 	for rows.Next() {
@@ -391,7 +391,7 @@ func (h *SecretsHandler) restartAllAffectedByGlobalKey(key string) {
 		log.Printf("Global secret %s: failed to list affected workspaces for auto-restart: %v", key, err)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var ids []string
 	for rows.Next() {
