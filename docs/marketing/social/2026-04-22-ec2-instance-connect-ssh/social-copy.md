@@ -124,9 +124,23 @@ EC2 Instance Connect SSH is live now for all CP-provisioned workspaces.
    - Format: GIF or looping MP4, max 10s
    - Dark theme, molecule navy background
 
-2. **Architecture diagram** (optional for LI):
-   - Canvas (browser) → WebSocket → Platform (Go) → `aws ec2-instance-connect ssh` → EIC Endpoint → EC2 Instance
-   - Shows the tunnel path for audience who wants to understand the mechanism
+2. **Before/after credential model diagram:**
+   - **Local:** `repo/marketing/devrel/social/assets/ec2-instance-connect-credential-comparison.png` (30 KB, 1200×600px)
+   - **Fallback:** `repo/marketing/devrel/social/assets/ec2-instance-connect-credential-comparison.txt`
+   - Shows old flow (5 steps, red) vs new flow (2 steps, green)
+   - Dark theme, terminal aesthetic
+
+3. **Audit log terminal output:**
+   - **Local:** `repo/marketing/devrel/social/assets/ec2-instance-connect-audit-log.png` (48 KB, 1200×600px)
+   - **Fallback:** `repo/marketing/devrel/social/assets/ec2-instance-connect-audit-log.txt`
+   - Shows CloudTrail `OpenTcpTunnel` events with IAM principal, instance ID, timestamp, duration
+   - Dark terminal theme, monospace font, provenance chain note
+
+4. **Architecture diagram:**
+   - `docs/marketing/campaigns/ec2-instance-connect-ssh/assets/eice-architecture-diagram.png` (131 KB)
+   - Full tunnel path: Canvas WS → Go handler → EIC Endpoint → EC2 instance
+
+**Remaining blocker:** Canvas terminal screenshot — requires live CP-provisioned workspace with EIC Endpoint configured (Social Media Brand / video editor task).
 
 ---
 
