@@ -93,7 +93,9 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 					if parsed != "" && parsed != containerRuntime {
 						log.Printf("Restart: runtime changed in config.yaml %q→%q for %s", containerRuntime, parsed, wsName)
 						containerRuntime = parsed
-						db.DB.ExecContext(ctx, `UPDATE workspaces SET runtime = $1 WHERE id = $2`, containerRuntime, id)
+						if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET runtime = $1 WHERE id = $2`, containerRuntime, id); err != nil {
+							log.Printf("Restart: persist runtime change for %s: %v", id, err)
+						}
 					}
 					break
 				}
@@ -114,9 +116,11 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 	}
 
 	// Reset to provisioning
-	db.DB.ExecContext(ctx,
-		`UPDATE workspaces SET status = 'provisioning', url = '', updated_at = now() WHERE id = $1`, id)
-	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, map[string]interface{}{
+	if _, err := db.DB.ExecContext(ctx,
+		`UPDATE workspaces SET status = 'provisioning', url = '', updated_at = now() WHERE id = $1`, id); err != nil {
+		log.Printf("Restart: reset to provisioning for %s: %v", id, err)
+	}
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, map[string]interface{}{
 		"name": wsName,
 		"tier": tier,
 	})
@@ -330,7 +334,7 @@ func (h *WorkspaceHandler) HibernateWorkspace(ctx context.Context, workspaceID s
 	}
 
 	db.ClearWorkspaceKeys(ctx, workspaceID)
-	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_HIBERNATED", workspaceID, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_HIBERNATED", workspaceID, map[string]interface{}{
 		"name": wsName,
 		"tier": tier,
 	})
@@ -383,9 +387,11 @@ func (h *WorkspaceHandler) RestartByID(workspaceID string) {
 
 	_ = h.provisioner.Stop(ctx, workspaceID)
 
-	db.DB.ExecContext(ctx,
-		`UPDATE workspaces SET status = 'provisioning', url = '', updated_at = now() WHERE id = $1`, workspaceID)
-	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", workspaceID, map[string]interface{}{
+	if _, err := db.DB.ExecContext(ctx,
+		`UPDATE workspaces SET status = 'provisioning', url = '', updated_at = now() WHERE id = $1`, workspaceID); err != nil {
+		log.Printf("Auto-restart: reset to provisioning for %s: %v", workspaceID, err)
+	}
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", workspaceID, map[string]interface{}{
 		"name": wsName, "tier": tier,
 	})
 
@@ -445,10 +451,12 @@ func (h *WorkspaceHandler) Pause(c *gin.Context) {
 		if h.provisioner != nil {
 			_ = h.provisioner.Stop(ctx, ws.id)
 		}
-		db.DB.ExecContext(ctx,
-			`UPDATE workspaces SET status = 'paused', url = '', updated_at = now() WHERE id = $1`, ws.id)
+		if _, err := db.DB.ExecContext(ctx,
+			`UPDATE workspaces SET status = 'paused', url = '', updated_at = now() WHERE id = $1`, ws.id); err != nil {
+			log.Printf("Pause: mark %s paused: %v", ws.id, err)
+		}
 		db.ClearWorkspaceKeys(ctx, ws.id)
-		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PAUSED", ws.id, map[string]interface{}{
+		_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PAUSED", ws.id, map[string]interface{}{
 			"name": ws.name,
 		})
 	}
@@ -515,9 +523,11 @@ func (h *WorkspaceHandler) Resume(c *gin.Context) {
 
 	// Re-provision all
 	for _, ws := range toResume {
-		db.DB.ExecContext(ctx,
-			`UPDATE workspaces SET status = 'provisioning', updated_at = now() WHERE id = $1`, ws.id)
-		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", ws.id, map[string]interface{}{
+		if _, err := db.DB.ExecContext(ctx,
+			`UPDATE workspaces SET status = 'provisioning', updated_at = now() WHERE id = $1`, ws.id); err != nil {
+			log.Printf("Resume: mark %s provisioning: %v", ws.id, err)
+		}
+		_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", ws.id, map[string]interface{}{
 			"name": ws.name, "tier": ws.tier,
 		})
 		payload := models.CreateWorkspacePayload{Name: ws.name, Tier: ws.tier, Runtime: ws.runtime}
