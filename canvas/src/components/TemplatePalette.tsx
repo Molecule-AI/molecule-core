@@ -54,6 +54,13 @@ export function OrgTemplatesSection() {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Collapsed by default — org templates are multi-workspace imports
+  // that most new users don't reach for first. Keeping them
+  // expand-on-demand frees ~400 px of vertical space for the
+  // individual workspace templates above, which is the primary
+  // deploy path. The count in the header still makes discovery
+  // obvious: "Org Templates (4) ▸".
+  const [expanded, setExpanded] = useState(false);
 
   const loadOrgs = useCallback(async () => {
     setLoading(true);
@@ -80,9 +87,26 @@ export function OrgTemplatesSection() {
   return (
     <div className="space-y-2" data-testid="org-templates-section">
       <div className="flex items-center justify-between">
-        <h3 className="text-[10px] uppercase tracking-wide text-zinc-500 font-semibold">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          aria-controls="org-templates-body"
+          className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-zinc-500 hover:text-zinc-300 font-semibold transition-colors"
+        >
+          <span
+            aria-hidden="true"
+            className={`inline-block text-[8px] transition-transform duration-150 ${expanded ? "rotate-90" : ""}`}
+          >
+            ▶
+          </span>
           Org Templates
-        </h3>
+          {orgs.length > 0 && (
+            <span className="text-zinc-600 normal-case tracking-normal">
+              ({orgs.length})
+            </span>
+          )}
+        </button>
         <button
           onClick={loadOrgs}
           aria-label="Refresh org templates"
@@ -92,6 +116,8 @@ export function OrgTemplatesSection() {
         </button>
       </div>
 
+      {expanded && (
+        <div id="org-templates-body" className="space-y-2">
       {loading && (
         <div role="status" aria-live="polite" className="flex items-center gap-1.5 text-[10px] text-zinc-500">
           <Spinner size="sm" />
@@ -141,6 +167,8 @@ export function OrgTemplatesSection() {
           </div>
         );
       })}
+        </div>
+      )}
     </div>
   );
 }
