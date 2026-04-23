@@ -152,4 +152,10 @@ Both features are live as part of Phase 34. Partner API Keys (`mol_pk_*`) — th
 
 ---
 
+**See also:**  
+→ [Cloudflare Artifacts: git-backed workspace snapshots for agents](/docs/blog/2026-04-21-cloudflare-artifacts/) — the cloud storage primitive that pairs with Tool Trace for full workspace observability  
+→ [A2A v1: the open protocol standard your agents already speak](/docs/blog/2026-04-22-a2a-v1-agent-platform/) — the A2A architecture context behind `Message.metadata`
+
+---
+
 *Phase 34 also includes Partner API Keys (GA April 30) and SaaS Fed v2. See the [full Phase 34 announcement](https://docs.molecule.ai/blog/phase-34-community-announcement) for the complete picture.*

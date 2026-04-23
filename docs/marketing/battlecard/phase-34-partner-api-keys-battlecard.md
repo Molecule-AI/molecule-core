@@ -31,7 +31,7 @@ No direct competitor has a published Partner API Key program at the agent orches
 |---|---|---|---|
 | Programmatic org provision | ✅ `mol_pk_*` | ❌ per-user seat licensing only | ❌ marketplace listing only |
 | Org-scoped keys | ✅ — key cannot escape its org boundary | N/A | N/A |
-| Partner onboarding guide | ⏳ DevRel in progress | ❌ | ❌ |
+| Partner onboarding guide | ✅ `docs/marketing/launches/partner-onboarding-guide.md` | ❌ | ❌ |
 | White-label / branding | ✅ via partner-provisioned orgs | ❌ | ❌ |
 | API-first (no browser dependency) | ✅ | ❌ | ❌ |
 
@@ -49,7 +49,7 @@ No direct competitor has a published Partner API Key program at the agent orches
 | Per-PR isolation | ✅ — each run gets a fresh org | ❌ | ❌ |
 | Automated teardown | ✅ — `DELETE /cp/admin/partner-keys/:id` stops billing | ❌ | ❌ |
 | No shared-state contamination | ✅ | ❌ | ❌ |
-| CI/CD example in docs | ⏳ DevRel in progress | ❌ | ❌ |
+| CI/CD example in docs | ✅ GitHub Actions YAML in `partner-onboarding-guide.md` | ❌ | ❌ |
 
 **Molecule AI counter:** "CrewAI's marketplace is for consuming agents. Molecule AI's partner API is for provisioning infrastructure."
 
@@ -127,6 +127,6 @@ Phase 30 shipped `mol_ws_*` (per-workspace auth tokens). Phase 34 extends to `mo
 
 ⏳ **Action (PM):** Marketplace-native billing rows (AWS/GCP) show "⏳ PM to confirm" — need PM input before Sales uses those rows in enterprise deals. Flagged to PM via issue #1122 routing.
 
-⚠️ **Action (DevRel):** Partner onboarding guide and CI/CD example are marked "⏳ DevRel in progress" — must ship by April 28 to support April 30 launch. Verify DevRel ETA.
+✅ **Action (DevRel) — COMPLETE:** Partner onboarding guide shipped at `docs/marketing/launches/partner-onboarding-guide.md`. GitHub Actions YAML CI/CD example included. April 28 deadline met.
 
 **Ready to distribute to:** Sales team, partner AEs. Do NOT share marketplace billing rows externally until PM confirms.
