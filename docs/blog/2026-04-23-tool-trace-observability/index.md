@@ -5,7 +5,6 @@ slug: ai-agent-observability-without-overhead
 description: "Tool Trace gives every A2A response a structured record of every tool call — inputs, output previews, run_id-paired parallel traces. No sampling, no sidecar, no guesswork."
 og_title: "AI Agent Observability Without the Overhead"
 og_description: "See every tool your agent called — inputs, outputs, timing — in every A2A response. Parallel traces handled correctly. No sampling overhead."
-og_image: /docs/assets/blog/2026-04-23-tool-trace-observability-og.png
 tags: [observability, tool-trace, debugging, devops, platform-engineering, a2a, claude]
 keywords: [AI agent observability, tool trace debugging, Claude agent debugging, agent audit trail, parallel tool call trace, run_id pairing, AI agent monitoring, DevOps agent observability]
 canonical: https://docs.molecule.ai/blog/ai-agent-observability-without-overhead
