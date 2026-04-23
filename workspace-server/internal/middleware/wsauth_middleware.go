@@ -285,7 +285,6 @@ func CanvasOrBearer(database *sql.DB) gin.HandlerFunc {
 			}
 			if err := wsauth.ValidateAnyToken(ctx, database, tok); err != nil {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid admin auth token"})
-				return
 			}
 			c.Next()
 			return
