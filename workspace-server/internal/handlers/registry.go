@@ -450,6 +450,22 @@ func (h *RegistryHandler) evaluateStatus(c *gin.Context, payload models.Heartbea
 		}
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_ONLINE", payload.WorkspaceID, map[string]interface{}{})
 	}
+
+	// Auto-recovery: if a workspace is marked "failed" or "provisioning" but is
+	// actively sending heartbeats, it has clearly booted successfully. Transition
+	// to "online" so the scheduler and dashboard reflect reality. This catches
+	// cases where the provisioner crashed mid-setup or an earlier error left the
+	// status stale.
+	if currentStatus == "failed" || currentStatus == "provisioning" {
+		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'online', updated_at = now() WHERE id = $1 AND status IN ('failed', 'provisioning')`, payload.WorkspaceID); err != nil {
+			log.Printf("Heartbeat: failed to auto-recover %s from %s to online: %v", payload.WorkspaceID, currentStatus, err)
+		} else {
+			log.Printf("Heartbeat: auto-recovered %s from %s to online (heartbeat received)", payload.WorkspaceID, currentStatus)
+		}
+		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_ONLINE", payload.WorkspaceID, map[string]interface{}{
+			"recovered_from": currentStatus,
+		})
+	}
 }
 
 // UpdateCard handles POST /registry/update-card
