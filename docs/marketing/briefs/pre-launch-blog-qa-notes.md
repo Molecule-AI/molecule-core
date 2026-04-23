@@ -71,13 +71,10 @@ These are link-formatting issues only. No factual errors or positioning violatio
 - Scope correct: "CP-provisioned EC2 workspaces" (not all EC2 workspaces) ✓
 - PR #1533 cited ✓
 
-**One item requiring PM/Dev confirmation:**
+**All items resolved — no open questions.**
 
-- **Phase attribution (line 17):** Post states "As of Phase 30 (PR #1533, merged 2026-04-22)". No positioning brief exists for this post to cross-check phase number. PR #1533 was merged 2026-04-22 (confirmed), but phase number "Phase 30" is unverified. PM or Dev Lead should confirm: was PR #1533 part of Phase 30 or a different phase?
-  - If incorrect, update line 17: `As of Phase [N] (PR #1533, merged 2026-04-22)`
-  - Factual claims about EICE behavior are unaffected either way
-
-**Minor note:** Internal link on line 52 uses a relative path (`../../infra/workspace-terminal.md`). Verify the `infra/workspace-terminal.md` doc exists at that relative location before publish. If the doc doesn't exist yet, replace with a `https://docs.molecule.ai` absolute URL or remove the link.
+- **Phase attribution (line 17):** "Phase 30" confirmed ✓ — `docs/marketing/launches/pr-1533-ec2-instance-connect-ssh.md` (positioning brief) explicitly places this feature in the "Phase 30 remote workspaces narrative" (brief line 89, 120).
+- **Internal link on line 52** (`../../infra/workspace-terminal.md`): `docs/infra/workspace-terminal.md` confirmed present in repo ✓ — shipped in PR #1533 per brief line 118.
 
 ---
 
@@ -87,7 +84,7 @@ These are link-formatting issues only. No factual errors or positioning violatio
 |------|--------|----------------|-------|
 | A2A Enterprise Deep-Dive | ✅ Publish-ready | None | All guardrails clean |
 | MCP Server List | ✅ Publish-ready | None | 2 minor link fixes recommended before final publish |
-| EC2 SSH Terminal | ✅ Publish-ready | None | Phase number unverified — PM to confirm, non-blocking |
+| EC2 SSH Terminal | ✅ Publish-ready | None | Phase 30 confirmed ✓; workspace-terminal.md link confirmed ✓ |
 
 All three posts are clear of factual errors on Platform Instructions plan gating (confirmed all-plans by code review of `instructions.go`). No enterprise-only positioning errors. No unqualified sub-second timing claims. Auth and VPN guardrails honored where relevant.
 

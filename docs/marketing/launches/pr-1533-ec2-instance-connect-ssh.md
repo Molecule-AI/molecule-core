@@ -143,7 +143,7 @@ Fallback (technical): *"CP-provisioned workspaces get browser-based terminal via
 ## Sign-off
 
 - [x] PMM positioning: approved
-- [ ] Marketing Lead: pending
+- [x] Marketing Lead: approved 2026-04-23
 - [ ] DevRel: needs assignment (#1545)
 - [ ] Content Marketer: blocked on DevRel code demo
 
