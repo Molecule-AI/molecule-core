@@ -111,8 +111,9 @@ Fallback (technical): *"CP-provisioned workspaces get browser-based terminal via
 
 | Channel | Asset | Owner | Status |
 |---------|-------|-------|--------|
-| Blog post | "How to access your EC2 workspace terminal from the canvas" | Content Marketer | Blocked: needs DevRel code demo first |
-| Social launch thread | 5 posts: problem → solution → claim 1 → claim 2 → CTA | Social Media Brand | Blocked: awaiting blog post + code demo |
+| Blog post | "How to access your EC2 workspace terminal from the canvas" | Content Marketer | Blocked: needs DevRel code demo first (#1545) |
+| Social launch thread | 5 posts: problem → solution → claim 1 → claim 2 → CTA | Social Media Brand | ✅ APPROVED — copy at `docs/marketing/social/2026-04-22-ec2-instance-connect-ssh/social-copy.md` |
+| TTS audio file | Voice-over for launch announcement | Social Media Brand | 🔴 BLOCKING — TTS file needed before publish |
 | Code demo | Working example: open canvas → click terminal → interact with EC2 workspace | DevRel Engineer | Needs assignment (#1545) |
 | Docs | `docs/infra/workspace-terminal.md` | DevRel Engineer | ✅ Shipped in PR #1533 |
 
@@ -132,8 +133,10 @@ Fallback (technical): *"CP-provisioned workspaces get browser-based terminal via
 
 - [x] Does the terminal UI expose EC2 Instance Connect as a distinct connection type? → No — seamless; the platform handles it transparently
 - [x] Is there a docs page? → Yes: `docs/infra/workspace-terminal.md` (shipped in PR #1533)
-- [ ] Social Media Brand: confirm launch thread length (5 posts recommended)
+- [x] Social Media Brand: confirm launch thread length (5 posts recommended)
 - [ ] Confirm EICE VPC Endpoint is present in the SaaS production VPC (DevOps/ops check)
+- [x] Social copy status → APPROVED (social-copy.md on staging, 2026-04-22)
+- [ ] 🔴 TTS audio file: Social Media Brand needs TTS generation before publish
 
 ---
 
