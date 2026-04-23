@@ -17,7 +17,6 @@ The term "SaaS Federation v2" appears in marketing materials (Phase 34 messaging
 The feature does appear in marketing copy as a conceptual grouping of Phase 32 + Phase 34 capabilities: multi-tenant isolation, WorkOS SSO, Stripe billing, Fly Machines provisioning, and Partner API Keys. But there is no separate PR #1613 implementation that codifies "SaaS Federation v2" as a discrete unit of work.
 
 **PLAN.md note (2026-04-24):** Phase 34.1–34.4 checkboxes in PLAN.md (`/tmp/PLAN.md` lines 622–661) are all unchecked `[ ]`. Partner API Keys implementation may not be marked shipped in the engineering plan. Phase 33 in PLAN.md is "Tenant Subdomain Routing — MIGRATING TO CLOUDFLARE TUNNEL" — not federation. This reinforces that "SaaS Fed v2" is a marketing grouping, not an engineering phase.
-
 ---
 
 ## What "SaaS Federation v2" Refers To
