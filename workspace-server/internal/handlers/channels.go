@@ -51,7 +51,7 @@ func (h *ChannelHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	result := make([]map[string]interface{}, 0)
 	for rows.Next() {
@@ -491,7 +491,7 @@ func (h *ChannelHandler) Webhook(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "channel lookup failed"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var ch channels.ChannelRow
 	var candidates []channels.ChannelRow

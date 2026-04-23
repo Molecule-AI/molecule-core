@@ -110,7 +110,7 @@ func (h *TeamHandler) Expand(c *gin.Context) {
 			log.Printf("Team expand: failed to insert layout for child %s: %v", childID, err)
 		}
 
-		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", childID, map[string]interface{}{
+		_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", childID, map[string]interface{}{
 			"name":      childName,
 			"tier":      tier,
 			"parent_id": parentID,
@@ -147,7 +147,7 @@ func (h *TeamHandler) Expand(c *gin.Context) {
 	}
 
 	// Mark parent as expanded
-	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_EXPANDED", parentID, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_EXPANDED", parentID, map[string]interface{}{
 		"children": children,
 	})
 
@@ -195,12 +195,12 @@ func (h *TeamHandler) Collapse(c *gin.Context) {
 			log.Printf("Team collapse: failed to delete layout for %s: %v", childID, err)
 		}
 
-		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_REMOVED", childID, map[string]interface{}{})
+		_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_REMOVED", childID, map[string]interface{}{})
 
 		removed = append(removed, childName)
 	}
 
-	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_COLLAPSED", parentID, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_COLLAPSED", parentID, map[string]interface{}{
 		"removed_children": removed,
 	})
 
