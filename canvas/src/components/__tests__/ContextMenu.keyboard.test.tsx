@@ -48,11 +48,14 @@ const mockStore = {
   nodes: [] as Array<{ id: string; data: { parentId: string | null } }>,
 };
 
-vi.mock("@/store/canvas", () => ({
-  useCanvasStore: vi.fn(
-    (selector: (s: typeof mockStore) => unknown) => selector(mockStore)
-  ),
-}));
+vi.mock("@/store/canvas", () => {
+  const fn = vi.fn((selector: (s: typeof mockStore) => unknown) =>
+    selector(mockStore),
+  );
+  return {
+    useCanvasStore: Object.assign(fn, { getState: () => mockStore }),
+  };
+});
 
 // ── Component under test — imported AFTER mocks ───────────────────────────────
 import { ContextMenu } from "../ContextMenu";
