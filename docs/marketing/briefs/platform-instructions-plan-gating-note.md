@@ -34,7 +34,17 @@ The following copy contained incorrect "Enterprise plans only" claims and **must
 
 ## Action Taken
 
-`docs/marketing/social/2026-04-26-phase34-ga-launch/social-copy.md` updated 2026-04-23 by Marketing Lead to remove Enterprise-only language from Post 5 and LinkedIn.
+All instances corrected as of 2026-04-23:
+
+| File | What was fixed |
+|------|---------------|
+| `docs/marketing/social/2026-04-26-phase34-ga-launch/social-copy.md` | Removed "Enterprise plans only" from Post 5 and LinkedIn body |
+| `docs/blog/2026-04-23-tool-trace-platform-instructions/index.md` | "enterprise-only" and "Enterprise plans" → "all plans" (×2 locations) |
+| `docs/blog/2026-04-23-platform-instructions-governance/index.md` | "enterprise-only" removed from section header; "Enterprise plans" → "all plans" in Get Started + footer |
+| `docs/marketing/blog/2026-04-23-tool-trace-platform-instructions.md` | Confirmed clean — written after the gating note, no error present |
+| `docs/marketing/briefs/2026-04-22-a2a-enterprise-deep-dive-seo-brief.md` | No enterprise gating error in SEO brief |
+
+Sweep confirmed: zero "enterprise-only" or "Enterprise plans" claims remaining in any blog or social launch copy as of commit 907199d4.
 
 ---
 
