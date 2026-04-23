@@ -24,8 +24,9 @@
 |-------|------|--------|--------|-------|
 | Tool Trace social copy | `phase-34-tool-trace-social-copy.md` | `marketing/phase-34-launch-prep` | 🔄 Local commit (026931cc) | 5-post thread draft, NOT pushed |
 | Platform Instructions social copy | `phase-34-platform-instructions-social-copy.md` | `marketing/phase-34-launch-prep` | 🔄 Local commit (026931cc) | 5-post thread draft, NOT pushed |
-| EC2 Instance Connect social | `ec2-instance-connect-ssh-social-copy.md` | `social-ec2-instance-connect` | ✅ Pushed | Publish-ready, CTA live |
+| SaaS Fed v2 social copy | `phase-34-saas-fed-v2-social-copy.md` | `marketing/phase-34-launch-prep` | 🔄 Local commit (f8a81685) | 5-post thread, multi-org operators + external workspaces |
 | Partner API Keys social | `phase-34-partner-api-keys-social-copy.md` | `marketing/phase-34-launch-prep` | 🔄 Local commit (8cec7888) | GA April 30 — curl examples, 5-post thread |
+| EC2 Instance Connect social | `ec2-instance-connect-ssh-social-copy.md` | `social-ec2-instance-connect` | ✅ Pushed | Publish-ready, CTA live |
 | Combined overview social | `tool-trace-platform-instructions-social-copy.md` | `marketing/phase-34-launch-prep` | ✅ Pushed (b40d001b) | Existing file on branch |
 
 **X credentials:** ❌ BLOCKED — Issue #1865, no mol-ops response
