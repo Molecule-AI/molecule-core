@@ -57,6 +57,9 @@ func TestHandleConnect_RoutesToLocal(t *testing.T) {
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("local branch should 503 when Docker is unavailable; got %d", w.Code)
+	}
+}
+
 // TestTerminalConnect_KI005_RejectsUnauthorizedCrossWorkspace tests the KI-005
 // regression fix: workspace A must NOT be able to open a terminal on workspace B's
 // container, even with a valid bearer token, unless they share a parent/child
@@ -144,6 +147,9 @@ func TestSSHCommandCmd_BuildsArgv(t *testing.T) {
 		if cmd.Args[i] != want[i] {
 			t.Errorf("argv[%d] = %q, want %q", i, cmd.Args[i], want[i])
 		}
+	}
+}
+
 // TestTerminalConnect_KI005_AllowsOwnTerminal tests the flip side of KI-005:
 // a workspace must still be able to access its own terminal. The CanCommunicate
 // fast-path returns true when callerID == targetID.
