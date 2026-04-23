@@ -58,18 +58,6 @@ We believe this makes Molecule AI the first agent platform with a first-class pa
 
 ---
 
-### 🌐 SaaS Fed v2 — multi-org federation improvements ⚠️ PM REVIEW NEEDED
-> **⚠️ PM MUST CONFIRM before this section publishes.**
-> "SaaS Fed v2" as a discrete feature has no verified implementation evidence. Tutorial file at `docs/tutorials/saas-federation` does not exist. No PR #1613 code found. This section currently asserts improvements with no specifics to back them up.
->
-> **Options:**
-> - Remove this section entirely until PM confirms what shipped
-> - Replace with specific improvements if PR #1613 content is confirmed
->
-> Do NOT publish this section without PM confirmation. The vagueness ("check the changelog") is itself a red flag that this section is unsubstantiated.
-
----
-
 ## Quick start
 
 - **Tool Trace**: no config needed — it's in every A2A response today. Check `message.metadata.tool_trace`.

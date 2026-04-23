@@ -1,15 +1,38 @@
 # Phase 34 GA Launch — Social Copy
 **Publish day:** 2026-04-30 (Partner API Keys GA)
-**Status:** APPROVED — GA language confirmed per community FAQ and updated positioning brief (2026-04-23)
+**Status:** ⚠️ LANGUAGE CONFLICT — see options below before publishing
 **Issue refs:** #1829 (Tool Trace/Platform Instructions thread already posted Apr 23)
+
+---
+
+## ⚠️ ACTION REQUIRED — Partner API Keys label conflict
+
+PMM positioning docs (`phase34-positioning.md` line 83, `phase34-messaging-matrix.md` line 47) say:
+> "Partner API Keys are BETA — do not claim GA. Use 'now in beta' or 'shipping April 30, 2026.'"
+
+Approved social copy (Marketing Lead 2026-04-23) uses "GA today" / "generally available."
+
+**Two language options — Marketing Lead must confirm before publish:**
+
+**Option A — GA language** (use if April 30 GA is confirmed by PM):
+```
+Partner API Keys are generally available today.
+```
+
+**Option B — Beta language** (use if BETA is correct per positioning brief):
+```
+Partner API Keys are now available in beta — shipping April 30, 2026.
+```
+
+Apply Option A or B consistently across all 5 tweets + LinkedIn post before scheduling.
 
 ---
 
 ## X / Twitter Thread (5 tweets) — Phase 34 GA
 
-**Tweet 1 — Announcement hook**
+**Tweet 1 — Announcement hook** *(APPLY OPTION A OR B ABOVE)*
 ```
-Partner API Keys are generally available today.
+Partner API Keys are [GENERALLY AVAILABLE TODAY / NOW AVAILABLE IN BETA — SHIPPING APRIL 30, 2026].
 
 If you're building a marketplace, a CI/CD platform, or any product on top of Molecule AI — you can now programmatically create and manage Molecule AI orgs via API.
 
@@ -46,9 +69,9 @@ Phase 34 also shipped this week:
 Observability + governance. In one stack. [⚠️ SaaS Fed v2 — confirm PM before mentioning.]
 ```
 
-**Tweet 5 — CTA**
+**Tweet 5 — CTA** *(APPLY OPTION A OR B)*
 ```
-Partner API Keys: GA today.
+Partner API Keys: [GA TODAY / NOW IN BETA — SHIPPING APRIL 30].
 
 If you're a platform builder, marketplace operator, or running CI/CD on Molecule AI — this is your release.
 
