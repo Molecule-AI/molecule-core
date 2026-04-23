@@ -7,7 +7,7 @@ tags: [mcp, model-context-protocol, ai-agents, integrations]
 author: Molecule AI
 og_title: "The MCP Server List: Which Servers Work With Molecule AI?"
 og_description: "Find the right MCP server for your AI agent workflow. Full list of reference servers, official integrations, server frameworks, and community registries — with Molecule AI compatibility notes."
-og_image: /assets/blog/2026-04-21-mcp-server-list-og.png
+og_image: /assets/blog/2026-04-20-mcp-server-list/og.png
 twitter_card: summary_large_image
 canonical: https://molecule.ai/blog/mcp-server-list
 keywords:
