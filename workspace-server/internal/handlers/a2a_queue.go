@@ -82,13 +82,18 @@ func EnqueueA2A(
 		methodArg = method
 	}
 
-	// INSERT ... ON CONFLICT DO NOTHING RETURNING id. On conflict we then
-	// look up the existing row's id so the caller always receives a valid
-	// queue entry reference.
+	// INSERT ... ON CONFLICT DO NOTHING RETURNING id. The conflict target
+	// must reference the partial unique INDEX columns + WHERE clause directly
+	// (Postgres can't reference partial unique indexes by name in
+	// ON CONFLICT — only true CONSTRAINTs work for that). On conflict we
+	// then look up the existing row's id so the caller always receives a
+	// valid queue entry reference.
 	err = db.DB.QueryRowContext(ctx, `
 		INSERT INTO a2a_queue (workspace_id, caller_id, priority, body, method, idempotency_key)
 		VALUES ($1, $2, $3, $4::jsonb, $5, $6)
-		ON CONFLICT ON CONSTRAINT idx_a2a_queue_idempotency DO NOTHING
+		ON CONFLICT (workspace_id, idempotency_key)
+			WHERE idempotency_key IS NOT NULL AND status IN ('queued','dispatched')
+			DO NOTHING
 		RETURNING id
 	`, workspaceID, callerArg, priority, string(body), methodArg, keyArg).Scan(&id)
 
