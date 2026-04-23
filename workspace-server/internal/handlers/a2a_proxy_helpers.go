@@ -161,6 +161,7 @@ func (h *WorkspaceHandler) logA2ASuccess(ctx context.Context, workspaceID, calle
 		}()
 	}
 	summary := a2aMethod + " → " + wsNameForLog
+	toolTrace := extractToolTrace(respBody)
 	go func(parent context.Context) {
 		logCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), 30*time.Second)
 		defer cancel()
@@ -173,6 +174,7 @@ func (h *WorkspaceHandler) logA2ASuccess(ctx context.Context, workspaceID, calle
 			Summary:      &summary,
 			RequestBody:  json.RawMessage(body),
 			ResponseBody: json.RawMessage(respBody),
+			ToolTrace:    toolTrace,
 			DurationMs:   &durationMs,
 			Status:       logStatus,
 		})
@@ -233,6 +235,39 @@ func validateCallerToken(ctx context.Context, c *gin.Context, callerID string) e
 // token" branch so the handler-level guard can detect it without string
 // matching (the wsauth errors are typed for the invalid case).
 var errInvalidCallerToken = errors.New("missing caller auth token")
+
+// extractToolTrace pulls metadata.tool_trace from an A2A JSON-RPC response.
+// Returns nil when absent or malformed — callers can pass it straight through.
+func extractToolTrace(respBody []byte) json.RawMessage {
+	if len(respBody) == 0 {
+		return nil
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(respBody, &top); err != nil {
+		return nil
+	}
+	rawResult, ok := top["result"]
+	if !ok {
+		return nil
+	}
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(rawResult, &result); err != nil {
+		return nil
+	}
+	rawMeta, ok := result["metadata"]
+	if !ok {
+		return nil
+	}
+	var meta map[string]json.RawMessage
+	if err := json.Unmarshal(rawMeta, &meta); err != nil {
+		return nil
+	}
+	trace, ok := meta["tool_trace"]
+	if !ok || len(trace) == 0 {
+		return nil
+	}
+	return trace
+}
 
 // extractAndUpsertTokenUsage parses LLM usage from a raw A2A response body
 // and persists it via upsertTokenUsage. Safe to call in a goroutine — logs
