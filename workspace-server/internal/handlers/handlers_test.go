@@ -37,12 +37,12 @@ func setupTestDB(t *testing.T) sqlmock.Sqlmock {
 	db.DB = mockDB
 	t.Cleanup(func() { mockDB.Close() })
 
-	// Disable SSRF checks for all tests (ssrfCheckEnabled stays false for
-	// the entire run to prevent isSafeURL from rejecting loopback URLs
-	// in tests that don't call setupTestDB but do use httptest.NewServer).
-	// Not restored — ssrf_test.go tests scheme/IP validation directly
-	// (ssrfCheckEnabled=false still rejects non-http schemes and private IPs).
+	// Disable SSRF checks for the duration of this test helper so that
+	// httptest.NewServer loopback URLs and fake hostnames (*.example) don't
+	// trigger SSRF rejections during mock DB tests. Restore immediately
+	// after so other tests (e.g. ssrf_test.go) see the default true state.
 	_ = setSSRFCheckForTest(false)
+	t.Cleanup(func() { _ = setSSRFCheckForTest(true) })
 
 	return mock
 }

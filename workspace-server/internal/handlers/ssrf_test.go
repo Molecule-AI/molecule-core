@@ -175,6 +175,13 @@ func TestIsPrivateOrMetadataIP(t *testing.T) {
 }
 
 func TestIsSafeURL(t *testing.T) {
+	// Defensively enable SSRF checks: some other test in the same package
+	// (e.g. setupTestDB callers in handlers_test.go) may have left the
+	// global disabled. Restore to false when done so other tests keep the
+	// pre-test default state intact.
+	_ = setSSRFCheckForTest(true)
+	t.Cleanup(func() { _ = setSSRFCheckForTest(false) })
+
 	t.Setenv("MOLECULE_DEPLOY_MODE", "")
 	t.Setenv("MOLECULE_ORG_ID", "")
 	cases := []struct {
