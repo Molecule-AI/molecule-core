@@ -387,15 +387,29 @@ func (h *WorkspaceHandler) resolveAgentURL(ctx context.Context, workspaceID stri
 	// When the platform runs inside Docker, 127.0.0.1:{host_port} is
 	// unreachable (it's the platform container's own localhost, not the
 	// Docker host). Rewrite to the container's Docker-bridge hostname.
+	isInternalDockerCall := false
 	if strings.HasPrefix(agentURL, "http://127.0.0.1:") && h.provisioner != nil && platformInDocker {
 		agentURL = provisioner.InternalURL(workspaceID)
+		isInternalDockerCall = true
+	}
+	// Also detect URLs already pointing to Docker-bridge hostnames (ws-<id>:8000).
+	// Only trust the ws-* prefix in local-docker mode — in SaaS the workspace
+	// registry is remote and an attacker-controlled registration could claim a
+	// ws-* hostname that resolves to a sensitive internal VPC IP.
+	if platformInDocker && !saasMode() && strings.HasPrefix(agentURL, "http://ws-") {
+		isInternalDockerCall = true
 	}
 	// SSRF defence: reject private/metadata URLs before making outbound call.
-	if err := isSafeURL(agentURL); err != nil {
-		log.Printf("ProxyA2A: unsafe URL for workspace %s: %v", workspaceID, err)
-		return "", &proxyA2AError{
-			Status:   http.StatusBadGateway,
-			Response: gin.H{"error": "workspace URL is not publicly routable"},
+	// Skip for Docker-internal workspace URLs — these always resolve to private
+	// IPs (172.18.0.x) on the bridge network, which is expected and safe when
+	// the platform itself runs in the same Docker network.
+	if !isInternalDockerCall {
+		if err := isSafeURL(agentURL); err != nil {
+			log.Printf("ProxyA2A: unsafe URL for workspace %s: %v", workspaceID, err)
+			return "", &proxyA2AError{
+				Status:   http.StatusBadGateway,
+				Response: gin.H{"error": "workspace URL is not publicly routable"},
+			}
 		}
 	}
 	return agentURL, nil
