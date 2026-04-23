@@ -228,6 +228,66 @@ func (h *TerminalHandler) handleLocalConnect(c *gin.Context, workspaceID string)
 //	aws ec2-instance-connect open-tunnel           (TLS tunnel to :22)
 //	ssh -p <tunnel-port> ubuntu@127.0.0.1          (interactive shell)
 //
+// eicSSHOptions bundles the per-session inputs for spawning the EIC tunnel
+// and the ssh client that rides on top of it. Fields are plain data so
+// tests can stub the two factories below without fighting exec.Cmd.
+type eicSSHOptions struct {
+	InstanceID    string
+	OSUser        string
+	Region        string
+	LocalPort     int
+	PrivateKeyPath string
+}
+
+// openTunnelCmd builds the argv that opens a TLS-tunneled TCP port from
+// the local machine to the workspace EC2's sshd via the EIC Endpoint.
+// Long-lived: stays up for the whole terminal session.
+var openTunnelCmd = func(o eicSSHOptions) *exec.Cmd {
+	args := []string{
+		"ec2-instance-connect", "open-tunnel",
+		"--instance-id", o.InstanceID,
+		"--local-port", fmt.Sprintf("%d", o.LocalPort),
+	}
+	if o.Region != "" {
+		args = append([]string{"--region", o.Region}, args...)
+	}
+	return exec.Command("aws", args...)
+}
+
+// sshCommandCmd builds the argv for the interactive ssh client that rides
+// on the open tunnel. The remote side is the workspace EC2's sshd bound
+// to 22; with CP provisioning today the workspace runs as a native
+// process under the ubuntu user, so landing at ubuntu's shell IS the
+// terminal experience.
+var sshCommandCmd = func(o eicSSHOptions) *exec.Cmd {
+	return exec.Command(
+		"ssh",
+		"-i", o.PrivateKeyPath,
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "ServerAliveInterval=30",
+		"-o", "ServerAliveCountMax=3",
+		"-p", fmt.Sprintf("%d", o.LocalPort),
+		fmt.Sprintf("%s@127.0.0.1", o.OSUser),
+	)
+}
+
+// sendSSHPublicKey pushes an ephemeral public key to the EIC service so
+// the workspace's sshd accepts the paired private key for the next 60s.
+// Exposed as a var so tests can stub the AWS call.
+var sendSSHPublicKey = func(ctx context.Context, region, instanceID, osUser, pubKey string) error {
+	cmd := exec.CommandContext(ctx, "aws", "ec2-instance-connect", "send-ssh-public-key",
+		"--region", region,
+		"--instance-id", instanceID,
+		"--instance-os-user", osUser,
+		"--ssh-public-key", pubKey)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("send-ssh-public-key: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // CP-provisioned workspaces run as native processes under ubuntu, not
 // Docker. Design: docs/infra/workspace-terminal.md.
 func (h *TerminalHandler) handleRemoteConnect(c *gin.Context, workspaceID, instanceID string) {
