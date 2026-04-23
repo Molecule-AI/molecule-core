@@ -42,8 +42,51 @@ if [ "$(id -u)" = "0" ]; then
         chown -R agent:agent /root/.claude /home/agent/.claude 2>/dev/null
         ln -sfn /root/.claude/sessions /home/agent/.claude/sessions
     fi
+
+    # --- GitHub credential helper setup (issue #547 / #613) ---
+    # Configure git to use the molecule credential helper for github.com.
+    # This runs as root so the global gitconfig is written before we drop
+    # to agent. The helper fetches fresh GitHub App installation tokens
+    # from the platform API, with caching and env-var fallback.
+    if [ -x /app/scripts/molecule-git-token-helper.sh ]; then
+        # Set credential helper for github.com only (not all hosts).
+        # The '!' prefix tells git to run the command as a shell command.
+        git config --global "credential.https://github.com.helper" \
+            "!/app/scripts/molecule-git-token-helper.sh"
+        # Disable other credential helpers for github.com to avoid conflicts.
+        git config --global "credential.https://github.com.useHttpPath" true
+        # Move gitconfig to agent's home so it takes effect after gosu.
+        if [ -f /root/.gitconfig ]; then
+            cp /root/.gitconfig /home/agent/.gitconfig
+            chown agent:agent /home/agent/.gitconfig
+        fi
+    fi
+    # Create the token cache directory for the agent user.
+    mkdir -p /home/agent/.molecule-token-cache
+    chown agent:agent /home/agent/.molecule-token-cache
+    chmod 700 /home/agent/.molecule-token-cache
+
     exec gosu agent "$0" "$@"
 fi
 
 # Now running as agent (uid 1000)
+
+# --- Start background token refresh daemon ---
+# Keeps gh CLI and git credentials fresh across the 60-min token TTL.
+# Runs in the background; entrypoint continues to exec molecule-runtime.
+if [ -x /app/scripts/molecule-gh-token-refresh.sh ]; then
+    nohup /app/scripts/molecule-gh-token-refresh.sh > /dev/null 2>&1 &
+fi
+
+# --- Initial gh auth setup ---
+# If GITHUB_TOKEN or GH_TOKEN is set (injected at provision time),
+# authenticate gh CLI with it so it works immediately (before the first
+# background refresh fires). The background daemon will replace this
+# with a fresh token within ~60s of boot.
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+    echo "${GITHUB_TOKEN}" | gh auth login --hostname github.com --with-token 2>/dev/null || true
+elif [ -n "${GH_TOKEN:-}" ]; then
+    echo "${GH_TOKEN}" | gh auth login --hostname github.com --with-token 2>/dev/null || true
+fi
+
 exec molecule-runtime "$@"
