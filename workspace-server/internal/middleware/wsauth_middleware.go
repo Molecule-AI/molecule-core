@@ -174,7 +174,7 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 		// hosted / dev deploys without a CP fall through to the
 		// bearer-only path unchanged.
 		if cookieHeader := c.GetHeader("Cookie"); cookieHeader != "" {
-			if ok, _ := verifiedCPSession(cookieHeader); ok {
+			if ok, _ := VerifiedCPSession(cookieHeader); ok {
 				c.Next()
 				return
 			}
