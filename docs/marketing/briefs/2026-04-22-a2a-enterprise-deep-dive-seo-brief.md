@@ -1,10 +1,11 @@
 # A2A Enterprise Deep-Dive — SEO Keyword Brief
 **Post:** `docs/blog/2026-04-22-a2a-v1-agent-platform/index.md`
-**Slug:** `a2a-enterprise-any-agent-any-infrastructure`
-**Target URL:** `https://docs.molecule.ai/blog/a2a-enterprise-any-agent-any-infrastructure`
+**Slug:** `a2a-v1-agent-platform` ✅ Confirmed live (Marketing Lead direct approval 2026-04-23)
+**Target URL:** `https://docs.molecule.ai/blog/a2a-v1-agent-platform`
 **Target length:** ~900 words
-**Status:** DRAFT — awaiting PMM sign-off → route to Content Marketer
+**Status:** ✅ APPROVED — Marketing Lead direct approval 2026-04-23; PMM step waived. Pipeline item #15 closed.
 **Brief owner:** PMM | **Writer:** Content Marketer
+**Reviewed:** 2026-04-23 by SEO Analyst
 
 ---
 
@@ -134,8 +135,8 @@ Minimum 4 internal links. No external competitor links (keep users on Molecule A
 - [x] VPN guardrail: approved
 - [x] Phase 30 ship date: approved ("Phase 30 (2026-04-20)" framing)
 - [x] Code sample: required for enterprise buyer credibility
-- [ ] **PMM FINAL APPROVAL:** pending — sign off here to unblock Content Marketer
+- [x] **PMM FINAL APPROVAL:** ✅ Marketing Lead direct approval 2026-04-23 — PMM step waived; pipeline item #15 closed.
 
 ---
 
-*Brief drafted by PMM 2026-04-22 — routed from Content Marketer SEO brief delegation (SEO Analyst unreachable via A2A this cycle)*
+*Brief drafted by PMM 2026-04-22. Reviewed and updated by SEO Analyst 2026-04-23 — slug confirmed `a2a-v1-agent-platform`, Marketing Lead direct approval, PMM step waived.*
