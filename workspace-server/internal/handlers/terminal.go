@@ -86,14 +86,21 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
 		if tok != "" {
 			if err := wsauth.ValidateToken(ctx, db.DB, callerID, tok); err != nil {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token for claimed workspace"})
-				return
+				// Fallback: token is not bound to callerID's workspace — check if
+				// it is at least a valid org/system token. Internal A2A routing may
+				// use shared tokens that are not workspace-scoped. Still falls through
+				// to canCommunicateCheck so the hierarchy is always enforced.
+				if err2 := wsauth.ValidateAnyToken(ctx, db.DB, tok); err2 != nil {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token for claimed workspace"})
+					return
+				}
 			}
 		}
 		if !canCommunicateCheck(callerID, workspaceID) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to access this workspace's terminal"})
 			return
 		}
+	}
 	}
 
 	// Check for CP-provisioned workspace (instance_id persisted by
