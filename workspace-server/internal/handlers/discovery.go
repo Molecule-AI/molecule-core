@@ -101,7 +101,7 @@ func discoverHostPeer(ctx context.Context, c *gin.Context, targetID string) {
 		return
 	}
 
-	db.CacheURL(ctx, resolvedID, url.String)
+	_ = db.CacheURL(ctx, resolvedID, url.String)
 	c.JSON(http.StatusOK, gin.H{
 		"id":     resolvedID,
 		"url":    url.String,

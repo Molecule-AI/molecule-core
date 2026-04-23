@@ -182,7 +182,7 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 					log.Printf("Org import: plugin %s not found at %s, skipping", pluginName, pluginSrc)
 					continue
 				}
-				filepath.Walk(pluginSrc, func(path string, info os.FileInfo, err error) error {
+				_ = filepath.Walk(pluginSrc, func(path string, info os.FileInfo, err error) error {
 					if err != nil || info.IsDir() {
 						return nil
 					}

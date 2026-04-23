@@ -31,7 +31,7 @@ func (h *TemplatesHandler) findContainer(ctx context.Context, workspaceID string
 	}
 	// Also check by workspace name from DB
 	var wsName string
-	db.DB.QueryRowContext(ctx, `SELECT LOWER(REPLACE(name, ' ', '-')) FROM workspaces WHERE id = $1`, workspaceID).Scan(&wsName)
+	_ = db.DB.QueryRowContext(ctx, `SELECT LOWER(REPLACE(name, ' ', '-')) FROM workspaces WHERE id = $1`, workspaceID).Scan(&wsName)
 	if wsName != "" {
 		candidates = append(candidates, wsName)
 	}
@@ -62,7 +62,9 @@ func (h *TemplatesHandler) execInContainer(ctx context.Context, containerName st
 	defer resp.Close()
 	var stdout bytes.Buffer
 	// Use stdcopy to correctly demux Docker multiplexed stream (stdout/stderr)
-	stdcopy.StdCopy(&stdout, io.Discard, io.LimitReader(resp.Reader, maxExecOutput))
+	if _, err := stdcopy.StdCopy(&stdout, io.Discard, io.LimitReader(resp.Reader, maxExecOutput)); err != nil {
+		return "", fmt.Errorf("failed to demux container exec output: %w", err)
+	}
 	return strings.TrimSpace(stdout.String()), nil
 }
 
@@ -96,11 +98,13 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 		// Create parent directories in tar (deduplicated)
 		dir := filepath.Dir(archiveName)
 		if dir != destPath && !createdDirs[dir] {
-			tw.WriteHeader(&tar.Header{
+			if err := tw.WriteHeader(&tar.Header{
 				Typeflag: tar.TypeDir,
 				Name:     dir + "/",
 				Mode:     0755,
-			})
+			}); err != nil {
+				return fmt.Errorf("failed to write tar dir header for %s: %w", dir, err)
+			}
 			createdDirs[dir] = true
 		}
 
@@ -141,7 +145,9 @@ func (h *TemplatesHandler) writeViaEphemeral(ctx context.Context, volumeName str
 	if err != nil {
 		return fmt.Errorf("failed to create ephemeral container: %w", err)
 	}
-	defer h.docker.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+	defer func() {
+		_ = h.docker.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+	}()
 
 	if err := h.docker.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("failed to start ephemeral container: %w", err)
@@ -153,7 +159,7 @@ func (h *TemplatesHandler) writeViaEphemeral(ctx context.Context, volumeName str
 	}
 	// Wait for container to be ready for removal (copy is synchronous, but be safe)
 	timeout := 5
-	h.docker.ContainerStop(ctx, resp.ID, container.StopOptions{Timeout: &timeout})
+	_ = h.docker.ContainerStop(ctx, resp.ID, container.StopOptions{Timeout: &timeout})
 	return nil
 }
 
@@ -178,7 +184,9 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 	if err != nil {
 		return fmt.Errorf("failed to create ephemeral container: %w", err)
 	}
-	defer h.docker.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+	defer func() {
+		_ = h.docker.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+	}()
 
 	if err := h.docker.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return err

@@ -134,7 +134,7 @@ func Handler() gin.HandlerFunc {
 			)
 		}
 		for k, sum := range durCopy {
-			fmt.Fprintf(w,
+			_, _ = fmt.Fprintf(w,
 				"molecule_http_request_duration_seconds_total{method=%q,path=%q,status=\"%d\"} %g\n",
 				k.method, k.path, k.status, sum,
 			)
@@ -143,7 +143,7 @@ func Handler() gin.HandlerFunc {
 		// ── Molecule AI WebSocket ──────────────────────────────────────────────
 		writeln(w, "# HELP molecule_websocket_connections_active Number of active WebSocket connections.")
 		writeln(w, "# TYPE molecule_websocket_connections_active gauge")
-		fmt.Fprintf(w, "molecule_websocket_connections_active %d\n", atomic.LoadInt64(&activeWSConns))
+		_, _ = fmt.Fprintf(w, "molecule_websocket_connections_active %d\n", atomic.LoadInt64(&activeWSConns))
 	}
 }
 

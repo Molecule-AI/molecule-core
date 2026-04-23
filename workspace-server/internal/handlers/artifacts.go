@@ -130,7 +130,7 @@ func (h *ArtifactsHandler) Create(c *gin.Context) {
 
 	// Reject if already linked.
 	var exists bool
-	db.DB.QueryRowContext(ctx,
+	_ = db.DB.QueryRowContext(ctx,
 		`SELECT EXISTS(SELECT 1 FROM workspace_artifacts WHERE workspace_id = $1)`,
 		workspaceID,
 	).Scan(&exists)
