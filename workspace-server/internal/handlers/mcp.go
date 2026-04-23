@@ -285,7 +285,7 @@ func (h *MCPHandler) Stream(c *gin.Context) {
 	// MCP 2024-11-05 SSE transport: the first event must be "endpoint" with
 	// the URL clients should use for JSON-RPC POSTs.
 	endpointURL := "/workspaces/" + workspaceID + "/mcp"
-	fmt.Fprintf(c.Writer, "event: endpoint\ndata: %s\n\n", endpointURL)
+	_, _ = fmt.Fprintf(c.Writer, "event: endpoint\ndata: %s\n\n", endpointURL)
 	flusher.Flush()
 
 	ctx := c.Request.Context()

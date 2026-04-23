@@ -1,0 +1,18 @@
+version: "2"
+
+# Match the linter set used in CI Platform (Go) job.
+linters:
+  default: standard
+  exclusions:
+    rules:
+      # Test code routinely ignores cleanup errors (Close, Unsetenv, WriteFile,
+      # mock.Set, etc.) — wrapping every one in `_ =` is line noise that
+      # obscures the test logic without finding real bugs. Skip errcheck on
+      # *_test.go but keep all other linters active.
+      - path: _test\.go
+        linters:
+          - errcheck
+      # Generated mock files — same rationale.
+      - path: 'mock_.+\.go'
+        linters:
+          - errcheck

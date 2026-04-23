@@ -148,7 +148,7 @@ func (h *AgentHandler) Remove(c *gin.Context) {
 		return
 	}
 
-	h.broadcaster.RecordAndBroadcast(ctx, "AGENT_REMOVED", workspaceID, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "AGENT_REMOVED", workspaceID, map[string]interface{}{
 		"agent_id": agentID,
 		"model":    model,
 	})
@@ -215,12 +215,12 @@ func (h *AgentHandler) Move(c *gin.Context) {
 	}
 
 	// Broadcast on both workspaces
-	h.broadcaster.RecordAndBroadcast(ctx, "AGENT_MOVED", sourceID, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "AGENT_MOVED", sourceID, map[string]interface{}{
 		"agent_id":             agentID,
 		"model":                model,
 		"target_workspace_id":  body.TargetWorkspaceID,
 	})
-	h.broadcaster.RecordAndBroadcast(ctx, "AGENT_MOVED", body.TargetWorkspaceID, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "AGENT_MOVED", body.TargetWorkspaceID, map[string]interface{}{
 		"agent_id":             agentID,
 		"model":                model,
 		"source_workspace_id":  sourceID,
