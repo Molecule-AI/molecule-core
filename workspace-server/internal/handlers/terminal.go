@@ -79,7 +79,7 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 	if callerID != "" {
 		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
 		if tok != "" {
-			if err := wsauth.ValidateAnyToken(ctx, db.DB, tok); err == nil {
+			if err := wsauth.ValidateToken(ctx, db.DB, callerID, tok); err == nil {
 				if !canCommunicateCheck(callerID, workspaceID) {
 					c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to access this workspace's terminal"})
 					return
