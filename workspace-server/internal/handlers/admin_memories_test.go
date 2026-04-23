@@ -182,9 +182,9 @@ func TestAdminMemories_Import_Success(t *testing.T) {
 		WithArgs("ws-uuid-1", sqlmock.AnyArg(), "LOCAL").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
-	// Insert succeeds.
+	// Insert succeeds. Handler uses 4-arg INSERT when created_at is absent.
 	mock.ExpectExec("INSERT INTO agent_memories").
-		WithArgs("ws-uuid-1", sqlmock.AnyArg(), "LOCAL", "general", sqlmock.AnyArg()).
+		WithArgs("ws-uuid-1", sqlmock.AnyArg(), "LOCAL", "general").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	w := adminPost(t, h, []map[string]interface{}{
@@ -326,9 +326,10 @@ func TestAdminMemories_Import_RedactsSecretsBeforeDedup(t *testing.T) {
 		WithArgs("ws-uuid-1", redacted, "LOCAL").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
-	// Insert — receives the redacted content (not raw).
+	// Insert — receives the redacted content (not raw). Handler uses the
+	// 4-arg INSERT when created_at is absent from the payload.
 	mock.ExpectExec("INSERT INTO agent_memories").
-		WithArgs("ws-uuid-1", redacted, "LOCAL", "general", sqlmock.AnyArg()).
+		WithArgs("ws-uuid-1", redacted, "LOCAL", "general").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	w := adminPost(t, h, []map[string]interface{}{
