@@ -128,7 +128,7 @@ func (m *Manager) PausePollersForToken(workspaceID, botToken string) func() {
 	if err != nil {
 		return func() {}
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var pausedIDs []string
 	m.mu.Lock()
@@ -193,7 +193,7 @@ func (m *Manager) Reload(ctx context.Context) {
 		log.Printf("Channels: reload query error: %v", err)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	desired := make(map[string]ChannelRow)
 	for rows.Next() {
@@ -203,8 +203,8 @@ func (m *Manager) Reload(ctx context.Context) {
 			log.Printf("Channels: reload scan error: %v", err)
 			continue
 		}
-		json.Unmarshal(configJSON, &ch.Config)
-		json.Unmarshal(allowedJSON, &ch.AllowedUsers)
+		_ = json.Unmarshal(configJSON, &ch.Config)
+		_ = json.Unmarshal(allowedJSON, &ch.AllowedUsers)
 		// #319: decrypt at the boundary between DB (ciphertext) and the
 		// in-memory config adapters consume. A decrypt failure logs and
 		// skips the channel — downstream getUpdates would fail anyway

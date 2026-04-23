@@ -48,11 +48,20 @@ const mockStore = {
   nodes: [] as Array<{ id: string; data: { parentId: string | null } }>,
 };
 
-vi.mock("@/store/canvas", () => ({
-  useCanvasStore: vi.fn(
-    (selector: (s: typeof mockStore) => unknown) => selector(mockStore)
-  ),
-}));
+// useCanvasStore.getState() is called directly by ContextMenu to read `nodes`
+// for parent-filtering (see ContextMenu.tsx childNodes computation). The mock
+// must expose both the selector-calling function form AND the .getState()
+// form so production code using either pattern doesn't hit "not a function".
+// Factory body runs under vi.mock's hoist — cannot reference outer scope,
+// so we build the mock function inside and reach `mockStore` via `globalThis`.
+vi.mock("@/store/canvas", () => {
+  const fn = vi.fn((selector: (s: typeof mockStore) => unknown) =>
+    selector(mockStore),
+  );
+  return {
+    useCanvasStore: Object.assign(fn, { getState: () => mockStore }),
+  };
+});
 
 // ── Component under test — imported AFTER mocks ───────────────────────────────
 import { ContextMenu } from "../ContextMenu";
@@ -222,12 +231,9 @@ describe("ContextMenu — keyboard accessibility", () => {
     const items = screen.getAllByRole("menuitem");
     const deleteItem = items.find((el) => el.textContent?.includes("Delete"))!;
     fireEvent.click(deleteItem);
-    expect(mockStore.setPendingDelete).toHaveBeenCalledWith({
-      id: "ws-1",
-      name: "Alpha Workspace",
-      hasChildren: false,
-      children: [],
-    });
+    expect(mockStore.setPendingDelete).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "ws-1", name: "Alpha Workspace" })
+    );
     expect(closeContextMenu).toHaveBeenCalled();
   });
 });

@@ -55,8 +55,8 @@ export function FileEditor({
           {success && <span className="text-[9px] text-emerald-400">{success}</span>}
           <button
             onClick={onDownload}
+            aria-label="Download file"
             className="text-[10px] text-zinc-500 hover:text-zinc-300"
-            title="Download file"
           >
             ↓
           </button>

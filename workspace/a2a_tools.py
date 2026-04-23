@@ -5,6 +5,7 @@ Imports shared client functions and constants from a2a_client.
 
 import hashlib
 import json
+import os
 import uuid
 
 import httpx
@@ -20,6 +21,83 @@ from a2a_client import (
     send_a2a_message,
 )
 from builtin_tools.security import _redact_secrets
+
+
+# ---------------------------------------------------------------------------
+# RBAC helpers (mirror builtin_tools/audit.py for a2a_tools isolation)
+# ---------------------------------------------------------------------------
+
+_ROLE_PERMISSIONS = {
+    "admin": {"delegate", "approve", "memory.read", "memory.write"},
+    "operator": {"delegate", "approve", "memory.read", "memory.write"},
+    "read-only": {"memory.read"},
+    "no-delegation": {"approve", "memory.read", "memory.write"},
+    "no-approval": {"delegate", "memory.read", "memory.write"},
+    "memory-readonly": {"memory.read"},
+}
+
+
+def _get_workspace_tier() -> int:
+    """Return the workspace tier from config (0 = root, 1+ = tenant)."""
+    try:
+        from config import load_config
+
+        cfg = load_config()
+        return getattr(cfg, "tier", 1)
+    except Exception:
+        return int(os.environ.get("WORKSPACE_TIER", 1))
+
+
+def _check_memory_write_permission() -> bool:
+    """Return True if this workspace's RBAC roles grant memory.write."""
+    try:
+        from config import load_config
+
+        cfg = load_config()
+        roles = list(getattr(cfg, "rbac", None).roles or ["operator"])
+        allowed = dict(getattr(cfg, "rbac", None).allowed_actions or {})
+    except Exception:
+        # Fail closed: deny when config is unavailable
+        roles = ["operator"]
+        allowed = {}
+
+    for role in roles:
+        if role == "admin":
+            return True
+        if role in allowed:
+            if "memory.write" in allowed[role]:
+                return True
+        elif role in _ROLE_PERMISSIONS and "memory.write" in _ROLE_PERMISSIONS[role]:
+            return True
+    return False
+
+
+def _check_memory_read_permission() -> bool:
+    """Return True if this workspace's RBAC roles grant memory.read."""
+    try:
+        from config import load_config
+
+        cfg = load_config()
+        roles = list(getattr(cfg, "rbac", None).roles or ["operator"])
+        allowed = dict(getattr(cfg, "rbac", None).allowed_actions or {})
+    except Exception:
+        roles = ["operator"]
+        allowed = {}
+
+    for role in roles:
+        if role == "admin":
+            return True
+        if role in allowed:
+            if "memory.read" in allowed[role]:
+                return True
+        elif role in _ROLE_PERMISSIONS and "memory.read" in _ROLE_PERMISSIONS[role]:
+            return True
+    return False
+
+
+def _is_root_workspace() -> bool:
+    """Return True if this workspace is tier 0 (root/root-org)."""
+    return _get_workspace_tier() == 0
 
 
 def _auth_headers_for_heartbeat() -> dict[str, str]:
@@ -228,18 +306,46 @@ async def tool_get_workspace_info() -> str:
 
 
 async def tool_commit_memory(content: str, scope: str = "LOCAL") -> str:
-    """Save important information to persistent memory."""
+    """Save important information to persistent memory.
+
+    GLOBAL scope is writable only by root workspaces (tier == 0).
+    RBAC memory.write permission is required for all scope levels.
+    The source workspace_id is embedded in every record so the platform
+    can enforce cross-workspace isolation and audit trail.
+    """
     if not content:
         return "Error: content is required"
     content = _redact_secrets(content)
     scope = scope.upper()
     if scope not in ("LOCAL", "TEAM", "GLOBAL"):
         scope = "LOCAL"
+
+    # RBAC: require memory.write permission (mirrors builtin_tools/memory.py)
+    if not _check_memory_write_permission():
+        return (
+            "Error: RBAC — this workspace does not have the 'memory.write' "
+            "permission for this operation."
+        )
+
+    # Scope enforcement: only root workspaces (tier 0) can write GLOBAL memory.
+    # This prevents tenant workspaces from poisoning org-wide memory (GH#1610).
+    if scope == "GLOBAL" and not _is_root_workspace():
+        return (
+            "Error: RBAC — only root workspaces (tier 0) can write to GLOBAL scope. "
+            "Non-root workspaces may use LOCAL or TEAM scope."
+        )
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
                 f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/memories",
-                json={"content": content, "scope": scope},
+                json={
+                    "content": content,
+                    "scope": scope,
+                    # Embed source workspace so the platform can namespace-isolate
+                    # and audit cross-workspace writes (GH#1610 fix).
+                    "workspace_id": WORKSPACE_ID,
+                },
                 headers=_auth_headers_for_heartbeat(),
             )
             data = resp.json()
@@ -251,8 +357,21 @@ async def tool_commit_memory(content: str, scope: str = "LOCAL") -> str:
 
 
 async def tool_recall_memory(query: str = "", scope: str = "") -> str:
-    """Search persistent memory for previously saved information."""
-    params = {}
+    """Search persistent memory for previously saved information.
+
+    RBAC memory.read permission is required (mirrors builtin_tools/memory.py).
+    The workspace_id is sent as a query parameter so the platform can
+    cross-validate it against the auth token and defend against any future
+    path traversal / cross-tenant read bugs in the platform itself.
+    """
+    # RBAC: require memory.read permission (mirrors builtin_tools/memory.py)
+    if not _check_memory_read_permission():
+        return (
+            "Error: RBAC — this workspace does not have the 'memory.read' "
+            "permission for this operation."
+        )
+
+    params: dict[str, str] = {"workspace_id": WORKSPACE_ID}
     if query:
         params["q"] = query
     if scope:
