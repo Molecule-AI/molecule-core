@@ -617,7 +617,7 @@ func TestDisableChannelByChatID_WiredSetsEnabledFalse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	t.Cleanup(func() { mockDB.Close() })
+	t.Cleanup(func() { _ = mockDB.Close() })
 	prevDB := db.DB
 	db.DB = mockDB
 	t.Cleanup(func() { db.DB = prevDB })
@@ -757,7 +757,7 @@ func TestDisableChannelByChatID_NoRowsAffectedSkipsReload(t *testing.T) {
 	// bot), the UPDATE returns RowsAffected=0 and we skip the reload. Verifies
 	// we don't emit a spurious log or SELECT storm on unrelated kicked events.
 	mockDB, mock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
-	t.Cleanup(func() { mockDB.Close() })
+	t.Cleanup(func() { _ = mockDB.Close() })
 	prevDB := db.DB
 	db.DB = mockDB
 	t.Cleanup(func() { db.DB = prevDB })
