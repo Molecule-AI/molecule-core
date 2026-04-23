@@ -4,6 +4,7 @@ date: 2026-04-21
 slug: discord-adapter-launch
 description: "Molecule AI workspaces can now connect to Discord — send messages to channels and receive slash commands, using only a webhook URL. No bot account, no OAuth flow, no Gateway connection."
 tags: [launch, discord, social-channels, platform, MCP]
+og_image: /assets/blog/2026-04-21-discord-adapter/og.png
 ---
 
 # Your AI Agents Just Joined Discord
@@ -98,3 +99,7 @@ Documentation: [Social Channels guide](/docs/agent-runtime/social-channels#disco
 ---
 
 *Discord adapter shipped in [PR #656](https://github.com/Molecule-AI/molecule-core/pull/656). Security hardening in [PR #659](https://github.com/Molecule-AI/molecule-core/pull/659). Molecule AI is open source — contributions welcome.*
+
+---
+
+**→ Phase 34 ships April 30, 2026** — Tool Trace (every agent tool call logged in every A2A response), Platform Instructions (org-wide behavioral rules via API), and Partner API Keys (programmatic org provisioning for CI/CD + marketplaces). See the [Phase 34 announcement](https://docs.molecule.ai/blog/phase-34-community-announcement).
