@@ -469,7 +469,9 @@ class TestToolCommitMemory:
         import a2a_tools
 
         mc = _make_http_mock(post_resp=_resp(201, {"id": "mem-1"}))
-        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_write_permission", return_value=True), \
+             patch("a2a_tools._is_root_workspace", return_value=False):
             result = await a2a_tools.tool_commit_memory("Remember this", scope="local")
 
         data = json.loads(result)
@@ -481,7 +483,9 @@ class TestToolCommitMemory:
         import a2a_tools
 
         mc = _make_http_mock(post_resp=_resp(200, {"id": "mem-2"}))
-        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_write_permission", return_value=True), \
+             patch("a2a_tools._is_root_workspace", return_value=False):
             result = await a2a_tools.tool_commit_memory("Remember this", scope="INVALID")
 
         data = json.loads(result)
@@ -491,17 +495,22 @@ class TestToolCommitMemory:
         import a2a_tools
 
         mc = _make_http_mock(post_resp=_resp(200, {"id": "mem-3"}))
-        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_write_permission", return_value=True), \
+             patch("a2a_tools._is_root_workspace", return_value=False):
             result = await a2a_tools.tool_commit_memory("Team info", scope="TEAM")
 
         data = json.loads(result)
         assert data["scope"] == "TEAM"
 
-    async def test_global_scope_accepted(self):
+    async def test_global_scope_accepted_for_root_workspace(self):
+        """GLOBAL scope succeeds only when _is_root_workspace() returns True."""
         import a2a_tools
 
         mc = _make_http_mock(post_resp=_resp(201, {"id": "mem-4"}))
-        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_write_permission", return_value=True), \
+             patch("a2a_tools._is_root_workspace", return_value=True):
             result = await a2a_tools.tool_commit_memory("Global info", scope="GLOBAL")
 
         data = json.loads(result)
@@ -511,7 +520,9 @@ class TestToolCommitMemory:
         import a2a_tools
 
         mc = _make_http_mock(post_resp=_resp(200, {"id": "mem-5"}))
-        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_write_permission", return_value=True), \
+             patch("a2a_tools._is_root_workspace", return_value=False):
             result = await a2a_tools.tool_commit_memory("info")
 
         data = json.loads(result)
@@ -522,7 +533,9 @@ class TestToolCommitMemory:
         import a2a_tools
 
         mc = _make_http_mock(post_resp=_resp(201, {"id": "mem-6"}))
-        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_write_permission", return_value=True), \
+             patch("a2a_tools._is_root_workspace", return_value=False):
             result = await a2a_tools.tool_commit_memory("info")
 
         data = json.loads(result)
@@ -533,7 +546,9 @@ class TestToolCommitMemory:
         import a2a_tools
 
         mc = _make_http_mock(post_resp=_resp(400, {"error": "bad request payload"}))
-        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_write_permission", return_value=True), \
+             patch("a2a_tools._is_root_workspace", return_value=False):
             result = await a2a_tools.tool_commit_memory("info")
 
         assert "Error" in result
@@ -543,11 +558,64 @@ class TestToolCommitMemory:
         import a2a_tools
 
         mc = _make_http_mock(post_exc=RuntimeError("storage failure"))
-        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_write_permission", return_value=True), \
+             patch("a2a_tools._is_root_workspace", return_value=False):
             result = await a2a_tools.tool_commit_memory("info")
 
         assert "Error saving memory" in result
         assert "storage failure" in result
+
+    # -----------------------------------------------------------------------
+    # GH#1610 — cross-tenant memory poisoning security regression tests
+    # -----------------------------------------------------------------------
+
+    async def test_global_scope_denied_for_non_root_workspace(self):
+        """Tenant (tier > 0) cannot write to GLOBAL scope (GH#1610)."""
+        import a2a_tools
+
+        mc = _make_http_mock(post_resp=_resp(201, {"id": "mem-poison"}))
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_write_permission", return_value=True), \
+             patch("a2a_tools._is_root_workspace", return_value=False):
+            result = await a2a_tools.tool_commit_memory("poisoned GLOBAL memory", scope="GLOBAL")
+
+        # Must NOT have called the platform — early rejection
+        mc.post.assert_not_called()
+        assert "Error" in result
+        assert "GLOBAL" in result
+        assert "tier 0" in result
+
+    async def test_rbac_deny_blocks_all_scopes_including_local(self):
+        """RBAC memory.write denial blocks all scope levels (GH#1610)."""
+        import a2a_tools
+
+        mc = _make_http_mock(post_resp=_resp(201, {"id": "mem-7"}))
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_write_permission", return_value=False), \
+             patch("a2a_tools._is_root_workspace", return_value=False):
+            result = await a2a_tools.tool_commit_memory("should be denied", scope="LOCAL")
+
+        mc.post.assert_not_called()
+        assert "Error" in result
+        assert "memory.write" in result
+
+    async def test_post_includes_workspace_id_in_body(self):
+        """POST body includes workspace_id so platform can audit/namespace (GH#1610)."""
+        import a2a_tools
+
+        mc = _make_http_mock(post_resp=_resp(201, {"id": "mem-8"}))
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_write_permission", return_value=True), \
+             patch("a2a_tools._is_root_workspace", return_value=False):
+            await a2a_tools.tool_commit_memory("test content", scope="LOCAL")
+
+        call_kwargs = mc.post.call_args.kwargs
+        payload = call_kwargs.get("json")
+        assert payload is not None
+        assert "workspace_id" in payload
+        # Value should be the module's WORKSPACE_ID constant
+        assert payload["workspace_id"] == a2a_tools.WORKSPACE_ID
 
 
 # ---------------------------------------------------------------------------
@@ -564,7 +632,8 @@ class TestToolRecallMemory:
             {"scope": "TEAM", "content": "We use Python 3.11"},
         ]
         mc = _make_http_mock(get_resp=_resp(200, memories))
-        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_read_permission", return_value=True):
             result = await a2a_tools.tool_recall_memory(query="capital")
 
         assert "[LOCAL]" in result
@@ -576,7 +645,8 @@ class TestToolRecallMemory:
         import a2a_tools
 
         mc = _make_http_mock(get_resp=_resp(200, []))
-        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_read_permission", return_value=True):
             result = await a2a_tools.tool_recall_memory(query="anything")
 
         assert result == "No memories found."
@@ -587,7 +657,8 @@ class TestToolRecallMemory:
 
         payload = {"error": "search unavailable"}
         mc = _make_http_mock(get_resp=_resp(200, payload))
-        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_read_permission", return_value=True):
             result = await a2a_tools.tool_recall_memory()
 
         parsed = json.loads(result)
@@ -597,7 +668,8 @@ class TestToolRecallMemory:
         import a2a_tools
 
         mc = _make_http_mock(get_exc=RuntimeError("search service down"))
-        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_read_permission", return_value=True):
             result = await a2a_tools.tool_recall_memory(query="test")
 
         assert "Error recalling memory" in result
@@ -608,35 +680,57 @@ class TestToolRecallMemory:
         import a2a_tools
 
         mc = _make_http_mock(get_resp=_resp(200, []))
-        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_read_permission", return_value=True):
             await a2a_tools.tool_recall_memory(query="paris", scope="local")
 
         call_kwargs = mc.get.call_args.kwargs
         params = call_kwargs.get("params", {})
         assert params.get("q") == "paris"
         assert params.get("scope") == "LOCAL"  # uppercased
+        assert params.get("workspace_id") == a2a_tools.WORKSPACE_ID
 
-    async def test_no_query_or_scope_sends_empty_params(self):
-        """With no query/scope, params dict is empty (no keys added)."""
+    async def test_recall_includes_workspace_id_in_params(self):
+        """workspace_id is always included in params for platform cross-validation (GH#1610)."""
         import a2a_tools
 
         mc = _make_http_mock(get_resp=_resp(200, []))
-        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_read_permission", return_value=True):
             await a2a_tools.tool_recall_memory()
 
         call_kwargs = mc.get.call_args.kwargs
         params = call_kwargs.get("params", {})
-        assert params == {}
+        assert "workspace_id" in params
+        assert params["workspace_id"] == a2a_tools.WORKSPACE_ID
 
     async def test_scope_only_uppercased_in_params(self):
         """scope without query → only 'scope' key in params, uppercased."""
         import a2a_tools
 
         mc = _make_http_mock(get_resp=_resp(200, []))
-        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_read_permission", return_value=True):
             await a2a_tools.tool_recall_memory(scope="team")
 
         call_kwargs = mc.get.call_args.kwargs
         params = call_kwargs.get("params", {})
         assert "q" not in params
         assert params.get("scope") == "TEAM"
+
+    # -----------------------------------------------------------------------
+    # GH#1610 — cross-tenant memory poisoning security regression tests
+    # -----------------------------------------------------------------------
+
+    async def test_rbac_deny_blocks_recall(self):
+        """RBAC memory.read denial blocks recall entirely (GH#1610)."""
+        import a2a_tools
+
+        mc = _make_http_mock(get_resp=_resp(200, [{"scope": "GLOBAL", "content": "secret"}]))
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc), \
+             patch("a2a_tools._check_memory_read_permission", return_value=False):
+            result = await a2a_tools.tool_recall_memory(query="secret")
+
+        mc.get.assert_not_called()
+        assert "Error" in result
+        assert "memory.read" in result
