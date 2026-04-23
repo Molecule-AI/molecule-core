@@ -44,7 +44,17 @@ func adminGet(t *testing.T, h *AdminMemoriesHandler) *httptest.ResponseRecorder 
 // Export tests
 // ─────────────────────────────────────────────────────────────────────────────
 
+// stubSSRF installs a permissive SSRFPolicy for the duration of a test, allowing
+// localhost and 127.0.0.1 URLs (as used by httptest.Server). The policy is
+// restored to isSafeURLReal via t.Cleanup so subsequent tests are unaffected.
+func stubSSRF(t *testing.T) {
+	t.Helper()
+	SSRFPolicy = func(rawURL string) error { return nil }
+	t.Cleanup(func() { SSRFPolicy = isSafeURLReal })
+}
+
 func TestAdminMemories_Export_Success(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	h := newAdminMemoriesHandler()
 
@@ -75,6 +85,7 @@ func TestAdminMemories_Export_Success(t *testing.T) {
 }
 
 func TestAdminMemories_Export_Empty(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	h := newAdminMemoriesHandler()
 
@@ -100,6 +111,7 @@ func TestAdminMemories_Export_Empty(t *testing.T) {
 }
 
 func TestAdminMemories_Export_QueryError(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	h := newAdminMemoriesHandler()
 
@@ -117,6 +129,7 @@ func TestAdminMemories_Export_QueryError(t *testing.T) {
 }
 
 func TestAdminMemories_Export_RedactsSecrets(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	h := newAdminMemoriesHandler()
 
@@ -169,6 +182,7 @@ func TestAdminMemories_Export_RedactsSecrets(t *testing.T) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 func TestAdminMemories_Import_Success(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	h := newAdminMemoriesHandler()
 
@@ -214,6 +228,7 @@ func TestAdminMemories_Import_Success(t *testing.T) {
 }
 
 func TestAdminMemories_Import_InvalidJSON(t *testing.T) {
+	stubSSRF(t)
 	_ = setupTestDB(t)
 	h := newAdminMemoriesHandler()
 
@@ -229,6 +244,7 @@ func TestAdminMemories_Import_InvalidJSON(t *testing.T) {
 }
 
 func TestAdminMemories_Import_WorkspaceNotFound_SkipsEntry(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	h := newAdminMemoriesHandler()
 
@@ -264,6 +280,7 @@ func TestAdminMemories_Import_WorkspaceNotFound_SkipsEntry(t *testing.T) {
 }
 
 func TestAdminMemories_Import_DuplicateSkipped(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	h := newAdminMemoriesHandler()
 
@@ -305,6 +322,7 @@ func TestAdminMemories_Import_DuplicateSkipped(t *testing.T) {
 // with the same original secret each get the same placeholder and dedup works.
 // The DB dedup query must receive the REDACTED content, not the raw credential.
 func TestAdminMemories_Import_RedactsSecretsBeforeDedup(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	h := newAdminMemoriesHandler()
 
@@ -355,6 +373,7 @@ func TestAdminMemories_Import_RedactsSecretsBeforeDedup(t *testing.T) {
 }
 
 func TestAdminMemories_Import_PreservesCreatedAt(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	h := newAdminMemoriesHandler()
 
