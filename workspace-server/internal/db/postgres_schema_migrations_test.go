@@ -16,11 +16,11 @@ func TestRunMigrations_FirstBoot_AppliesAndRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer mockDB.Close()
+	defer func() { _ = mockDB.Close() }()
 	DB = mockDB
 
 	tmp := t.TempDir()
-	os.WriteFile(filepath.Join(tmp, "001_init.up.sql"), []byte("CREATE TABLE foo();"), 0o644)
+	_ = os.WriteFile(filepath.Join(tmp, "001_init.up.sql"), []byte("CREATE TABLE foo();"), 0o644)
 
 	// Expect: CREATE tracking table
 	mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS schema_migrations")).
@@ -54,12 +54,12 @@ func TestRunMigrations_SecondBoot_SkipsApplied(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer mockDB.Close()
+	defer func() { _ = mockDB.Close() }()
 	DB = mockDB
 
 	tmp := t.TempDir()
-	os.WriteFile(filepath.Join(tmp, "001_init.up.sql"), []byte("CREATE TABLE foo();"), 0o644)
-	os.WriteFile(filepath.Join(tmp, "002_next.up.sql"), []byte("CREATE TABLE bar();"), 0o644)
+	_ = os.WriteFile(filepath.Join(tmp, "001_init.up.sql"), []byte("CREATE TABLE foo();"), 0o644)
+	_ = os.WriteFile(filepath.Join(tmp, "002_next.up.sql"), []byte("CREATE TABLE bar();"), 0o644)
 
 	// Tracking table create is always attempted
 	mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS schema_migrations")).
@@ -91,7 +91,7 @@ func TestRunMigrations_MixedState_AppliesOnlyNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer mockDB.Close()
+	defer func() { _ = mockDB.Close() }()
 	DB = mockDB
 
 	tmp := t.TempDir()

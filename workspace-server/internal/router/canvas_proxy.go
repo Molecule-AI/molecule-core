@@ -46,7 +46,7 @@ func newCanvasProxy(targetURL string) gin.HandlerFunc {
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			log.Printf("canvas_proxy: %v", err)
 			w.WriteHeader(http.StatusBadGateway)
-			w.Write([]byte("canvas unavailable"))
+			_, _ = w.Write([]byte("canvas unavailable"))
 		},
 	}
 

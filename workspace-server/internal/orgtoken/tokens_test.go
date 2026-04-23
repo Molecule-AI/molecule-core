@@ -67,7 +67,7 @@ func TestValidate_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	plaintext := "known-plaintext-for-test"
 	hash := sha256.Sum256([]byte(plaintext))
@@ -93,7 +93,7 @@ func TestValidate_HappyPath(t *testing.T) {
 
 func TestValidate_EmptyPlaintextRejected(t *testing.T) {
 	db, _, _ := sqlmock.New()
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if _, _, _, err := Validate(context.Background(), db, ""); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("empty plaintext should be ErrInvalidToken, got %v", err)
 	}

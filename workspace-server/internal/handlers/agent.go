@@ -69,7 +69,7 @@ func (h *AgentHandler) Assign(c *gin.Context) {
 		return
 	}
 
-	h.broadcaster.RecordAndBroadcast(ctx, "AGENT_ASSIGNED", workspaceID, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "AGENT_ASSIGNED", workspaceID, map[string]interface{}{
 		"agent_id": agentID,
 		"model":    body.Model,
 	})
@@ -118,7 +118,7 @@ func (h *AgentHandler) Replace(c *gin.Context) {
 		return
 	}
 
-	h.broadcaster.RecordAndBroadcast(ctx, "AGENT_REPLACED", workspaceID, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "AGENT_REPLACED", workspaceID, map[string]interface{}{
 		"agent_id":  agentID,
 		"model":     body.Model,
 		"old_model": oldModel,
