@@ -199,7 +199,7 @@ func TestTerminalConnect_KI005_SkipsCheckWithoutHeader(t *testing.T) {
 
 // TestTerminalConnect_KI005_RejectsInvalidToken tests that an invalid bearer
 // token also results in a non-200 response (falls through to Docker auth).
-// ValidateAnyToken returns error → CanCommunicate is never called.
+// ValidateToken returns error → CanCommunicate is never called.
 func TestTerminalConnect_KI005_RejectsInvalidToken(t *testing.T) {
 	canCommunicateCalled := false
 	prev := canCommunicateCheck
@@ -222,7 +222,7 @@ func TestTerminalConnect_KI005_RejectsInvalidToken(t *testing.T) {
 	if canCommunicateCalled {
 		t.Error("CanCommunicate should not be called with an invalid token")
 	}
-	// Got 503 (nil docker) instead of 200/403 — ValidateAnyToken rejected the
+	// Got 503 (nil docker) instead of 200/403 — ValidateToken rejected the
 	// token and we fell through to Docker auth, which returned 503 (nil docker).
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("invalid token: got %d, want 503 nil-docker (%s)", w.Code, w.Body.String())
