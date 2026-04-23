@@ -473,13 +473,13 @@ func TestAdminAuth_InvalidBearer_Returns401(t *testing.T) {
 // token (org_id="ws-org-1").
 // ────────────────────────────────────────────────────────────────────────────
 
-// orgTokenValidateQueryV1 is matched for orgtoken.Validate().
-const orgTokenValidateQueryV1 = "SELECT id, prefix, org_id::text FROM org_api_tokens"
+// orgTokenValidateQuery matches orgtoken.Validate() — scans id, prefix,
+// org_id (sql.NullString) directly from the primary SELECT; no secondary
+// org_id lookup is performed by the middleware.
+const orgTokenValidateQuery = "SELECT id, prefix, org_id FROM org_api_tokens"
 
-// orgTokenOrgIDQuery is matched for the org_id lookup added in the F1097 fix.
-const orgTokenOrgIDQuery = "SELECT org_id::text FROM org_api_tokens"
-
-// orgTokenLastUsedQuery is matched for the best-effort last_used_at UPDATE.
+// orgTokenLastUsedQuery matches the best-effort last_used_at UPDATE that
+// orgtoken.Validate runs after a successful scan.
 const orgTokenLastUsedQuery = "UPDATE org_api_tokens SET last_used_at"
 
 // TestAdminAuth_OrgToken_SetsOrgID verifies that AdminAuth's org-token tier
@@ -520,30 +520,21 @@ func TestAdminAuth_OrgToken_SetsOrgID(t *testing.T) {
 			mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
 				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-			// orgtoken.Validate: org token hash matches, returns id + prefix.
-			// Note: org tokens are checked BEFORE the workspace token path
-			// (ValidateAnyToken), so ValidateAnyToken is NOT called here.
-			mock.ExpectQuery(orgTokenValidateQueryV1).
+			// orgtoken.Validate: 3-column scan with org_id from DB.
+			orgIDRow := sqlmock.NewRows([]string{"id", "prefix", "org_id"})
+			if tt.orgIDFromDB == nil {
+				orgIDRow = orgIDRow.AddRow("tok-org-1", "tok-org-1", nil)
+			} else {
+				orgIDRow = orgIDRow.AddRow("tok-org-1", "tok-org-1", tt.orgIDFromDB)
+			}
+			mock.ExpectQuery(orgTokenValidateQuery).
 				WithArgs(orgTokenHash[:]).
-				WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
-					AddRow("tok-org-1", "tok-org-1", nil))
+				WillReturnRows(orgIDRow)
 
 			// Best-effort last_used_at UPDATE (after Validate).
 			mock.ExpectExec(orgTokenLastUsedQuery).
 				WithArgs("tok-org-1").
 				WillReturnResult(sqlmock.NewResult(0, 1))
-
-			// F1097 fix: org_id lookup. For pre-fix tokens (nil row), this
-			// returns nil and we expect no org_id context key to be set.
-			orgIDRows := sqlmock.NewRows([]string{"org_id"})
-			if tt.orgIDFromDB == nil {
-				orgIDRows = sqlmock.NewRows([]string{"org_id"}).AddRow(nil)
-			} else {
-				orgIDRows = sqlmock.NewRows([]string{"org_id"}).AddRow(tt.orgIDFromDB)
-			}
-			mock.ExpectQuery(orgTokenOrgIDQuery).
-				WithArgs("tok-org-1").
-				WillReturnRows(orgIDRows)
 
 			r := gin.New()
 			var gotOrgID string
