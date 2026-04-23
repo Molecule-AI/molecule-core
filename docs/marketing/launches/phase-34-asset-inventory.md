@@ -13,8 +13,8 @@
 | Community announcement | `phase-34-community-announcement.md` | `docs/phase34-community-launch` | ✅ Pushed | PR #1860 → staging, auto-merge pending |
 | Community FAQ | `phase-34-community-faq.md` | `marketing/phase-34-launch-prep` | ✅ Pushed | 15+ Q&As, 5 sections |
 | Discord runbook | `phase-34-discord-runbook.md` | `marketing/phase-34-launch-prep` | ✅ Pushed | 223 lines, timing table, escalation matrix |
-| Reddit post (Day 2) | `phase34-reddit-post.md` | `docs/phase34-community-launch` | ✅ Pushed | 68 lines, r/MachineLearning |
-| HN Show HN post (Day 2) | `phase34-hn-post.md` | `docs/phase34-community-launch` | ✅ Pushed | 67 lines, tool_trace code sample |
+| Reddit post (Day 2) | `phase-34-reddit-post.md` | `marketing/phase-34-launch-prep` | 🔄 Local commit (bb21fed0) | 130 lines, r/MachineLearning, not pushed |
+| HN Show HN post (Day 2) | `phase-34-hn-show-hn.md` | `marketing/phase-34-launch-prep` | 🔄 Local commit (bb21fed0) | 130 lines, 4-question FAQ, not pushed |
 
 ---
 
@@ -25,7 +25,7 @@
 | Tool Trace social copy | `phase-34-tool-trace-social-copy.md` | `marketing/phase-34-launch-prep` | 🔄 Local commit (026931cc) | 5-post thread draft, NOT pushed |
 | Platform Instructions social copy | `phase-34-platform-instructions-social-copy.md` | `marketing/phase-34-launch-prep` | 🔄 Local commit (026931cc) | 5-post thread draft, NOT pushed |
 | EC2 Instance Connect social | `ec2-instance-connect-ssh-social-copy.md` | `social-ec2-instance-connect` | ✅ Pushed | Publish-ready, CTA live |
-| Partner API Keys social | `phase-34-partner-api-keys-social-copy.md` | unknown | ❌ Missing | GA April 30 — needs content |
+| Partner API Keys social | `phase-34-partner-api-keys-social-copy.md` | `marketing/phase-34-launch-prep` | 🔄 Local commit (8cec7888) | GA April 30 — curl examples, 5-post thread |
 | Combined overview social | `tool-trace-platform-instructions-social-copy.md` | `marketing/phase-34-launch-prep` | ✅ Pushed (b40d001b) | Existing file on branch |
 
 **X credentials:** ❌ BLOCKED — Issue #1865, no mol-ops response
