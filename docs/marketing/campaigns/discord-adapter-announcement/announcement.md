@@ -101,7 +101,7 @@ Docs: docs/agent-runtime/social-channels
 
 ## Reddit / HN — Day 2 Campaign
 
-**Status:** Ready for review and push. Blog post URL TBD — fill before posting.
+**Status:** Ready for review and push. Blog post URL filled (discord-adapter). Awaiting Social Media Brand coordination for Apr 22 push.
 
 ---
 
@@ -137,6 +137,8 @@ Docs → [Social Channels guide](https://github.com/Molecule-AI/molecule-core/bl
 
 GitHub → [PR #656 — Discord adapter](https://github.com/Molecule-AI/molecule-core/pull/656)
 
+Blog post → [Molecule AI Discord adapter launch](https://moleculesai.app/blog/2026-04-21-discord-adapter)
+
 ---
 
 ### Hacker News — Post Title
@@ -164,6 +166,8 @@ Setup is under a minute: Canvas → Channels tab → + Connect → Discord → p
 
 Demo + full docs: https://github.com/Molecule-AI/molecule-core/blob/main/docs/agent-runtime/social-channels.md
 
+Blog post → [Molecule AI Discord adapter launch](https://moleculesai.app/blog/2026-04-21-discord-adapter)
+
 ---
 
-*Draft by Content Marketer 2026-04-21 — Day 2 campaign. Fill blog URL before posting. Coordinate with Social Media Brand on timing.*
+*Draft by Community Manager 2026-04-21 — Day 2 campaign. Blog URL filled. Coordinate with Social Media Brand on Apr 22 push.*
