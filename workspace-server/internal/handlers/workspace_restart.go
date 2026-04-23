@@ -105,7 +105,7 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 	// terminate the workspace EC2; the subsequent provision call launches
 	// a fresh one with the latest secrets + config.
 	if h.provisioner != nil {
-		h.provisioner.Stop(ctx, id)
+		_ = h.provisioner.Stop(ctx, id)
 	} else if h.cpProv != nil {
 		if err := h.cpProv.Stop(ctx, id); err != nil {
 			log.Printf("Restart: cpProv.Stop(%s) failed: %v (continuing to reprovision)", id, err)
@@ -317,7 +317,7 @@ func (h *WorkspaceHandler) HibernateWorkspace(ctx context.Context, workspaceID s
 	if h.stopFnOverride != nil {
 		h.stopFnOverride(ctx, workspaceID)
 	} else if h.provisioner != nil {
-		h.provisioner.Stop(ctx, workspaceID)
+		_ = h.provisioner.Stop(ctx, workspaceID)
 	}
 
 	// ── Step 3: Mark fully hibernated ─────────────────────────────────────────
@@ -380,7 +380,7 @@ func (h *WorkspaceHandler) RestartByID(workspaceID string) {
 
 	log.Printf("Auto-restart: restarting %s (%s) runtime=%q (was: %s)", wsName, workspaceID, dbRuntime, status)
 
-	h.provisioner.Stop(ctx, workspaceID)
+	_ = h.provisioner.Stop(ctx, workspaceID)
 
 	db.DB.ExecContext(ctx,
 		`UPDATE workspaces SET status = 'provisioning', url = '', updated_at = now() WHERE id = $1`, workspaceID)
@@ -442,7 +442,7 @@ func (h *WorkspaceHandler) Pause(c *gin.Context) {
 	// Stop containers and mark all as paused
 	for _, ws := range toPause {
 		if h.provisioner != nil {
-			h.provisioner.Stop(ctx, ws.id)
+			_ = h.provisioner.Stop(ctx, ws.id)
 		}
 		db.DB.ExecContext(ctx,
 			`UPDATE workspaces SET status = 'paused', url = '', updated_at = now() WHERE id = $1`, ws.id)

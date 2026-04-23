@@ -47,10 +47,12 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 				decrypted, decErr := crypto.DecryptVersioned(v, ver)
 				if decErr != nil {
 					log.Printf("Provisioner: FATAL — failed to decrypt global secret %s (version=%d): %v — aborting provision of workspace %s", k, ver, decErr, workspaceID)
-					h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
+					_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", workspaceID, map[string]interface{}{
 						"error": "failed to decrypt global secret",
 					})
-					db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', updated_at = now() WHERE id = $1`, workspaceID)
+					if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'failed', updated_at = now() WHERE id = $1`, workspaceID); err != nil {
+						log.Printf("workspace_provision: failed to mark %s failed: %v", workspaceID, err)
+					}
 					return
 				}
 				envVars[k] = string(decrypted)
@@ -584,7 +586,7 @@ func loadWorkspaceSecrets(ctx context.Context, workspaceID string) (map[string]s
 	globalRows, globalErr := db.DB.QueryContext(ctx,
 		`SELECT key, encrypted_value, encryption_version FROM global_secrets`)
 	if globalErr == nil {
-		defer globalRows.Close()
+		defer func() { _ = globalRows.Close() }()
 		for globalRows.Next() {
 			var k string
 			var v []byte

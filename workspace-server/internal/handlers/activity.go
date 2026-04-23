@@ -130,7 +130,7 @@ func (h *ActivityHandler) SessionSearch(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "session search failed"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	items, scanErr := scanSessionSearchRows(rows)
 	if scanErr != nil {
