@@ -303,7 +303,7 @@ func (h *TemplatesHandler) ReadFile(c *gin.Context) {
 	// rootPath directory (error) and then resolve filePath relative to
 	// the container's cwd, which isn't guaranteed to equal rootPath.
 	if containerName := h.findContainer(ctx, workspaceID); containerName != "" {
-		fullPath := strings.TrimRight(rootPath, "/") + "/" + filePath
+fullPath := strings.TrimRight(rootPath, "/") + "/" + filePath
 		content, err := h.execInContainer(ctx, containerName, []string{"cat", fullPath})
 		if err == nil {
 			c.JSON(http.StatusOK, gin.H{
