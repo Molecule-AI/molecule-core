@@ -735,6 +735,114 @@ func TestAdminAuth_Issue180_ApprovalsListing_FailOpen_NoTokens(t *testing.T) {
 	}
 }
 
+// TestAdminAuth_DevModeEscapeHatch_FailsOpenWithHasLiveTokens documents the
+// Tier-1b dev-mode escape hatch. When the platform runs with MOLECULE_ENV=development
+// and ADMIN_TOKEN is unset, AdminAuth must stay fail-open even after workspace
+// tokens land in the DB. This keeps the Canvas dashboard usable in local dev
+// after the first workspace is created (PR #1871 — quickstart bugless).
+//
+// SaaS never hits this path because tenant provisioning sets both
+// ADMIN_TOKEN and MOLECULE_ENV=production.
+func TestAdminAuth_DevModeEscapeHatch_FailsOpenWithHasLiveTokens(t *testing.T) {
+	t.Setenv("MOLECULE_ENV", "development")
+	t.Setenv("ADMIN_TOKEN", "")
+
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	// HasAnyLiveTokenGlobal returns 1 — tokens exist (post first-workspace).
+	// The Tier-1 fail-open branch WOULD close here. Tier-1b must still open.
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	r := gin.New()
+	r.GET("/workspaces", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"workspaces": []interface{}{}})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/workspaces", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("dev-mode escape hatch: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestAdminAuth_DevModeEscapeHatch_IgnoredWhenAdminTokenSet verifies that the
+// dev-mode escape hatch does NOT override an operator who has set ADMIN_TOKEN.
+// Setting ADMIN_TOKEN is the explicit opt-in to #684 closure; dev-mode must not
+// silently reopen the gate.
+func TestAdminAuth_DevModeEscapeHatch_IgnoredWhenAdminTokenSet(t *testing.T) {
+	t.Setenv("MOLECULE_ENV", "development")
+	t.Setenv("ADMIN_TOKEN", "operator-explicitly-set-this")
+
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	// Tokens exist — Tier 1 closes.
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	r := gin.New()
+	r.GET("/workspaces", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"workspaces": []interface{}{}})
+	})
+
+	w := httptest.NewRecorder()
+	// No bearer token — must 401 even in dev mode because ADMIN_TOKEN is set.
+	req, _ := http.NewRequest(http.MethodGet, "/workspaces", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("dev-mode + ADMIN_TOKEN set: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestAdminAuth_DevModeEscapeHatch_IgnoredInProduction verifies the hatch never
+// fires when MOLECULE_ENV=production. This is the SaaS-safety guarantee.
+func TestAdminAuth_DevModeEscapeHatch_IgnoredInProduction(t *testing.T) {
+	t.Setenv("MOLECULE_ENV", "production")
+	t.Setenv("ADMIN_TOKEN", "")
+
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	r := gin.New()
+	r.GET("/workspaces", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"workspaces": []interface{}{}})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/workspaces", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("production mode: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 // TestAdminAuth_Issue120_PatchWorkspace_NoBearer_Returns401 documents the #120
 // attack vector and verifies that AdminAuth returns 401 for PATCH without a token.
 func TestAdminAuth_Issue120_PatchWorkspace_NoBearer_Returns401(t *testing.T) {
