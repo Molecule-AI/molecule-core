@@ -77,9 +77,14 @@ export function TermsGate({ children }: { children: React.ReactNode }) {
     <>
       {children}
       {status === "pending" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
-          <div className="mx-4 max-w-lg rounded-lg border border-zinc-700 bg-zinc-900 p-6 shadow-xl">
-            <h2 className="text-lg font-semibold text-white">Terms &amp; conditions</h2>
+        <div aria-hidden="true" className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="terms-dialog-title"
+            className="mx-4 max-w-lg rounded-lg border border-zinc-700 bg-zinc-900 p-6 shadow-xl"
+          >
+            <h2 id="terms-dialog-title" className="text-lg font-semibold text-white">Terms &amp; conditions</h2>
             <p className="mt-3 text-sm text-zinc-300">
               Before you create an organization, please review our{" "}
               <a href="/legal/terms" className="text-sky-400 underline" target="_blank" rel="noreferrer">
@@ -94,7 +99,7 @@ export function TermsGate({ children }: { children: React.ReactNode }) {
             <p className="mt-3 text-xs text-zinc-500">
               By agreeing you acknowledge that workspace data is stored in AWS us-east-2 (Ohio, United States).
             </p>
-            {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+            {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
             <div className="mt-5 flex justify-end gap-2">
               <button
                 onClick={accept}
@@ -108,7 +113,7 @@ export function TermsGate({ children }: { children: React.ReactNode }) {
         </div>
       )}
       {status === "error" && (
-        <div className="fixed bottom-4 left-4 right-4 mx-auto max-w-md rounded border border-red-800 bg-red-950 p-3 text-sm text-red-200">
+        <div role="alert" className="fixed bottom-4 left-4 right-4 mx-auto max-w-md rounded border border-red-800 bg-red-950 p-3 text-sm text-red-200">
           Couldn&apos;t check terms status: {error ?? "unknown error"}
         </div>
       )}

@@ -192,7 +192,7 @@ func TestForkRepo_Success(t *testing.T) {
 			return
 		}
 		var req map[string]interface{}
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		if req["name"] != "forked-repo" {
 			http.Error(w, "unexpected fork name", http.StatusBadRequest)
 			return
@@ -234,7 +234,7 @@ func TestImportRepo_Success(t *testing.T) {
 			return
 		}
 		var req map[string]interface{}
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		if req["url"] == "" {
 			http.Error(w, "url required", http.StatusBadRequest)
 			return
@@ -294,7 +294,7 @@ func TestCreateToken_Success(t *testing.T) {
 			return
 		}
 		var req map[string]interface{}
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		if req["repo"] != "my-repo" {
 			http.Error(w, "unexpected repo", http.StatusBadRequest)
 			return

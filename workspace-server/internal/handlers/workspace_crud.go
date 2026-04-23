@@ -149,7 +149,7 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 	if err := validateWorkspaceFields(
 		strField("name"), strField("role"), "" /*model not patchable*/, strField("runtime"),
 	); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace fields"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 

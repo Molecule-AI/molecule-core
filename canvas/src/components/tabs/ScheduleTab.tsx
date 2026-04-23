@@ -351,6 +351,7 @@ export function ScheduleTab({ workspaceId }: Props) {
                 <div className="flex items-center gap-1 flex-shrink-0">
                   <button
                     onClick={() => handleRunNow(sched)}
+                    aria-label={`Run schedule ${sched.name} now`}
                     className="text-[11px] px-1.5 py-0.5 text-blue-400 hover:bg-blue-600/20 rounded transition-colors"
                     title="Run now"
                   >
@@ -358,6 +359,7 @@ export function ScheduleTab({ workspaceId }: Props) {
                   </button>
                   <button
                     onClick={() => handleEdit(sched)}
+                    aria-label={`Edit schedule ${sched.name}`}
                     className="text-[11px] px-1.5 py-0.5 text-zinc-400 hover:bg-zinc-700 rounded transition-colors"
                     title="Edit"
                   >
@@ -365,6 +367,7 @@ export function ScheduleTab({ workspaceId }: Props) {
                   </button>
                   <button
                     onClick={() => setPendingDelete({ id: sched.id, name: sched.name })}
+                    aria-label={`Delete schedule ${sched.name}`}
                     className="text-[11px] px-1.5 py-0.5 text-red-400 hover:bg-red-600/20 rounded transition-colors"
                     title="Delete"
                   >

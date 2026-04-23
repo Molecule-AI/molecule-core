@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import { getKeyLabel } from "@/lib/deploy-preflight";
 
@@ -38,6 +38,7 @@ export function MissingKeysModal({
 }: Props) {
   const [entries, setEntries] = useState<KeyEntry[]>([]);
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const firstInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize entries when modal opens or missingKeys change
   useEffect(() => {
@@ -55,7 +56,14 @@ export function MissingKeysModal({
     setGlobalError(null);
   }, [open, missingKeys]);
 
-  // Keyboard handler
+  // Focus first input when modal opens
+  useEffect(() => {
+    if (!open) return;
+    const raf = requestAnimationFrame(() => {
+      firstInputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
@@ -129,17 +137,23 @@ export function MissingKeysModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
       <div
+        aria-hidden="true"
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         onClick={onCancel}
       />
 
       {/* Dialog */}
-      <div className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl shadow-black/50 max-w-[440px] w-full mx-4 overflow-hidden">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="missing-keys-title"
+        className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl shadow-black/50 max-w-[440px] w-full mx-4 overflow-hidden"
+      >
         {/* Header */}
         <div className="px-5 py-4 border-b border-zinc-800">
           <div className="flex items-center gap-2 mb-1">
-            <div className="w-5 h-5 rounded-md bg-amber-600/20 border border-amber-500/30 flex items-center justify-center">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <div className="w-5 h-5 rounded-md bg-amber-600/20 border border-amber-500/30 flex items-center justify-center" aria-hidden="true">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                 <path
                   d="M6 1L11 10H1L6 1Z"
                   stroke="#fbbf24"
@@ -150,7 +164,7 @@ export function MissingKeysModal({
                 <circle cx="6" cy="8.5" r="0.5" fill="#fbbf24" />
               </svg>
             </div>
-            <h3 className="text-sm font-semibold text-zinc-100">
+            <h3 id="missing-keys-title" className="text-sm font-semibold text-zinc-100">
               Missing API Keys
             </h3>
           </div>
@@ -178,7 +192,7 @@ export function MissingKeysModal({
                 </div>
                 {entry.saved && (
                   <span className="text-[9px] text-emerald-400 bg-emerald-900/30 px-1.5 py-0.5 rounded flex items-center gap-1">
-                    <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                    <svg width="8" height="8" viewBox="0 0 8 8" fill="none" aria-hidden="true">
                       <path d="M1.5 4L3.5 6L6.5 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                     Saved
@@ -193,7 +207,7 @@ export function MissingKeysModal({
                     onChange={(e) => updateEntry(index, { value: e.target.value.trimStart() })}
                     placeholder={entry.key.includes("API_KEY") ? "sk-..." : "Enter value"}
                     type="password"
-                    autoFocus={index === 0}
+                    ref={index === 0 ? firstInputRef : undefined}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && entry.value.trim()) {
                         handleSaveKey(index);
