@@ -73,7 +73,7 @@ func (h *SecretsHandler) List(c *gin.Context) {
 		c.JSON(http.StatusOK, secrets)
 		return
 	}
-	defer globalRows.Close()
+	defer func() { _ = globalRows.Close() }()
 
 	for globalRows.Next() {
 		var key, createdAt, updatedAt string
@@ -154,7 +154,7 @@ func (h *SecretsHandler) Values(c *gin.Context) {
 	globalRows, gErr := db.DB.QueryContext(ctx,
 		`SELECT key, encrypted_value, encryption_version FROM global_secrets`)
 	if gErr == nil {
-		defer globalRows.Close()
+		defer func() { _ = globalRows.Close() }()
 		for globalRows.Next() {
 			var k string
 			var v []byte
@@ -180,7 +180,7 @@ func (h *SecretsHandler) Values(c *gin.Context) {
 		`SELECT key, encrypted_value, encryption_version FROM workspace_secrets WHERE workspace_id = $1`,
 		workspaceID)
 	if wErr == nil {
-		defer wsRows.Close()
+		defer func() { _ = wsRows.Close() }()
 		for wsRows.Next() {
 			var k string
 			var v []byte

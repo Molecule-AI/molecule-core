@@ -62,7 +62,7 @@ var installLimitsLogOnce sync.Once
 // bytes.Buffer with no t.Cleanup dance.
 func logInstallLimitsOnce(w io.Writer) {
 	installLimitsLogOnce.Do(func() {
-		fmt.Fprintf(w,
+		_, _ = fmt.Fprintf(w,
 			"Plugin install limits: body=%d bytes  timeout=%s  staged=%d bytes\n",
 			envx.Int64("PLUGIN_INSTALL_BODY_MAX_BYTES", defaultInstallBodyMaxBytes),
 			envx.Duration("PLUGIN_INSTALL_FETCH_TIMEOUT", defaultInstallFetchTimeout),
@@ -263,7 +263,8 @@ func (h *PluginsHandler) deliverToContainer(ctx context.Context, workspaceID str
 		log.Printf("Plugin install: failed to copy %s to %s: %v", r.PluginName, workspaceID, err)
 		return newHTTPErr(http.StatusInternalServerError, gin.H{"error": "failed to copy plugin to container"})
 	}
-	h.execAsRoot(ctx, containerName, []string{
+	// best-effort: ignore failures (chown failure is logged inside the agent on first plugin load).
+	_, _ = h.execAsRoot(ctx, containerName, []string{
 		"chown", "-R", "1000:1000", "/configs/plugins/" + r.PluginName,
 	})
 	if h.restartFunc != nil {
@@ -420,7 +421,7 @@ func streamDirAsTar(root string, tw *tar.Writer) error {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		_, err = io.Copy(tw, f)
 		return err
 	})

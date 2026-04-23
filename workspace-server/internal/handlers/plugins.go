@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -189,6 +190,8 @@ func (h *PluginsHandler) execInContainerAs(ctx context.Context, containerName, u
 	}
 	defer resp.Close()
 	var stdout bytes.Buffer
-	stdcopy.StdCopy(&stdout, io.Discard, resp.Reader)
+	if _, err := stdcopy.StdCopy(&stdout, io.Discard, resp.Reader); err != nil {
+		return "", fmt.Errorf("stdcopy from container exec: %w", err)
+	}
 	return strings.TrimSpace(stdout.String()), nil
 }

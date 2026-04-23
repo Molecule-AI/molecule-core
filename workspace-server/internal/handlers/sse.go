@@ -79,7 +79,7 @@ func (h *SSEHandler) StreamEvents(c *gin.Context) {
 	defer cancel()
 
 	// Send an initial SSE comment so the client knows the stream is live.
-	fmt.Fprintf(c.Writer, ": ping\n\n")
+	_, _ = fmt.Fprintf(c.Writer, ": ping\n\n")
 	flusher.Flush()
 
 	for {

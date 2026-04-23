@@ -127,7 +127,7 @@ func main() {
 			log.Printf("Control plane provisioner unavailable: %v", err)
 		} else {
 			cpProv = cp
-			defer cpProv.Close()
+			defer func() { _ = cpProv.Close() }()
 			log.Println("Provisioner: Control Plane (auto-detected SaaS tenant)")
 		}
 	} else {
@@ -136,7 +136,7 @@ func main() {
 			log.Printf("Provisioner disabled (Docker not available): %v", err)
 		} else {
 			prov = p
-			defer prov.Close()
+			defer func() { _ = prov.Close() }()
 			log.Println("Provisioner: Docker")
 		}
 	}
