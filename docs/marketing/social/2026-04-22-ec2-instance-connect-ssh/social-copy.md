@@ -78,7 +78,7 @@ Status: Draft — pending Marketing Lead approval + credential availability
 > If you're still `ssh -i key.pem` into your agent fleet — there's a better way.
 >
 > [CTA: docs.molecule.ai/infra/workspace-terminal — pending docs publish]
-> #AgenticAI #MoleculeAI #AWS #DevOps #PlatformEngineering
+> #AIAgents #MoleculeAI #AWS #DevOps #PlatformEngineering
 
 ---
 
@@ -135,7 +135,7 @@ EC2 Instance Connect SSH is live now for all CP-provisioned workspaces.
 **Audience:** DevOps, platform engineers, ML infrastructure teams running agents in AWS
 **Tone:** Practical — the IAM/audit story is the differentiator for security-conscious buyers; the "one click" story is the differentiator for developer audience
 **Differentiation:** No manual SSH key management vs. traditional bastion host approach
-**Hashtags:** #AgenticAI #MoleculeAI #AWS #EC2InstanceConnect #PlatformEngineering #DevOps
+**Hashtags:** #AIAgents #MoleculeAI #AWS #EC2InstanceConnect #PlatformEngineering #DevOps
 **CTA links:** docs pending (workspace-terminal.md docs need to be published)
 
 ---
