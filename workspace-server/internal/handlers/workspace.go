@@ -224,12 +224,16 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 	// External workspaces: no container provisioning — just set the URL and mark online
 	if payload.External {
 		if payload.URL != "" {
-			db.DB.ExecContext(ctx, `UPDATE workspaces SET url = $1, status = 'online', updated_at = now() WHERE id = $2`, payload.URL, id)
+			if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET url = $1, status = 'online', updated_at = now() WHERE id = $2`, payload.URL, id); err != nil {
+				log.Printf("External workspace: failed to update url+status for %s: %v", id, err)
+			}
 			if err := db.CacheURL(ctx, id, payload.URL); err != nil {
 				log.Printf("External workspace: failed to cache URL for %s: %v", id, err)
 			}
 		} else {
-			db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'online', updated_at = now() WHERE id = $1`, id)
+			if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'online', updated_at = now() WHERE id = $1`, id); err != nil {
+				log.Printf("External workspace: failed to mark online for %s: %v", id, err)
+			}
 		}
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_ONLINE", id, map[string]interface{}{
 			"name": payload.Name, "external": true,
@@ -280,12 +284,16 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		// the workspace as failed with a clear message.
 		cfgJSON := fmt.Sprintf(`{"name":%q,"runtime":%q,"tier":%d,"template":%q}`,
 			payload.Name, payload.Runtime, payload.Tier, payload.Template)
-		db.DB.ExecContext(ctx, `
+		if _, err := db.DB.ExecContext(ctx, `
 			INSERT INTO workspace_config (workspace_id, data) VALUES ($1, $2::jsonb)
 			ON CONFLICT (workspace_id) DO UPDATE SET data = $2::jsonb
-		`, id, cfgJSON)
-		db.DB.ExecContext(ctx,
-			`UPDATE workspaces SET status = 'failed', last_sample_error = 'Docker not available — workspace containers require a Docker daemon or external provisioning.', updated_at = now() WHERE id = $1`, id)
+		`, id, cfgJSON); err != nil {
+			log.Printf("Create (no-docker): failed to persist workspace_config for %s: %v", id, err)
+		}
+		if _, err := db.DB.ExecContext(ctx,
+			`UPDATE workspaces SET status = 'failed', last_sample_error = 'Docker not available — workspace containers require a Docker daemon or external provisioning.', updated_at = now() WHERE id = $1`, id); err != nil {
+			log.Printf("Create (no-docker): failed to mark workspace %s failed: %v", id, err)
+		}
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", id, map[string]interface{}{
 			"error": "Docker not available on this platform instance",
 		})

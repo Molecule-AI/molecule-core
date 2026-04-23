@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -125,7 +127,16 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 		Reset         bool   `json:"reset"`          // #12: discard claude-sessions volume before restart
 		RebuildConfig bool   `json:"rebuild_config"` // #239: re-render config volume from org-template source (recovery path when volume was destroyed)
 	}
-	c.ShouldBindJSON(&body)
+	// REAL-BUG fix: previously a malformed JSON body silently produced zero values,
+	// which could mask a caller bug (e.g. apply_template:true sent as a string)
+	// and corrupt restart state. Reject obviously broken bodies with 400 instead.
+	// An entirely empty body remains valid (all fields are optional and zero values
+	// are the documented defaults — ShouldBindJSON returns io.EOF for empty bodies
+	// which we tolerate).
+	if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
 
 	// Resolve template path in priority order:
 	// 1. Explicit template from request body

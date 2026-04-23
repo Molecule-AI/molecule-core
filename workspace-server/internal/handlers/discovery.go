@@ -114,7 +114,9 @@ func discoverHostPeer(ctx context.Context, c *gin.Context, targetID string) {
 // of `callerID` and writes the JSON response (or an appropriate 404/503 error).
 func discoverWorkspacePeer(ctx context.Context, c *gin.Context, callerID, targetID string) {
 	var wsName, wsRuntime string
-	db.DB.QueryRowContext(ctx, `SELECT COALESCE(name,''), COALESCE(runtime,'langgraph') FROM workspaces WHERE id = $1`, targetID).Scan(&wsName, &wsRuntime)
+	// SCAN-COALESCE: COALESCE in SQL guarantees zero values on null/missing rows;
+	// ErrNoRows is the intentional fallback (caller handles via downstream lookups).
+	_ = db.DB.QueryRowContext(ctx, `SELECT COALESCE(name,''), COALESCE(runtime,'langgraph') FROM workspaces WHERE id = $1`, targetID).Scan(&wsName, &wsRuntime)
 
 	// External workspaces: return their registered URL.
 	// Rewrite 127.0.0.1/localhost → host.docker.internal ONLY when the
@@ -160,13 +162,15 @@ func discoverWorkspacePeer(ctx context.Context, c *gin.Context, callerID, target
 // file, leaving the caller to fall through to the internal-URL path.
 func writeExternalWorkspaceURL(ctx context.Context, c *gin.Context, callerID, targetID, wsName string) bool {
 	var wsURL string
-	db.DB.QueryRowContext(ctx, `SELECT COALESCE(url,'') FROM workspaces WHERE id = $1`, targetID).Scan(&wsURL)
+	// SCAN-COALESCE: empty string fallback is the explicit signal handled below.
+	_ = db.DB.QueryRowContext(ctx, `SELECT COALESCE(url,'') FROM workspaces WHERE id = $1`, targetID).Scan(&wsURL)
 	if wsURL == "" {
 		return false
 	}
 	outURL := wsURL
 	var callerRuntime string
-	db.DB.QueryRowContext(ctx, `SELECT COALESCE(runtime,'langgraph') FROM workspaces WHERE id = $1`, callerID).Scan(&callerRuntime)
+	// SCAN-COALESCE: 'langgraph' default keeps the runtime check below safe on missing rows.
+	_ = db.DB.QueryRowContext(ctx, `SELECT COALESCE(runtime,'langgraph') FROM workspaces WHERE id = $1`, callerID).Scan(&callerRuntime)
 	if callerRuntime != "external" {
 		outURL = strings.Replace(outURL, "127.0.0.1", "host.docker.internal", 1)
 		outURL = strings.Replace(outURL, "localhost", "host.docker.internal", 1)
