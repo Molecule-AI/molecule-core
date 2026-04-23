@@ -2,7 +2,7 @@
 **Feature:** `mol_pk_*` — partner-scoped org provisioning API key
 **Status:** PMM DRAFT | **Date:** 2026-04-22
 **Phase:** 34 | **Owner:** PMM
-**Blocking on:** Phase 32 completion + PM input on partner tiers + GA date
+**Blocking on:** PM input on partner tiers + marketplace billing (GA date now confirmed)
 
 ---
 ## Competitive Context
@@ -72,7 +72,9 @@ No direct competitor has a published Partner API Key program at the agent orches
 
 ## Positioning Claims
 
-**Lead claim:** "Molecule AI is the only agent platform with a first-class partner provisioning API. `mol_pk_*` keys let you build agent marketplaces, CI/CD integrations, and white-label platforms on top of Molecule AI — without a browser session."
+**Lead claim:** ✅ VERIFIED (Research team audit, 2026-04-23) — "Molecule AI is the **first** agent platform with a first-class partner provisioning API — letting marketplaces, CI/CD pipelines, and automation platforms create and manage Molecule AI orgs via API, without a browser session."
+
+> **Rationale:** Competitive Intel audited LangGraph Cloud, CrewAI, Azure AI Foundry, Dify, Flowise, and n8n. None have a documented programmatic partner org provisioning API equivalent to `mol_pk_*`. Use **"first-mover"** framing (not "only") for legal defensibility — a competitor could launch tomorrow.
 
 **Supporting claims:**
 1. **Org-scoped by design** — `mol_pk_*` keys cannot escape their org boundary. Compromised keys neutralize with one API call.
@@ -81,13 +83,13 @@ No direct competitor has a published Partner API Key program at the agent orches
 
 **Risks to monitor:**
 - AWS/GCP/Azure publish their own partner/OEM programs → Phase 34 becomes table stakes faster
-- CrewAI ships partner API → first-mover advantage closes
+- CrewAI ships partner API → first-mover window closes; update claim to "pioneered" framing
 
 ---
 
 ## Language to Avoid
 
-- Do not claim "only platform with partner API" unless verified (check CrewAI, LangGraph, AutoGen GitHub)
+- ~~Do not claim "only platform with partner API" unless verified~~ — **RESOLVED:** Use "first-mover" / "first agent platform" language. Do NOT use "only" (legal risk if competitor ships).
 - Do not mention specific pricing tiers until PM confirms
 - Do not promise marketplace billing integration until PM confirms
 
@@ -106,8 +108,8 @@ No direct competitor has a published Partner API Key program at the agent orches
 
 ## Phase 30 Linkage
 
-Phase 30 shipped `mol_ws_*` (per-workspace auth tokens). Phase 34 extends to `mol_pk_*` (partner/platform-level keys). Battlecard cross-sell: "Phase 30 workspace isolation + Phase 34 partner scoping — the only platform with both."
+Phase 30 shipped `mol_ws_*` (per-workspace auth tokens). Phase 34 extends to `mol_pk_*` (partner/platform-level keys). Battlecard cross-sell: ✅ "Phase 30 workspace isolation + Phase 34 partner scoping — **the first agent platform with both layered token scoping and a first-class partner provisioning API.**" — verified 2026-04-23 via competitive audit. Use "first" / "pioneered" framing, not "only".
 
 ---
 
-*PMM draft 2026-04-22 — pending PM input on partner tiers, GA date, and marketplace billing confirmation*
+*PMM draft 2026-04-22 — Marketing Lead 2026-04-23 v2: (1) lead claim updated to verified "first-mover" language per Research team competitive audit (LangGraph Cloud, CrewAI, Azure AI Foundry, Dify, Flowise, n8n — no equivalent `mol_pk_*` found), (2) Phase 30 cross-sell updated to "first agent platform with both" framing, (3) Language to Avoid section resolved. GA DATE CONFIRMED: April 30, 2026. Still awaiting PM input on partner tiers and marketplace billing.*
