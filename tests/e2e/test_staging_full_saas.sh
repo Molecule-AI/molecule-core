@@ -354,9 +354,47 @@ print(parts[0].get('text', '') if parts else '')
 if [ -z "$AGENT_TEXT" ]; then
   fail "A2A returned no text. Raw: $A2A_RESP"
 fi
+
+# Specific error-class checks — each pattern caught a real P0 bug on
+# 2026-04-23 that a generic "error|exception" check missed or misreported:
+#
+#   "[hermes-agent error 401]"       → gateway API_SERVER_KEY not propagated (hermes #12)
+#   "Invalid API key"                → tenant auth chain (CP #238 race)
+#   "model_not_found"                → hermes custom provider slug passthrough (#13)
+#   "Encrypted content is not supported" → hermes codex_responses API misroute (#14)
+#   "Unknown provider"               → bridge misconfigured PROVIDER= (regression of #13 fix)
+#   "hermes-agent unreachable"       → gateway process died
+#
+# Fail LOUD with the specific pattern so CI log + alert channel makes the
+# regression unambiguous.
+if echo "$AGENT_TEXT" | grep -qF "[hermes-agent error 401]"; then
+  fail "A2A — REGRESSION: hermes gateway auth broken (API_SERVER_KEY not in runtime env). See template-hermes#12. Raw: $AGENT_TEXT"
+fi
+if echo "$AGENT_TEXT" | grep -qF "hermes-agent unreachable"; then
+  fail "A2A — REGRESSION: hermes gateway process down. Check /var/log/hermes-gateway.log on the workspace EC2. Raw: $AGENT_TEXT"
+fi
+if echo "$AGENT_TEXT" | grep -qF "model_not_found"; then
+  fail "A2A — REGRESSION: model slug passed through with provider prefix. See template-hermes#13. Raw: $AGENT_TEXT"
+fi
+if echo "$AGENT_TEXT" | grep -qF "Encrypted content is not supported"; then
+  fail "A2A — REGRESSION: hermes custom provider hit /v1/responses instead of chat_completions. Config.yaml should declare api_mode: chat_completions. See template-hermes#14. Raw: $AGENT_TEXT"
+fi
+if echo "$AGENT_TEXT" | grep -qF "Unknown provider"; then
+  fail "A2A — REGRESSION: install.sh set PROVIDER to a value not in hermes's registry. Run 'hermes doctor' on the workspace to see valid values. Raw: $AGENT_TEXT"
+fi
+# Generic catch-all — falls through if none of the known regressions hit.
 if echo "$AGENT_TEXT" | grep -qiE "error|exception"; then
   fail "A2A returned an error-shaped response: $AGENT_TEXT"
 fi
+
+# Content assertion — the prompt asks the model to reply with exactly "PONG".
+# Real models produce "PONG" (possibly with minor wrapping); a broken pipeline
+# that echoes the prompt back or returns truncated context won't. Normalize
+# to uppercase before matching to tolerate "pong" / "Pong".
+if ! echo "$AGENT_TEXT" | tr '[:lower:]' '[:upper:]' | grep -qF "PONG"; then
+  fail "A2A reply didn't contain expected PONG token. Real: $AGENT_TEXT"
+fi
+
 ok "A2A parent round-trip succeeded: \"${AGENT_TEXT:0:80}\""
 
 # ─── 9. HMA + peers + activity (full mode) ─────────────────────────────
