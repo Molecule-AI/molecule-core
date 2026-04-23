@@ -478,9 +478,9 @@ func TestAdminAuth_InvalidBearer_Returns401(t *testing.T) {
 // org_id lookup is performed by the middleware.
 const orgTokenValidateQuery = "SELECT id, prefix, org_id FROM org_api_tokens"
 
-// orgTokenLastUsedQuery matches the best-effort last_used_at UPDATE that
+// orgTokenLastUsedQueryV2 matches the best-effort last_used_at UPDATE that
 // orgtoken.Validate runs after a successful scan.
-const orgTokenLastUsedQuery = "UPDATE org_api_tokens SET last_used_at"
+const orgTokenLastUsedQueryV2 = "UPDATE org_api_tokens SET last_used_at"
 
 // TestAdminAuth_OrgToken_SetsOrgID verifies that AdminAuth's org-token tier
 // reads the org_id column and sets it in the gin context so that requireCallerOwnsOrg
@@ -532,7 +532,7 @@ func TestAdminAuth_OrgToken_SetsOrgID(t *testing.T) {
 				WillReturnRows(orgIDRow)
 
 			// Best-effort last_used_at UPDATE (after Validate).
-			mock.ExpectExec(orgTokenLastUsedQuery).
+			mock.ExpectExec(orgTokenLastUsedQueryV2).
 				WithArgs("tok-org-1").
 				WillReturnResult(sqlmock.NewResult(0, 1))
 
