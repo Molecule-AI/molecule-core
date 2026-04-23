@@ -1,0 +1,10 @@
+version: "2"
+run:
+  timeout: 3m
+linters:
+  disable:
+    - errcheck
+    - staticcheck
+    - ineffassign
+    - gosimple
+    - deadcode
