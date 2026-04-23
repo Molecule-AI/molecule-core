@@ -80,6 +80,12 @@ jobs:
           args: --timeout 3m
         continue-on-error: true  # Warn but don't block until codebase is clean
       - name: Run tests with race detection and coverage
+        env:
+          # Bypass SSRF DNS checks in unit tests. httptest.NewServer uses
+          # non-routable IPs (127.0.0.1, RFC 5737 TEST-NET, etc.) that
+          # fail isSafeURL lookups but represent legitimate test fixtures.
+          # The SSRF defence is exercised exhaustively in ssrf_test.go.
+          MOLECULE_TEST_SKIP_SSRF: "1"
         run: go test -race -coverprofile=coverage.out ./...
       - name: Check coverage baseline
         run: |
