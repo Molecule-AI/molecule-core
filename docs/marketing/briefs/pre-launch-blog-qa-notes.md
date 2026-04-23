@@ -64,10 +64,8 @@ Social queue notes file should live on staging under `docs/marketing/blog/2026-0
 | Watch item | Brief approved claim | Risk if not verified |
 |---|---|---|
 | MCP server names | Chrome DevTools MCP, Playwright MCP, Cloudflare Artifacts, EC2 Instance Connect, WriteFile, ReadFile, Glob, Grep, Slack, Discord adapters | Omitting or misnaming a server category is an accuracy error |
-| Governance claims | Org-scoped API keys + Platform Instructions (Enterprise plans) | Platform Instructions confirmed Enterprise plans only (AdminAuth-gated, router.go:376). Blog post correct; community FAQ corrected 2026-04-24. |
-| Platform Instructions plan gate | Enterprise-only feature | ✅ CONFIRMED 2026-04-24: Enterprise plans only per code review + plan-gating note. Blog post correct; community FAQ corrected. |
-| Governance claims | Anchored to org-scoped API keys + Platform Instructions (enterprise) | Must not claim governance features are on all plans |
-| Platform Instructions plan gate | Enterprise-only feature | Cannot appear as a general availability claim |
+| Governance claims | Org-scoped API keys + Platform Instructions | Platform Instructions confirmed all plans (community FAQ). Org-scoped API keys — verify plan gate. |
+| Platform Instructions plan gate | Enterprise-only feature | Corrected 2026-04-23: community FAQ says all plans. PMM has updated all Phase 34 materials. Verify blog copy matches. |
 | Blog title/URL alignment | Brief targets `mcp-server-list-explainer` keyword | Title should match SEO intent |
 
 **PMM action:** Flag to Marketing Lead and Content Marketer — blog post not on staging, QA blocked. Request Content Marketer commit the file.
