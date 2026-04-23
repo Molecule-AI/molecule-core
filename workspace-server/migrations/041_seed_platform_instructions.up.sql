@@ -21,7 +21,9 @@ WHERE scope = 'global' AND title IN (
     'Token expiry is a known issue, not a P0',
     'Slack noise discipline',
     'Identity tag every external comment',
-    'Staging-first workflow, no exceptions'
+    'Staging-first workflow, no exceptions',
+    'Merge authority — Leads merge in their domain',
+    'PR merge approval gate'
 );
 
 INSERT INTO platform_instructions (scope, scope_target, title, content, priority, enabled)
@@ -84,5 +86,29 @@ The team shares one GitHub App identity. Without tags, post-incident review cann
 '- All PRs target staging, never main directly.
 - staging → main is approved by the human CEO.
 - No --admin merges (branch protection blocks this).
-- If CI is red on staging, fix the underlying issue. Never disable tests, --no-verify, or //nolint to silence linters.', 65, true);
+- If CI is red on staging, fix the underlying issue. Never disable tests, --no-verify, or //nolint to silence linters.', 65, true),
+
+('global', NULL, 'Merge authority — Leads merge in their domain',
+'Engineers do NOT merge — they raise PRs and respond to review comments.
+
+Leads merge in their domain (Dev Lead for code, Marketing Lead for content, Infra Lead for infra/CI). Each Lead is the merger for their team''s PRs.
+
+Triage Operator triages cross-org and may merge clearly mechanical PRs (typo fixes, lint cleanup) but escalates substantive ones to the owning Lead.
+
+PM does NOT merge. PM does top-level decisions, CEO comms (Telegram, max 2-3/day), task distribution, big-picture monitoring. If a merge decision needs PM input, the Lead asks via delegate_task — PM responds with a directional decision, the Lead executes.', 60, true),
+
+('global', NULL, 'PR merge approval gate',
+'Before any Lead runs gh pr merge, ALL FOUR of these must be on the PR:
+1. All required CI checks green (gh pr checks <N>)
+2. [qa-agent] APPROVED — QA ran tests and reports clean (or [qa-agent] N/A waiver for docs-only)
+3. [security-auditor-agent] APPROVED (or N/A waiver for pure docs/marketing)
+4. [uiux-agent] APPROVED — UIUX reviewed canvas/UI changes (or N/A waiver for backend-only)
+
+Each reviewer must verify before claiming (rule 1).
+
+If any reviewer posts CHANGES REQUESTED, the Lead does NOT merge.
+
+For trivial PRs (1-line typo, lint-only, doc-only), Lead may waive QA/Security/UIUX with explicit [<lead>-agent] WAIVE-REVIEW: <reason>.
+
+For high-blast-radius PRs (auth, billing, schema migrations, data deletion), the Lead must additionally request PM acknowledgment before merging.', 55, true);
 

@@ -95,7 +95,55 @@ This is required because the team shares one GitHub App identity (`molecule-ai[b
 
 ---
 
-## 9. Memory and context hygiene
+## 9. Merge authority — Leads merge in their domain, gated on multi-role approval
+
+**Engineers do NOT merge.** They raise PRs and respond to review comments.
+
+**Leads merge in their domain** (Dev Lead for code, Marketing Lead for content, Infra Lead for infra/CI, etc.). Each Lead is the merger for their team's PRs.
+
+**Triage Operator** triages cross-org (close stale, label, identify gate-ready PRs). May merge clearly mechanical/safe PRs (typo fixes, lint cleanup) but escalates anything substantive to the owning Lead.
+
+**PM does NOT merge.** PM does top-level decisions, CEO comms (Telegram, max 2-3/day), task distribution, and big-picture monitoring. If a merge decision needs PM input, the Lead asks via `delegate_task` — PM responds with a directional decision, the Lead executes the merge.
+
+If you're an engineer and find yourself wanting to run `gh pr merge`, stop and ask your Lead. If you're a Lead, follow rule 10 below before merging.
+
+---
+
+## 10. PR merge approval gate (the Lead checks before merging)
+
+Before a Lead runs `gh pr merge`, **all four** of these must be on the PR:
+
+1. **All required CI checks green** — `gh pr checks <N>` shows every gating check passing. Pending = not ready. Failed = blocker.
+2. **`[qa-agent] APPROVED`** — QA Engineer ran `npm test` / `go test` / E2E suite and reports clean (or `[qa-agent] N/A — docs only` waiver)
+3. **`[security-auditor-agent] APPROVED`** — Security Auditor reviewed for CWE classes (or `[security-auditor-agent] N/A — pure docs/marketing/no code change` waiver)
+4. **`[uiux-agent] APPROVED`** — UIUX Designer reviewed any canvas/UI changes (or `[uiux-agent] N/A — backend-only` waiver)
+
+Each reviewer MUST follow rule 1 (verify before claiming) before posting APPROVED.
+
+If any reviewer posts `[<role>-agent] CHANGES REQUESTED: <reasons>`, the Lead does NOT merge — the PR goes back to the author. The Lead tracks the back-and-forth but does not unilaterally override.
+
+For trivially scoped PRs (1-line typo fixes, lint-only changes, comment edits, doc-only), the Lead may waive QA/Security/UIUX with an explicit `[<lead>-agent] WAIVE-REVIEW: <reason>` comment. Use sparingly — bias toward requiring all four sign-offs.
+
+For high-blast-radius PRs (auth, billing, schema migrations, data deletion, security-sensitive), the Lead must additionally request PM acknowledgment before merging — these are escalation-class.
+
+---
+
+## 11. Decision escalation ladder
+
+When stuck on a decision:
+
+| Stuck level | Escalates to | Escalates how |
+|---|---|---|
+| Engineer can't decide between approaches | Their Lead | `delegate_task` with `[engineer-agent] DECISION NEEDED: option A vs B, my recommendation is...` |
+| Lead can't decide cross-team trade-off | PM | `delegate_task` with `[lead-agent] DECISION NEEDED: ...` |
+| PM can't decide product direction / business / pricing / hiring / partnerships | CEO | Telegram message ONLY (max 2-3/day per rule 6 + PM's 4-line cap) |
+| CEO away → blocking decision | Wait — do not invent the decision yourself | Pick the safest reversible option and document why |
+
+Never escalate up two levels. Never sideways-escalate (Lead → Lead). Never invent a decision the next level should make.
+
+---
+
+## 12. Memory and context hygiene
 
 - Use `commit_memory` to record real findings; do not commit "reflections" or "I noticed X" without a tool output backing it
 - Memory is shared across the role — your future self will read what you write today
