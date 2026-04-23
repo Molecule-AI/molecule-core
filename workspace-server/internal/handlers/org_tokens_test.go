@@ -66,8 +66,8 @@ func TestOrgTokenHandler_List_HappyPath(t *testing.T) {
 
 	now := time.Now().UTC()
 	mock.ExpectQuery(`SELECT id, prefix.*FROM org_api_tokens`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "name", "created_by", "created_at", "last_used_at"}).
-			AddRow("tok-1", "abcd1234", "zapier", "session", now, nil))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "name", "org_id", "created_by", "created_at", "last_used_at"}).
+			AddRow("tok-1", "abcd1234", "zapier", nil, "session", now, nil))
 
 	c, w := buildCtx("GET", "/org/tokens", "")
 	h.List(c)
