@@ -73,20 +73,29 @@ func TestTerminalConnect_KI005_RejectsUnauthorizedCrossWorkspace(t *testing.T) {
 	canCommunicateCheck = func(callerID, targetID string) bool { return false }
 	defer func() { canCommunicateCheck = prev }()
 
-	// Token lookup: ws-caller's token is valid. ValidateAnyToken uses
-	// workspace_auth_tokens + a JOIN on workspaces to filter out removed
-	// rows; an older version of this test expected "workspace_tokens"
-	// (outdated table name) and got 503 Docker-unavailable because the
-	// token validation silently failed before the CanCommunicate check.
-	rows := sqlmock.NewRows([]string{"id"}).AddRow("tok-1")
-	mock.ExpectQuery(`SELECT t\.id\s+FROM workspace_auth_tokens t`).
+	// Token lookup: ws-caller's token is valid. HandleConnect calls ValidateToken
+	// (workspace-scoped), not ValidateAnyToken — it expects t.id AND t.workspace_id
+	// plus a JOIN on workspaces. Update from ValidateAnyToken pattern (single
+	// column, no JOIN) to match ValidateToken's actual query.
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id\s+FROM workspace_auth_tokens t\s+JOIN workspaces w ON w\.id = t\.workspace_id`).
 		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(rows)
-	// ValidateAnyToken also fires a best-effort last_used_at UPDATE after
-	// successful validation. Accept it so ExpectationsWereMet passes.
+		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("tok-1", "ws-caller"))
 	mock.ExpectExec(`UPDATE workspace_auth_tokens SET last_used_at`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// CanCommunicate check: caller and target have no relationship.
+	mock.ExpectQuery(`SELECT id, parent_id FROM workspaces WHERE id`).
+		WithArgs("ws-caller").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id"}).AddRow("ws-caller", nil))
+	mock.ExpectQuery(`SELECT id, parent_id FROM workspaces WHERE id`).
+		WithArgs("ws-target").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id"}).AddRow("ws-target", nil))
+
+	// Workspace existence check (nil instance_id → local Docker path).
+	mock.ExpectQuery("SELECT COALESCE").
+		WithArgs("ws-target").
+		WillReturnRows(sqlmock.NewRows([]string{"instance_id"}).AddRow(""))
 
 	h := NewTerminalHandler(nil) // nil docker → local path
 	w := httptest.NewRecorder()
@@ -385,8 +394,10 @@ func TestTerminalConnect_KI005_SkipsCheckWithoutHeader(t *testing.T) {
 
 // TestTerminalConnect_KI005_RejectsInvalidToken tests that an invalid bearer
 // token also results in a non-200 response (falls through to Docker auth).
-// ValidateAnyToken returns error → CanCommunicate is never called.
+// ValidateToken returns error → CanCommunicate is never called.
 func TestTerminalConnect_KI005_RejectsInvalidToken(t *testing.T) {
+	mock := setupTestDB(t)
+
 	canCommunicateCalled := false
 	prev := canCommunicateCheck
 	canCommunicateCheck = func(callerID, targetID string) bool {
@@ -394,6 +405,12 @@ func TestTerminalConnect_KI005_RejectsInvalidToken(t *testing.T) {
 		return true
 	}
 	defer func() { canCommunicateCheck = prev }()
+
+	// ValidateToken: no row matches the invalid token hash → ErrInvalidToken
+	// → 401 before CanCommunicate is called.
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id\s+FROM workspace_auth_tokens t\s+JOIN workspaces w ON w\.id = t\.workspace_id`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}))
 
 	h := NewTerminalHandler(nil)
 	w := httptest.NewRecorder()
@@ -418,12 +435,27 @@ func TestTerminalConnect_KI005_RejectsInvalidToken(t *testing.T) {
 // TestTerminalConnect_KI005_AllowsSiblingWorkspace tests the sibling path:
 // two workspaces with the same parent ID should be allowed to communicate.
 func TestTerminalConnect_KI005_AllowsSiblingWorkspace(t *testing.T) {
+	mock := setupTestDB(t)
+
 	prev := canCommunicateCheck
 	canCommunicateCheck = func(callerID, targetID string) bool {
 		// Simulate sibling: same parent
 		return callerID == "ws-pm" && targetID == "ws-dev"
 	}
 	defer func() { canCommunicateCheck = prev }()
+
+	// ValidateToken: caller token is valid for ws-pm.
+	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id\s+FROM workspace_auth_tokens t\s+JOIN workspaces w ON w\.id = t\.workspace_id`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("tok-pm", "ws-pm"))
+	mock.ExpectExec(`UPDATE workspace_auth_tokens SET last_used_at`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Workspace existence check for target.
+	mock.ExpectQuery("SELECT COALESCE").
+		WithArgs("ws-dev").
+		WillReturnRows(sqlmock.NewRows([]string{"instance_id"}).AddRow(""))
 
 	h := NewTerminalHandler(nil)
 	w := httptest.NewRecorder()
