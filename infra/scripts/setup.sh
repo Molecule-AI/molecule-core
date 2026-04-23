@@ -26,23 +26,30 @@ echo "==> Verifying Redis KEA config..."
 KEA=$(docker compose -f "$ROOT_DIR/docker-compose.infra.yml" exec -T redis redis-cli config get notify-keyspace-events | tail -1)
 echo "    notify-keyspace-events = $KEA"
 
-echo "==> Running migrations..."
-MIGRATIONS_DIR="$ROOT_DIR/workspace-server/migrations"
-if [ -d "$MIGRATIONS_DIR" ]; then
-  for f in "$MIGRATIONS_DIR"/*.sql; do
-    echo "    Applying $(basename "$f")..."
-    docker compose -f "$ROOT_DIR/docker-compose.infra.yml" exec -T postgres \
-      psql -U "${POSTGRES_USER:-dev}" -d "${POSTGRES_DB:-molecule}" -f - < "$f"
-  done
-  echo "    Migrations complete."
-else
-  echo "    No migrations directory found, skipping."
-fi
+# Migrations are intentionally not applied here. The platform's own runner
+# (workspace-server/internal/db/postgres.go::RunMigrations) tracks applied
+# files in `schema_migrations` on every boot. Applying them out-of-band via
+# psql leaves that table empty, so the platform re-applies everything and
+# fails on non-idempotent ALTER TABLE statements. Let `go run ./cmd/server`
+# handle it.
 
 echo "==> Infrastructure ready!"
 echo "    Postgres: localhost:5432"
 echo "    Redis:    localhost:6379"
 echo "    Langfuse: localhost:3001"
+echo "    Temporal: localhost:7233 (gRPC) / localhost:8233 (UI)"
+echo ""
+echo "    Next: cd workspace-server && go run ./cmd/server"
+echo "          (the platform applies pending migrations on first boot)"
+
+# Source .env if it exists so the ADMIN_TOKEN check below reflects what the
+# platform will actually see at startup, not just the current shell env.
+if [ -f "$ROOT_DIR/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$ROOT_DIR/.env"
+  set +a
+fi
 
 # Security check — issue #684 (AdminAuth bearer bypass, PR #729).
 # Without ADMIN_TOKEN, any valid workspace bearer token can call /admin/* routes.
