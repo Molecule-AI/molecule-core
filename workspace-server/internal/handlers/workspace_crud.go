@@ -309,7 +309,7 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 					descendantIDs = append(descendantIDs, descID)
 				}
 			}
-			descRows.Close()
+			_ = descRows.Close()
 		}
 	}
 
@@ -359,7 +359,8 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 	// will see status='removed' and bail out early.
 	for _, descID := range descendantIDs {
 		if h.provisioner != nil {
-			h.provisioner.Stop(ctx, descID)
+			// best-effort: cleanup path, container may already be stopped/removed.
+			_ = h.provisioner.Stop(ctx, descID)
 			if err := h.provisioner.RemoveVolume(ctx, descID); err != nil {
 				log.Printf("Delete descendant %s volume removal warning: %v", descID, err)
 			}
@@ -370,7 +371,8 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 
 	// Stop + remove volume for the workspace itself
 	if h.provisioner != nil {
-		h.provisioner.Stop(ctx, id)
+		// best-effort: cleanup path, container may already be stopped/removed.
+		_ = h.provisioner.Stop(ctx, id)
 		if err := h.provisioner.RemoveVolume(ctx, id); err != nil {
 			log.Printf("Delete %s volume removal warning: %v", id, err)
 		}

@@ -826,12 +826,12 @@ func TestApplyTierConfig_T3_UsesEnvOverride(t *testing.T) {
 	ApplyTierConfig(hc, cfg, "ws-abc123-configs:/configs", "ws-abc123")
 
 	wantMem := int64(8192) * 1024 * 1024
-	if hc.Resources.Memory != wantMem {
-		t.Errorf("T3 memory override: got %d, want %d", hc.Resources.Memory, wantMem)
+	if hc.Memory != wantMem {
+		t.Errorf("T3 memory override: got %d, want %d", hc.Memory, wantMem)
 	}
 	wantCPU := int64(4_000_000_000)
-	if hc.Resources.NanoCPUs != wantCPU {
-		t.Errorf("T3 CPU override: got %d NanoCPUs, want %d", hc.Resources.NanoCPUs, wantCPU)
+	if hc.NanoCPUs != wantCPU {
+		t.Errorf("T3 CPU override: got %d NanoCPUs, want %d", hc.NanoCPUs, wantCPU)
 	}
 	if !hc.Privileged || hc.PidMode != "host" {
 		t.Errorf("T3 override should preserve privileged/pid-host flags, got Privileged=%v PidMode=%q",

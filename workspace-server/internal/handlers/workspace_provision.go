@@ -38,7 +38,7 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 	globalRows, globalErr := db.DB.QueryContext(ctx,
 		`SELECT key, encrypted_value, encryption_version FROM global_secrets`)
 	if globalErr == nil {
-		defer globalRows.Close()
+		defer func() { _ = globalRows.Close() }()
 		for globalRows.Next() {
 			var k string
 			var v []byte
@@ -601,7 +601,7 @@ func loadWorkspaceSecrets(ctx context.Context, workspaceID string) (map[string]s
 	wsRows, err := db.DB.QueryContext(ctx,
 		`SELECT key, encrypted_value, encryption_version FROM workspace_secrets WHERE workspace_id = $1`, workspaceID)
 	if err == nil {
-		defer wsRows.Close()
+		defer func() { _ = wsRows.Close() }()
 		for wsRows.Next() {
 			var k string
 			var v []byte

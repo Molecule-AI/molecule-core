@@ -297,7 +297,7 @@ func (h *MCPHandler) Stream(c *gin.Context) {
 		case <-ctx.Done():
 			return
 		case <-ping.C:
-			fmt.Fprintf(c.Writer, ": ping\n\n")
+			_, _ = fmt.Fprintf(c.Writer, ": ping\n\n")
 			flusher.Flush()
 		}
 	}

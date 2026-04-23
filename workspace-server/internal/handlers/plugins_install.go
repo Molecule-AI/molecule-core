@@ -59,7 +59,7 @@ func (h *PluginsHandler) Install(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "plugin install failed"})
 		return
 	}
-	defer os.RemoveAll(result.StagedDir)
+	defer func() { _ = os.RemoveAll(result.StagedDir) }()
 
 	// Org plugin allowlist gate (#591).
 	// If the workspace's org has a non-empty allowlist, the plugin must be
@@ -137,8 +137,9 @@ func (h *PluginsHandler) Uninstall(c *gin.Context) {
 		return
 	}
 
-	// Verify deletion before restart
-	h.execInContainer(ctx, containerName, []string{"sync"})
+	// Verify deletion before restart.
+	// best-effort: ignore failures (sync is a hint, not a correctness requirement).
+	_, _ = h.execInContainer(ctx, containerName, []string{"sync"})
 
 	// Auto-restart (small delay to ensure fs writes are flushed)
 	if h.restartFunc != nil {
@@ -224,7 +225,7 @@ func (h *PluginsHandler) Download(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "plugin download failed"})
 		return
 	}
-	defer os.RemoveAll(result.StagedDir)
+	defer func() { _ = os.RemoveAll(result.StagedDir) }()
 
 	// Sanity: resolved plugin name must match the URL path param.
 	// Resolvers can return a plugin.yaml-derived name that differs
