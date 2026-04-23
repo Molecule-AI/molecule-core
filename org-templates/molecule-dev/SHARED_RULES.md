@@ -128,7 +128,26 @@ For high-blast-radius PRs (auth, billing, schema migrations, data deletion, secu
 
 ---
 
-## 11. Decision escalation ladder
+## 11. Per-role least-privilege secrets
+
+Your workspace only has the secrets your role needs. See [SECRETS_MATRIX.md](./SECRETS_MATRIX.md) for the full table.
+
+Examples:
+
+- Engineers have `GH_TOKEN` scoped to "PR author" — `gh pr create` works, `gh pr merge` does not (and you shouldn't try, see rule 9)
+- Marketing Lead has LinkedIn + X API keys; other marketing roles do NOT (they draft, Marketing Lead publishes)
+- PM has the `TELEGRAM_BOT_TOKEN` for CEO comms; nobody else does
+- Production AWS/Fly/Vercel keys live ONLY in DevOps/SRE/Infra-Runtime-BE workspaces
+
+If you find yourself wanting a secret you don't have, STOP. Either:
+- Your role isn't supposed to do that action — escalate per rule 12
+- The matrix is wrong — file an issue tagged `area:secrets-matrix`, don't try to acquire the secret on your own
+
+Never paste secrets into Slack, GitHub comments, PR descriptions, issue bodies, or memory commits. The 24h log shows multiple agents asking each other for PATs in `#ops` — that's both rule 5 violation (token expiry escalation) and a secrets-handling violation.
+
+---
+
+## 12. Decision escalation ladder
 
 When stuck on a decision:
 
@@ -143,7 +162,37 @@ Never escalate up two levels. Never sideways-escalate (Lead → Lead). Never inv
 
 ---
 
-## 12. Memory and context hygiene
+## 13. Pickup work from your queue, fall back to idle work
+
+When you wake up (cron tick or A2A delegation), check for queued work in priority order:
+
+1. **Direct A2A delegation** — if your parent delegated something via `delegate_task`, that's first priority. Finish it before picking up anything else.
+2. **Your label-scoped issue queue:** `gh issue list --repo Molecule-AI/molecule-core --state open --label "area:<your-role>" --label "needs-work" --json number,title,labels,createdAt --jq 'sort_by(.createdAt)'`
+3. **Generic backlog claim** — issues labeled `needs-work` with no `area:*` label assigned, that match your skill set
+4. **Idle prompt** (your `idle-prompt.md`) — only if 1+2+3 all returned nothing
+
+When you claim from the issue queue:
+- Self-assign the issue (`gh issue edit <N> --add-assignee @me` if your account has it; otherwise comment `[<role>-agent] CLAIMING #<N>`)
+- Drop a `[<role>-agent] CLAIMED at HH:MM UTC — ETA <time>` comment so peers don't double-claim
+- If you can't finish in this cycle, leave a `[<role>-agent] IN-PROGRESS — picking up next cycle` note before yielding
+
+This makes the system pull-based (agents fetch work) instead of purely push-based (PM has to dispatch every task). Idle agents stay productive without waiting for PM to notice them.
+
+---
+
+## 14. Adaptive cadence — go quieter when idle
+
+If your last 3 cycles all reported "no work, no claims, no escalations":
+
+- Note in `commit_memory` with key `idle-streak` how many quiet cycles in a row
+- After 6+ consecutive quiet cycles, post a single `[<role>-agent] HEARTBEAT-IDLE-LONG` once per shift to your channel and back off your effective polling
+- Don't post the same "idle, clean" message every 5 minutes — see rule 6 (Slack noise discipline)
+
+When the queue refills, you'll be woken by the next A2A delegation or the next cron tick — no need to spin.
+
+---
+
+## 15. Memory and context hygiene
 
 - Use `commit_memory` to record real findings; do not commit "reflections" or "I noticed X" without a tool output backing it
 - Memory is shared across the role — your future self will read what you write today
