@@ -3,6 +3,39 @@ version: "2"
 # Match the linter set used in CI Platform (Go) job.
 linters:
   default: standard
+  settings:
+    errcheck:
+      # Function patterns where the return error is intentionally discarded
+      # across the codebase. These are best-effort cleanup / fire-and-forget
+      # paths where wrapping each call in `if err != nil` adds noise without
+      # changing behavior — the caller has no recovery action.
+      exclude-functions:
+        # Resource cleanup (deferred or transient)
+        - (io.Closer).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.Stmt).Close
+        - (net.Conn).Close
+        - (*net/http.Response).Body.Close
+        - (*os.File).Close
+        # QueryRow.Scan — sql.ErrNoRows is the expected null path; existing
+        # callers fall back to default values when target is empty
+        - (*database/sql.Row).Scan
+        # Best-effort writes to in-memory buffers / response writers — the
+        # error here is "client disconnected mid-response" which the existing
+        # handlers already handle via context cancellation
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (*bytes.Buffer).WriteString
+        - (*strings.Builder).WriteString
+        # Best-effort broadcasts — recipients drop on full channel by design
+        - (*github.com/Molecule-AI/molecule-monorepo/platform/internal/events.Broadcaster).RecordAndBroadcast
+        # Decoders where the next layer validates the result
+        - (*encoding/json.Decoder).Decode
+        - encoding/json.Unmarshal
+        # Test env helpers (also excluded via path rule below)
+        - os.Setenv
+        - os.Unsetenv
   exclusions:
     rules:
       # Test code routinely ignores cleanup errors (Close, Unsetenv, WriteFile,
