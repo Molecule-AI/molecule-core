@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -855,7 +856,7 @@ func TestRestart_ParentPaused(t *testing.T) {
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	errMsg, _ := resp["error"].(string)
-	if !containsStr(errMsg, "Parent Agent") {
+	if !strings.Contains(errMsg, "Parent Agent") {
 		t.Errorf("expected error to mention parent name, got %q", errMsg)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
