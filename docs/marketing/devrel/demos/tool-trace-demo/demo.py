@@ -50,6 +50,17 @@ except ImportError:
 PLATFORM_URL = "https://your-deployment.moleculesai.app"  # Override via env
 WORKSPACE_TOKEN = "your-workspace-token"                   # Override via env
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Utilities
+# ─────────────────────────────────────────────────────────────────────────────
+
+def truncate(value: Any, max_chars: int) -> str:
+    """Truncate a value to at most max_chars characters."""
+    s = str(value) if not isinstance(value, str) else value
+    return s[:max_chars]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Data models
 # ─────────────────────────────────────────────────────────────────────────────
