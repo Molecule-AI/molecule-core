@@ -55,12 +55,37 @@ func NewTerminalHandler(cli *client.Client) *TerminalHandler {
 	return &TerminalHandler{docker: cli}
 }
 
-// HandleConnect handles WS /workspaces/:id/terminal. Routes to the remote
-// path (aws ec2-instance-connect ssh + docker exec) when the workspace row
-// has an instance_id; falls back to local Docker otherwise.
+// canCommunicateCheck is the communication-authorization predicate used by
+// HandleConnect to enforce the KI-005 workspace-hierarchy guard.
+// Exposed as a package var so tests can stub it without DB fixtures.
+var canCommunicateCheck = registry.CanCommunicate
+
+// HandleConnect handles WS /workspaces/:id/terminal. Checks CanCommunicate
+// hierarchy (KI-005) before routing: remote path (EC2) if instance_id is set,
+// local Docker otherwise.
 func (h *TerminalHandler) HandleConnect(c *gin.Context) {
-	workspaceID := c.Param("id")
+	targetID := c.Param("id")
 	ctx := c.Request.Context()
+
+	// KI-005 fix: enforce CanCommunicate hierarchy check before granting
+	// terminal access. WorkspaceAuth validates the bearer's token, but the
+	// token is scoped to a specific workspace ID — Workspace A's token can
+	// reach Workspace A's terminal. Without CanCommunicate, Workspace A could
+	// also reach Workspace B's terminal if it knows B's UUID (enumeration
+	// via canvas, logs, or delegation). Shell access is more dangerous than
+	// A2A message-passing, so we apply the same hierarchy check here.
+	callerID := c.GetHeader("X-Workspace-ID")
+	if callerID != "" {
+		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
+		if tok != "" {
+			if err := wsauth.ValidateAnyToken(ctx, db.DB, tok); err == nil {
+				if !canCommunicateCheck(callerID, targetID) {
+					c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to access this workspace's terminal"})
+					return
+				}
+			}
+		}
+	}
 
 	// Check for CP-provisioned workspace (instance_id persisted by
 	// provisionWorkspaceCP → migration 038). Null instance_id means the
@@ -68,26 +93,138 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 	var instanceID string
 	db.DB.QueryRowContext(ctx,
 		`SELECT COALESCE(instance_id, '') FROM workspaces WHERE id = $1`,
-		workspaceID).Scan(&instanceID)
+		targetID).Scan(&instanceID)
 
 	if instanceID != "" {
-		h.handleRemoteConnect(c, workspaceID, instanceID)
+		h.handleRemoteConnect(c, targetID, instanceID)
 		return
 	}
 
-	h.handleLocalConnect(c, workspaceID)
+	h.handleLocalConnect(c, targetID)
 }
 
 // handleLocalConnect attaches to a Docker container running on this
 // tenant's Docker daemon. Original behavior preserved exactly.
 func (h *TerminalHandler) handleLocalConnect(c *gin.Context, workspaceID string) {
-// canCommunicateCheck is the communication-authorization predicate used by
-// HandleConnect to enforce the KI-005 workspace-hierarchy guard.
-// Exposed as a package var so tests can stub it without DB fixtures.
-var canCommunicateCheck = registry.CanCommunicate
+	if h.docker == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Docker not available"})
+		return
+	}
 
-// HandleConnect handles WS /workspaces/:id/terminal
-func (h *TerminalHandler) HandleConnect(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	// Try multiple container name patterns:
+	// 1. Provisioner naming: ws-{id[:12]}
+	// 2. Full workspace ID fallback
+	// 3. Workspace name from DB (normalized to lowercase-hyphen)
+	name := provisioner.ContainerName(workspaceID)
+	candidates := []string{name}
+	if name != "ws-"+workspaceID {
+		candidates = append(candidates, "ws-"+workspaceID)
+	}
+
+	// Look up workspace name for manual container naming
+	var wsName string
+	if _, err := h.docker.Ping(ctx); err == nil {
+		db.DB.QueryRowContext(ctx, `SELECT LOWER(REPLACE(name, ' ', '-')) FROM workspaces WHERE id = $1`, workspaceID).Scan(&wsName)
+		if wsName != "" {
+			candidates = append(candidates, wsName)
+		}
+	}
+
+	// Find the first running container that matches
+	var containerName string
+	for _, name := range candidates {
+		info, err := h.docker.ContainerInspect(ctx, name)
+		if err == nil && info.State.Running {
+			containerName = name
+			break
+		}
+	}
+
+	if containerName == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "container not running"})
+		return
+	}
+
+	// Upgrade to WebSocket
+	conn, err := termUpgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Printf("Terminal WebSocket upgrade error: %v", err)
+		return
+	}
+
+	// No hard session deadline — terminal stays open as long as there is activity.
+	// The idle timeout (terminalSessionTimeout) resets on each keystroke in the
+	// WebSocket→stdin bridge loop below.
+	// The container exec ends when the user types 'exit' or the container stops.
+
+	// Try bash first for better UX (tab completion, history), fall back to sh.
+	// ContainerExecCreate succeeds even if the binary doesn't exist — the error
+	// only surfaces at attach/start time, so we must retry at the attach level.
+	var resp types.HijackedResponse
+	var execErr error
+	for _, shell := range []string{"/bin/bash", "/bin/sh"} {
+		execCfg := container.ExecOptions{
+			Cmd:          []string{shell},
+			AttachStdin:  true,
+			AttachStdout: true,
+			AttachStderr: true,
+			Tty:          true,
+		}
+		execID, createErr := h.docker.ContainerExecCreate(ctx, containerName, execCfg)
+		if createErr != nil {
+			execErr = createErr
+			continue
+		}
+		resp, execErr = h.docker.ContainerExecAttach(ctx, execID.ID, container.ExecAttachOptions{Tty: true})
+		if execErr == nil {
+			defer resp.Close()
+			break
+		}
+	}
+	if execErr != nil {
+		log.Printf("Terminal exec error: %v", execErr)
+		conn.WriteMessage(websocket.TextMessage, []byte("Error: failed to create shell session\r\n"))
+		conn.Close()
+		return
+	}
+
+	// Bridge: container stdout → WebSocket
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buf := make([]byte, 4096)
+		for {
+			n, err := resp.Reader.Read(buf)
+			if n > 0 {
+				if writeErr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); writeErr != nil {
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	// Bridge: WebSocket stdin → container stdin
+	go func() {
+		defer close(done)
+		for {
+			_, r, err := conn.NextReader()
+			if err != nil {
+				return
+			}
+			if _, err := io.Copy(resp.Conn, r); err != nil {
+				return
+			}
+		}
+	}()
+
+	<-done
+	conn.Close()
+}
 	targetID := c.Param("id")
 	ctx := c.Request.Context()
 
