@@ -37,6 +37,20 @@ func setupTestDB(t *testing.T) sqlmock.Sqlmock {
 	db.DB = mockDB
 	t.Cleanup(func() { mockDB.Close() })
 
+	// Allow RecordAndBroadcast calls (structure_events INSERT) from any test
+	// that exercises the Broadcaster path. Tests that need more specific
+	// expectations add them after setupTestDB.
+	mock.ExpectExec("INSERT INTO structure_events").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Allow workspace secret persistence (from workspace creation handlers
+	// that call createWorkspaceSecrets).
+	mock.ExpectExec("INSERT INTO workspace_secrets").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Allow DB connection lifecycle queries from test fixture setup.
+	mock.ExpectPing()
+
 	// Disable SSRF checks for all tests (ssrfCheckEnabled stays false for
 	// the entire run to prevent isSafeURL from rejecting loopback URLs
 	// in tests that don't call setupTestDB but do use httptest.NewServer).
