@@ -18,11 +18,12 @@ import (
 //
 // Auto-activated when MOLECULE_ORG_ID is set (SaaS tenant).
 type CPProvisioner struct {
-	baseURL      string
-	orgID        string
-	sharedSecret string // Authorization: Bearer — platform-wide gate
-	adminToken   string // X-Molecule-Admin-Token — per-tenant identity (controlplane #118/#130)
-	httpClient   *http.Client
+	baseURL       string
+	orgID         string
+	sharedSecret  string // Authorization: Bearer — gates /cp/workspaces/* (provision routes)
+	adminToken    string // X-Molecule-Admin-Token — per-tenant identity (controlplane #118/#130)
+	cpAdminAPIKey string // Authorization: Bearer — gates /cp/admin/* (read-only ops routes; distinct secret from sharedSecret)
+	httpClient    *http.Client
 }
 
 // NewCPProvisioner creates a provisioner that delegates to the control plane.
@@ -58,17 +59,26 @@ func NewCPProvisioner() (*CPProvisioner, error) {
 	// bootstrap path). Without it, post-#118 CP rejects every
 	// /cp/workspaces/* call with 401.
 	adminToken := os.Getenv("ADMIN_TOKEN")
+	// CP_ADMIN_API_TOKEN gates /cp/admin/* (distinct from the provision
+	// shared secret so a compromised tenant's provision creds can't read
+	// other tenants' serial console). Falls back to sharedSecret only for
+	// dev / legacy self-hosted deployments that don't split the two.
+	cpAdminAPIKey := os.Getenv("CP_ADMIN_API_TOKEN")
+	if cpAdminAPIKey == "" {
+		cpAdminAPIKey = sharedSecret
+	}
 
 	return &CPProvisioner{
-		baseURL:      baseURL,
-		orgID:        orgID,
-		sharedSecret: sharedSecret,
-		adminToken:   adminToken,
-		httpClient:   &http.Client{Timeout: 120 * time.Second},
+		baseURL:       baseURL,
+		orgID:         orgID,
+		sharedSecret:  sharedSecret,
+		adminToken:    adminToken,
+		cpAdminAPIKey: cpAdminAPIKey,
+		httpClient:    &http.Client{Timeout: 120 * time.Second},
 	}, nil
 }
 
-// authHeaders sets both auth headers on the outbound request:
+// provisionAuthHeaders sets the auth headers for /cp/workspaces/* routes:
 //   - Authorization: Bearer <shared secret> — platform gate
 //   - X-Molecule-Admin-Token: <per-tenant token> — identity gate
 //
@@ -76,9 +86,26 @@ func NewCPProvisioner() (*CPProvisioner, error) {
 // deployments without a real CP still work (those don't hit a CP that
 // enforces either gate). In prod both are set by the controlplane
 // bootstrap, so both headers land on every outbound call.
-func (p *CPProvisioner) authHeaders(req *http.Request) {
+func (p *CPProvisioner) provisionAuthHeaders(req *http.Request) {
 	if p.sharedSecret != "" {
 		req.Header.Set("Authorization", "Bearer "+p.sharedSecret)
+	}
+	if p.adminToken != "" {
+		req.Header.Set("X-Molecule-Admin-Token", p.adminToken)
+	}
+}
+
+// adminAuthHeaders sets the auth header for /cp/admin/* routes. The CP
+// gates this route family with CP_ADMIN_API_TOKEN — a distinct secret
+// from the provision-route shared secret so a compromised tenant can't
+// read other tenants' serial console via /cp/admin/workspaces/:id/console.
+//
+// The per-tenant X-Molecule-Admin-Token is still included for parity
+// with the provision path (CP may cross-check it for audit attribution
+// even on admin calls).
+func (p *CPProvisioner) adminAuthHeaders(req *http.Request) {
+	if p.cpAdminAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+p.cpAdminAPIKey)
 	}
 	if p.adminToken != "" {
 		req.Header.Set("X-Molecule-Admin-Token", p.adminToken)
@@ -123,7 +150,7 @@ func (p *CPProvisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string,
 		return "", fmt.Errorf("cp provisioner: create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	p.authHeaders(httpReq)
+	p.provisionAuthHeaders(httpReq)
 
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
@@ -158,7 +185,7 @@ func (p *CPProvisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string,
 func (p *CPProvisioner) Stop(ctx context.Context, workspaceID string) error {
 	url := fmt.Sprintf("%s/cp/workspaces/%s?instance_id=%s", p.baseURL, workspaceID, workspaceID)
 	req, _ := http.NewRequestWithContext(ctx, "DELETE", url, nil)
-	p.authHeaders(req)
+	p.provisionAuthHeaders(req)
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("cp provisioner: stop: %w", err)
@@ -194,7 +221,7 @@ func (p *CPProvisioner) Stop(ctx context.Context, workspaceID string) error {
 func (p *CPProvisioner) IsRunning(ctx context.Context, workspaceID string) (bool, error) {
 	url := fmt.Sprintf("%s/cp/workspaces/%s/status?instance_id=%s", p.baseURL, workspaceID, workspaceID)
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
-	p.authHeaders(req)
+	p.provisionAuthHeaders(req)
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return true, fmt.Errorf("cp provisioner: status: %w", err)
@@ -226,7 +253,7 @@ func (p *CPProvisioner) IsRunning(ctx context.Context, workspaceID string) (bool
 func (p *CPProvisioner) GetConsoleOutput(ctx context.Context, workspaceID string) (string, error) {
 	url := fmt.Sprintf("%s/cp/admin/workspaces/%s/console", p.baseURL, workspaceID)
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
-	p.authHeaders(req)
+	p.adminAuthHeaders(req)
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("cp provisioner: console: %w", err)
