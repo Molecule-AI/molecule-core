@@ -56,8 +56,15 @@ RUN chmod +x /usr/local/bin/gh
 COPY scripts/molecule-git-token-helper.sh ./scripts/
 RUN chmod +x ./scripts/molecule-git-token-helper.sh
 
+# Copy the background token refresh daemon. Runs as a background process
+# started by entrypoint.sh — refreshes gh CLI auth and the credential
+# helper cache every 45 min so tokens never expire mid-operation.
+COPY scripts/molecule-gh-token-refresh.sh ./scripts/
+RUN chmod +x ./scripts/molecule-gh-token-refresh.sh
+
 # Dirs and permissions
-RUN mkdir -p /workspace /plugins /home/agent/.claude /home/agent/.config /home/agent/.local && \
+RUN mkdir -p /workspace /plugins /home/agent/.claude /home/agent/.config /home/agent/.local \
+    /home/agent/.molecule-token-cache && \
     chown -R agent:agent /app /home/agent /workspace
 
 # Install gosu for clean root → agent user handoff in entrypoint.
