@@ -1,0 +1,33 @@
+# TTS Script — Phase 33: Cloudflare Tunnel to Direct Connect
+**Blog:** docs.molecule.ai/blog/cloudflare-tunnel-migration
+**Duration:** ~90s at ~150 wpm
+**Date:** 2026-04-22
+**Author:** Content Marketer (auto-generated)
+
+---
+
+In Phase 33, Molecule AI changes how cloud-hosted agent workspaces connect to the platform. Previously, every workspace connected outbound through a Cloudflare Tunnel — a lightweight daemon that maintained a persistent connection to Cloudflare's edge, routing traffic through their network. Starting today, workspaces provisioned in your cloud account get their own public IP addresses and connect directly, with no tunnel in the path.
+
+Cloudflare Tunnel worked like this: a lightweight daemon ran inside each agent workspace container, maintained an outbound-only WebSocket connection to a Cloudflare edge node, and external traffic hit a Cloudflare-assigned hostname. This was elegant for one specific constraint: no inbound firewall rules required. For development environments, this was a valid tradeoff.
+
+The tradeoff became less acceptable at scale.
+
+Latency: every request from the platform to the workspace traveled through Cloudflare's network — extra hops, extra latency.
+
+Bandwidth costs: Cloudflare metered tunnel egress. At agent-fleet scale, this compounded.
+
+Single dependency: if Cloudflare had an outage, every agent workspace lost its connection path simultaneously.
+
+No direct diagnostics: you couldn't curl a workspace's IP directly or run network checks without the tunnel path.
+
+Phase 33 provisions each workspace with its own public IP address from the VPC's public subnet. The connection model is direct: your browser or API client hits the platform API, which knows the workspace IP from provisioning. The platform security group handles port 443, authenticated by a platform JWT. The agent workspace connects directly, with no Cloudflare in the path.
+
+The platform still handles auth and routing. But the data path no longer goes through Cloudflare's tunnel network — it's a direct TCP connection from client to workspace.
+
+For teams running CP-managed workspaces in AWS, the transition is automatic. New provisions get public IPs from day one. Existing workspaces migrate on their next restart cycle.
+
+From an agent runtime perspective, nothing changes. Your code talks to the platform API, registers workspaces, receives task dispatch, and runs tools. The transport layer is different but the API contract is identical.
+
+The security group rules are managed by the platform — port 443 only, TLS required, JWT validation before any workspace data is served. The platform doesn't manage your VPC-level security groups beyond the workspace-specific one.
+
+Phase 33 is rolling out to all new CP-managed workspace provisions starting today.
