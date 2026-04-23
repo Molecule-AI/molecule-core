@@ -14,12 +14,12 @@
 - **Blocking:** Marketing Lead approval + X credentials
 - **Canonical:** `docs.molecule.ai/blog/tool-trace-platform-instructions`
 
-### 2026-04-30 — Phase 34 GA: Partner API Keys ⚠️ LANGUAGE CONFLICT
+### 2026-04-30 — Phase 34 GA: Partner API Keys ✅ APPROVED (Marketing Lead)
 - **File:** `2026-04-30-phase-34-ga-launch/social-copy.md`
-- **Status:** ⚠️ APPROVED by Marketing Lead 2026-04-23 BUT has GA/Beta label conflict. PMM positioning brief says BETA; approved copy says "GA today." PMM has added Option A/Option B language blocks to file. Marketing Lead must confirm GA or BETA before publish.
+- **Status:** APPROVED by Marketing Lead 2026-04-23. GA language confirmed (community FAQ + updated positioning brief). Ready for Social Media Brand execution.
 - **Content:** 5-post X thread
-- **Owner:** Social Media Brand (blocked on label confirmation + X credentials)
-- **Blocking:** Marketing Lead GA/Beta decision + X credentials
+- **Owner:** Social Media Brand
+- **Blocking:** X credentials
 - **Canonical:** `docs.molecule.ai/blog/partner-api-keys`
 - **Note:** Issue #1829 — Tool Trace/Platform Instructions thread already posted Apr 23. Partner API Keys thread targets Apr 30 GA date.
 
