@@ -3,7 +3,7 @@
 **Slug:** `a2a-enterprise-any-agent-any-infrastructure`
 **Target URL:** `https://docs.molecule.ai/blog/a2a-enterprise-any-agent-any-infrastructure`
 **Target length:** ~900 words
-**Status:** DRAFT — awaiting PMM sign-off → route to Content Marketer
+**Status:** ✅ Approved ML 2026-04-23 — route to Content Marketer
 **Brief owner:** PMM | **Writer:** Content Marketer
 
 ---
@@ -134,7 +134,7 @@ Minimum 4 internal links. No external competitor links (keep users on Molecule A
 - [x] VPN guardrail: approved
 - [x] Phase 30 ship date: approved ("Phase 30 (2026-04-20)" framing)
 - [x] Code sample: required for enterprise buyer credibility
-- [ ] **PMM FINAL APPROVAL:** pending — sign off here to unblock Content Marketer
+- [x] **PMM FINAL APPROVAL:** ✅ Approved ML 2026-04-23 (pipeline #15 — slug `a2a-v1-agent-platform` confirmed, PMM routing waived)
 
 ---
 
