@@ -56,7 +56,35 @@ func (h *WorkspaceHandler) handleA2ADispatchError(ctx context.Context, workspace
 	// Busy with a Retry-After hint so callers can distinguish this
 	// from a real unreachable-agent (502) and retry with backoff.
 	// Issue #110.
+	//
+	// #1870 Phase 1: before returning 503, enqueue the request for drain
+	// on next heartbeat. Returning 202 Accepted {queued:true} as a SUCCESS
+	// (not an error) means callers record this as "dispatched — queued"
+	// not "failed", eliminating the fan-out-storm drop pattern.
+	//
+	// Critical: must return (status, body, NIL ERROR) so the caller's
+	// `if proxyErr != nil` branch doesn't fire. Returning a proxyA2AError
+	// with 202 status here was the original cycle 53 bug — callers saw
+	// proxyErr != nil and logged "delegation failed: proxy a2a error".
 	if isUpstreamBusyError(err) {
+		idempotencyKey := extractIdempotencyKey(body)
+		if qid, depth, qerr := EnqueueA2A(
+			ctx, workspaceID, callerID, PriorityTask, body, a2aMethod, idempotencyKey,
+		); qerr == nil {
+			log.Printf("ProxyA2A: target %s busy — enqueued as %s (depth=%d)", workspaceID, qid, depth)
+			respBody, _ := json.Marshal(gin.H{
+				"queued":      true,
+				"queue_id":    qid,
+				"queue_depth": depth,
+				"message":     "workspace agent busy — request queued, will dispatch when capacity available",
+			})
+			return http.StatusAccepted, respBody, nil
+		} else {
+			// Queue insert failed — fall through to legacy 503 behavior
+			// so callers still retry. We don't want a queue DB hiccup to
+			// make delegation silently disappear.
+			log.Printf("ProxyA2A: enqueue for %s failed (%v) — falling back to 503", workspaceID, qerr)
+		}
 		return 0, nil, &proxyA2AError{
 			Status:  http.StatusServiceUnavailable,
 			Headers: map[string]string{"Retry-After": strconv.Itoa(busyRetryAfterSeconds)},
