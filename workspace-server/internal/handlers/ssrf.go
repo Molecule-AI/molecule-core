@@ -185,6 +185,10 @@ func mustCIDR(s string) net.IPNet {
 // the destination via absolute paths or ".." traversal. Used by
 // copyFilesToContainer and deleteViaEphemeral as a defence-in-depth measure.
 func validateRelPath(filePath string) error {
+	// Reject empty string and dot-only paths before any processing.
+	if filePath == "" || filePath == "." {
+		return fmt.Errorf("empty or dot-only path not allowed")
+	}
 	clean := filepath.Clean(filePath)
 	// Reject absolute paths (Unix / or Windows C:\).
 	if filepath.IsAbs(clean) {

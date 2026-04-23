@@ -13,30 +13,35 @@ import (
 // dependency, so no mock DB is needed.
 func TestValidateRelPath(t *testing.T) {
 	cases := []struct {
-		name    string
-		path    string
-		wantErr bool
+		name     string
+		path     string
+		wantErr  bool
+		errSubstr string // if non-empty, error message must contain this substring
 	}{
 		// Valid: simple relative paths inside a destination
-		{"single file", "config.json", false},
-		{"nested relative", "dir/subdir/file.txt", false},
-		{"file at destination root", "file.txt", false},
-		{"subdirectory file", "configs/myapp/file.cfg", false},
-		{"dotfile (hidden file, not traversal)", ".env", false},
+		{"single file", "config.json", false, ""},
+		{"nested relative", "dir/subdir/file.txt", false, ""},
+		{"file at destination root", "file.txt", false, ""},
+		{"subdirectory file", "configs/myapp/file.cfg", false, ""},
+		{"dotfile (hidden file, not traversal)", ".env", false, ""},
+
+		// Empty/dot-only: must be rejected with specific message
+		{"empty string", "", true, "empty or dot-only path"},
+		{"dot only", ".", true, "empty or dot-only path"},
 
 		// Traversal: must be rejected
-		{"double dot parent", "../etc/passwd", true},
-		{"trailing dotdot", "../", true},
-		{"embedded dotdot", "foo/../bar", true},
-		{"dotdot middle", "a/b/../../c", true},
-		{"path ends in ..", "foo/..", true}, // raw contains ".." → reject (even if Clean() resolves it away)
-		{"bare ..", "..", true},
+		{"double dot parent", "../etc/passwd", true, "path traversal"},
+		{"trailing dotdot", "../", true, "path traversal"},
+		{"embedded dotdot", "foo/../bar", true, "path traversal"},
+		{"dotdot middle", "a/b/../../c", true, "path traversal"},
+		{"path ends in ..", "foo/..", true, "path traversal"},
+		{"bare ..", "..", true, "path traversal"},
 
 		// Absolute: must be rejected
-		{"absolute unix", "/etc/passwd", true},
-		{"absolute windows", "C:\\Windows\\System32", false}, // Unix/Linux: no drive letter, treated as relative by Go
-		{"embedded absolute", "foo/etc/passwd", false},
-		{"root absolute", "/workspace/file.txt", true},
+		{"absolute unix", "/etc/passwd", true, "path traversal"},
+		{"absolute windows", "C:\\Windows\\System32", false, ""}, // Unix/Linux: no drive letter, treated as relative by Go
+		{"embedded absolute", "foo/etc/passwd", false, ""},
+		{"root absolute", "/workspace/file.txt", true, "path traversal"},
 	}
 
 	for _, tc := range cases {
@@ -47,6 +52,9 @@ func TestValidateRelPath(t *testing.T) {
 			}
 			if !tc.wantErr && err != nil {
 				t.Errorf("validateRelPath(%q): expected nil, got %v", tc.path, err)
+			}
+			if tc.errSubstr != "" && (err == nil || !strings.Contains(err.Error(), tc.errSubstr)) {
+				t.Errorf("validateRelPath(%q): expected error containing %q, got %v", tc.path, tc.errSubstr, err)
 			}
 		})
 	}
