@@ -93,7 +93,7 @@ func (h *DelegationHandler) Delegate(c *gin.Context) {
 	go h.executeDelegation(sourceID, body.TargetID, delegationID, a2aBody)
 
 	// Broadcast event so canvas shows delegation in real-time
-	h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_SENT", sourceID, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_SENT", sourceID, map[string]interface{}{
 		"delegation_id": delegationID,
 		"target_id":     body.TargetID,
 		"task_preview":  truncate(body.Task, 100),
@@ -243,7 +243,7 @@ func (h *DelegationHandler) executeDelegation(sourceID, targetID, delegationID s
 
 	// Update status: pending → dispatched
 	h.updateDelegationStatus(sourceID, delegationID, "dispatched", "")
-	h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_STATUS", sourceID, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_STATUS", sourceID, map[string]interface{}{
 		"delegation_id": delegationID, "target_id": targetID, "status": "dispatched",
 	})
 
@@ -278,7 +278,7 @@ func (h *DelegationHandler) executeDelegation(sourceID, targetID, delegationID s
 			log.Printf("Delegation %s: failed to insert error log: %v", delegationID, err)
 		}
 
-		h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_FAILED", sourceID, map[string]interface{}{
+		_ = h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_FAILED", sourceID, map[string]interface{}{
 			"delegation_id": delegationID, "target_id": targetID, "error": proxyErr.Error(),
 		})
 		return
@@ -302,7 +302,7 @@ func (h *DelegationHandler) executeDelegation(sourceID, targetID, delegationID s
 	}
 
 	h.updateDelegationStatus(sourceID, delegationID, "completed", "")
-	h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_COMPLETE", sourceID, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_COMPLETE", sourceID, map[string]interface{}{
 		"delegation_id":    delegationID,
 		"target_id":        targetID,
 		"response_preview": truncate(responseText, 200),
@@ -365,7 +365,7 @@ func (h *DelegationHandler) Record(c *gin.Context) {
 		return
 	}
 
-	h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_SENT", sourceID, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_SENT", sourceID, map[string]interface{}{
 		"delegation_id": body.DelegationID,
 		"target_id":     body.TargetID,
 		"task_preview":  truncate(body.Task, 100),
@@ -413,12 +413,12 @@ func (h *DelegationHandler) UpdateStatus(c *gin.Context) {
 		`, sourceID, sourceID, "Delegation completed ("+truncate(body.ResponsePreview, 80)+")", string(respJSON)); err != nil {
 			log.Printf("Delegation UpdateStatus: result insert failed for %s: %v", delegationID, err)
 		}
-		h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_COMPLETE", sourceID, map[string]interface{}{
+		_ = h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_COMPLETE", sourceID, map[string]interface{}{
 			"delegation_id":    delegationID,
 			"response_preview": truncate(body.ResponsePreview, 200),
 		})
 	} else {
-		h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_FAILED", sourceID, map[string]interface{}{
+		_ = h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_FAILED", sourceID, map[string]interface{}{
 			"delegation_id": delegationID,
 			"error":         body.Error,
 		})

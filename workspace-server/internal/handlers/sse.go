@@ -100,7 +100,7 @@ func (h *SSEHandler) StreamEvents(c *gin.Context) {
 				log.Printf("SSE: marshal error for workspace %s event %s: %v", workspaceID, msg.Event, err)
 				continue
 			}
-			fmt.Fprintf(c.Writer, "data: %s\n\n", b)
+			_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", b)
 			flusher.Flush()
 		}
 	}
