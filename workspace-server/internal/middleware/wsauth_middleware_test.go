@@ -532,7 +532,7 @@ func TestAdminAuth_OrgToken_SetsOrgID(t *testing.T) {
 					AddRow("tok-org-1", "tok-org-1", tt.orgIDFromDB))
 
 			// Best-effort last_used_at UPDATE (after Validate).
-			mock.ExpectExec(orgTokenLastUsedQueryV2).
+			mock.ExpectExec(orgTokenLastUsedQuery).
 				WithArgs("tok-org-1").
 				WillReturnResult(sqlmock.NewResult(0, 1))
 
