@@ -36,6 +36,11 @@ vi.mock("@/lib/deploy-preflight", () => ({
     };
     return labels[key] ?? key;
   },
+  // Runtime names here ("test" / "openai") aren't in the real
+  // RUNTIME_PROVIDERS map; return [] so the modal falls back to
+  // synthesising providers from the missingKeys prop. That preserves
+  // the single-key-per-runtime semantics these tests were written for.
+  getRuntimeProviders: () => [],
 }));
 
 // ── Suite 1: Visibility and ARIA ────────────────────────────────────────────
@@ -265,7 +270,7 @@ describe("MissingKeysModal — save flow", () => {
         onCancel={vi.fn()}
       />
     );
-    const saveBtn = screen.getAllByRole("button").find(b => /save/i.test(b.textContent ?? ""))!;
+    const saveBtn = screen.getAllByRole("button").find(b => /save/i.test(b.textContent ?? "")) as HTMLButtonElement;
     expect(saveBtn.disabled).toBe(true);
   });
 
@@ -284,7 +289,7 @@ describe("MissingKeysModal — save flow", () => {
     act(() => {
       fireEvent.change(input, { target: { value: "sk-123" } });
     });
-    const saveBtn = screen.getAllByRole("button").find(b => /save/i.test(b.textContent ?? ""))!;
+    const saveBtn = screen.getAllByRole("button").find(b => /save/i.test(b.textContent ?? "")) as HTMLButtonElement;
     expect(saveBtn.disabled).toBe(false);
   });
 

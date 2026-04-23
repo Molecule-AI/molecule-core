@@ -49,7 +49,13 @@ describe("MissingKeysModal preflight logic", () => {
 
     const result = await checkDeploySecrets("langgraph");
     expect(result.ok).toBe(false);
-    expect(result.missingKeys).toEqual(["OPENAI_API_KEY"]);
+    // langgraph accepts OpenAI, Anthropic, or OpenRouter — when none are
+    // configured we surface all three so the picker modal can offer a choice.
+    expect(result.missingKeys).toEqual([
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "OPENROUTER_API_KEY",
+    ]);
     expect(result.runtime).toBe("langgraph");
   });
 

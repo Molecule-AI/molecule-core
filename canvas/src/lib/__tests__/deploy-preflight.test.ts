@@ -141,7 +141,13 @@ describe("checkDeploySecrets", () => {
 
     const result = await checkDeploySecrets("langgraph");
     expect(result.ok).toBe(false);
-    expect(result.missingKeys).toEqual(["OPENAI_API_KEY"]);
+    // langgraph supports any of three providers — when none are configured,
+    // surface all alternatives so the modal can offer a picker.
+    expect(result.missingKeys).toEqual([
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "OPENROUTER_API_KEY",
+    ]);
   });
 
   it("returns ok=false when secret exists but has_value is false", async () => {
@@ -155,7 +161,11 @@ describe("checkDeploySecrets", () => {
 
     const result = await checkDeploySecrets("langgraph");
     expect(result.ok).toBe(false);
-    expect(result.missingKeys).toEqual(["OPENAI_API_KEY"]);
+    expect(result.missingKeys).toEqual([
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "OPENROUTER_API_KEY",
+    ]);
   });
 
   it("returns ok=true for runtimes with no required keys", async () => {
@@ -203,6 +213,10 @@ describe("checkDeploySecrets", () => {
 
     const result = await checkDeploySecrets("langgraph");
     expect(result.ok).toBe(false);
-    expect(result.missingKeys).toEqual(["OPENAI_API_KEY"]);
+    expect(result.missingKeys).toEqual([
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "OPENROUTER_API_KEY",
+    ]);
   });
 });

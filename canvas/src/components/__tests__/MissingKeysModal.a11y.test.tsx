@@ -27,6 +27,10 @@ vi.mock("@/lib/deploy-preflight", () => ({
     };
     return labels[key] ?? key;
   },
+  // These tests use unknown runtimes ("test" / "openai") — let the
+  // modal fall back to synthesising providers from the missingKeys
+  // prop. Real runtimes look this up from RUNTIME_PROVIDERS.
+  getRuntimeProviders: () => [],
 }));
 
 // ── Import after mocks ────────────────────────────────────────────────────────

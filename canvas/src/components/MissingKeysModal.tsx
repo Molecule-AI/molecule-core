@@ -1,14 +1,18 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { api } from "@/lib/api";
-import { getKeyLabel } from "@/lib/deploy-preflight";
+import {
+  getKeyLabel,
+  getRuntimeProviders,
+  type ProviderChoice,
+} from "@/lib/deploy-preflight";
 
 interface Props {
   open: boolean;
   missingKeys: string[];
   runtime: string;
-  /** Called when user adds all keys and wants to proceed with deploy. */
+  /** Called when user adds all required keys and wants to proceed with deploy. */
   onKeysAdded: () => void;
   /** Called when user cancels the deploy. */
   onCancel: () => void;
@@ -27,7 +31,305 @@ interface KeyEntry {
   error: string | null;
 }
 
+/**
+ * MissingKeysModal
+ * ----------------
+ * Two rendering modes, picked automatically from the runtime:
+ *
+ *  1. PROVIDER-PICKER mode — when `getRuntimeProviders(runtime)` returns
+ *     ≥2 alternatives. The modal shows a radio list of supported
+ *     providers first ("Hermes supports OpenRouter / OpenAI / Nous
+ *     native — pick one") and only the chosen provider's env input
+ *     below. Saving that one key satisfies the deploy.
+ *
+ *  2. LEGACY all-keys mode — when the runtime has <2 provider
+ *     alternatives, or the caller supplied multiple unrelated keys.
+ *     Renders one input per `missingKeys` entry; all must be saved
+ *     before deploy. Preserves the pre-provider-picker contract so
+ *     callers that pass unrelated-key lists (e.g. a workspace that
+ *     needs an LLM key AND a separate tool key) keep working.
+ */
 export function MissingKeysModal({
+  open,
+  missingKeys,
+  runtime,
+  onKeysAdded,
+  onCancel,
+  onOpenSettings,
+  workspaceId,
+}: Props) {
+  const providers: ProviderChoice[] = useMemo(
+    () => getRuntimeProviders(runtime),
+    [runtime],
+  );
+
+  // Picker mode activates only when we have a real provider list with
+  // genuine alternatives. If the runtime is unknown (providers=[]) or
+  // has a single forced provider, fall back to the legacy all-keys UX.
+  const pickerMode = providers.length > 1;
+
+  if (pickerMode) {
+    return (
+      <ProviderPickerModal
+        open={open}
+        providers={providers}
+        runtime={runtime}
+        onKeysAdded={onKeysAdded}
+        onCancel={onCancel}
+        onOpenSettings={onOpenSettings}
+        workspaceId={workspaceId}
+      />
+    );
+  }
+
+  return (
+    <AllKeysModal
+      open={open}
+      missingKeys={missingKeys}
+      runtime={runtime}
+      onKeysAdded={onKeysAdded}
+      onCancel={onCancel}
+      onOpenSettings={onOpenSettings}
+      workspaceId={workspaceId}
+    />
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Provider-picker mode — one-of-N providers, save one, deploy.
+// -----------------------------------------------------------------------------
+
+function ProviderPickerModal({
+  open,
+  providers,
+  runtime,
+  onKeysAdded,
+  onCancel,
+  onOpenSettings,
+  workspaceId,
+}: {
+  open: boolean;
+  providers: ProviderChoice[];
+  runtime: string;
+  onKeysAdded: () => void;
+  onCancel: () => void;
+  onOpenSettings?: () => void;
+  workspaceId?: string;
+}) {
+  const [selectedId, setSelectedId] = useState(providers[0].id);
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const firstInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setSelectedId(providers[0].id);
+    setValue("");
+    setSaving(false);
+    setSaved(false);
+    setError(null);
+  }, [open, providers]);
+
+  useEffect(() => {
+    if (!open) return;
+    const raf = requestAnimationFrame(() => firstInputRef.current?.focus());
+    return () => cancelAnimationFrame(raf);
+  }, [open, selectedId]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, onCancel]);
+
+  const selected = providers.find((p) => p.id === selectedId) ?? providers[0];
+
+  const handleSave = useCallback(async () => {
+    if (!value.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      if (workspaceId) {
+        await api.put(`/workspaces/${workspaceId}/secrets`, {
+          key: selected.envVar,
+          value: value.trim(),
+        });
+      } else {
+        await api.put("/settings/secrets", {
+          key: selected.envVar,
+          value: value.trim(),
+        });
+      }
+      setSaved(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }, [selected, value, workspaceId]);
+
+  if (!open) return null;
+
+  const runtimeLabel = runtime.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div aria-hidden="true" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onCancel} />
+
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="missing-keys-title"
+        className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl shadow-black/50 max-w-[480px] w-full mx-4 overflow-hidden"
+      >
+        <div className="px-5 py-4 border-b border-zinc-800">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-5 h-5 rounded-md bg-amber-600/20 border border-amber-500/30 flex items-center justify-center" aria-hidden="true">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M6 1L11 10H1L6 1Z" stroke="#fbbf24" strokeWidth="1.2" strokeLinejoin="round" />
+                <path d="M6 5V7" stroke="#fbbf24" strokeWidth="1.2" strokeLinecap="round" />
+                <circle cx="6" cy="8.5" r="0.5" fill="#fbbf24" />
+              </svg>
+            </div>
+            <h3 id="missing-keys-title" className="text-sm font-semibold text-zinc-100">
+              Missing API Keys
+            </h3>
+          </div>
+          <p className="text-[12px] text-zinc-400 leading-relaxed">
+            The <span className="text-amber-300 font-medium">{runtimeLabel}</span> runtime
+            supports multiple providers. Pick one and paste its API key.
+          </p>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          <fieldset className="space-y-1.5">
+            <legend className="text-[10px] uppercase tracking-wide text-zinc-500 font-semibold mb-1.5">
+              Provider
+            </legend>
+            {providers.map((p) => (
+              <label
+                key={p.id}
+                className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                  selectedId === p.id
+                    ? "bg-blue-600/15 border-blue-500/50"
+                    : "bg-zinc-800/40 border-zinc-700/50 hover:border-zinc-600"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="provider"
+                  value={p.id}
+                  checked={selectedId === p.id}
+                  onChange={() => {
+                    setSelectedId(p.id);
+                    setValue("");
+                    setSaved(false);
+                    setError(null);
+                  }}
+                  className="mt-0.5 accent-blue-500"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[12px] text-zinc-100 font-medium">{p.label}</div>
+                  <div className="text-[10px] font-mono text-zinc-500">{p.envVar}</div>
+                  {p.note && (
+                    <div className="text-[10px] text-zinc-500 mt-1 leading-relaxed">{p.note}</div>
+                  )}
+                </div>
+              </label>
+            ))}
+          </fieldset>
+
+          <div className="bg-zinc-800/50 rounded-lg px-3 py-2.5 border border-zinc-700/50">
+            <div className="flex items-center justify-between mb-1.5">
+              <div>
+                <div className="text-[11px] text-zinc-300 font-medium">
+                  {getKeyLabel(selected.envVar)}
+                </div>
+                <div className="text-[9px] font-mono text-zinc-500">{selected.envVar}</div>
+              </div>
+              {saved && (
+                <span className="text-[9px] text-emerald-400 bg-emerald-900/30 px-1.5 py-0.5 rounded flex items-center gap-1">
+                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" aria-hidden="true">
+                    <path d="M1.5 4L3.5 6L6.5 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  Saved
+                </span>
+              )}
+            </div>
+
+            {!saved && (
+              <div className="flex gap-2 mt-2">
+                <input
+                  value={value}
+                  onChange={(e) => setValue(e.target.value.trimStart())}
+                  placeholder={selected.envVar.includes("API_KEY") ? "sk-..." : "Enter value"}
+                  type="password"
+                  ref={firstInputRef}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && value.trim()) {
+                      handleSave();
+                    }
+                  }}
+                  className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1.5 text-[11px] text-zinc-100 font-mono focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 transition-colors"
+                />
+                <button
+                  onClick={handleSave}
+                  disabled={!value.trim() || saving}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-[11px] rounded text-white disabled:opacity-30 transition-colors shrink-0"
+                >
+                  {saving ? "..." : "Save"}
+                </button>
+              </div>
+            )}
+
+            {error && <div className="mt-1.5 text-[10px] text-red-400">{error}</div>}
+          </div>
+        </div>
+
+        <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/50 flex items-center justify-between gap-2">
+          <div>
+            {onOpenSettings && (
+              <button
+                onClick={onOpenSettings}
+                className="text-[11px] text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                Open Settings Panel
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onCancel}
+              className="px-3.5 py-1.5 text-[12px] text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors"
+            >
+              Cancel Deploy
+            </button>
+            <button
+              onClick={onKeysAdded}
+              disabled={!saved || saving}
+              className="px-3.5 py-1.5 text-[12px] bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-40"
+            >
+              {saved ? "Deploy" : "Add Key"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Legacy all-keys mode — every missingKey rendered as its own input,
+// all must save before deploy. Kept for single-provider runtimes +
+// callers that pass unrelated-key lists (old contract).
+// -----------------------------------------------------------------------------
+
+function AllKeysModal({
   open,
   missingKeys,
   runtime,
@@ -40,7 +342,6 @@ export function MissingKeysModal({
   const [globalError, setGlobalError] = useState<string | null>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize entries when modal opens or missingKeys change
   useEffect(() => {
     if (!open) return;
     setEntries(
@@ -56,14 +357,12 @@ export function MissingKeysModal({
     setGlobalError(null);
   }, [open, missingKeys]);
 
-  // Focus first input when modal opens
   useEffect(() => {
     if (!open) return;
-    const raf = requestAnimationFrame(() => {
-      firstInputRef.current?.focus();
-    });
+    const raf = requestAnimationFrame(() => firstInputRef.current?.focus());
     return () => cancelAnimationFrame(raf);
   }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
@@ -90,7 +389,6 @@ export function MissingKeysModal({
       updateEntry(index, { saving: true, error: null });
 
       try {
-        // Save to global scope by default (available to all workspaces)
         if (workspaceId) {
           await api.put(`/workspaces/${workspaceId}/secrets`, {
             key: entry.key,
@@ -135,31 +433,19 @@ export function MissingKeysModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        aria-hidden="true"
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-        onClick={onCancel}
-      />
+      <div aria-hidden="true" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onCancel} />
 
-      {/* Dialog */}
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="missing-keys-title"
         className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl shadow-black/50 max-w-[440px] w-full mx-4 overflow-hidden"
       >
-        {/* Header */}
         <div className="px-5 py-4 border-b border-zinc-800">
           <div className="flex items-center gap-2 mb-1">
             <div className="w-5 h-5 rounded-md bg-amber-600/20 border border-amber-500/30 flex items-center justify-center" aria-hidden="true">
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                <path
-                  d="M6 1L11 10H1L6 1Z"
-                  stroke="#fbbf24"
-                  strokeWidth="1.2"
-                  strokeLinejoin="round"
-                />
+                <path d="M6 1L11 10H1L6 1Z" stroke="#fbbf24" strokeWidth="1.2" strokeLinejoin="round" />
                 <path d="M6 5V7" stroke="#fbbf24" strokeWidth="1.2" strokeLinecap="round" />
                 <circle cx="6" cy="8.5" r="0.5" fill="#fbbf24" />
               </svg>
@@ -174,7 +460,6 @@ export function MissingKeysModal({
           </p>
         </div>
 
-        {/* Body — key list */}
         <div className="px-5 py-4 space-y-3 max-h-[50vh] overflow-y-auto">
           {entries.map((entry, index) => (
             <div
@@ -183,12 +468,8 @@ export function MissingKeysModal({
             >
               <div className="flex items-center justify-between mb-1">
                 <div>
-                  <div className="text-[11px] text-zinc-300 font-medium">
-                    {entry.label}
-                  </div>
-                  <div className="text-[9px] font-mono text-zinc-500">
-                    {entry.key}
-                  </div>
+                  <div className="text-[11px] text-zinc-300 font-medium">{entry.label}</div>
+                  <div className="text-[9px] font-mono text-zinc-500">{entry.key}</div>
                 </div>
                 {entry.saved && (
                   <span className="text-[9px] text-emerald-400 bg-emerald-900/30 px-1.5 py-0.5 rounded flex items-center gap-1">
@@ -225,9 +506,7 @@ export function MissingKeysModal({
                 </div>
               )}
 
-              {entry.error && (
-                <div className="mt-1.5 text-[10px] text-red-400">{entry.error}</div>
-              )}
+              {entry.error && <div className="mt-1.5 text-[10px] text-red-400">{entry.error}</div>}
             </div>
           ))}
 
@@ -238,7 +517,6 @@ export function MissingKeysModal({
           )}
         </div>
 
-        {/* Footer */}
         <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/50 flex items-center justify-between gap-2">
           <div>
             {onOpenSettings && (
