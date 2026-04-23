@@ -30,6 +30,20 @@ func devModeAllowsLoopback() bool {
 	return env == "development" || env == "dev"
 }
 
+// ssrfCheckEnabled controls whether isSafeURL performs real validation.
+// Tests disable it via setSSRFCheckForTest so that httptest.NewServer
+// loopback URLs and fake hostnames (*.example) don't trigger SSRF
+// rejections. Production code never mutates this.
+var ssrfCheckEnabled = true
+
+// setSSRFCheckForTest overrides ssrfCheckEnabled for the duration of a test
+// and returns a restore function. Use with defer in *_test.go only.
+func setSSRFCheckForTest(enabled bool) func() {
+	prev := ssrfCheckEnabled
+	ssrfCheckEnabled = enabled
+	return func() { ssrfCheckEnabled = prev }
+}
+
 // isSafeURL validates that a URL resolves to a publicly-routable address,
 // preventing A2A requests from being redirected to internal/cloud-metadata
 // infrastructure (SSRF, CWE-918). Workspace URLs come from DB/Redis caches
@@ -40,6 +54,9 @@ func devModeAllowsLoopback() bool {
 // the same VPC and register by their VPC-private IP. Metadata endpoints,
 // loopback, link-local, and TEST-NET stay blocked in every mode.
 func isSafeURL(rawURL string) error {
+	if !ssrfCheckEnabled {
+		return nil
+	}
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
@@ -191,8 +208,20 @@ func mustCIDR(s string) net.IPNet {
 // the destination via absolute paths or ".." traversal. Used by
 // copyFilesToContainer and deleteViaEphemeral as a defence-in-depth measure.
 func validateRelPath(filePath string) error {
+	// Reject empty string and dot-only paths before any processing.
+	if filePath == "" || filePath == "." {
+		return fmt.Errorf("empty or dot-only path not allowed")
+	}
 	clean := filepath.Clean(filePath)
-	if filepath.IsAbs(clean) || strings.Contains(clean, "..") {
+	// Reject absolute paths (Unix / or Windows C:\).
+	if filepath.IsAbs(clean) {
+		return fmt.Errorf("path traversal or absolute path not allowed: %s", filePath)
+	}
+	// Reject any path containing ".." anywhere — check both raw and cleaned
+	// because filepath.Clean resolves ".." upward (e.g. "foo/../bar" → "bar"
+	// and "foo/.." → ".") which would make the check pass if only clean were checked.
+	// We only want explicitly-named files; ".." implies intent to escape.
+	if strings.Contains(filePath, "..") || strings.Contains(clean, "..") {
 		return fmt.Errorf("path traversal or absolute path not allowed: %s", filePath)
 	}
 	return nil

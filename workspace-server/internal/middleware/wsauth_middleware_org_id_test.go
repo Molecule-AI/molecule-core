@@ -212,13 +212,11 @@ func TestWorkspaceAuth_OrgToken_DBRowScanError_DoesNotPanic(t *testing.T) {
 	orgToken := "tok_token_ok"
 	tokenHash := sha256.Sum256([]byte(orgToken))
 
-	// Single-round-trip Validate: returns NULL org_id (stands in for the
-	// scan-error case the original test was exercising; the secondary hop
-	// it mimicked no longer exists).
+	// orgtoken.Validate returns 3 columns including org_id (sql.NullString).
 	mock.ExpectQuery(orgTokenValidateQuery).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
-			AddRow("tok-ok", "tok_tok_", nil))
+			AddRow("tok-ok", "tok_tok_", "00000000-0000-0000-0000-000000000099"))
 
 	r := gin.New()
 	r.GET("/workspaces/:id/secrets", WorkspaceAuth(mockDB), func(c *gin.Context) {

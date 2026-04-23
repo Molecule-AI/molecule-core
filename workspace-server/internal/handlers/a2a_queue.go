@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net/http"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 )
@@ -82,13 +83,18 @@ func EnqueueA2A(
 		methodArg = method
 	}
 
-	// INSERT ... ON CONFLICT DO NOTHING RETURNING id. On conflict we then
-	// look up the existing row's id so the caller always receives a valid
-	// queue entry reference.
+	// INSERT ... ON CONFLICT DO NOTHING RETURNING id. The conflict target
+	// must reference the partial unique INDEX columns + WHERE clause directly
+	// (Postgres can't reference partial unique indexes by name in
+	// ON CONFLICT — only true CONSTRAINTs work for that). On conflict we
+	// then look up the existing row's id so the caller always receives a
+	// valid queue entry reference.
 	err = db.DB.QueryRowContext(ctx, `
 		INSERT INTO a2a_queue (workspace_id, caller_id, priority, body, method, idempotency_key)
 		VALUES ($1, $2, $3, $4::jsonb, $5, $6)
-		ON CONFLICT ON CONSTRAINT idx_a2a_queue_idempotency DO NOTHING
+		ON CONFLICT (workspace_id, idempotency_key)
+			WHERE idempotency_key IS NOT NULL AND status IN ('queued','dispatched')
+			DO NOTHING
 		RETURNING id
 	`, workspaceID, callerArg, priority, string(body), methodArg, keyArg).Scan(&id)
 
@@ -228,11 +234,34 @@ func (h *WorkspaceHandler) DrainQueueForWorkspace(ctx context.Context, workspace
 	}
 	// logActivity=false: the original EnqueueA2A callsite already logged
 	// the dispatch attempt; re-logging here would double-count events.
-	_, _, proxyErr := h.proxyA2ARequest(ctx, workspaceID, item.Body, callerID, false)
+	status, _, proxyErr := h.proxyA2ARequest(ctx, workspaceID, item.Body, callerID, false)
+
+	// 202 Accepted = the dispatch was itself queued again (target still busy).
+	// That's not a failure — the queued item just stays queued naturally on
+	// the next drain tick. Mark this attempt completed so we don't double-
+	// count attempts; the new (re-)queue row already exists.
+	if status == http.StatusAccepted {
+		MarkQueueItemCompleted(ctx, item.ID)
+		log.Printf("A2AQueue drain: %s re-queued (target still busy)", item.ID)
+		return
+	}
+
 	if proxyErr != nil {
-		MarkQueueItemFailed(ctx, item.ID, proxyErr.Response["error"].(string))
-		log.Printf("A2AQueue drain: dispatch for %s failed (attempt=%d): %v",
-			item.ID, item.Attempts, proxyErr.Response["error"])
+		// Defensive: proxyErr.Response is gin.H (map[string]interface{}). The
+		// "error" key is conventionally a string but can be missing or non-
+		// string in edge paths (e.g. a future error builder using a typed
+		// struct). Cast safely so a missing key doesn't crash the platform —
+		// today's outage was caused by an unchecked .(string) here.
+		errMsg, _ := proxyErr.Response["error"].(string)
+		if errMsg == "" {
+			errMsg = http.StatusText(proxyErr.Status)
+			if errMsg == "" {
+				errMsg = "unknown drain dispatch error"
+			}
+		}
+		MarkQueueItemFailed(ctx, item.ID, errMsg)
+		log.Printf("A2AQueue drain: dispatch for %s failed (attempt=%d): %s",
+			item.ID, item.Attempts, errMsg)
 		return
 	}
 	MarkQueueItemCompleted(ctx, item.ID)
