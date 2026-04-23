@@ -55,6 +55,34 @@ func newTestBroadcaster() *events.Broadcaster {
 	return events.NewBroadcaster(hub)
 }
 
+// allowLoopbackForTest flips the ssrf.go testAllowLoopback escape hatch
+// for the duration of the test, so httptest.NewServer's loopback URLs
+// don't trip the SSRF guard. The 169.254 metadata, RFC-1918, TEST-NET,
+// CGNAT, and link-local guards stay active — only 127.0.0.0/8 and ::1
+// are relaxed. Always paired with t.Cleanup to restore; multiple
+// parallel tests won't race because Go test flips it sequentially per
+// test unless t.Parallel() is used, and these tests don't parallelize.
+func allowLoopbackForTest(t *testing.T) {
+	t.Helper()
+	prev := testAllowLoopback
+	testAllowLoopback = true
+	t.Cleanup(func() { testAllowLoopback = prev })
+}
+
+// expectBudgetCheck adds the sqlmock expectation for the budget-check
+// query that ProxyA2A runs before forwarding. checkWorkspaceBudget
+// fails-open on sql.ErrNoRows, so we return a deliberately-empty
+// result — budget_limit NULL + monthly_spend 0 means "no limit".
+// All a2a_proxy_test.go tests that run ProxyA2A (not just
+// dispatchA2A unit tests) need this expectation; it was added to the
+// handler in the 2026-04-18 restructure but the tests never caught up,
+// leaving Platform (Go) CI red for weeks.
+func expectBudgetCheck(mock sqlmock.Sqlmock, workspaceID string) {
+	mock.ExpectQuery(`SELECT budget_limit, COALESCE\(monthly_spend, 0\) FROM workspaces WHERE id = \$1`).
+		WithArgs(workspaceID).
+		WillReturnRows(sqlmock.NewRows([]string{"budget_limit", "monthly_spend"}))
+}
+
 // ---------- TestRegisterHandler ----------
 
 func TestRegisterHandler(t *testing.T) {
@@ -385,6 +413,7 @@ func TestWorkspaceList(t *testing.T) {
 func TestProxyA2A_JSONRPCWrapping(t *testing.T) {
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
+	allowLoopbackForTest(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", "/tmp/configs")
 
@@ -400,6 +429,7 @@ func TestProxyA2A_JSONRPCWrapping(t *testing.T) {
 
 	// Cache the agent URL in Redis so the handler finds it
 	mr.Set(fmt.Sprintf("ws:%s:url", "ws-proxy"), agentServer.URL)
+	expectBudgetCheck(mock, "ws-proxy")
 
 	// Expect async activity log INSERT from the LogActivity goroutine
 	mock.ExpectExec("INSERT INTO activity_logs").
