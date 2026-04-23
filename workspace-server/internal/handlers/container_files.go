@@ -78,22 +78,26 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 	createdDirs := map[string]bool{}
 	for name, content := range files {
 		clean := filepath.Clean(name)
-		// Prepend destPath so relative paths land inside the volume mount.
-		archiveName := filepath.Join(destPath, clean)
-		// Defence-in-depth: ensure the joined path doesn't escape destPath.
-		// Check FIRST because filepath.Clean converts "foo/../../../etc" to
-		// "/etc" (absolute) — checking IsAbs first would always fire the
-		// absolute-path error for mid-path traversal instead of the prefix error.
-		if !strings.HasPrefix(archiveName, destPath) && archiveName != destPath {
-			return fmt.Errorf("path escapes destination: %s", name)
-		}
-		// Block raw paths starting with ".." (before Clean converts them to absolute).
+		// Block raw paths starting with ".." (e.g. "../etc/passwd", URL-encoded "..%2F..").
+		// Check BEFORE IsAbs(archiveName) because Join("/configs", "../etc") = "/etc" (absolute)
+		// and would incorrectly trigger the path-escapes check instead of this one.
 		if strings.HasPrefix(clean, "..") {
 			return fmt.Errorf("unsafe file path in archive: %s", name)
 		}
 		// Block absolute paths (e.g. "/etc/passwd").
 		if filepath.IsAbs(clean) {
 			return fmt.Errorf("unsafe file path in archive: %s", name)
+		}
+		// Prepend destPath so relative paths land inside the volume mount.
+		archiveName := filepath.Join(destPath, clean)
+		// Defence-in-depth: catch any remaining path that resolves to absolute
+		// (e.g. Join("/configs", "foo/../../../etc") = "/etc" on some platforms).
+		if filepath.IsAbs(archiveName) {
+			return fmt.Errorf("path escapes destination: %s", name)
+		}
+		// Ensure the joined path doesn't escape destPath.
+		if !strings.HasPrefix(archiveName, destPath) && archiveName != destPath {
+			return fmt.Errorf("path escapes destination: %s", name)
 		}
 
 		// Create parent directories in tar (deduplicated)
