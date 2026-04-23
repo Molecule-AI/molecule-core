@@ -192,6 +192,16 @@ func TestResolveYAMLIncludes_SiblingDirAccess(t *testing.T) {
 // the full workspace tree. Guards against split regressions landing on
 // main before they can be caught by a deploy.
 func TestResolveYAMLIncludes_RealMoleculeDev(t *testing.T) {
+	// The in-tree copy at /org-templates/molecule-dev/ is being removed
+	// in favor of the standalone Molecule-AI/molecule-ai-org-template-
+	// molecule-dev repo (see .gitignore comment). Until that removal
+	// lands, the in-tree copy is stale and its !include graph is broken
+	// (teams/dev.yaml references missing core-platform.yaml etc.), so
+	// this integration test is skipped. Re-enable once the extraction
+	// PR lands and this test is rewritten to fetch the standalone repo
+	// or replaced with a self-contained fixture.
+	t.Skip("org-templates/molecule-dev is being extracted to a standalone repo; see .gitignore comment")
+
 	// Locate the monorepo root from the test file location.
 	// Test runs in platform/internal/handlers/; org template is at
 	// ../../../org-templates/molecule-dev/org.yaml.

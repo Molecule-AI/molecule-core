@@ -29,7 +29,7 @@ import (
 // wsColumns is the canonical column list for scanWorkspaceRow tests.
 var wsColumns = []string{
 	"id", "name", "role", "tier", "status", "agent_card", "url",
-	"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
+	"parent_id", "active_tasks", "max_concurrent_tasks", "last_error_rate", "last_sample_error",
 	"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
 	"budget_limit", "monthly_spend",
 }
@@ -49,7 +49,7 @@ func TestWorkspaceBudget_Get_NilLimit(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(wsColumns).
 			AddRow("dddddddd-0005-0000-0000-000000000000", "Free Agent", "worker", 1, "online",
 				[]byte(`{}`), "http://localhost:9001",
-				nil, 0, 0.0, "", 0, "", "langgraph", "",
+				nil, 0, 1, 0.0, "", 0, "", "langgraph", "",
 				0.0, 0.0, false,
 				nil, // budget_limit NULL
 				0))  // monthly_spend 0
@@ -92,7 +92,7 @@ func TestWorkspaceBudget_Get_WithLimit(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(wsColumns).
 			AddRow("dddddddd-0006-0000-0000-000000000000", "Capped Agent", "worker", 1, "online",
 				[]byte(`{}`), "http://localhost:9002",
-				nil, 0, 0.0, "", 0, "", "langgraph", "",
+				nil, 0, 1, 0.0, "", 0, "", "langgraph", "",
 				0.0, 0.0, false,
 				int64(500),  // budget_limit = $5.00 in DB
 				int64(123))) // monthly_spend = $1.23 in DB
@@ -309,6 +309,7 @@ func TestWorkspaceBudget_A2A_AboveLimitReturns402(t *testing.T) {
 // TestWorkspaceBudget_A2A_UnderLimitPassesThrough verifies that A2A calls
 // succeed normally when monthly_spend is below budget_limit.
 func TestWorkspaceBudget_A2A_UnderLimitPassesThrough(t *testing.T) {
+	allowLoopbackForTest(t)
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -355,6 +356,7 @@ func TestWorkspaceBudget_A2A_UnderLimitPassesThrough(t *testing.T) {
 // TestWorkspaceBudget_A2A_NilLimitPassesThrough verifies that when
 // budget_limit IS NULL (no ceiling set), A2A calls pass through unconditionally.
 func TestWorkspaceBudget_A2A_NilLimitPassesThrough(t *testing.T) {
+	allowLoopbackForTest(t)
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -398,6 +400,7 @@ func TestWorkspaceBudget_A2A_NilLimitPassesThrough(t *testing.T) {
 // TestWorkspaceBudget_A2A_DBErrorFailOpen verifies that a DB error during the
 // budget check is fail-open — the request proceeds rather than being blocked.
 func TestWorkspaceBudget_A2A_DBErrorFailOpen(t *testing.T) {
+	allowLoopbackForTest(t)
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
