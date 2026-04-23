@@ -225,9 +225,7 @@ func (h *TerminalHandler) handleLocalConnect(c *gin.Context, workspaceID string)
 	<-done
 	conn.Close()
 }
-//	aws ec2-instance-connect open-tunnel           (TLS tunnel to :22)
-//	ssh -p <tunnel-port> ubuntu@127.0.0.1          (interactive shell)
-//
+
 // eicSSHOptions bundles the per-session inputs for spawning the EIC tunnel
 // and the ssh client that rides on top of it. Fields are plain data so
 // tests can stub the two factories below without fighting exec.Cmd.
@@ -288,6 +286,12 @@ var sendSSHPublicKey = func(ctx context.Context, region, instanceID, osUser, pub
 	return nil
 }
 
+// handleRemoteConnect opens a terminal session on a workspace EC2 using:
+//
+//	aws ec2-instance-connect send-ssh-public-key   (push ephemeral key)
+//	aws ec2-instance-connect open-tunnel           (TLS tunnel to :22)
+//	ssh -p <tunnel-port> ubuntu@127.0.0.1          (interactive shell)
+//
 // CP-provisioned workspaces run as native processes under ubuntu, not
 // Docker. Design: docs/infra/workspace-terminal.md.
 func (h *TerminalHandler) handleRemoteConnect(c *gin.Context, workspaceID, instanceID string) {
