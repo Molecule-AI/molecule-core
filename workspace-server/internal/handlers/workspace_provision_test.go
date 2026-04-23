@@ -568,19 +568,31 @@ func TestSeedInitialMemories_TruncatesOversizedContent(t *testing.T) {
 		},
 	}
 
+	// Content must avoid the redactSecrets base64-blob regex (33+ chars of
+	// [A-Za-z0-9+/]). Spaces break the run. "hello world " = 12 bytes.
+	const unit = "hello world " // 12 bytes, contains space
+	mkContent := func(n int) string {
+		copies := (n / len(unit)) + 1
+		out := strings.Repeat(unit, copies)
+		return out[:n]
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mock.ExpectationsWereMet()
 			workspaceID := "ws-trunc-" + tt.name
-			content := strings.Repeat("X", tt.contentLen)
+			content := mkContent(tt.contentLen)
 			memories := []models.MemorySeed{{Content: content, Scope: "LOCAL"}}
 
 			if tt.expectInsert {
 				// The DB INSERT must receive content of exactly maxMemoryContentLength
 				// (not the full original length). This is the key assertion: the function
 				// truncates before calling ExecContext, so the mock expects 100_000 bytes.
+				expected := content
+				if len(content) > maxMemoryContentLength {
+					expected = content[:maxMemoryContentLength]
+				}
 				mock.ExpectExec(`INSERT INTO agent_memories`).
-					WithArgs(workspaceID, strings.Repeat("X", maxMemoryContentLength), "LOCAL", sqlmock.AnyArg()).
+					WithArgs(workspaceID, expected, "LOCAL", sqlmock.AnyArg()).
 					WillReturnResult(sqlmock.NewResult(1, 1))
 			}
 
@@ -908,16 +920,20 @@ func containsStr(s, substr string) bool {
 func TestSeedInitialMemories_Truncation(t *testing.T) {
 	mock := setupTestDB(t)
 
-	largeContent := string(make([]byte, 100_001))
-	copy([]byte(largeContent), "X") // fill with "X" so test is deterministic
+	// Content sized > maxMemoryContentLength so we can assert truncation
+	// fires. Each "hello world " is 12 bytes; 8334 copies = 100008 bytes.
+	// Must include spaces so the base64-blob redactor in redactSecrets
+	// doesn't fire on a long [A-Za-z0-9+/]{33,} run and replace the
+	// content with "[REDACTED:BASE64_BLOB]".
+	largeContent := strings.Repeat("hello world ", 8334) // 100008 bytes
+	expectTruncated := largeContent[:100_000]
 
 	memories := []models.MemorySeed{
 		{Content: largeContent, Scope: "LOCAL"},
 	}
 
 	mock.ExpectExec(`INSERT INTO agent_memories`).
-		// content arg is $2; it must be exactly 100_000 bytes.
-		WithArgs(sqlmock.AnyArg(), strings.Repeat("X", 100_000), "LOCAL", sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), expectTruncated, "LOCAL", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	seedInitialMemories(context.Background(), "ws-1066-test", memories, "test-ns")
@@ -951,14 +967,18 @@ func TestSeedInitialMemories_ContentUnderLimit(t *testing.T) {
 func TestSeedInitialMemories_ExactlyAtLimit(t *testing.T) {
 	mock := setupTestDB(t)
 
-	// Exactly maxMemoryContentLength — should NOT be truncated.
-	atLimitContent := strings.Repeat("X", 100_000)
+	// Exactly maxMemoryContentLength — should NOT be truncated. Content
+	// must include spaces so redactSecrets doesn't collapse it into a
+	// "[REDACTED:BASE64_BLOB]" stand-in on the 33+-char alphanumeric run.
+	const unit = "hello world "
+	copies := (100_000 / len(unit)) + 1
+	atLimitContent := strings.Repeat(unit, copies)[:100_000]
 	memories := []models.MemorySeed{
 		{Content: atLimitContent, Scope: "LOCAL"},
 	}
 
 	mock.ExpectExec(`INSERT INTO agent_memories`).
-		WithArgs(sqlmock.AnyArg(), strings.Repeat("X", 100_000), "LOCAL", sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), atLimitContent, "LOCAL", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	seedInitialMemories(context.Background(), "ws-boundary", memories, "test-ns")

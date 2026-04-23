@@ -96,6 +96,7 @@ func TestGitHubWebhook_UnsupportedAction_Accepted(t *testing.T) {
 }
 
 func TestGitHubWebhook_ValidIssueComment_ForwardsAndLogsActivity(t *testing.T) {
+	allowLoopbackForTest(t)
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
@@ -154,6 +155,7 @@ func TestGitHubWebhook_ValidIssueComment_ForwardsAndLogsActivity(t *testing.T) {
 }
 
 func TestGitHubWebhook_ValidPRReviewComment_Forwards(t *testing.T) {
+	allowLoopbackForTest(t)
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	broadcaster := newTestBroadcaster()

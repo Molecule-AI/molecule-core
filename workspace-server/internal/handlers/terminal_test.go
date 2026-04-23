@@ -57,6 +57,9 @@ func TestHandleConnect_RoutesToLocal(t *testing.T) {
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("local branch should 503 when Docker is unavailable; got %d", w.Code)
+	}
+}
+
 // TestTerminalConnect_KI005_RejectsUnauthorizedCrossWorkspace tests the KI-005
 // regression fix: workspace A must NOT be able to open a terminal on workspace B's
 // container, even with a valid bearer token, unless they share a parent/child
@@ -70,11 +73,20 @@ func TestTerminalConnect_KI005_RejectsUnauthorizedCrossWorkspace(t *testing.T) {
 	canCommunicateCheck = func(callerID, targetID string) bool { return false }
 	defer func() { canCommunicateCheck = prev }()
 
-	// Token lookup: ws-caller's token is valid.
-	rows := sqlmock.NewRows([]string{"workspace_id"}).AddRow("ws-caller")
-	mock.ExpectQuery("SELECT workspace_id FROM workspace_tokens").
+	// Token lookup: ws-caller's token is valid. ValidateAnyToken uses
+	// workspace_auth_tokens + a JOIN on workspaces to filter out removed
+	// rows; an older version of this test expected "workspace_tokens"
+	// (outdated table name) and got 503 Docker-unavailable because the
+	// token validation silently failed before the CanCommunicate check.
+	rows := sqlmock.NewRows([]string{"id"}).AddRow("tok-1")
+	mock.ExpectQuery(`SELECT t\.id\s+FROM workspace_auth_tokens t`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(rows)
+	// ValidateAnyToken also fires a best-effort last_used_at UPDATE after
+	// successful validation. Accept it so ExpectationsWereMet passes.
+	mock.ExpectExec(`UPDATE workspace_auth_tokens SET last_used_at`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	h := NewTerminalHandler(nil) // nil docker → local path
 	w := httptest.NewRecorder()
@@ -144,6 +156,9 @@ func TestSSHCommandCmd_BuildsArgv(t *testing.T) {
 		if cmd.Args[i] != want[i] {
 			t.Errorf("argv[%d] = %q, want %q", i, cmd.Args[i], want[i])
 		}
+	}
+}
+
 // TestTerminalConnect_KI005_AllowsOwnTerminal tests the flip side of KI-005:
 // a workspace must still be able to access its own terminal. The CanCommunicate
 // fast-path returns true when callerID == targetID.
