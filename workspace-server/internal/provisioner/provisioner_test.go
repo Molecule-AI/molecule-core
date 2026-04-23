@@ -161,8 +161,8 @@ func TestApplyTierConfig_Tier2_Standard(t *testing.T) {
 
 	// CPU limit: 1.0 CPU (1e9 NanoCPUs)
 	expectedCPU := int64(1_000_000_000)
-	if hc.Resources.NanoCPUs != expectedCPU {
-		t.Errorf("T2: expected NanoCPUs=%d (1.0 CPU), got %d", expectedCPU, hc.Resources.NanoCPUs)
+	if hc.NanoCPUs != expectedCPU {
+		t.Errorf("T2: expected NanoCPUs=%d (1.0 CPU), got %d", expectedCPU, hc.NanoCPUs)
 	}
 
 	// Must NOT be privileged
@@ -270,8 +270,8 @@ func TestApplyTierConfig_UnknownTier_DefaultsToT2(t *testing.T) {
 
 	// Unknown tiers should get T2 resource limits as a safe default
 	expectedMemory := int64(512 * 1024 * 1024)
-	if hc.Resources.Memory != expectedMemory {
-		t.Errorf("Unknown tier: expected Memory=%d (512m), got %d", expectedMemory, hc.Resources.Memory)
+	if hc.Memory != expectedMemory {
+		t.Errorf("Unknown tier: expected Memory=%d (512m), got %d", expectedMemory, hc.Memory)
 	}
 
 	expectedCPU := int64(1_000_000_000)

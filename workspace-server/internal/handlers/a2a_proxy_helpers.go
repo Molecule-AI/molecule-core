@@ -80,7 +80,7 @@ func (h *WorkspaceHandler) handleA2ADispatchError(ctx context.Context, workspace
 // when the container was found dead.
 func (h *WorkspaceHandler) maybeMarkContainerDead(ctx context.Context, workspaceID string) bool {
 	var wsRuntime string
-	db.DB.QueryRowContext(ctx, `SELECT COALESCE(runtime, 'langgraph') FROM workspaces WHERE id = $1`, workspaceID).Scan(&wsRuntime)
+	_ = db.DB.QueryRowContext(ctx, `SELECT COALESCE(runtime, 'langgraph') FROM workspaces WHERE id = $1`, workspaceID).Scan(&wsRuntime)
 	if h.provisioner == nil || wsRuntime == "external" {
 		return false
 	}
@@ -100,7 +100,7 @@ func (h *WorkspaceHandler) maybeMarkContainerDead(ctx context.Context, workspace
 		log.Printf("ProxyA2A: failed to mark workspace %s offline: %v", workspaceID, err)
 	}
 	db.ClearWorkspaceKeys(ctx, workspaceID)
-	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_OFFLINE", workspaceID, map[string]interface{}{})
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_OFFLINE", workspaceID, map[string]interface{}{})
 	go h.RestartByID(workspaceID)
 	return true
 }
@@ -110,7 +110,7 @@ func (h *WorkspaceHandler) maybeMarkContainerDead(ctx context.Context, workspace
 func (h *WorkspaceHandler) logA2AFailure(ctx context.Context, workspaceID, callerID string, body []byte, a2aMethod string, err error, durationMs int) {
 	errMsg := err.Error()
 	var errWsName string
-	db.DB.QueryRowContext(ctx, `SELECT name FROM workspaces WHERE id = $1`, workspaceID).Scan(&errWsName)
+	_ = db.DB.QueryRowContext(ctx, `SELECT name FROM workspaces WHERE id = $1`, workspaceID).Scan(&errWsName)
 	if errWsName == "" {
 		errWsName = workspaceID
 	}
@@ -142,7 +142,7 @@ func (h *WorkspaceHandler) logA2ASuccess(ctx context.Context, workspaceID, calle
 		logStatus = "error"
 	}
 	var wsNameForLog string
-	db.DB.QueryRowContext(ctx, `SELECT name FROM workspaces WHERE id = $1`, workspaceID).Scan(&wsNameForLog)
+	_ = db.DB.QueryRowContext(ctx, `SELECT name FROM workspaces WHERE id = $1`, workspaceID).Scan(&wsNameForLog)
 	if wsNameForLog == "" {
 		wsNameForLog = workspaceID
 	}

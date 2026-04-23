@@ -102,11 +102,11 @@ func Handler() gin.HandlerFunc {
 
 		writeln(w, "# HELP go_memstats_heap_inuse_bytes Bytes in in-use heap spans.")
 		writeln(w, "# TYPE go_memstats_heap_inuse_bytes gauge")
-		fmt.Fprintf(w, "go_memstats_heap_inuse_bytes %d\n", ms.HeapInuse)
+		_, _ = fmt.Fprintf(w, "go_memstats_heap_inuse_bytes %d\n", ms.HeapInuse)
 
 		writeln(w, "# HELP go_gc_duration_seconds_total Cumulative GC pause time.")
 		writeln(w, "# TYPE go_gc_duration_seconds_total counter")
-		fmt.Fprintf(w, "go_gc_duration_seconds_total %g\n", float64(ms.PauseTotalNs)/1e9)
+		_, _ = fmt.Fprintf(w, "go_gc_duration_seconds_total %g\n", float64(ms.PauseTotalNs)/1e9)
 
 		// ── Molecule AI HTTP ───────────────────────────────────────────────────
 		writeln(w, "# HELP molecule_http_requests_total Total HTTP requests served, by method, path, and status.")
@@ -128,7 +128,7 @@ func Handler() gin.HandlerFunc {
 		mu.RUnlock()
 
 		for k, count := range countsCopy {
-			fmt.Fprintf(w,
+			_, _ = fmt.Fprintf(w,
 				"molecule_http_requests_total{method=%q,path=%q,status=\"%d\"} %d\n",
 				k.method, k.path, k.status, count,
 			)
