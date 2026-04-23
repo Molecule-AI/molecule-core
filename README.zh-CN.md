@@ -38,8 +38,8 @@
   <a href="./docs/agent-runtime/workspace-runtime.md"><strong>Workspace Runtime</strong></a>
 </p>
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/Molecule-AI/molecule-monorepo)
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Molecule-AI/molecule-monorepo)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/Molecule-AI/molecule-core)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Molecule-AI/molecule-core)
 
 </div>
 
@@ -248,8 +248,12 @@ Workspace Runtime (Python image with adapters)
 ## 快速开始
 
 ```bash
-git clone https://github.com/Molecule-AI/molecule-monorepo.git
-cd molecule-monorepo
+git clone https://github.com/Molecule-AI/molecule-core.git
+cd molecule-core
+
+cp .env.example .env
+# 默认值即可在本地启动整套服务。.env.example 里有针对生产部署的
+# 安全配置说明（ADMIN_TOKEN、SECRETS_ENCRYPTION_KEY 等）。
 
 ./infra/scripts/setup.sh
 # 启动 Postgres (:5432)、Redis (:6379)、Langfuse (:3001)
@@ -258,7 +262,7 @@ cd molecule-monorepo
 # 仅用于本地开发；生产环境必须加 mTLS / API Key。
 
 cd workspace-server
-go run ./cmd/server
+go run ./cmd/server   # 首次启动会自动跑 schema_migrations 里未应用的迁移
 
 cd ../canvas
 npm install

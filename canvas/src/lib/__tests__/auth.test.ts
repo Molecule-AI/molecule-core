@@ -47,7 +47,12 @@ describe("redirectToLogin", () => {
     const href = "https://acme.moleculesai.app/dashboard";
     Object.defineProperty(window, "location", {
       writable: true,
-      value: { href },
+      value: {
+        href,
+        pathname: "/dashboard",
+        hostname: "acme.moleculesai.app",
+        protocol: "https:",
+      },
     });
     redirectToLogin("sign-in");
     // href now holds the redirect target. encodeURIComponent(href) must
@@ -61,7 +66,12 @@ describe("redirectToLogin", () => {
   it("uses signup path for sign-up screenHint", () => {
     Object.defineProperty(window, "location", {
       writable: true,
-      value: { href: "https://acme.moleculesai.app/" },
+      value: {
+        href: "https://acme.moleculesai.app/",
+        pathname: "/",
+        hostname: "acme.moleculesai.app",
+        protocol: "https:",
+      },
     });
     redirectToLogin("sign-up");
     expect((window.location as unknown as { href: string }).href).toContain("/cp/auth/signup");
