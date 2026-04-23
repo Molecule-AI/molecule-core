@@ -417,6 +417,8 @@ class LangGraphA2AExecutor(AgentExecutor):
                     try:
                         msg.metadata = {"tool_trace": tool_trace}
                     except (AttributeError, TypeError):
+                        # Suppress intentionally: new_agent_text_message() may return a
+                        # plain string in test-mock paths where metadata assignment raises.
                         pass
                 await event_queue.enqueue_event(msg)
                 _result = final_text
@@ -428,6 +430,7 @@ class LangGraphA2AExecutor(AgentExecutor):
                     from opentelemetry.trace import StatusCode
                     task_span.set_status(StatusCode.ERROR, str(e))
                 except Exception:
+                    # Telemetry instrumentation is best-effort; never let it crash the executor.
                     pass
                 # Emit a Message so both streaming and non-streaming clients
                 # receive an error response rather than hanging.
