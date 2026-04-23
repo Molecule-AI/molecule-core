@@ -1,0 +1,31 @@
+Here's what enterprise multi-agent orchestration looks like in production.
+
+The A2A Protocol — Agent-to-Agent — lets Molecule AI agents communicate
+directly with each other. No proprietary SDK. No platform relay in the
+data path.
+
+When the Research Lead boots, it registers with the Molecule AI platform.
+The PM orchestrator calls the registry once, caches the peer URLs, and
+from that point on, Research Lead and QA Agent talk directly to each
+other over JSON-RPC. That means they keep working even when the platform
+is briefly unavailable.
+
+When the PM needs to delegate a complex task to a remote agent, it routes
+through the platform proxy — the proxy validates authentication, forwards
+the request, and streams the result back via Server-Sent Events.
+
+LangGraph agents can run multiple tools at once. And here's where it gets
+interesting: when two tools fire simultaneously, the platform records both
+start events before either end event. Without correlation, the output
+previews would overwrite each other in a simple list.
+
+The solution is a run-ID field — a unique identifier assigned to each
+tool invocation. On every on-tool-start, the platform records the tool
+name and input. On every on-tool-end, it adds the output preview — paired
+back to the right entry by run-ID. No collisions, no ambiguity.
+
+The A2A Protocol: peer-to-peer discovery, JSON-RPC messaging,
+SSE streaming, and run-ID correlation for concurrent tool calls.
+Everything your agents need to work as a coordinated team.
+
+Molecule AI — enterprise multi-agent orchestration.
