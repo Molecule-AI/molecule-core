@@ -857,3 +857,12 @@ func TestIsPrivateOrMetadataIP_PublicAllowed(t *testing.T) {
 		}
 	}
 }
+
+// TestMain ensures ssrfCheckEnabled is true for all isSafeURL regression tests
+// in this file. Some other test file in the same package (e.g. handlers_test.go
+// setupTestDB callers) may leave the global disabled; we re-enable it here
+// so that all TestIsSafeURL_* tests run against real SSRF validation.
+func TestMain(m *testing.M) {
+	_ = setSSRFCheckForTest(true)
+	os.Exit(m.Run())
+}
