@@ -174,8 +174,11 @@ func (h *TemplatesHandler) ReplaceFiles(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	var wsName string
-	if err := db.DB.QueryRowContext(ctx, `SELECT name FROM workspaces WHERE id = $1`, workspaceID).Scan(&wsName); err != nil {
+	var wsName, instanceID, runtime string
+	if err := db.DB.QueryRowContext(ctx,
+		`SELECT name, COALESCE(instance_id, ''), COALESCE(runtime, '') FROM workspaces WHERE id = $1`,
+		workspaceID,
+	).Scan(&wsName, &instanceID, &runtime); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
 		return
 	}
@@ -186,6 +189,28 @@ func (h *TemplatesHandler) ReplaceFiles(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
+	}
+
+	// SaaS workspace (EC2-per-workspace) — route bulk write through the
+	// EIC endpoint, one SSH session per file. Per-file cost is ~3s
+	// (key push + tunnel + install), so up to 10 files is fine; above
+	// that we should reuse the tunnel across multiple writes — tracked
+	// as a follow-up.
+	if instanceID != "" {
+		for relPath, content := range body.Files {
+			if err := writeFileViaEIC(ctx, instanceID, runtime, relPath, []byte(content)); err != nil {
+				log.Printf("ReplaceFiles EIC for %s path=%s: %v", workspaceID, relPath, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to write file %s: %v", relPath, err)})
+				return
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"status":    "replaced",
+			"workspace": workspaceID,
+			"files":     len(body.Files),
+			"source":    "ec2-ssh",
+		})
+		return
 	}
 
 	// Write via Docker CopyToContainer when container is running
