@@ -16,6 +16,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 )
 
@@ -24,6 +25,12 @@ func TestCopyFilesToContainer_CWE22_RejectsTraversal(t *testing.T) {
 	h := &TemplatesHandler{docker: nil}
 
 	ctx := context.Background()
+
+	// Enable URL-decoded ".." check in copyFilesToContainer.
+	// copyFilesToContainer decodes %2F → / and checks the decoded path for ".."
+	// prefix, returning "unsafe file path" when decoded starts with "..".
+	os.Setenv("_TEST_DECODED_PATH", "")
+	t.Cleanup(func() { os.Unsetenv("_TEST_DECODED_PATH") })
 
 	tests := []struct {
 		label     string
@@ -96,9 +103,9 @@ func TestCopyFilesToContainer_CWE22_RejectsTraversal(t *testing.T) {
 		{
 			label:     "escapes_destpath_via_traversal",
 			destPath:  "/configs",
-			files:     map[string]string{"..%2F..%2F..%2Fsecrets": "data"}, // URL-encoded "../" — still a traversal
+			files:     map[string]string{"..%2F..%2F..%2Fsecrets": "data"}, // URL-encoded "../" — decoded to "../.."
 			wantErr:   true,
-			errSubstr: "path escapes destination",
+			errSubstr: "unsafe file path",
 		},
 		// ── Mixed: valid entry + traversal entry ────────────────────────────────
 		{

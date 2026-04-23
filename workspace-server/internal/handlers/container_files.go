@@ -83,9 +83,14 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 			return fmt.Errorf("unsafe file path in archive: %s", name)
 		}
 		// Block raw paths starting with ".." (e.g. "../etc/passwd").
-		// Must check raw `name`, NOT `clean`, because filepath.Clean("foo/../../../etc")
-		// → "/etc" (absolute) which would incorrectly hit the IsAbs check above.
 		if strings.HasPrefix(name, "..") {
+			return fmt.Errorf("unsafe file path in archive: %s", name)
+		}
+		// Block URL-encoded ".." sequences (e.g. "..%2F..%2F..%2Fsecrets").
+		// Decode %2F → / and check the decoded path for ".." prefix.
+		decoded := strings.ReplaceAll(name, "%2F", "/")
+		decoded = strings.ReplaceAll(decoded, "%2f", "/")
+		if strings.HasPrefix(decoded, "..") {
 			return fmt.Errorf("unsafe file path in archive: %s", name)
 		}
 		// Prepend destPath so relative paths land inside the volume mount.
