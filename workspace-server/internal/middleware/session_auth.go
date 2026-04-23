@@ -157,7 +157,7 @@ func tenantSlug() string {
 	return strings.TrimSpace(os.Getenv("MOLECULE_ORG_SLUG"))
 }
 
-// verifiedCPSession returns true when the request carries a cookie
+// VerifiedCPSession returns true when the request carries a cookie
 // that the CP confirms belongs to a MEMBER of THIS tenant's org (not
 // just "someone is logged in"). The difference is the authz boundary:
 // any WorkOS-authed user could hit /cp/auth/me successfully; only
@@ -171,7 +171,7 @@ func tenantSlug() string {
 // — fail-safe: better to refuse session auth than to accept it
 // without knowing which tenant we ARE. Deployments that want session
 // auth MUST set both CP_UPSTREAM_URL and MOLECULE_ORG_SLUG.
-func verifiedCPSession(cookieHeader string) (valid, presented bool) {
+func VerifiedCPSession(cookieHeader string) (valid, presented bool) {
 	if cookieHeader == "" {
 		return false, false
 	}
