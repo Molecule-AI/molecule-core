@@ -2,7 +2,7 @@
 Campaign: Discord Adapter | Source: `docs/blog/2026-04-21-discord-adapter/`
 Publish day: 2026-04-22 (Day 2)
 Status: ✅ APPROVED — PMM proxy review 2026-04-22 (Marketing Lead approval confirmed)
-Blog URL: `https://docs.molecule.ai/blog/discord-adapter-launch`
+Blog URL: `https://docs.molecule.ai/blog/2026-04-21-discord-adapter`
 
 ---
 ## Campaign Angle
@@ -105,7 +105,7 @@ The setup: Channel Settings → Integrations → Webhooks → New Webhook → pa
 
 Real-world use cases: incident triage agents posting to #incidents, CI/CD agents relaying build results to DevOps channels, community management agents receiving `/support` and routing to sub-agents.
 
-Full details in the [launch post](https://docs.molecule.ai/blog/discord-adapter-launch). GitHub: [PR #656](https://github.com/Molecule-AI/molecule-core/pull/656).
+Full details in the [launch post](https://docs.molecule.ai/blog/2026-04-21-discord-adapter). GitHub: [PR #656](https://github.com/Molecule-AI/molecule-core/pull/656).
 
 ---
 
@@ -128,7 +128,7 @@ Setup: create webhook in Discord → paste into Canvas Channels tab → done.
 Use cases: incident triage, CI/CD coordination, community management via slash commands.
 
 PR: molecule-core#656
-Blog: docs.molecule.ai/blog/discord-adapter-launch
+Blog: docs.molecule.ai/blog/2026-04-21-discord-adapter
 ```
 
 ---
