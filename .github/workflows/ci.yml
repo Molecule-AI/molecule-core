@@ -78,7 +78,6 @@ jobs:
           version: latest
           working-directory: workspace-server
           args: --timeout 3m
-          continue-on-error: true
         continue-on-error: true
       - name: Run tests with race detection and coverage
         run: go test -race -coverprofile=coverage.out ./...

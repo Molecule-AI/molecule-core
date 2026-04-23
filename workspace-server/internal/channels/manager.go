@@ -419,7 +419,7 @@ func (m *Manager) SendOutbound(ctx context.Context, channelID string, text strin
 	}
 
 	if db.DB != nil {
-		db.DB.ExecContext(ctx, `
+		_ = db.DB.ExecContext(ctx, `
 			UPDATE workspace_channels
 			SET last_message_at = now(), message_count = message_count + 1, updated_at = now()
 			WHERE id = $1
