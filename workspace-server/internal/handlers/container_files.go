@@ -77,22 +77,23 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 
 	createdDirs := map[string]bool{}
 	for name, content := range files {
-		// Block absolute paths and traversal attempts at the archive-write boundary.
-		// Files are written inside destPath (typically /configs); anything that escapes
-		// via ".." or an absolute name could reach other volumes or system paths.
 		clean := filepath.Clean(name)
-		if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
-			return fmt.Errorf("unsafe file path in archive: %s", name)
-		}
 		// Prepend destPath so relative paths land inside the volume mount.
-		// Use cleaned name so validation (which checks clean) and usage stay consistent.
 		archiveName := filepath.Join(destPath, clean)
 		// Defence-in-depth: ensure the joined path doesn't escape destPath.
-		// This guards against platform-specific filepath.Join behaviour where
-		// joining a relative name containing ".." with a destPath can still
-		// produce an absolute path outside the intended directory.
+		// Check FIRST because filepath.Clean converts "foo/../../../etc" to
+		// "/etc" (absolute) — checking IsAbs first would always fire the
+		// absolute-path error for mid-path traversal instead of the prefix error.
 		if !strings.HasPrefix(archiveName, destPath) && archiveName != destPath {
 			return fmt.Errorf("path escapes destination: %s", name)
+		}
+		// Block raw paths starting with ".." (before Clean converts them to absolute).
+		if strings.HasPrefix(clean, "..") {
+			return fmt.Errorf("unsafe file path in archive: %s", name)
+		}
+		// Block absolute paths (e.g. "/etc/passwd").
+		if filepath.IsAbs(clean) {
+			return fmt.Errorf("unsafe file path in archive: %s", name)
 		}
 
 		// Create parent directories in tar (deduplicated)
