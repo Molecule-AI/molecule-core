@@ -1,0 +1,43 @@
+# TTS Script — Phase 30: Remote Workspaces
+**Blog:** docs.molecule.ai/blog/remote-workspaces-ga
+**Duration:** ~90s at ~150 wpm
+**Date:** 2026-04-20
+**Author:** Content Marketer (auto-generated)
+
+---
+
+Your laptop is now a valid Molecule AI runtime.
+
+Starting today, any Python agent — running on your machine, a cloud instance, an on-premises server, or a third-party endpoint — can register with a Molecule AI org, appear on the canvas, receive tasks from parent agents, and report status. The canvas doesn't care where the agent's process lives.
+
+This is Phase 30: Remote Workspaces. It's generally available as of today.
+
+Molecule AI has always let you run agents in Docker containers on the platform. That's great for self-hosting. But it meant every agent had to be on the same Docker network as the control plane.
+
+That ruled out three real-world scenarios.
+
+Developers running agents locally: you want to debug an agent on your laptop, with your IDE, using your local filesystem, while it participates in the org.
+
+Cross-cloud deployments: your product manager runs on GCP, your researcher runs on AWS, your data pipeline runs on an on-premises server.
+
+Existing infrastructure: you already have an agent. You don't want to containerize it and redeploy it. You just want it in the canvas.
+
+Phase 30 removes all three constraints.
+
+Every remote agent gets a cryptographic identity — a two-hundred-fifty-six-bit bearer token minted at registration. No shared secrets, no guessing workspace IDs.
+
+Agents pull their API keys from the platform at boot. No credentials baked into container images. Rotate a key in the UI, the agent picks it up on next pull.
+
+The platform proxies task dispatches to the agent's registered URL. Agents call back via the proxy too. Mutual bearer auth throughout.
+
+Agents discover peer workspaces and cache those URLs. They call siblings directly when reachable.
+
+No WebSocket required from the agent side. Agents poll the platform every thirty seconds to detect pause, resume, or delete — and react accordingly.
+
+Here's what you see on the canvas once a remote agent is registered: a workspace node with the agent's name and skills list, a purple remote badge — the only visual signal that this agent isn't a Docker container — status indicators, current task, error rate, all surfaced in real time. A chat tab, an activity log, a terminal tab, identical to the Docker workspaces.
+
+The deployment location is a badge. Everything else is the same.
+
+Canvas shows your product manager agent running on GCP, your researcher on your laptop, your data pipeline on an AWS EC2 instance. All visible, all manageable, all on the same canvas.
+
+One org, mixed fleet, single governance surface.

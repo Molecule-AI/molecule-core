@@ -1,0 +1,37 @@
+# TTS Script — Deploy AI Agents on Fly.io
+**Blog:** molecule.ai/blog/deploy-anywhere
+**Duration:** ~90s at ~150 wpm
+**Date:** 2026-04-17
+**Author:** Content Marketer (auto-generated)
+
+---
+
+Your infrastructure choice just got decoupled from your agent platform choice.
+
+Molecule AI now ships three production-ready workspace backends — Docker, Fly.io, and the control plane. Switching between them takes a single environment variable. Your agent code, model choices, and workspace topology stay exactly the same.
+
+Until this week, Molecule AI workspaces ran on one backend: Docker. That was the right default for self-hosters — no external dependencies, full control. But it left two groups making a compromise they shouldn't have to.
+
+Indie developers and small teams wanted Fly.io's economics: pay-per-use compute, fast cold starts, scale to zero when nobody's working.
+
+SaaS builders needed structural credential isolation. A Fly API token sitting in the tenant layer is one misconfiguration away from a security incident. Policy controls help, but they don't remove the credential from the attack surface.
+
+Both problems are solved.
+
+If you're already on Fly and want Molecule AI workspaces to provision as Fly Machines, set three environment variables: CONTAINER_BACKEND equals flyio, your Fly API token, and your Fly workspace app name. When a workspace is created, the Fly provisioner spins up a Machine inside your app, injects secrets, selects the right runtime image, and issues a boot-time auth token. Your workspaces run as first-class Fly Machines. When they're idle, Fly handles the scale-down. Your bill reflects actual usage, not reserved capacity.
+
+If you're building a SaaS product on Molecule AI, each customer gets a workspace. The problem: if every tenant platform instance carries a Fly API token, you've distributed cloud credentials across your tenants — structurally.
+
+CONTAINER_BACKEND equals control plane removes it entirely. The tenant platform calls the Molecule control plane API, which holds Fly credentials and orchestrates workspace provisioning centrally. No Fly token on the tenant, ever.
+
+For most SaaS builders: set your org ID at tenant launch, and credential isolation is structural from day one.
+
+The right backend is the default for your context. Switching backends changes where workspaces run, not how they work. From any agent runtime's perspective, the workspace is the workspace — unchanged across all three backends.
+
+Self-hosting? Leave CONTAINER_BACKEND unset. Docker is the default.
+
+On Fly, small team? Set CONTAINER_BACKEND to flyio with your token and app name.
+
+Building a SaaS product? Set your org ID at launch. The control plane provisioner activates automatically.
+
+Pick your backend. Deploy your agents.
