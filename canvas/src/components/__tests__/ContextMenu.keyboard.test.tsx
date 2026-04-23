@@ -49,8 +49,9 @@ const mockStore = {
 };
 
 vi.mock("@/store/canvas", () => ({
-  useCanvasStore: vi.fn(
-    (selector: (s: typeof mockStore) => unknown) => selector(mockStore)
+  useCanvasStore: Object.assign(
+    (selector: (s: typeof mockStore) => unknown) => selector(mockStore),
+    { getState: () => mockStore }
   ),
 }));
 
