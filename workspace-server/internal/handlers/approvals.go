@@ -97,7 +97,7 @@ func (h *ApprovalsHandler) ListAll(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	approvals := make([]map[string]interface{}, 0)
 	for rows.Next() {
@@ -134,7 +134,7 @@ func (h *ApprovalsHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	approvals := make([]map[string]interface{}, 0)
 	for rows.Next() {

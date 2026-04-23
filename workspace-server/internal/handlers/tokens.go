@@ -85,7 +85,8 @@ func (h *TokenHandler) Create(c *gin.Context) {
 
 	// Rate limit: max active tokens per workspace
 	var count int
-	db.DB.QueryRowContext(c.Request.Context(),
+	// COUNT(*) always returns one row; ErrNoRows is unreachable.
+	_ = db.DB.QueryRowContext(c.Request.Context(),
 		`SELECT COUNT(*) FROM workspace_auth_tokens WHERE workspace_id = $1 AND revoked_at IS NULL`,
 		workspaceID).Scan(&count)
 	if count >= maxTokensPerWorkspace {

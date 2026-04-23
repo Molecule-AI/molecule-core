@@ -24,7 +24,8 @@ var restartMu sync.Map // map[workspaceID]*sync.Mutex
 // isParentPaused checks if any ancestor of the workspace is paused.
 func isParentPaused(ctx context.Context, workspaceID string) (bool, string) {
 	var parentID *string
-	db.DB.QueryRowContext(ctx, `SELECT parent_id FROM workspaces WHERE id = $1`, workspaceID).Scan(&parentID)
+	// ErrNoRows: workspace gone — treat as no parent, caller short-circuits.
+	_ = db.DB.QueryRowContext(ctx, `SELECT parent_id FROM workspaces WHERE id = $1`, workspaceID).Scan(&parentID)
 	if parentID == nil {
 		return false, ""
 	}

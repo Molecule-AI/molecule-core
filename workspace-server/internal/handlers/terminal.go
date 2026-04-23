@@ -100,7 +100,8 @@ func (h *TerminalHandler) handleLocalConnect(c *gin.Context, workspaceID string)
 	// Look up workspace name for manual container naming
 	var wsName string
 	if _, err := h.docker.Ping(ctx); err == nil {
-		db.DB.QueryRowContext(ctx, `SELECT LOWER(REPLACE(name, ' ', '-')) FROM workspaces WHERE id = $1`, workspaceID).Scan(&wsName)
+		// ErrNoRows leaves wsName empty; the candidates list works without it.
+		_ = db.DB.QueryRowContext(ctx, `SELECT LOWER(REPLACE(name, ' ', '-')) FROM workspaces WHERE id = $1`, workspaceID).Scan(&wsName)
 		if wsName != "" {
 			candidates = append(candidates, wsName)
 		}

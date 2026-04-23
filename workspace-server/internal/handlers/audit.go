@@ -198,7 +198,7 @@ func (h *AuditHandler) Query(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	events, err := scanAuditRows(rows)
 	if err != nil {
