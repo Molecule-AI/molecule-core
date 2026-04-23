@@ -81,15 +81,78 @@ jobs:
         continue-on-error: true  # Warn but don't block until codebase is clean
       - name: Run tests with race detection and coverage
         run: go test -race -coverprofile=coverage.out ./...
-      - name: Check coverage baseline
+
+      - name: Per-file coverage report
+        # Advisory — lists every source file with its coverage so reviewers
+        # can see at-a-glance where gaps are. Sorted ascending so the worst
+        # offenders float to the top. Does NOT fail the build; the hard
+        # gate is the threshold check below. (#1823)
         run: |
-          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-          echo "Total coverage: ${COVERAGE}%"
-          THRESHOLD=25
-          awk "BEGIN{if ($COVERAGE < $THRESHOLD) exit 1}" || {
-            echo "::error::Coverage ${COVERAGE}% is below the ${THRESHOLD}% threshold"
+          echo "=== Per-file coverage (worst first) ==="
+          go tool cover -func=coverage.out \
+            | grep -v '^total:' \
+            | awk '{file=$1; sub(/:[0-9]+\..*/, "", file); pct=$NF; gsub(/%/,"",pct); s[file]+=pct; c[file]++}
+                   END {for (f in s) printf "%6.1f%%  %s\n", s[f]/c[f], f}' \
+            | sort -n
+
+      - name: Check coverage thresholds
+        # Enforces two gates from #1823 Layer 1:
+        #   1. Total floor (unchanged at 25% this PR — ratchet plan in
+        #      COVERAGE_FLOOR.md). Keeping it where it was keeps this PR
+        #      strictly additive — the NEW protection is gate 2.
+        #   2. Per-file zero-floor — any .go file (non-test) in a
+        #      security-critical path with coverage ≤10% fails the build.
+        #      Catches the exact case that triggered #1823 (tokens.go at 0%).
+        run: |
+          set -e
+          TOTAL_FLOOR=25
+          # Files/paths that cannot drop to 0% coverage. Add here carefully;
+          # this is the "protected paths" list for security-sensitive code.
+          CRITICAL_PATHS=(
+            "internal/handlers/tokens"
+            "internal/handlers/workspace_provision"
+            "internal/handlers/a2a_proxy"
+            "internal/handlers/registry"
+            "internal/handlers/secrets"
+            "internal/middleware/wsauth"
+            "internal/crypto"
+          )
+
+          TOTAL=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | sed 's/%//')
+          echo "Total coverage: ${TOTAL}%"
+          if awk "BEGIN{exit !($TOTAL < $TOTAL_FLOOR)}"; then
+            echo "::error::Total coverage ${TOTAL}% is below the ${TOTAL_FLOOR}% floor. See COVERAGE_FLOOR.md for ratchet plan."
             exit 1
-          }
+          fi
+
+          # Gate 3: critical files must not be 0%
+          FAILED=0
+          go tool cover -func=coverage.out \
+            | grep -v '^total:' \
+            | awk '{file=$1; sub(/:[0-9]+\..*/, "", file); pct=$NF; gsub(/%/,"",pct); s[file]+=pct; c[file]++}
+                   END {for (f in s) printf "%s %.1f\n", f, s[f]/c[f]}' \
+            > /tmp/perfile.txt
+
+          for path in "${CRITICAL_PATHS[@]}"; do
+            while read -r file pct; do
+              if [[ "$file" == *"$path"* ]] && [[ "$file" != *_test.go ]]; then
+                if awk "BEGIN{exit !($pct < 10)}"; then
+                  echo "::error file=workspace-server/$file::Critical file at ${pct}% coverage — must be >=10% (target 80%). See #1823."
+                  FAILED=1
+                fi
+              fi
+            done < /tmp/perfile.txt
+          done
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "One or more security-critical files have ≤10% test coverage."
+            echo "These paths handle auth, tokens, secrets, or workspace provisioning —"
+            echo "a 0% file here is the exact gap that let CWE-22, CWE-78, KI-005 slip"
+            echo "through in past incidents. Add tests or document an exception in"
+            echo "COVERAGE_FLOOR.md with a linked issue and 14-day expiry."
+            exit 1
+          fi
 
   canvas-build:
     name: Canvas (Next.js)
