@@ -17,15 +17,20 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
+	"github.com/creack/pty"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
-	"github.com/creack/pty"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
 
 const terminalSessionTimeout = 30 * time.Minute
+
+// canCommunicateCheck is the communication-authorization predicate used by
+// HandleConnect to enforce the KI-005 workspace-hierarchy guard.
+// Exposed as a package var so tests can stub it without DB fixtures.
+var canCommunicateCheck = registry.CanCommunicate
 
 var termUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -55,11 +60,6 @@ func NewTerminalHandler(cli *client.Client) *TerminalHandler {
 	return &TerminalHandler{docker: cli}
 }
 
-// canCommunicateCheck is the communication-authorization predicate used by
-// HandleConnect to enforce the KI-005 workspace-hierarchy guard.
-// Exposed as a package var so tests can stub it without DB fixtures.
-var canCommunicateCheck = registry.CanCommunicate
-
 // HandleConnect handles WS /workspaces/:id/terminal. Routes to the remote
 // path (aws ec2-instance-connect ssh + docker exec) when the workspace row
 // has an instance_id; falls back to local Docker otherwise. Both paths are
@@ -79,7 +79,7 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 	if callerID != "" {
 		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
 		if tok != "" {
-			if err := wsauth.ValidateAnyToken(ctx, db.DB, tok); err == nil {
+			if err := wsauth.ValidateToken(ctx, db.DB, callerID, tok); err == nil {
 				if !canCommunicateCheck(callerID, workspaceID) {
 					c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to access this workspace's terminal"})
 					return
