@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,8 +74,16 @@ func TestGitHubToken_NilRegistry(t *testing.T) {
 
 // TestGitHubToken_NoTokenProvider — plugin registered but doesn't implement
 // TokenProvider (e.g. a non-GitHub mutator in the chain).
-// Expect 404 — the GitHub App endpoint is not available.
+// Per #960/#1101 the handler now falls back to env-based App token
+// generation when no TokenProvider is registered. With no env vars
+// configured (test default), the fallback fails with 500 + "token
+// refresh failed". Asserting current behavior, not the pre-fallback 404.
 func TestGitHubToken_NoTokenProvider(t *testing.T) {
+	// Defensively unset the env vars in case the test runner has them.
+	t.Setenv("GITHUB_APP_ID", "")
+	t.Setenv("GITHUB_APP_INSTALLATION_ID", "")
+	t.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", "")
+
 	reg := provisionhook.NewRegistry()
 	reg.Register(&mockMutatorOnly{name: "other-plugin"})
 	h := NewGitHubTokenHandler(reg)
@@ -82,8 +91,11 @@ func TestGitHubToken_NoTokenProvider(t *testing.T) {
 
 	h.GetInstallationToken(c)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 when no TokenProvider, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 (env-fallback failed without env vars), got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "token refresh failed") {
+		t.Errorf("expected 'token refresh failed' in body, got: %s", w.Body.String())
 	}
 }
 

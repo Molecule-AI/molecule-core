@@ -192,15 +192,16 @@ func TestWorkspaceList_WithData(t *testing.T) {
 
 	columns := []string{
 		"id", "name", "role", "tier", "status", "agent_card", "url",
-		"parent_id", "active_tasks", "last_error_rate", "last_sample_error",
+		"parent_id", "active_tasks", "max_concurrent_tasks",
+		"last_error_rate", "last_sample_error",
 		"uptime_seconds", "current_task", "runtime", "workspace_dir", "x", "y", "collapsed",
 		"budget_limit", "monthly_spend",
 	}
 	rows := sqlmock.NewRows(columns).
 		AddRow("ws-1", "Agent One", "worker", 1, "online", []byte(`{"name":"agent1"}`), "http://localhost:8001",
-			nil, 3, 0.02, "", 7200, "processing", "langgraph", "", 10.0, 20.0, false, nil, int64(0)).
+			nil, 3, 1, 0.02, "", 7200, "processing", "langgraph", "", 10.0, 20.0, false, nil, int64(0)).
 		AddRow("ws-2", "Agent Two", "", 2, "degraded", []byte("null"), "",
-			nil, 0, 0.6, "timeout", 100, "", "claude-code", "", 50.0, 60.0, true, nil, int64(0))
+			nil, 0, 1, 0.6, "timeout", 100, "", "claude-code", "", 50.0, 60.0, true, nil, int64(0))
 
 	mock.ExpectQuery("SELECT w.id, w.name").
 		WillReturnRows(rows)
@@ -245,8 +246,11 @@ func TestRegister_ProvisionerURLPreserved(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewRegistryHandler(broadcaster)
 
+	// Use "localhost" — validateAgentURL allow-lists it by name without
+	// DNS lookup, while still rejecting raw 127.0.0.1 / IP literals.
+	// Original "agent" hostname was rejected in CI (DNS won't resolve).
 	mock.ExpectExec("INSERT INTO workspaces").
-		WithArgs("ws-prov", "ws-prov", "http://agent:8000", `{"name":"agent"}`).
+		WithArgs("ws-prov", "ws-prov", "http://localhost:8000", `{"name":"agent"}`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// DB returns provisioner URL (127.0.0.1) — should take precedence over agent-reported URL
@@ -259,7 +263,7 @@ func TestRegister_ProvisionerURLPreserved(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	body := `{"id":"ws-prov","url":"http://agent:8000","agent_card":{"name":"agent"}}`
+	body := `{"id":"ws-prov","url":"http://localhost:8000","agent_card":{"name":"agent"}}`
 	c.Request = httptest.NewRequest("POST", "/registry/register", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
