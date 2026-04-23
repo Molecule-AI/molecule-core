@@ -26,26 +26,44 @@ func init() {
 }
 
 // setupTestDB creates a sqlmock DB and assigns it to the global db.DB.
+// Closes any stale connection from a previous test first to avoid leaking
+// file descriptors. The retry loop gives background goroutines from the
+// previous test (e.g. logA2ASuccess) a chance to finish their db.DB calls.
 func setupTestDB(t *testing.T) sqlmock.Sqlmock {
 	t.Helper()
+	if oldDB := db.DB; oldDB != nil {
+		for i := 0; i < 5; i++ {
+			oldDB.Close()
+			if i < 4 {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("failed to create sqlmock: %v", err)
 	}
 	db.DB = mockDB
-	t.Cleanup(func() { mockDB.Close() })
+	t.Cleanup(func() {
+		mockDB.Close()
+	})
 	return mock
 }
 
 // setupTestRedis creates a miniredis instance and assigns it to the global db.RDB.
 func setupTestRedis(t *testing.T) *miniredis.Miniredis {
 	t.Helper()
+	if oldRDB := db.RDB; oldRDB != nil {
+		oldRDB.Close()
+	}
 	mr, err := miniredis.Run()
 	if err != nil {
 		t.Fatalf("failed to start miniredis: %v", err)
 	}
 	db.RDB = redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	t.Cleanup(func() { mr.Close() })
+	t.Cleanup(func() {
+		mr.Close()
+	})
 	return mr
 }
 

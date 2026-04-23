@@ -209,16 +209,16 @@ func TestEnsureDefaultConfig_LangGraph(t *testing.T) {
 	content := string(configYAML)
 	// Post-#241: name/role/model are now always YAML double-quoted so
 	// a crafted payload cannot inject extra keys.
-	if !contains(content, `name: "Test Agent"`) {
+	if !containsSubstr(content, `name: "Test Agent"`) {
 		t.Errorf("config.yaml missing quoted name, got:\n%s", content)
 	}
-	if !contains(content, "runtime: langgraph") {
+	if !containsSubstr(content, "runtime: langgraph") {
 		t.Errorf("config.yaml missing runtime, got:\n%s", content)
 	}
-	if !contains(content, "tier: 1") {
+	if !containsSubstr(content, "tier: 1") {
 		t.Errorf("config.yaml missing tier, got:\n%s", content)
 	}
-	if !contains(content, `model: "anthropic:claude-opus-4-7"`) {
+	if !containsSubstr(content, `model: "anthropic:claude-opus-4-7"`) {
 		t.Errorf("config.yaml should use default langgraph model, got:\n%s", content)
 	}
 }
@@ -241,18 +241,18 @@ func TestEnsureDefaultConfig_ClaudeCode(t *testing.T) {
 	}
 
 	content := string(configYAML)
-	if !contains(content, "runtime: claude-code") {
+	if !containsSubstr(content, "runtime: claude-code") {
 		t.Errorf("config.yaml missing runtime, got:\n%s", content)
 	}
-	if !contains(content, `model: "sonnet"`) {
+	if !containsSubstr(content, `model: "sonnet"`) {
 		t.Errorf("config.yaml should use default claude-code model, got:\n%s", content)
 	}
-	if !contains(content, "runtime_config:") {
+	if !containsSubstr(content, "runtime_config:") {
 		t.Errorf("config.yaml should have runtime_config section for claude-code, got:\n%s", content)
 	}
 	// required_env is no longer hardcoded — tokens are injected at runtime
 	// via the secrets API (#1028).
-	if contains(content, "CLAUDE_CODE_OAUTH_TOKEN") {
+	if containsSubstr(content, "CLAUDE_CODE_OAUTH_TOKEN") {
 		t.Errorf("config.yaml should NOT hardcode CLAUDE_CODE_OAUTH_TOKEN (fix #1028), got:\n%s", content)
 	}
 	// Should NOT have .auth-token file
@@ -275,7 +275,7 @@ func TestEnsureDefaultConfig_CustomModel(t *testing.T) {
 	files := handler.ensureDefaultConfig("ws-custom", payload)
 
 	configYAML := string(files["config.yaml"])
-	if !contains(configYAML, `model: "gpt-4o"`) {
+	if !containsSubstr(configYAML, `model: "gpt-4o"`) {
 		t.Errorf("config.yaml should use custom (quoted) model, got:\n%s", configYAML)
 	}
 }
@@ -295,7 +295,7 @@ func TestEnsureDefaultConfig_SpecialCharsInName(t *testing.T) {
 
 	configYAML := string(files["config.yaml"])
 	// Names with special chars should be quoted
-	if !contains(configYAML, fmt.Sprintf("%q", "Agent: With Special #Chars")) {
+	if !containsSubstr(configYAML, fmt.Sprintf("%q", "Agent: With Special #Chars")) {
 		t.Errorf("config.yaml should quote name with special chars, got:\n%s", configYAML)
 	}
 }
@@ -313,10 +313,10 @@ func TestEnsureDefaultConfig_OpenClawGetsRuntimeConfig(t *testing.T) {
 
 	files := handler.ensureDefaultConfig("ws-openclaw", payload)
 	configYAML := string(files["config.yaml"])
-	if !contains(configYAML, "runtime_config:") {
+	if !containsSubstr(configYAML, "runtime_config:") {
 		t.Errorf("openclaw should have runtime_config, got:\n%s", configYAML)
 	}
-	if !contains(configYAML, `model: "openai:gpt-4o"`) {
+	if !containsSubstr(configYAML, `model: "openai:gpt-4o"`) {
 		t.Errorf("model should be at top level (quoted), got:\n%s", configYAML)
 	}
 }
@@ -333,11 +333,11 @@ func TestEnsureDefaultConfig_CrewAIGetsRuntimeConfig(t *testing.T) {
 
 	files := handler.ensureDefaultConfig("ws-crewai", payload)
 	configYAML := string(files["config.yaml"])
-	if !contains(configYAML, "runtime_config:") {
+	if !containsSubstr(configYAML, "runtime_config:") {
 		t.Errorf("crewai should have runtime_config, got:\n%s", configYAML)
 	}
 	// crewai falls into the default case — runtime_config with timeout only, no required_env
-	if !contains(configYAML, "timeout: 0") {
+	if !containsSubstr(configYAML, "timeout: 0") {
 		t.Errorf("crewai should have timeout in runtime_config, got:\n%s", configYAML)
 	}
 }
@@ -353,10 +353,10 @@ func TestEnsureDefaultConfig_EmptyRuntimeDefaultsToLangGraph(t *testing.T) {
 
 	files := handler.ensureDefaultConfig("ws-empty-rt", payload)
 	configYAML := string(files["config.yaml"])
-	if !contains(configYAML, "runtime: langgraph") {
+	if !containsSubstr(configYAML, "runtime: langgraph") {
 		t.Errorf("empty runtime should default to langgraph, got:\n%s", configYAML)
 	}
-	if !contains(configYAML, `model: "anthropic:claude-opus-4-7"`) {
+	if !containsSubstr(configYAML, `model: "anthropic:claude-opus-4-7"`) {
 		t.Errorf("langgraph default model should be anthropic (quoted), got:\n%s", configYAML)
 	}
 }
@@ -373,10 +373,10 @@ func TestEnsureDefaultConfig_EmptyNameAndRole(t *testing.T) {
 	files := handler.ensureDefaultConfig("ws-empty-name", payload)
 	configYAML := string(files["config.yaml"])
 	// Should not panic — empty name/role produce valid YAML
-	if !contains(configYAML, "name: ") {
+	if !containsSubstr(configYAML, "name: ") {
 		t.Errorf("config.yaml should have name field, got:\n%s", configYAML)
 	}
-	if !contains(configYAML, "runtime: langgraph") {
+	if !containsSubstr(configYAML, "runtime: langgraph") {
 		t.Errorf("config.yaml should have runtime, got:\n%s", configYAML)
 	}
 }
@@ -395,14 +395,14 @@ func TestEnsureDefaultConfig_DeepAgents(t *testing.T) {
 	files := handler.ensureDefaultConfig("ws-deep", payload)
 
 	configYAML := string(files["config.yaml"])
-	if !contains(configYAML, "runtime: deepagents") {
+	if !containsSubstr(configYAML, "runtime: deepagents") {
 		t.Errorf("config.yaml missing runtime, got:\n%s", configYAML)
 	}
-	if !contains(configYAML, `model: "google_genai:gemini-2.5-flash"`) {
+	if !containsSubstr(configYAML, `model: "google_genai:gemini-2.5-flash"`) {
 		t.Errorf("config.yaml should have model at top level (quoted), got:\n%s", configYAML)
 	}
 	// deepagents should NOT have runtime_config block
-	if contains(configYAML, "runtime_config:") {
+	if containsSubstr(configYAML, "runtime_config:") {
 		t.Errorf("config.yaml should NOT have runtime_config for deepagents, got:\n%s", configYAML)
 	}
 	// Should NOT have auth token
@@ -425,7 +425,7 @@ func TestEnsureDefaultConfig_ModelAlwaysTopLevel(t *testing.T) {
 			}
 			files := handler.ensureDefaultConfig("ws-"+runtime, payload)
 			configYAML := string(files["config.yaml"])
-			if !contains(configYAML, `model: "test-model"`) {
+			if !containsSubstr(configYAML, `model: "test-model"`) {
 				t.Errorf("config.yaml missing top-level (quoted) model for runtime %s, got:\n%s", runtime, configYAML)
 			}
 		})
@@ -880,12 +880,12 @@ func TestIssueAndInjectToken_NilConfigFilesAllocated(t *testing.T) {
 	}
 }
 
-// contains is a helper for substring matching in tests
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsStr(s, substr))
+// containsSubstr is a helper for substring matching in tests
+func containsSubstr(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstrStr(s, substr))
 }
 
-func containsStr(s, substr string) bool {
+func containsSubstrStr(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
 			return true
@@ -900,7 +900,7 @@ func containsStr(s, substr string) bool {
 // detected), OS errors, and internal paths leak sensitive info externally.
 //
 // Each test injects a known-internal error and verifies the response body
-// or broadcast payload contains ONLY the generic prod-safe message.
+// or broadcast payload containsSubstr ONLY the generic prod-safe message.
 
 // TestSeedInitialMemories_Truncation verifies that seedInitialMemories
 // truncates content at maxMemoryContentLength before INSERT. Regression
@@ -985,7 +985,7 @@ func TestSeedInitialMemories_EmptyContent(t *testing.T) {
 }
 
 // TestSeedInitialMemories_OversizedWithSecrets truncates at 100k even when content
-// contains credential patterns — the boundary enforcement runs before any other
+// containsSubstr credential patterns — the boundary enforcement runs before any other
 // content inspection.
 func TestSeedInitialMemories_OversizedWithSecrets(t *testing.T) {
 	mock := setupTestDB(t)
@@ -1014,7 +1014,7 @@ func TestSeedInitialMemories_OversizedWithSecrets(t *testing.T) {
 // detected), OS errors, and internal paths leak sensitive info externally.
 //
 // Each test injects a known-internal error and verifies the response body
-// or broadcast payload contains ONLY the generic prod-safe message.
+// or broadcast payload containsSubstr ONLY the generic prod-safe message.
 
 // errInternalDB is a pkg-level error whose .Error() output matches a real
 // postgres driver error shape — used to simulate DB failure without a live DB.
@@ -1063,9 +1063,9 @@ var unsafeErrorStrings = []string{
 	"token",
 }
 
-// containsUnsafeString checks whether any prohibited substring appears in
+// containsSubstrUnsafeString checks whether any prohibited substring appears in
 // a string value recursively (handles nested maps for safety).
-func containsUnsafeString(v interface{}) bool {
+func containsSubstrUnsafeString(v interface{}) bool {
 	switch v := v.(type) {
 	case string:
 		for _, unsafe := range unsafeErrorStrings {
@@ -1075,7 +1075,7 @@ func containsUnsafeString(v interface{}) bool {
 		}
 	case map[string]interface{}:
 		for _, val := range v {
-			if containsUnsafeString(val) {
+			if containsSubstrUnsafeString(val) {
 				return true
 			}
 		}
