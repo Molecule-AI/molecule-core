@@ -138,10 +138,22 @@ func validateAgentURL(rawURL string) error {
 	// we keep the strict blocklist — those deployments have no legitimate
 	// reason to accept private-range URLs from agents.
 	blockedRanges := []blockedRange{
+		// Always blocked — never a legitimate agent URL in any mode.
 		{"169.254.0.0/16", "link-local address (cloud metadata endpoint)"},
 		{"127.0.0.0/8", "loopback address"},
 		{"fe80::/10", "IPv6 link-local address (cloud metadata analogue)"},
 		{"::1/128", "IPv6 loopback address"},
+		// Documentation / test ranges — never legitimate for agent registration.
+		{"192.0.2.0/24", "TEST-NET-1 (RFC 5737 documentation prefix)"},
+		{"198.51.100.0/24", "TEST-NET-2 (RFC 5737 documentation prefix)"},
+		{"203.0.113.0/24", "TEST-NET-3 (RFC 5737 documentation prefix)"},
+		// CGNAT shared address space — never a valid agent target.
+		{"100.64.0.0/10", "CGNAT shared address space (RFC 6598)"},
+		// Non-fd00 half of ULA (fc00::/8) is never assigned and stays blocked
+		// in SaaS mode; in strict mode the full fc00::/7 is blocked below.
+		{"fc00::/8", "IPv6 ULA non-fd00 half (RFC 4193)"},
+		// Link-local multicast — never a legitimate agent registration target.
+		{"224.0.0.0/4", "link-local multicast address"},
 	}
 	if !saasMode() {
 		blockedRanges = append(blockedRanges,
