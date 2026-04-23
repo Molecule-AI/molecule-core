@@ -1,0 +1,182 @@
+package handlers
+
+// template_files_eic.go — SSH-backed file write for SaaS workspaces
+// (EC2-per-workspace). Pairs with the existing Docker-path in templates.go
+// (WriteFile) and template_import.go (ReplaceFiles).
+//
+// Flow for a single file write:
+//  1. Generate ephemeral ed25519 keypair (on-disk for ≤ write duration).
+//  2. Push the public key via `aws ec2-instance-connect send-ssh-public-key`
+//     so the target sshd accepts it for the next 60s.
+//  3. Open a TLS-tunnelled TCP port via `aws ec2-instance-connect open-tunnel`
+//     from a local free port → workspace's sshd on 22.
+//  4. Pipe content to `ssh ... "install -D -m 0644 /dev/stdin <abs path>"`.
+//     `install -D` creates any missing parent dirs atomically. File is owned
+//     by whichever $OSUser we authenticated as (ubuntu by default).
+//  5. Close tunnel + wipe keydir.
+//
+// All the AWS calls + ssh tunnel exec go through the same package-level
+// func vars defined in terminal.go (openTunnelCmd, sendSSHPublicKey) so
+// tests can stub them the same way the terminal tests do.
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+// workspaceFilePathPrefix maps a runtime name to the absolute base path on
+// the workspace EC2 where the Files API's relative paths land. New runtimes
+// can be added here without touching handler code.
+//
+// Keep these stable — changing the base path for an existing runtime
+// without a migration shim will make previously-saved files disappear from
+// the runtime's POV.
+var workspaceFilePathPrefix = map[string]string{
+	"hermes":    "/home/ubuntu/.hermes",
+	"langgraph": "/opt/configs",
+	"external":  "/opt/configs",
+	// Default for unknown / future runtimes is /opt/configs — most
+	// conservative place that doesn't collide with system or runtime-
+	// private directories.
+}
+
+func resolveWorkspaceFilePath(runtime, relPath string) (string, error) {
+	if err := validateRelPath(relPath); err != nil {
+		return "", err
+	}
+	base, ok := workspaceFilePathPrefix[strings.ToLower(strings.TrimSpace(runtime))]
+	if !ok {
+		base = "/opt/configs"
+	}
+	return filepath.Join(base, filepath.Clean(relPath)), nil
+}
+
+// eicFileWriteTimeout bounds the whole dance. Key push is <500ms, tunnel
+// is 1-2s, ssh + write is <2s. 30s gives headroom for slow pulls without
+// hanging the Files API forever under EIC misconfiguration.
+const eicFileWriteTimeout = 30 * time.Second
+
+// writeFileViaEIC writes a single file to the workspace EC2 at the
+// absolute path that resolveWorkspaceFilePath computed. On success,
+// optionally invokes the runtime's reload hook (not implemented yet —
+// tracked as follow-up; for today the canvas issues a separate Restart
+// after Save).
+//
+// instanceID: AWS EC2 instance id from workspaces.instance_id.
+// runtime: used only for path-prefix resolution.
+// relPath: the relative path the caller validated (no /, no ..).
+// content: file body bytes.
+func writeFileViaEIC(ctx context.Context, instanceID, runtime, relPath string, content []byte) error {
+	if instanceID == "" {
+		return fmt.Errorf("workspace has no instance_id — not a SaaS EC2 workspace")
+	}
+	absPath, err := resolveWorkspaceFilePath(runtime, relPath)
+	if err != nil {
+		return fmt.Errorf("invalid path: %w", err)
+	}
+
+	osUser := os.Getenv("WORKSPACE_EC2_OS_USER")
+	if osUser == "" {
+		osUser = "ubuntu"
+	}
+	region := os.Getenv("AWS_REGION")
+	if region == "" {
+		region = "us-east-2"
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, eicFileWriteTimeout)
+	defer cancel()
+
+	// Ephemeral keypair.
+	keyDir, err := os.MkdirTemp("", "molecule-filewrite-*")
+	if err != nil {
+		return fmt.Errorf("keydir mkdir: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(keyDir) }()
+	keyPath := keyDir + "/id"
+	if out, kerr := exec.CommandContext(ctx, "ssh-keygen",
+		"-t", "ed25519", "-f", keyPath, "-N", "", "-q",
+		"-C", "molecule-filewrite",
+	).CombinedOutput(); kerr != nil {
+		return fmt.Errorf("ssh-keygen: %w (%s)", kerr, strings.TrimSpace(string(out)))
+	}
+	pubKey, err := os.ReadFile(keyPath + ".pub")
+	if err != nil {
+		return fmt.Errorf("read pubkey: %w", err)
+	}
+
+	// 1. Push key.
+	if err := sendSSHPublicKey(ctx, region, instanceID, osUser, strings.TrimSpace(string(pubKey))); err != nil {
+		return fmt.Errorf("send-ssh-public-key: %w", err)
+	}
+
+	// 2. Open tunnel on an OS-picked free port.
+	localPort, err := pickFreePort()
+	if err != nil {
+		return fmt.Errorf("pick free port: %w", err)
+	}
+	opts := eicSSHOptions{
+		InstanceID:     instanceID,
+		OSUser:         osUser,
+		Region:         region,
+		LocalPort:      localPort,
+		PrivateKeyPath: keyPath,
+	}
+	tunnel := openTunnelCmd(opts)
+	tunnel.Env = os.Environ()
+	if err := tunnel.Start(); err != nil {
+		return fmt.Errorf("open-tunnel start: %w", err)
+	}
+	defer func() {
+		if tunnel.Process != nil {
+			_ = tunnel.Process.Kill()
+		}
+		_ = tunnel.Wait()
+	}()
+	if err := waitForPort(ctx, "127.0.0.1", localPort, 10*time.Second); err != nil {
+		return fmt.Errorf("tunnel never listened: %w", err)
+	}
+
+	// 3. SSH + install -D. `install` creates any missing parent dirs and
+	// writes the file atomically via temp-file-rename. Permissions 0644
+	// match the existing tar-unpack defaults on the Docker path.
+	//
+	// The remote command is fully deterministic — no user-controlled
+	// input reaches a shell eval (absPath is built from a map + Clean()).
+	sshArgs := []string{
+		"-i", keyPath,
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "ServerAliveInterval=15",
+		"-p", fmt.Sprintf("%d", localPort),
+		fmt.Sprintf("%s@127.0.0.1", osUser),
+		fmt.Sprintf("install -D -m 0644 /dev/stdin %s", shellQuote(absPath)),
+	}
+	sshCmd := exec.CommandContext(ctx, "ssh", sshArgs...)
+	sshCmd.Env = os.Environ()
+	sshCmd.Stdin = bytes.NewReader(content)
+	var stderr bytes.Buffer
+	sshCmd.Stderr = &stderr
+	if err := sshCmd.Run(); err != nil {
+		return fmt.Errorf("ssh install: %w (%s)", err, strings.TrimSpace(stderr.String()))
+	}
+	log.Printf("writeFileViaEIC: ws instance=%s runtime=%s wrote %d bytes → %s",
+		instanceID, runtime, len(content), absPath)
+	return nil
+}
+
+// shellQuote wraps a value in single quotes + escapes embedded single
+// quotes for POSIX sh. Used for the sole piece of variable data in the
+// remote ssh command. (absPath is already built from a map + Clean() so
+// traversal is blocked regardless; this is defence-in-depth against
+// future refactor that might accept user paths here.)
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
