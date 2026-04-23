@@ -128,7 +128,7 @@ func (m *Manager) PausePollersForToken(workspaceID, botToken string) func() {
 	if err != nil {
 		return func() {}
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var pausedIDs []string
 	m.mu.Lock()
@@ -193,7 +193,7 @@ func (m *Manager) Reload(ctx context.Context) {
 		log.Printf("Channels: reload query error: %v", err)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	desired := make(map[string]ChannelRow)
 	for rows.Next() {
