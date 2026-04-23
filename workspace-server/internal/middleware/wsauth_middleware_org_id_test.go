@@ -13,9 +13,10 @@ import (
 
 // orgTokenValidateQuery is matched for orgtoken.Validate in both
 // WorkspaceAuth and AdminAuth middleware paths. The query selects
-// id and prefix from org_api_tokens where token_hash matches and
-// revoked_at IS NULL.
-const orgTokenValidateQuery = "SELECT id, prefix FROM org_api_tokens WHERE token_hash"
+// id, prefix, and org_id from org_api_tokens where token_hash matches
+// and revoked_at IS NULL. Validate() scans all three columns via
+// sql.NullString for org_id, so mocks must declare 3 columns.
+const orgTokenValidateQuery = "SELECT id, prefix, org_id FROM org_api_tokens WHERE token_hash"
 
 func TestWorkspaceAuth_ValidOrgToken_SetsOrgIDContext(t *testing.T) {
 	// F1097 (#1218): org tokens validated via WorkspaceAuth must have
@@ -30,11 +31,11 @@ func TestWorkspaceAuth_ValidOrgToken_SetsOrgIDContext(t *testing.T) {
 	orgToken := "tok_test_org_token_abc123"
 	tokenHash := sha256.Sum256([]byte(orgToken))
 
-	// orgtoken.Validate — returns id + prefix (no org_id column yet).
+	// orgtoken.Validate — returns id + prefix + org_id (3-col mock).
 	mock.ExpectQuery(orgTokenValidateQuery).
 		WithArgs(tokenHash[:]).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).
-			AddRow("tok-org-abc", "tok_test"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
+			AddRow("tok-org-abc", "tok_test", nil))
 
 	// F1097: secondary SELECT for org_id from org_api_tokens.
 	mock.ExpectQuery("SELECT org_id::text FROM org_api_tokens WHERE id").
@@ -84,11 +85,11 @@ func TestWorkspaceAuth_ValidOrgToken_OrgIDNULL_DoesNotSetContext(t *testing.T) {
 	orgToken := "tok_old_token_no_org"
 	tokenHash := sha256.Sum256([]byte(orgToken))
 
-	// orgtoken.Validate.
+	// orgtoken.Validate — returns id + prefix + org_id (3-col mock).
 	mock.ExpectQuery(orgTokenValidateQuery).
 		WithArgs(tokenHash[:]).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).
-			AddRow("tok-old-xyz", "tok_old_"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
+			AddRow("tok-old-xyz", "tok_old_", nil))
 
 	// F1097: org_id SELECT returns NULL — context key must NOT be set.
 	mock.ExpectQuery("SELECT org_id::text FROM org_api_tokens WHERE id").
@@ -135,11 +136,11 @@ func TestAdminAuth_ValidOrgToken_SetsOrgIDContext(t *testing.T) {
 	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	// orgtoken.Validate via AdminAuth — returns id + prefix.
+	// orgtoken.Validate via AdminAuth — returns id + prefix + org_id (3-col mock).
 	mock.ExpectQuery(orgTokenValidateQuery).
 		WithArgs(tokenHash[:]).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).
-			AddRow("tok-admin-org", "tok_adm_"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
+			AddRow("tok-admin-org", "tok_adm_", nil))
 
 	// F1097: secondary SELECT for org_id.
 	mock.ExpectQuery("SELECT org_id::text FROM org_api_tokens WHERE id").
@@ -189,8 +190,8 @@ func TestAdminAuth_ValidOrgToken_OrgIDNULL_DoesNotSetContext(t *testing.T) {
 
 	mock.ExpectQuery(orgTokenValidateQuery).
 		WithArgs(tokenHash[:]).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).
-			AddRow("tok-old-admin", "tok_old_"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
+			AddRow("tok-old-admin", "tok_old_", nil))
 
 	// F1097: org_id is NULL — no context key set.
 	mock.ExpectQuery("SELECT org_id::text FROM org_api_tokens WHERE id").
@@ -234,8 +235,8 @@ func TestWorkspaceAuth_OrgToken_DBRowScanError_DoesNotPanic(t *testing.T) {
 
 	mock.ExpectQuery(orgTokenValidateQuery).
 		WithArgs(tokenHash[:]).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).
-			AddRow("tok-ok", "tok_tok_"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
+			AddRow("tok-ok", "tok_tok_", nil))
 
 	// org_id SELECT fails — sqlmock returns ErrRowNotFound when columns don't match.
 	// We set up an impossible regex to force a mismatch.
@@ -279,8 +280,8 @@ func TestWorkspaceAuth_OrgToken_SetsAllContextKeys(t *testing.T) {
 
 	mock.ExpectQuery(orgTokenValidateQuery).
 		WithArgs(tokenHash[:]).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix"}).
-			AddRow("tok-full", "tok_fu_"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
+			AddRow("tok-full", "tok_fu_", nil))
 
 	mock.ExpectQuery("SELECT org_id::text FROM org_api_tokens WHERE id").
 		WithArgs("tok-full").
