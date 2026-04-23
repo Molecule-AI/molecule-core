@@ -1,67 +1,99 @@
-# Phase 34 — Discord Posting Runbook
+# Phase 34 — Discord Launch Runbook
 **Campaign:** Phase 34 GA (April 30, 2026)
 **Owner:** Community Manager
-**Use:** Step-by-step guide for the Apr 30 launch day Discord post + monitoring cadence
+**Use:** Step-by-step execution guide for launch day
 **Date:** 2026-04-23
 
 ---
 
 ## Launch day overview
 
-| Time | Action |
-|------|--------|
-| -15 min | Pre-launch checklist (below) |
-| 09:00 UTC | Post announcement in `#announcements` |
-| 09:00 UTC | Pin FAQ in `#faq` |
-| 09:00–11:00 UTC | Monitor `#general` + `#feedback` (2h active watch) |
-| Day 2 | Post Reddit r/MachineLearning + HN Show HN |
+| Time (UTC) | Action |
+|------------|--------|
+| -15 min (08:45) | Pre-launch checklist |
+| -5 min (08:55) | Final link verification |
+| 09:00 | Post in `#announcements` |
+| 09:00 | Pin FAQ in `#faq` |
+| 09:00–11:00 | Monitor `#general` + `#feedback` (2h active watch, 30-min SLA) |
+| Ongoing | Route inbound to correct channel / team |
+| Apr 30 ~16:00 (Day 2) | Reddit r/MachineLearning + HN Show HN |
 
 ---
 
-## Pre-launch checklist (15 min before — ~08:45 UTC)
+## Pre-launch checklist (complete by 08:45 UTC)
 
-Complete before posting anything:
+### Blog posts verified live
+- [ ] `docs.moleculesai.app/blog/ai-agent-observability-without-overhead` (Tool Trace)
+- [ ] `docs.moleculesai.app/blog/platform-instructions-governance` (Platform Instructions)
+- [ ] `docs.moleculesai.app/blog/partner-api-keys` (Partner API Keys — GA April 30, may show "coming soon" before launch)
+- [ ] `docs.moleculesai.app/guides/external-workspace-quickstart` (SaaS Fed v2)
+- [ ] `docs.moleculesai.app/blog/tool-trace-platform-instructions` (combined overview)
 
-- [ ] **Blog confirmed live.** Check `docs.moleculesai.app/blog/ai-agent-observability-without-overhead` is accessible. All four Phase 34 blog posts must be live before the announcement goes out.
-- [ ] **Announcement file verified.** Confirm `docs/marketing/launches/phase-34-community-announcement.md` is on `main` or `staging` and the CTA links are accurate. No broken links.
-- [ ] **FAQ file verified.** Confirm `docs/marketing/launches/phase-34-community-faq.md` is on branch and all Q&As are accurate. Links to docs URLs.
-- [ ] **X credentials status checked.** Issue #1865 — if mol-ops has provided `X_API_KEY` + `X_API_SECRET`, note this in the announcement post. If not, do not post external social (Reddit/HN) until Day 2 when credentials are confirmed.
-- [ ] **DevRel on standby.** Confirm DevRel is monitoring `#devrel` or their preferred channel for how-to routing. Post in their channel: "Phase 34 launching 09:00 UTC — FYI."
-- [ ] **Bug-report channel monitored.** Confirm `#bug-reports` is being watched by the platform team.
-- [ ] **Announcement CTA checked.** Confirm the GitHub Discussions link in the announcement is correct (`github.com/Molecule-AI/molecule-core/discussions`).
-- [ ] **Escalation path clear.** If something goes wrong (wrong links, wrong claims, toxic thread), you know how to reach the platform team fast.
+### API endpoints responding
+- [ ] `PUT /cp/platform-instructions` — test in staging (org admin endpoint)
+- [ ] Partner API Keys endpoint — confirm not responding before GA (expected)
+- [ ] `GET /cp/platform-instructions` — confirm accessible in staging
+
+### Docs updated
+- [ ] `docs/architecture/partner-api-keys.md` — reflects `mol_pk_*` key format and scopes
+- [ ] `docs/api-protocol/a2a-protocol.md` — mentions `tool_trace` in `Message.metadata`
+- [ ] `docs/guides/external-workspace-quickstart.md` — reflects SaaS Fed v2 changes
+
+### Announcement file verified
+- [ ] `docs/marketing/launches/phase-34-community-announcement.md` — on `staging` or `main`, CTA links accurate
+- [ ] No design partner names in copy
+- [ ] Partner API Keys framed as "GA April 30" — not "available now"
+
+### X credentials status (issue #1865)
+- [ ] If `X_API_KEY` + `X_API_SECRET` provided by mol-ops → note in Discord post thread
+- [ ] If not provided → Reddit/HN posts go Day 2, no external social Apr 30
+
+### Teams on standby
+- [ ] DevRel confirmed monitoring `#devrel` or DM for how-to routing
+- [ ] Platform team monitoring `#bug-reports`
+- [ ] Marketing Lead aware of launch timing
+
+### Escalation path clear
+- [ ] DM list for emergencies: DevRel, Security, Marketing Lead
+- [ ] Bug-report channel confirmed active
 
 ---
 
-## Step 1 — Post in `#announcements` (09:00 UTC)
+## Step 1 — Post announcement in `#announcements` (09:00 UTC)
 
-Copy the content from `docs/marketing/launches/phase-34-community-announcement.md`. Post as a single message block (or a few messages for readability — Discord has a 2000-char message limit).
+**Source:** `docs/marketing/launches/phase-34-community-announcement.md`
 
-**Before posting:**
-- Confirm all doc links resolve correctly (run a quick curl to each staging URL)
-- Confirm Partner API Keys is framed as "GA April 30" — do not say "available now"
-- Confirm no design partner names are in the copy
+Post as plain text, emoji-formatted. Discord message limit is 2000 chars — split across multiple messages if needed. Keep the block separators (`━━`) intact.
 
-**Post format:** Plain text with emoji formatting (Discord-native). Use the content as-is from the announcement file.
+**Before posting — final checks:**
+1. Run `curl -s -o /dev/null -w "%{http_code}" docs.moleculesai.app/blog/ai-agent-observability-without-overhead` and confirm 200
+2. Confirm no "available now" framing for Partner API Keys
+3. Confirm no design partner names
 
-**After posting:** Drop a thread under the announcement in `#announcements` with the FAQ link:
+**Post announcement, then immediately reply in thread:**
 ```
 📋 FAQ — answers to the top community questions:
-docs.moleculesai.app/blog/phase-34-faq  ← (link to pinned message in #faq)
+[paste link or mirror the FAQ content here]
+
+Full blog coverage:
+docs.moleculesai.app/blog/tool-trace-platform-instructions
+docs.moleculesai.app/blog/ai-agent-observability-without-overhead
+docs.moleculesai.app/blog/platform-instructions-governance
+docs.moleculesai.app/blog/partner-api-keys
+docs.moleculesai.app/guides/external-workspace-quickstart
 ```
 
 ---
 
-## Step 2 — Pin FAQ in `#faq`
+## Step 2 — Pin FAQ in `#faq` (09:00 UTC)
 
-1. Go to `#faq` channel
-2. Paste the full content from `docs/marketing/launches/phase-34-community-faq.md` as a message
-3. Pin the message (right-click → Pin Message)
-4. Confirm the pin is visible
+1. Open `#faq`
+2. Paste full content from `docs/marketing/launches/phase-34-community-faq.md`
+3. Right-click → Pin Message
+4. Confirm pin is visible
+5. If channel has stale pins, clear old ones and pin Phase 34 FAQ
 
-The FAQ should be pinned before the announcement goes out so people can find it immediately. If the channel already has old pins, clear stale ones and pin the Phase 34 FAQ.
-
-**Day 2 update:** After the announcement settles, consider pinning the announcement itself in `#announcements` so it stays at the top of the channel.
+**FAQ should be pinned before the announcement goes out** so people can find it immediately when they arrive.
 
 ---
 
@@ -69,85 +101,123 @@ The FAQ should be pinned before the announcement goes out so people can find it 
 
 **SLA: respond within 30 minutes of any Phase 34 reply.**
 
-Set a 30-min reminder to check the channels. Assign yourself to the channels if your workspace supports channel monitoring.
+Set a 30-minute repeating reminder to check both channels.
 
-**Response template for questions you can answer:**
+**Response template — question you can answer:**
 ```
-Hey — good question. [1-2 sentence answer]. The full details are in our docs: [link]. Let me know if that doesn't answer it!
+Hey [name] — good question. [1-2 sentence answer]. Full details in our docs: [link]. Let me know if that doesn't cover it!
 ```
 
-**Response template for questions you can't answer:**
+**Response template — question you can't answer:**
 ```
-Great question — let me check with the platform team and get back to you. [Tag DevRel or PM as appropriate.]
+Great question — let me loop in the platform team and get back to you. Tagging @devrel for a closer look.
+```
+
+**Response template — feature request:**
+```
+Love this idea — tagging @pm so this gets into the backlog. You can also open a GitHub issue with the label "enhancement" to track it formally.
 ```
 
 ---
 
-## Step 4 — Triage inbound (ongoing, first 2h critical)
+## Step 4 — Monitor `#bugs`, `#partner-program` (ongoing)
 
-Route all incoming replies to the right place:
+### `#bugs` channel
+- Tool Trace bugs → tag `@devrel` in `#devrel` or DM directly
+- Platform Instructions bugs → tag `@dev-lead` in `#devrel` or DM directly
+- Partner API Keys issues (post-GA) → tag `@mol-ops` or DM
 
-| Type | Route to | How |
-|------|----------|-----|
-| How-to / setup questions | DevRel | Tag `@devrel` in the channel or DM them |
-| Bugs / something broke | `#bug-reports` | Move thread or copy the report to `#bug-reports` with a link back |
-| Feature requests | PM | Note in a thread, DM to PM with summary |
-| Security / vulnerability | Security team | Do not post publicly. DM Security directly, do not route through channel |
-| Press / media inquiries | Marketing Lead | Do not engage publicly. Escalate immediately |
+### `#partner-program` channel
+- Partner API Keys early access requests → acknowledge, DM with next steps
+- Integration questions → route to DevRel if technical, Marketing Lead if strategic
 
-**For the first 2h:** Stay on top of replies. A 30-min response gap is noticeable. After the initial surge, check every 60 min.
-
----
-
-## Step 5 — Day 2: Reddit + HN (April 30, ~09:00 PT / 16:00 UTC)
-
-**Reddit:**
-1. Post at `r/MachineLearning` using `docs/marketing/community/phase34-reddit-post.md`
-2. Title: "Built agent execution tracing into the platform — no SDK, no sidecar, no sampling"
-3. Monitor for 2h, reply to top-level comments within 30 min
-4. Do not mention specific design partners
-
-**HackerNews:**
-1. Post using `docs/marketing/community/phase34-hn-post.md`
-2. Use "Show HN:" prefix in title
-3. Post as text link (link to docs/blog, not a product page)
-4. First-reply comment (pinned): short technical context — post a code snippet from the tool_trace example
-5. Monitor for 3h, reply to every top-level comment
-
-**Before either post:** Confirm X credentials are available if Social Media Brand is posting from a workspace. If still blocked, coordinate with Marketing Lead on whether to post without X or wait.
+### `#general`
+- How-to questions → answer directly or tag `@devrel`
+- "Is this available now?" → check against GA date, redirect to docs
+- Security concerns → do not respond publicly. DM Security team immediately.
 
 ---
 
-## Escalation — what to do if something goes wrong
+## Step 5 — Escalation paths
 
-**Wrong links in announcement:**
-- Edit the announcement message in `#announcements` immediately
-- Post a correction thread
+| Issue type | Route to | How |
+|-----------|----------|-----|
+| Tool Trace unexpected behavior | DevRel | DM or tag in `#devrel` |
+| Platform Instructions not applying | DevRel / Dev Lead | DM or tag in `#devrel` |
+| Partner API Keys access / billing issues | mol-ops | DM or tag in `#partner-program` |
+| SaaS Fed v2 isolation concern | Security / Dev Lead | DM Security, tag Dev Lead |
+| Security vulnerability | Security team | **DM only — do not post in any channel** |
+| Press / media inquiry | Marketing Lead | **Do not engage publicly — DM Marketing Lead immediately** |
 
-**Toxic or spam thread:**
+**For any toxic or spam thread:**
 - Do not engage
-- Tag Marketing Lead immediately with the thread link
+- Screenshot thread
+- DM Marketing Lead with link + screenshot
 
-**Security issue reported publicly:**
-- Do not confirm or deny in channel
-- DM Security team immediately, do not route through channel
+---
 
-**Platform outage on launch day:**
-- Pause all community posts
-- Post an update in `#announcements` when there's something to share
-- Coordinate with Marketing Lead before posting anything about the outage
+## Response templates — common questions
+
+**Q: "Is Partner API Keys available now?"**
+A: "Partner API Keys ship on April 30, 2026. Until then the API isn't live. If you want early access for a concrete integration use case, DM me and I'll connect you with the team."
+
+**Q: "How is Tool Trace different from Langfuse/Helicone?"**
+A: "Tool Trace captures A2A-level agent behavior — tool calls, inputs, output previews. Langfuse/Helicone capture LLM API calls. They measure different layers. If you're running agents on Molecule, Tool Trace is zero-config and free. If you need cross-platform multi-model observability, Langfuse is still a great complement."
+
+**Q: "Can I use Platform Instructions to enforce a policy across my org?"**
+A: "Yes — set a global instruction via PUT /cp/platform-instructions (scope: global). It applies to every workspace in your org at startup. Rules prepend to each agent's system prompt — workspace users can't override them by editing config.yaml."
+
+**Q: "What's the rate limit on Partner API Keys?"**
+A: "Default is 60 requests/minute per key, configurable at key creation time. For high-volume CI pipelines, request a higher limit when you apply for a partner key."
+
+**Q: "My agent isn't producing tool_trace in responses."**
+A: "Tool Trace is on by default for all workspaces. Make sure activity logging is enabled on your workspace. If it is, and you're still not seeing traces, open a bug in #bug-reports and tag @devrel."
+
+**Q: "Where is the migration guide for Phase 34?"**
+A: "Phase 34 features are additive — no migration required for existing agents. Tool Trace starts appearing automatically, Platform Instructions are opt-in per org admin. Migration docs at docs.moleculesai.app/guides/phase-34-migration — live on April 30."
+
+---
+
+## Post-launch (24h): metrics and feedback
+
+### Engagement metrics to capture
+- `#announcements` — reply count, reaction count (first 4h)
+- `#faq` — pin view count if available, question count
+- `#general` — Phase 34 thread volume
+- GitHub Discussions — new discussions opened, response time
+- Reddit/HN (Day 2) — post score, comment count, avg time to first reply
+
+### Feedback to route to PM
+- Questions that surfaced unexpected complexity in the features
+- Feature requests that multiple community members asked about
+- Any confusion about what shipped vs what's coming April 30
+- Partner API Keys early access requests — log use case + org name
+
+### Day 2 — Reddit + HN
+
+**Reddit r/MachineLearning** (~09:00 PT / 16:00 UTC):
+- Source: `docs/marketing/community/phase34-reddit-post.md`
+- Title: "Built agent execution tracing into the platform — no SDK, no sidecar, no sampling"
+- Monitor for 2h, reply to top-level comments within 30 min
+- Do not name design partners
+
+**HackerNews Show HN** (~09:00 PT / 16:00 UTC):
+- Source: `docs/marketing/community/phase34-hn-post.md`
+- Title: "Show HN: Molecule AI's approach to platform-native agent observability + governance"
+- First reply (pinned): code snippet from the tool_trace example
+- Monitor for 3h, reply to every top-level comment
 
 ---
 
 ## Files reference
 
-| File | Location |
-|------|----------|
-| Community announcement | `docs/marketing/launches/phase-34-community-announcement.md` |
-| FAQ | `docs/marketing/launches/phase-34-community-faq.md` |
-| Reddit post | `docs/marketing/community/phase34-reddit-post.md` |
-| HN post | `docs/marketing/community/phase34-hn-post.md` |
-| EC2 Instance Connect social | `docs/marketing/social/ec2-instance-connect-ssh-social-copy.md` |
-| Phase 34 positioning | `docs/marketing/briefs/phase34-positioning.md` |
+| File | Purpose |
+|------|---------|
+| `docs/marketing/launches/phase-34-community-announcement.md` | Announce in `#announcements` |
+| `docs/marketing/launches/phase-34-community-faq.md` | Pin in `#faq` |
+| `docs/marketing/community/phase34-reddit-post.md` | Reddit Day 2 |
+| `docs/marketing/community/phase34-hn-post.md` | HN Day 2 |
+| `docs/marketing/briefs/phase34-positioning.md` | PMM-approved positioning |
+| `docs/marketing/launches/phase-34-discord-runbook.md` | This file |
 
 **Last updated:** 2026-04-23
