@@ -735,6 +735,100 @@ func TestAdminAuth_Issue180_ApprovalsListing_FailOpen_NoTokens(t *testing.T) {
 	}
 }
 
+// TestWorkspaceAuth_DevModeEscapeHatch_NoBearer_FailsOpen documents the
+// local-dev escape hatch on WorkspaceAuth. On `go run ./cmd/server` +
+// `npm run dev`, Canvas at localhost:3000 calls the platform at
+// localhost:8080 cross-port, so isSameOriginCanvas's Host==Referer
+// check fails. Without this hatch the Canvas can't show per-workspace
+// activity/delegations.
+//
+// SaaS never fires this branch because tenant provisioning sets both
+// MOLECULE_ENV=production and ADMIN_TOKEN.
+func TestWorkspaceAuth_DevModeEscapeHatch_NoBearer_FailsOpen(t *testing.T) {
+	t.Setenv("MOLECULE_ENV", "development")
+	t.Setenv("ADMIN_TOKEN", "")
+
+	mockDB, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	// No DB queries expected — the hatch short-circuits before any lookup.
+
+	r := gin.New()
+	r.GET("/workspaces/:id/activity", WorkspaceAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"activity": []interface{}{}})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet,
+		"/workspaces/00000000-0000-0000-0000-000000000000/activity", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("WorkspaceAuth dev-mode hatch: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestWorkspaceAuth_DevModeEscapeHatch_IgnoredInProduction verifies
+// the hatch never fires in production mode. This is the SaaS-safety
+// guarantee — no one should get a bearer-free 200 in prod just because
+// MOLECULE_ENV leaks an unexpected value.
+func TestWorkspaceAuth_DevModeEscapeHatch_IgnoredInProduction(t *testing.T) {
+	t.Setenv("MOLECULE_ENV", "production")
+	t.Setenv("ADMIN_TOKEN", "")
+
+	mockDB, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	r := gin.New()
+	r.GET("/workspaces/:id/activity", WorkspaceAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"activity": []interface{}{}})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet,
+		"/workspaces/00000000-0000-0000-0000-000000000000/activity", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("production mode: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestWorkspaceAuth_DevModeEscapeHatch_IgnoredWhenAdminTokenSet verifies
+// setting ADMIN_TOKEN on the server (the #684 opt-in) disables the
+// dev-mode hatch — callers MUST present a valid bearer. Setting
+// ADMIN_TOKEN is the explicit SaaS-mode opt-in.
+func TestWorkspaceAuth_DevModeEscapeHatch_IgnoredWhenAdminTokenSet(t *testing.T) {
+	t.Setenv("MOLECULE_ENV", "development")
+	t.Setenv("ADMIN_TOKEN", "operator-set-this")
+
+	mockDB, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	r := gin.New()
+	r.GET("/workspaces/:id/activity", WorkspaceAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"activity": []interface{}{}})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet,
+		"/workspaces/00000000-0000-0000-0000-000000000000/activity", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("dev-mode + ADMIN_TOKEN: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // TestAdminAuth_DevModeEscapeHatch_FailsOpenWithHasLiveTokens documents the
 // Tier-1b dev-mode escape hatch. When the platform runs with MOLECULE_ENV=development
 // and ADMIN_TOKEN is unset, AdminAuth must stay fail-open even after workspace
