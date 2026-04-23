@@ -94,7 +94,7 @@ func TestLarkAdapter_SendMessage_HappyPath(t *testing.T) {
 		gotBody = string(b)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
-		w.Write([]byte(`{"code":0,"msg":"ok"}`))
+		_, _ = w.Write([]byte(`{"code":0,"msg":"ok"}`))
 	}))
 	defer srv.Close()
 
@@ -115,7 +115,7 @@ func TestLarkAdapter_SendMessage_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if gotPath != "/open-apis/bot/v2/hook/test" {
 		t.Errorf("path: got %q", gotPath)
