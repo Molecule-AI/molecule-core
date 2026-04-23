@@ -182,9 +182,11 @@ func TestIsSafeURL(t *testing.T) {
 		rawURL  string
 		wantErr bool
 	}{
-		// Valid: public HTTPS
-		{"public https", "https://agent.example.com:8080/a2a", false},
-		{"public http", "http://agent.example.com/a2a", false},
+		// Valid: public HTTPS. Use example.com (RFC-2606, resolves
+		// globally to Cloudflare Anycast) rather than agent.example.com
+		// (subdomain NXDOMAIN on many resolvers, makes the test flake).
+		{"public https", "https://example.com:8080/a2a", false},
+		{"public http", "http://example.com/a2a", false},
 		// Loopback is blocked by isSafeURL even in dev — the orchestrator
 		// controls access via WorkspaceAuth + CanCommunicate, not via this URL check.
 		// Changing wantErr here would require also updating isSafeURL to permit

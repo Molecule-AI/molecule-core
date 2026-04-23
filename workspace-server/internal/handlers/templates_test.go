@@ -586,7 +586,7 @@ func TestWriteFile_WorkspaceNotFound(t *testing.T) {
 
 	handler := NewTemplatesHandler(t.TempDir(), nil)
 
-	mock.ExpectQuery("SELECT name FROM workspaces WHERE id =").
+	mock.ExpectQuery(`SELECT name, COALESCE\(instance_id, ''\), COALESCE\(runtime, ''\) FROM workspaces WHERE id =`).
 		WithArgs("ws-wf-nf").
 		WillReturnError(sql.ErrNoRows)
 

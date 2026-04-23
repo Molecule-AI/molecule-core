@@ -146,16 +146,36 @@ func requireCallerOwnsOrg(c *gin.Context) (string, error) {
 // requireOrgOwnership verifies the caller has authority over the target org.
 // Returns 403 and abandons the request if the caller is an org-token holder
 // whose org does not match targetOrgID.
+//
+// Two distinct paths produce callerOrg == "":
+//  1. No org_token_id in context → caller is a session/ADMIN_TOKEN user
+//     with full platform admin rights → allow.
+//  2. org_token_id present but DB has org_id NULL for that token → an
+//     "unanchored" token (minted pre-migration 036 or via ADMIN_TOKEN
+//     bootstrap, never bound to an org). The comment in requireCallerOwnsOrg
+//     already states these callers "get callerOrg="" and are denied"; prior
+//     to this change the callers WERE given callerOrg="" but this function
+//     then treated it the same as session/admin and let them through.
+//     That privilege-escalation gap is what TestRequireOrgOwnership_
+//     UnanchoredToken_Denied has been pinning.
 func requireOrgOwnership(c *gin.Context, targetOrgID string) bool {
+	_, hasOrgToken := c.Get("org_token_id")
 	callerOrg, err := requireCallerOwnsOrg(c)
 	if err != nil {
 		log.Printf("allowlist: requireOrgOwnership: %v", err)
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "org access denied"})
 		return false
 	}
-	// callerOrg "" means session/admin user — they have full access (no
-	// org token → full platform admin via session/ADMIN_TOKEN path).
 	if callerOrg == "" {
+		if hasOrgToken {
+			// Unanchored org-token: safer default is deny. Prior behavior
+			// let these through as session/admin, which let an unbound
+			// org-scoped token hit any org's surface.
+			log.Printf("allowlist: unanchored org-token tried to access org %s (denied)", targetOrgID)
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "org access denied"})
+			return false
+		}
+		// No org token → session/ADMIN_TOKEN → full access.
 		return true
 	}
 	if callerOrg != targetOrgID {

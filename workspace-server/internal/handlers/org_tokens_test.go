@@ -66,8 +66,8 @@ func TestOrgTokenHandler_List_HappyPath(t *testing.T) {
 
 	now := time.Now().UTC()
 	mock.ExpectQuery(`SELECT id, prefix.*FROM org_api_tokens`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "name", "created_by", "created_at", "last_used_at"}).
-			AddRow("tok-1", "abcd1234", "zapier", "session", now, nil))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "name", "org_id", "created_by", "created_at", "last_used_at"}).
+			AddRow("tok-1", "abcd1234", "zapier", "", "session", now, nil))
 
 	c, w := buildCtx("GET", "/org/tokens", "")
 	h.List(c)
@@ -120,7 +120,7 @@ func TestOrgTokenHandler_Create_ActorFromAdminToken(t *testing.T) {
 	// No Cookie header, no org_token_prefix → actor should be
 	// "admin-token" (bootstrap path).
 	mock.ExpectQuery(`INSERT INTO org_api_tokens`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "my-ci", actorAdminToken).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "my-ci", actorAdminToken, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-1"))
 
 	c, w := buildCtx("POST", "/org/tokens", `{"name":"my-ci"}`)
@@ -164,7 +164,7 @@ func TestOrgTokenHandler_Create_ActorFromOrgTokenPrefix(t *testing.T) {
 	// records "org-token:<prefix>" using the 8-char plaintext
 	// prefix from the presenter's token.
 	mock.ExpectQuery(`INSERT INTO org_api_tokens`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), nil, actorOrgTokenPrefix+"parent12").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), nil, actorOrgTokenPrefix+"parent12", nil).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-new"))
 
 	c, w := buildCtx("POST", "/org/tokens", `{}`)
@@ -188,7 +188,7 @@ func TestOrgTokenHandler_Create_ActorFromSession(t *testing.T) {
 	// follow-up captures WorkOS user_id, this test changes to
 	// "session:user_01XXX".
 	mock.ExpectQuery(`INSERT INTO org_api_tokens`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "from-browser", actorSession).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "from-browser", actorSession, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-browser"))
 
 	c, w := buildCtx("POST", "/org/tokens", `{"name":"from-browser"}`)
@@ -226,7 +226,7 @@ func TestOrgTokenHandler_Create_EmptyBodyOK(t *testing.T) {
 	defer cleanup()
 	// Empty POST must still mint a token — name is optional.
 	mock.ExpectQuery(`INSERT INTO org_api_tokens`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), nil, actorAdminToken).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), nil, actorAdminToken, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("tok-min"))
 
 	c, w := buildCtx("POST", "/org/tokens", "")
