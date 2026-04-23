@@ -26,6 +26,10 @@ func init() {
 }
 
 // setupTestDB creates a sqlmock DB and assigns it to the global db.DB.
+// It also disables the SSRF gate for the duration of the test so that
+// httptest.Server URLs (which bind to 127.0.0.1) and sqlmock fixtures
+// (which use loopback hostnames like "dbhit.example") can flow through
+// the A2A proxy without being rejected. Restored on test cleanup.
 func setupTestDB(t *testing.T) sqlmock.Sqlmock {
 	t.Helper()
 	mockDB, mock, err := sqlmock.New()
@@ -33,7 +37,11 @@ func setupTestDB(t *testing.T) sqlmock.Sqlmock {
 		t.Fatalf("failed to create sqlmock: %v", err)
 	}
 	db.DB = mockDB
-	t.Cleanup(func() { mockDB.Close() })
+	setSSRFCheckForTest(false)
+	t.Cleanup(func() {
+		_ = mockDB.Close()
+		setSSRFCheckForTest(true)
+	})
 	return mock
 }
 
