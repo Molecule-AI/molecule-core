@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useId } from "react";
+import { useState, useEffect, useRef, useCallback, useId, useMemo } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { api } from "@/lib/api";
+import { isSaaSTenant } from "@/lib/tenant";
 
 interface WorkspaceOption {
   id: string;
@@ -39,7 +40,6 @@ export function CreateWorkspaceButton() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
-  const [tier, setTier] = useState(1);
   const [template, setTemplate] = useState("");
   const [parentId, setParentId] = useState("");
   const [budgetLimit, setBudgetLimit] = useState("");
@@ -51,13 +51,33 @@ export function CreateWorkspaceButton() {
   const [hermesProvider, setHermesProvider] = useState("anthropic");
   const [hermesApiKey, setHermesApiKey] = useState("");
 
+  // Tier picker: on SaaS every workspace gets its own EC2 VM (Full Access
+  // by construction), so we hide the T1/T2/T3 Docker-sandbox tiers and
+  // lock to T4 — the full-host access tier, which maps to t3.large at the
+  // CP level. On self-hosted we still offer T1/T2/T3 because the Docker-
+  // sandbox distinction is a real choice there; T4 is available too for
+  // operators who want the full-host tier.
+  //
+  // SSR-safe via isSaaSTenant() contract (returns false on server); first
+  // client render may flip the picker — acceptable one-frame reflow.
+  const isSaaS = useMemo(() => isSaaSTenant(), []);
+  const TIERS = useMemo(
+    () =>
+      isSaaS
+        ? [{ value: 4, label: "T4", desc: "Full Access" }]
+        : [
+            { value: 1, label: "T1", desc: "Sandboxed" },
+            { value: 2, label: "T2", desc: "Standard" },
+            { value: 3, label: "T3", desc: "Privileged" },
+            { value: 4, label: "T4", desc: "Full Access" },
+          ],
+    [isSaaS],
+  );
+  const defaultTier = isSaaS ? 4 : 1;
+  const [tier, setTier] = useState(defaultTier);
+
   // Refs for roving tabIndex on the tier radio group (WCAG 2.1 arrow-key nav)
   const radioRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const TIERS = [
-    { value: 1, label: "T1", desc: "Sandboxed" },
-    { value: 2, label: "T2", desc: "Standard" },
-    { value: 3, label: "T3", desc: "Full Access" },
-  ];
 
   const handleRadioKeyDown = useCallback(
     (e: React.KeyboardEvent, currentIndex: number) => {
@@ -85,7 +105,7 @@ export function CreateWorkspaceButton() {
     if (!open) return;
     setName("");
     setRole("");
-    setTier(1);
+    setTier(defaultTier);
     setTemplate("");
     setParentId("");
     setBudgetLimit("");
@@ -96,6 +116,9 @@ export function CreateWorkspaceButton() {
       .get<WorkspaceOption[]>("/workspaces")
       .then((ws) => setWorkspaces(ws))
       .catch(() => {});
+    // defaultTier is stable for the session (derived from window.location),
+    // safe to omit from deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const handleCreate = async () => {
@@ -209,10 +232,10 @@ export function CreateWorkspaceButton() {
               <div
                 role="radiogroup"
                 aria-label="Workspace tier"
-                className="grid grid-cols-3 gap-1.5"
+                className={`grid gap-1.5 ${isSaaS ? "grid-cols-1" : "grid-cols-4"}`}
               >
-                <div className="col-span-3 text-[11px] text-zinc-400 mb-1">
-                  Tier
+                <div className={`text-[11px] text-zinc-400 mb-1 ${isSaaS ? "" : "col-span-4"}`}>
+                  Tier{isSaaS ? " — dedicated VM" : ""}
                 </div>
                 {TIERS.map((t, idx) => (
                   <button
