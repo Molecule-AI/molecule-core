@@ -284,6 +284,7 @@ export function CreateWorkspaceButton() {
                 </div>
                 {TIERS.map((t, idx) => (
                   <button
+                    type="button"
                     key={t.value}
                     ref={(el) => { radioRefs.current[idx] = el; }}
                     role="radio"
