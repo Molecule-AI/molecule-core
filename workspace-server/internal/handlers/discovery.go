@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/middleware"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
@@ -329,6 +330,22 @@ func validateDiscoveryCaller(ctx context.Context, c *gin.Context, workspaceID st
 	if !hasLive {
 		return nil // legacy / pre-upgrade
 	}
+
+	// Try session cookie auth first (SaaS canvas path).
+	// verifiedCPSession returns (valid, presented):
+	//   - (false, false) = no cookie, fall through to bearer
+	//   - (true, true)   = valid session, allow
+	//   - (false, true)  = cookie presented but invalid, 401
+	if cookieHeader := c.GetHeader("Cookie"); cookieHeader != "" {
+		if ok, presented := middleware.VerifiedCPSession(cookieHeader); presented {
+			if ok {
+				return nil // session verified, allow
+			}
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid session"})
+			return errors.New("invalid session")
+		}
+	}
+
 	tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
 	if tok == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing workspace auth token"})
