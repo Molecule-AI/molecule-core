@@ -79,7 +79,7 @@ func TestTerminalConnect_KI005_RejectsUnauthorizedCrossWorkspace(t *testing.T) {
 	// CanCommunicate returns false → 403 Forbidden.
 	rows := sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("tok-1", "ws-caller")
 	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id\s+FROM workspace_auth_tokens t\s+JOIN workspaces w`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(rows)
 	// ValidateToken fires a best-effort last_used_at UPDATE after success.
 	// Accept it so ExpectationsWereMet passes.
@@ -431,7 +431,7 @@ func TestTerminalConnect_KI005_AllowsSiblingWorkspace(t *testing.T) {
 	// Token belongs to ws-pm; ValidateToken succeeds for ws-pm caller.
 	// CanCommunicate returns true (sibling) → proceeds to Docker nil path.
 	mock.ExpectQuery(`SELECT t\.id, t\.workspace_id\s+FROM workspace_auth_tokens t\s+JOIN workspaces w`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace_id"}).AddRow("tok-pm", "ws-pm"))
 	mock.ExpectExec(`UPDATE workspace_auth_tokens SET last_used_at`).
 		WithArgs(sqlmock.AnyArg()).
