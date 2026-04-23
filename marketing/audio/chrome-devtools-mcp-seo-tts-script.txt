@@ -1,0 +1,31 @@
+# TTS Script — Chrome DevTools MCP (SEO version)
+**Blog:** docs.molecule.ai/blog/browser-automation-ai-agents-mcp
+**Duration:** ~90s at ~150 wpm
+**Date:** 2026-04-20
+**Author:** Content Marketer (auto-generated)
+
+---
+
+Most AI agents hit the same wall: they can reason, plan, and call APIs — but the moment a task requires clicking through a website, filling a form, or reading a page that has no API, they're stuck.
+
+The fix is giving your agent a real browser. Not a screenshot API, not a Playwright script written by a human. A browser your AI agent controls itself — deciding when to navigate, extract, and interact, the same way a human would.
+
+The Model Context Protocol is the bridge. It gives AI models a standardized interface to call browser tools — not buried in a prompt, but as first-class, typed tool calls. Chrome DevTools Protocol is the engine: the same underlying protocol that powers Chrome DevTools, Puppeteer, and Playwright, exposed directly to your agent.
+
+Before MCP, connecting an AI agent to a browser meant writing custom wrapper scripts or paying for a SaaS browser API. MCP solves both problems.
+
+It gives you typed tool definitions — your agent sees browser navigate, dom query, page screenshot with JSON Schema inputs, not raw Python function names buried in a system prompt.
+
+It gives you streaming tool calls — long-running browser operations stream progress back without blocking the agent's reasoning loop.
+
+It gives you session persistence — CDP sessions maintain browser state across tool calls, so your agent isn't starting from a blank page every turn.
+
+Molecule AI workspaces ship MCP browser tools as part of the standard runtime. If you're already on Molecule AI, browser automation is available — you configure which tools the agent can access, not how they work.
+
+An MCP server that bridges to CDP maps Chrome DevTools Protocol domains onto MCP tool definitions. Your AI agent calls browser navigate and the MCP server translates it to a Page.navigate command over WebSocket.
+
+The result: production-grade browser automation without Puppeteer wrappers, without SaaS dependencies, and without managing session state in your prompt.
+
+For teams running browser automation in regulated environments, the governance layer matters as much as the automation itself. When an AI agent operates a browser on your behalf, it generates audit-relevant data — which sites it visited, what data it extracted, when sessions started and ended. Molecule AI's workspace isolation and org API key scoping give you that visibility by default.
+
+Connect your own MCP server to a Molecule AI workspace using the built-in MCP tool registration. The platform handles the WebSocket lifecycle and tool call routing. You bring the browser logic.

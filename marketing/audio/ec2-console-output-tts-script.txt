@@ -1,0 +1,27 @@
+# TTS Script — EC2 Console Output in Molecule AI Canvas
+**Blog:** docs.molecule.ai/blog/ec2-console-output
+**Duration:** ~75s at ~150 wpm
+**Date:** 2026-04-24
+**Author:** Content Marketer (auto-generated)
+
+---
+
+When a workspace fails to start, the answer is usually already there — buried in the EC2 instance's console output. Cloud-init logs, boot script errors, missing environment variables, package installation failures: all of it gets written to the instance's serial console before the system crashes or becomes unreachable.
+
+The problem is access. Getting to that output means opening the AWS Console, navigating to EC2, finding the right instance, and retrieving the console output manually. For teams running Molecule AI as a self-hosted deployment, that's a barrier between "something broke" and "I know what broke."
+
+Molecule AI now fetches and displays EC2 console output directly in the Canvas UI — on the workspace detail view, whenever the instance fails to come up.
+
+Before this change, a platform admin investigating a failed workspace had to log into the AWS Console, find the EC2 instance associated with the workspace, run the CLI command to get console output, parse the raw text, and cross-reference with the boot script. That path is often a dead end for a first-line operator who didn't provision the infrastructure.
+
+When a workspace on an EC2-backed tenant fails its boot sequence, the Canvas now shows the EC2 console output inline on the workspace detail view. You see the same text you'd get from the AWS CLI command, rendered in context alongside the workspace's current state.
+
+The output includes cloud-init logs, boot script standard error, kernel and systemd output, and a diff between the last successful boot and the current failure.
+
+You don't need to leave Canvas, switch accounts, or know the instance ID. The context stays in the workspace record where your team already works.
+
+On the platform side, the handler calls the EC2 get-console-output API using the instance ID stored in the workspace record. The output is returned as-is — no filtering or redaction — so platform operators see exactly what AWS recorded.
+
+Molecule AI applies lightweight redaction before displaying output: environment variable values matching known secret patterns are replaced with redacted. The raw output is still available to tenant administrators via the API.
+
+If you're running Molecule AI on EC2, console output visibility is enabled automatically. When a workspace fails to boot, open Canvas and navigate to the failed workspace — the EC2 console output appears in the workspace detail panel.

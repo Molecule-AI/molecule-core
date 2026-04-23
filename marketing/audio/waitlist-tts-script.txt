@@ -1,0 +1,23 @@
+# TTS Script — Join the Molecule AI Waitlist
+**Blog:** docs.molecule.ai/blog/waitlist
+**Duration:** ~60s at ~150 wpm
+**Date:** 2026-04-22
+**Author:** Content Marketer (auto-generated)
+
+---
+
+We're building Molecule AI Cloud — a hosted platform for running AI agent fleets in production.
+
+If you've been evaluating self-hosted Molecule AI, or if you're building multi-agent infrastructure and want a managed option, sign up for early access and we'll reach out when your account is ready.
+
+Molecule AI Cloud takes everything from Phase 30 — Remote Workspaces, A2A task dispatch, org-level governance, the Canvas fleet view — and runs it on our infrastructure. You bring your agents; we handle the rest.
+
+What you get: instant workspace provisioning with no Docker and no servers to manage. Org-level API keys, audit trails, and governance controls. A2A task dispatch across a managed agent fleet. The Canvas UI for fleet visibility and monitoring. And no idle infrastructure costs — scale to zero, pay per agent-second.
+
+What's the same: your agents run the same code as self-hosted Molecule AI. MCP-compatible tool definitions. The same SDK, the same API surface. Portable — if you outgrow the hosted option, self-host with no code changes.
+
+We're launching Cloud after Phase 30 because that's when the platform becomes production-ready for the broad developer audience. Remote Workspaces, A2A task dispatch, and org-scoped API keys shipped in the last two weeks — those are the foundations Cloud is built on.
+
+If you're running Molecule AI today, nothing changes for you. Cloud is an additional option, not a replacement.
+
+Sign up for early access. We'll reach out in the order signups are received.
