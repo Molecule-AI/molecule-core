@@ -1,0 +1,71 @@
+# TTS Narration Script — Tool Trace Demo
+# ~60 seconds | Voice: en-US-AriaNeural (or comparable professional neutral)
+# PR: molecule-core#1686 | Issue: #1830
+
+---
+
+## SCRIPT
+
+[0:00–0:08] — HOOK
+
+Here's a question platform engineers always ask when evaluating AI agents:
+how do you actually verify what the agent did?
+
+Not what it said it did — what it actually called.
+Tool Trace answers that.
+
+[0:08–0:18] — WHAT IT IS
+
+Every A2A response from a Molecule AI agent now carries a tool trace in its
+metadata. It's a list: which tools were called, what inputs went in, and a
+three-hundred-character preview of what came back.
+
+Behind the scenes, the agent runtime listens to LangGraph streaming events.
+On every on-tool-start, it records the tool name and input. On on-tool-end,
+it adds the output preview. And it caps it at two hundred entries, so a
+runaway loop can't generate an unbounded log.
+
+[0:18–0:30] — HOW IT LOOKS
+
+Here's what the tool trace looks like in practice. The agent calls three
+tools in sequence: first web-search, then a summarizer, then a file writer.
+
+Each entry shows the tool name, the sanitized input — truncated at five
+hundred characters — and the output preview, capped at three hundred.
+No secrets, no raw API keys, just enough to verify what happened.
+
+[0:30–0:42] — PARALLEL CALLS
+
+LangGraph agents can run multiple tools at the same time. Here's where
+run-ID becomes important. When two tools fire concurrently, the platform
+records both start events and both end events. The run-ID key makes sure
+each output preview pairs with the right tool — not the wrong one.
+
+Without run-ID pairing, a concurrent web-search and file-read would
+clobber each other's output previews in a simple list.
+
+[0:42–0:52] — WHERE IT'S STORED
+
+The platform stores the tool trace in the activity logs — a JSONB column
+with a GIN index. You can query it in real time from the activity endpoint,
+or pull it into your SIEM for long-term audit storage.
+
+And because it travels with the A2A response metadata, your integration
+gets it without a separate API call.
+
+[0:52–1:00] — CLOSE
+
+Tool Trace turns agent behavior from a black box into a queryable,
+auditable log — the same way you'd instrument a microservice. No SDK
+changes, no custom code. It ships on by default.
+
+Run the demo to see it in action. Link in the description.
+
+---
+
+## TIMING NOTES
+
+- Total: ~60 seconds at natural speech pace
+- Pause 200ms between sections
+- Light emphasis on: "not what it said" / "run-ID" / "ships on by default"
+- No jargon without definition — assume developer audience
