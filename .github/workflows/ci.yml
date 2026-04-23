@@ -53,7 +53,7 @@ jobs:
           echo "platform=$(echo "$DIFF" | grep -qE '^workspace-server/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "canvas=$(echo "$DIFF" | grep -qE '^canvas/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "python=$(echo "$DIFF" | grep -qE '^workspace/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          echo "scripts=$(echo "$DIFF" | grep -qE '^tests/e2e/|^scripts/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "scripts=$(echo "$DIFF" | grep -qE '^tests/e2e/|^scripts/|^infra/scripts/|^\.github/workflows/ci\.yml$' && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
   platform-build:
     name: Platform (Go)
@@ -202,10 +202,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run shellcheck on tests/e2e/*.sh
+      - name: Run shellcheck on tests/e2e/*.sh and infra/scripts/*.sh
         # shellcheck is pre-installed on ubuntu-latest runners (via apt).
+        # infra/scripts/ is included because setup.sh + nuke.sh gate the
+        # README quickstart — a shellcheck regression there silently breaks
+        # new-user onboarding. scripts/ is intentionally excluded until its
+        # pre-existing SC3040/SC3043 warnings are cleaned up.
         run: |
-          find tests/e2e -type f -name '*.sh' -print0 \
+          find tests/e2e infra/scripts -type f -name '*.sh' -print0 \
             | xargs -0 shellcheck --severity=warning
 
   canvas-deploy-reminder:
