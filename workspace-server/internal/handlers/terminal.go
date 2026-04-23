@@ -88,6 +88,7 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 // here so it covers both the local Docker path and (transitively) the
 // remote EIC path (which is selected before this function is reached).
 func (h *TerminalHandler) handleLocalConnect(c *gin.Context, workspaceID string) {
+	ctx := c.Request.Context()
 	callerID := c.GetHeader("X-Workspace-ID")
 	if callerID != "" && callerID != workspaceID {
 		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
