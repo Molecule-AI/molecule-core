@@ -68,6 +68,8 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 	workspaceID := c.Param("id")
 	ctx := c.Request.Context()
 
+	callerID := c.GetHeader("X-Workspace-ID")
+
 	// KI-005 fix: enforce CanCommunicate hierarchy check before granting
 	// terminal access. WorkspaceAuth validates the bearer's token, but the
 	// token is scoped to a specific workspace ID — Workspace A's token can
