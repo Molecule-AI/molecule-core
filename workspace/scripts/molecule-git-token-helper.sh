@@ -138,19 +138,32 @@ _fetch_token_from_api() {
         return 1
     fi
 
+    # NOTE: capture stderr to a tmp file (NOT $response) so the response
+    # body — which contains the token on success — never lands in error
+    # log lines via $response interpolation.
+    local _err_file
+    _err_file=$(mktemp)
     response=$(curl -sf \
         -H "Authorization: Bearer ${bearer}" \
         -H "Accept: application/json" \
         --max-time 10 \
-        "${ENDPOINT}" 2>&1) || {
-        echo "[molecule-git-token-helper] platform request failed: ${response}" >&2
+        "${ENDPOINT}" 2>"${_err_file}") || {
+        local _curl_rc=$?
+        local _err_msg
+        _err_msg=$(cat "${_err_file}")
+        rm -f "${_err_file}"
+        echo "[molecule-git-token-helper] platform request failed (curl rc=${_curl_rc}): ${_err_msg}" >&2
         return 1
     }
+    rm -f "${_err_file}"
 
     # Parse {"token":"ghs_...","expires_at":"..."} with sed (no jq dependency).
     token=$(echo "${response}" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
     if [ -z "${token}" ]; then
-        echo "[molecule-git-token-helper] empty token in platform response: ${response}" >&2
+        # SECURITY: the response body MAY contain a token under a different
+        # JSON key name. Never include $response in this error message —
+        # log only the size as a coarse debugging signal.
+        echo "[molecule-git-token-helper] empty token in platform response (body=${#response} bytes)" >&2
         return 1
     fi
 

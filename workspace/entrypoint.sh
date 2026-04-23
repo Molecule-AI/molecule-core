@@ -71,11 +71,20 @@ fi
 
 # Now running as agent (uid 1000)
 
-# --- Start background token refresh daemon ---
+# --- Start background token refresh daemon (with respawn supervision) ---
 # Keeps gh CLI and git credentials fresh across the 60-min token TTL.
-# Runs in the background; entrypoint continues to exec molecule-runtime.
+# Wrapped in a respawn loop so a daemon crash doesn't silently leave the
+# workspace stuck on an expired token. Runs in the background; entrypoint
+# continues to exec molecule-runtime.
 if [ -x /app/scripts/molecule-gh-token-refresh.sh ]; then
-    nohup /app/scripts/molecule-gh-token-refresh.sh > /dev/null 2>&1 &
+    nohup bash -c '
+        while true; do
+            /app/scripts/molecule-gh-token-refresh.sh
+            rc=$?
+            echo "[molecule-gh-token-refresh] daemon exited rc=$rc — respawning in 30s" >&2
+            sleep 30
+        done
+    ' > /home/agent/.gh-token-refresh.log 2>&1 &
 fi
 
 # --- Initial gh auth setup ---
