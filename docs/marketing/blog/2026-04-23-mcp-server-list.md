@@ -25,7 +25,7 @@ For agent builders, the server list is the practical question: *what can my agen
 | Chrome DevTools MCP | Browser/Web | Drives a real Chrome browser via the DevTools Protocol — navigate pages, click elements, fill forms, capture screenshots, read the live DOM | GA |
 | Playwright MCP | Browser/Web | Headless browser automation via Playwright — end-to-end web flows, cross-browser testing, structured data extraction from rendered pages | GA |
 
-The Chrome DevTools MCP integration ships as a first-class platform feature. For a full walkthrough of what it enables — live DOM inspection, agentic form fills, screenshot capture mid-task — see the [Chrome DevTools MCP blog post](docs/blog/2026-04-20-chrome-devtools-mcp/).
+The Chrome DevTools MCP integration ships as a first-class platform feature. For a full walkthrough of what it enables — live DOM inspection, agentic form fills, screenshot capture mid-task — see the [Chrome DevTools MCP blog post](/docs/blog/2026-04-20-chrome-devtools-mcp/).
 
 ---
 
@@ -36,7 +36,7 @@ The Chrome DevTools MCP integration ships as a first-class platform feature. For
 | Cloudflare Artifacts | Cloud | Git-backed versioned workspace snapshots — agents can fork, commit, and roll back their own working state on Cloudflare's edge | GA |
 | EC2 Instance Connect | Cloud | Establishes short-lived SSH sessions to AWS EC2 instances using IAM-scoped tokens — no long-lived credentials stored | GA |
 
-Cloudflare Artifacts deserves a callout: it treats every workspace snapshot as a real Git commit, giving agents branching, rollback, and multi-agent collaboration over a shared working tree. Full details in the [Cloudflare Artifacts integration post](docs/blog/2026-04-21-cloudflare-artifacts/).
+Cloudflare Artifacts deserves a callout: it treats every workspace snapshot as a real Git commit, giving agents branching, rollback, and multi-agent collaboration over a shared working tree. Full details in the [Cloudflare Artifacts integration post](/docs/blog/2026-04-21-cloudflare-artifacts/).
 
 ---
 
