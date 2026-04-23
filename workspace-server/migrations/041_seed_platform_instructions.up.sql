@@ -85,3 +85,4 @@ The team shares one GitHub App identity. Without tags, post-incident review cann
 - staging → main is approved by the human CEO.
 - No --admin merges (branch protection blocks this).
 - If CI is red on staging, fix the underlying issue. Never disable tests, --no-verify, or //nolint to silence linters.', 65, true);
+
