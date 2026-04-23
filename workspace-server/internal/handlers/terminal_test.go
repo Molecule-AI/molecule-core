@@ -147,6 +147,9 @@ func TestSSHCommandCmd_BuildsArgv(t *testing.T) {
 		if cmd.Args[i] != want[i] {
 			t.Errorf("argv[%d] = %q, want %q", i, cmd.Args[i], want[i])
 		}
+	}
+}
+
 // TestTerminalConnect_KI005_AllowsOwnTerminal tests the flip side of KI-005:
 // a workspace must still be able to access its own terminal. The CanCommunicate
 // fast-path returns true when callerID == targetID.
