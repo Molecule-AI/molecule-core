@@ -159,23 +159,33 @@ func (h *TemplatesHandler) writeViaEphemeral(ctx context.Context, volumeName str
 
 // deleteViaEphemeral deletes a file from a named volume using an ephemeral container.
 func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, filePath string) error {
+	// CWE-78/CWE-22: validate BEFORE any downstream availability check.
+	// Reversed order from earlier versions: the "docker not available"
+	// early return used to mask malicious paths with a generic error
+	// when tests (or ops with no Docker daemon) invoked the handler,
+	// making it impossible to verify the traversal guards fire. Exec
+	// form ([]string{...}) also defends against shell injection.
+	if err := validateRelPath(filePath); err != nil {
+		return fmt.Errorf("path not allowed: %w", err)
+	}
+
+	// F1085 (Misconfiguration - Filesystems): scope rm to the /configs volume.
+	// filepath.Join scopes the rm target; filepath.Clean normalizes ".."; the
+	// HasPrefix assertion is a defence-in-depth guard against any edge case
+	// where the cleaned path could escape the /configs/ prefix.
+	rmTarget := filepath.Join("/configs", filePath)
+	rmTarget = filepath.Clean(rmTarget)
+	if !strings.HasPrefix(rmTarget, "/configs/") {
+		return fmt.Errorf("path not allowed: escapes volume scope: %s", filePath)
+	}
+
 	if h.docker == nil {
 		return fmt.Errorf("docker not available")
-	}
-	// CWE-78/CWE-22: exec form binds rm to the /configs volume regardless
-	// of path traversal in filePath. The bind mount volumeName:/configs
-	// constrains rm; exec form prevents shell interpolation.
-	// validateRelPath is defense-in-depth (blocks ".." in raw input).
-	// The concat form is the critical fix: rm receives ONE path argument
-	// so ".." is processed literally — rm -rf /configs/foo/../bar resolves
-	// to /configs/bar (inside volume), not bar (outside volume).
-	if err := validateRelPath(filePath); err != nil {
-		return err
 	}
 
 	resp, err := h.docker.ContainerCreate(ctx, &container.Config{
 		Image: "alpine:latest",
-		Cmd:   []string{"rm", "-rf", "/configs/" + filePath},
+		Cmd:   []string{"rm", "-rf", rmTarget},
 	}, &container.HostConfig{
 		Binds: []string{volumeName + ":/configs"},
 	}, nil, nil, "")
