@@ -7,6 +7,7 @@
  * can surface them.
  */
 import { PLATFORM_URL } from "./api";
+import { SaaSHostSuffix } from "./tenant";
 
 export interface Session {
   user_id: string;
@@ -16,6 +17,18 @@ export interface Session {
 
 // Base path prefix for auth endpoints on the control plane.
 const AUTH_BASE = "/cp/auth";
+
+// Auth UI lives on the "app" subdomain (app.moleculesai.app), NOT on
+// tenant subdomains (hongmingwang.moleculesai.app). Tenant subdomains
+// proxy to EC2 platform which has no auth routes.
+function getAuthOrigin(): string {
+  if (typeof window === "undefined") return PLATFORM_URL;
+  const host = window.location.hostname;
+  if (host.endsWith(SaaSHostSuffix)) {
+    return `${window.location.protocol}//app${SaaSHostSuffix}`;
+  }
+  return PLATFORM_URL;
+}
 
 /**
  * fetchSession probes /cp/auth/me with the session cookie (credentials:
@@ -44,8 +57,13 @@ export async function fetchSession(): Promise<Session | null> {
  */
 export function redirectToLogin(screenHint: "sign-up" | "sign-in" = "sign-in"): void {
   if (typeof window === "undefined") return;
+  // Guard against infinite redirect loop: if we're already on the login
+  // page, don't redirect again (each redirect double-encodes return_to
+  // until the URL exceeds header limits → 431).
+  if (window.location.pathname.startsWith("/cp/auth/")) return;
   const returnTo = window.location.href;
   const path = screenHint === "sign-up" ? "signup" : "login";
-  const dest = `${PLATFORM_URL}${AUTH_BASE}/${path}?return_to=${encodeURIComponent(returnTo)}`;
+  const authOrigin = getAuthOrigin();
+  const dest = `${authOrigin}${AUTH_BASE}/${path}?return_to=${encodeURIComponent(returnTo)}`;
   window.location.href = dest;
 }

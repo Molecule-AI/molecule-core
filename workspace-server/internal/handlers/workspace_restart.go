@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -127,42 +125,11 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 	}
 	c.ShouldBindJSON(&body)
 
-	// Resolve template path in priority order:
-	// 1. Explicit template from request body
-	// 2. Runtime-specific default template (e.g. claude-code-default/)
-	// 3. Name-based match in templates directory
-	// 4. No template — the volume already has configs from previous run
-	var templatePath string
-	var configFiles map[string][]byte
-	configLabel := "existing-volume"
-
-	template := body.Template
-	if template == "" {
-		template = findTemplateByName(h.configsDir, wsName)
-	}
-	if template != "" {
-		candidatePath, resolveErr := resolveInsideRoot(h.configsDir, template)
-		if resolveErr != nil {
-			log.Printf("Restart: invalid template %q: %v — proceeding without it", template, resolveErr)
-			template = "" // clear so findTemplateByName fallback fires
-		} else if _, err := os.Stat(candidatePath); err == nil {
-			templatePath = candidatePath
-			configLabel = template
-		} else {
-			log.Printf("Restart: template %q dir not found — proceeding without it", template)
-		}
-	}
-
-	// #239: rebuild_config=true — try org-templates as last-resort source so a
-	// workspace with a destroyed config volume can self-recover without admin
-	// intervention. Only fires when no other template was resolved above.
-	if templatePath == "" && body.RebuildConfig {
-		if p, label := resolveOrgTemplate(h.configsDir, wsName); p != "" {
-			templatePath = p
-			configLabel = label
-			log.Printf("Restart: rebuild_config — using org-template %s for %s (%s)", label, wsName, id)
-		}
-	}
+	templatePath, configLabel := resolveRestartTemplate(h.configsDir, wsName, dbRuntime, restartTemplateInput{
+		Template:      body.Template,
+		ApplyTemplate: body.ApplyTemplate,
+		RebuildConfig: body.RebuildConfig,
+	})
 
 	// #239: rebuild_config=true — try org-templates as last-resort source so a
 	// workspace with a destroyed config volume can self-recover without admin
@@ -181,20 +148,9 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 		log.Printf("Restart: using template %s for %s (%s)", templatePath, wsName, id)
 	}
 
+	var configFiles map[string][]byte
 	payload := models.CreateWorkspacePayload{Name: wsName, Tier: tier, Runtime: containerRuntime}
 	log.Printf("Restart: workspace %s (%s) runtime=%q", wsName, id, containerRuntime)
-
-	// Apply runtime-default template ONLY when explicitly requested via "apply_template": true.
-	// Use case: runtime was changed via Config tab — need new runtime's base files.
-	// Normal restarts preserve existing config volume (user's model, skills, prompts).
-	if templatePath == "" && body.ApplyTemplate && dbRuntime != "" {
-		runtimeTemplate := filepath.Join(h.configsDir, dbRuntime+"-default")
-		if _, err := os.Stat(runtimeTemplate); err == nil {
-			templatePath = runtimeTemplate
-			configLabel = dbRuntime + "-default"
-			log.Printf("Restart: applying template %s (runtime change)", configLabel)
-		}
-	}
 
 	// #12: ?reset=true (or body.Reset) discards the claude-sessions volume
 	// before restart, giving the agent a clean /root/.claude/sessions dir.

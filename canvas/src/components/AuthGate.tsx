@@ -29,6 +29,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
       setState({ kind: "anonymous", skipRedirect: true });
       return;
     }
+    // Never gate /cp/auth/* paths — these ARE the login pages.
+    if (typeof window !== "undefined" && window.location.pathname.startsWith("/cp/auth/")) {
+      setState({ kind: "anonymous", skipRedirect: true });
+      return;
+    }
     let cancelled = false;
     fetchSession()
       .then((s) => {
