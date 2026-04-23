@@ -437,7 +437,7 @@ func (h *WorkspaceHandler) Pause(c *gin.Context) {
 			SELECT w.id, w.name FROM workspaces w JOIN descendants d ON w.parent_id = d.id WHERE w.status NOT IN ('removed', 'paused')
 		) SELECT id, name FROM descendants`, id)
 	if rows != nil {
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var cid, cname string
 			if rows.Scan(&cid, &cname) == nil {
@@ -512,7 +512,7 @@ func (h *WorkspaceHandler) Resume(c *gin.Context) {
 			SELECT w.id, w.name, w.tier, COALESCE(w.runtime, 'langgraph') FROM workspaces w JOIN descendants d ON w.parent_id = d.id WHERE w.status = 'paused'
 		) SELECT id, name, tier, runtime FROM descendants`, id)
 	if rows != nil {
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var ws wsInfo
 			if rows.Scan(&ws.id, &ws.name, &ws.tier, &ws.runtime) == nil {

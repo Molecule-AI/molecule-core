@@ -216,7 +216,7 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 	seedInitialMemories(ctx, id, payload.InitialMemories, awarenessNamespace)
 
 	// Broadcast provisioning event
-	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, map[string]interface{}{
 		"name": payload.Name,
 		"tier": payload.Tier,
 	})
@@ -235,7 +235,7 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 				log.Printf("External workspace: failed to mark online for %s: %v", id, err)
 			}
 		}
-		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_ONLINE", id, map[string]interface{}{
+		_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_ONLINE", id, map[string]interface{}{
 			"name": payload.Name, "external": true,
 		})
 		log.Printf("Created external workspace %s (%s) at %s", payload.Name, id, payload.URL)
@@ -294,7 +294,7 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 			`UPDATE workspaces SET status = 'failed', last_sample_error = 'Docker not available — workspace containers require a Docker daemon or external provisioning.', updated_at = now() WHERE id = $1`, id); err != nil {
 			log.Printf("Create (no-docker): failed to mark workspace %s failed: %v", id, err)
 		}
-		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", id, map[string]interface{}{
+		_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", id, map[string]interface{}{
 			"error": "Docker not available on this platform instance",
 		})
 		log.Printf("Create: no Docker daemon — workspace %s config persisted, marked failed", id)
@@ -397,7 +397,7 @@ func (h *WorkspaceHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	workspaces := make([]map[string]interface{}, 0)
 	for rows.Next() {
