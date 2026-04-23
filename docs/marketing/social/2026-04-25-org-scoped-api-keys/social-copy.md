@@ -140,7 +140,7 @@ UTM: `?utm_source=linkedin&utm_medium=social&utm_campaign=org-scoped-api-keys`
 ## Campaign Notes
 
 - **Publish day:** 2026-04-25 (Day 5)
-- **Hashtags:** #AgenticAI #MoleculeAI #DevOps #PlatformEngineering
+- **Hashtags:** #AIAgents #MoleculeAI #DevOps #PlatformEngineering
 - **X platform tone:** Lead with attribution — "which agent made that call?"
   resonates with developer/DevOps audience
 - **LinkedIn platform tone:** Lead with compliance/risk — "one ADMIN_TOKEN

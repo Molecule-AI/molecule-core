@@ -81,12 +81,11 @@ Chrome DevTools MCP plus Molecule AI's governance layer: browser automation that
 ---
 
 ## MCP Server List Explainer
-**File:** `docs/marketing/campaigns/mcp-server-list/social-copy.md` (staging, commit `0d3ad96`)
-**Status:** COPY READY — awaiting visual assets + X credentials
+**File:** `docs/marketing/campaigns/mcp-server-list/social-copy.md`
+**⚠️ Status:** FILE MISSING — `social-copy.md` not on staging (only `assets/` directory present). Queue entry is stale.
+**Action required:** Content Marketer to write social copy or confirm location. Remove or restore this entry.
 **Canonical URL:** `docs.molecule.ai/blog/mcp-server-list`
-**Owner:** Social Media Brand | **Day:** Ready once visual assets done
-
-5-post X thread + LinkedIn post. Full copy on staging.
+**Owner:** Content Marketer | **Day:** TBD
 
 ---
 
@@ -115,3 +114,18 @@ Social Media Brand: hold Fly.io post until Chrome DevTools MCP Day 1 posts land,
 ---
 
 ## EC2 Instance Connect SSH (PR #1533)
+**File:** `docs/marketing/social/2026-04-22-ec2-instance-connect-ssh/social-copy.md`
+**Status:** COPY READY — `#AgenticAI` replaced with `#AIAgents` (fix applied 2026-04-23)
+**Canonical URL:** `docs.molecule.ai/blog/ec2-instance-connect-ssh`
+**Owner:** Social Media Brand | **Day:** Ready once X credentials available
+
+Full 5-post X thread + LinkedIn post. Angle: no SSH key management, ephemeral permissions, AWS-native. Blog live (PR #1533 merged). ⚠️ Visual assets needed before publish.
+---
+
+## Org-Scoped API Keys (PR #1105)
+**File:** `docs/marketing/social/2026-04-25-org-scoped-api-keys/social-copy.md`
+**Status:** ✅ APPROVED — Marketing Lead 2026-04-21 | `#AgenticAI` replaced with `#AIAgents` (fix applied 2026-04-23)
+**Canonical URL:** `docs.molecule.ai/blog/org-scoped-api-keys`
+**Owner:** Social Media Brand | **Day:** 5 (2026-04-25)
+
+Full 5-post X thread + LinkedIn post. Angle: named, revocable, audit-attributed org API keys replacing shared ADMIN_TOKEN. Compliance + DevOps audience. ⚠️ Blog publish confirmation + visual assets needed.

@@ -113,3 +113,20 @@ Phase 30 shipped `mol_ws_*` (per-workspace auth tokens). Phase 34 extends to `mo
 ---
 
 *PMM draft 2026-04-22 — Marketing Lead 2026-04-23 v2: (1) lead claim updated to verified "first-mover" language per Research team competitive audit (LangGraph Cloud, CrewAI, Azure AI Foundry, Dify, Flowise, n8n — no equivalent `mol_pk_*` found), (2) Phase 30 cross-sell updated to "first agent platform with both" framing, (3) Language to Avoid section resolved. GA DATE CONFIRMED: April 30, 2026. Still awaiting PM input on partner tiers and marketplace billing.*
+
+---
+
+## Marketing Lead Review — 2026-04-23
+
+**Status: APPROVED for Sales distribution and launch prep. Two action items below.**
+
+✅ **Lead claim** — "first-mover" framing is correct and Research-verified. Sales team can use this now.
+✅ **Phase 30 linkage** — cross-sell claim ("first agent platform with both layered token scoping and a first-class partner provisioning API") is clean and approved.
+✅ **GA Date** — April 30, 2026 confirmed. Update Triggers table: mark "Phase 34 GA date confirmed" as ✅ DONE.
+✅ **Competitive table** — accurate as of 2026-04-23. Monitor CrewAI and Azure AI Foundry monthly.
+
+⏳ **Action (PM):** Marketplace-native billing rows (AWS/GCP) show "⏳ PM to confirm" — need PM input before Sales uses those rows in enterprise deals. Flagged to PM via issue #1122 routing.
+
+⚠️ **Action (DevRel):** Partner onboarding guide and CI/CD example are marked "⏳ DevRel in progress" — must ship by April 28 to support April 30 launch. Verify DevRel ETA.
+
+**Ready to distribute to:** Sales team, partner AEs. Do NOT share marketplace billing rows externally until PM confirms.
