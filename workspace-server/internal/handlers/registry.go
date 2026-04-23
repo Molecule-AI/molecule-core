@@ -68,12 +68,26 @@ func saasMode() bool {
 
 var saasModeWarnUnknownOnce sync.Once
 
+// QueueDrainFunc dispatches one queued A2A item on behalf of the caller.
+// Injected at construction to avoid a WorkspaceHandler import cycle in
+// RegistryHandler. Called from a goroutine spawned inside Heartbeat when
+// the workspace reports spare capacity (#1870 Phase 1).
+type QueueDrainFunc func(ctx context.Context, workspaceID string)
+
 type RegistryHandler struct {
 	broadcaster *events.Broadcaster
+	drainQueue  QueueDrainFunc // nil-safe: Heartbeat skips drain when unset
 }
 
 func NewRegistryHandler(b *events.Broadcaster) *RegistryHandler {
 	return &RegistryHandler{broadcaster: b}
+}
+
+// SetQueueDrainFunc wires the drain hook. Router wires this to
+// WorkspaceHandler.DrainQueueForWorkspace after both are constructed, which
+// keeps RegistryHandler's import list clean.
+func (h *RegistryHandler) SetQueueDrainFunc(f QueueDrainFunc) {
+	h.drainQueue = f
 }
 
 // validateAgentURL rejects URLs that could be used as SSRF vectors against
@@ -466,6 +480,26 @@ func (h *RegistryHandler) evaluateStatus(c *gin.Context, payload models.Heartbea
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_ONLINE", payload.WorkspaceID, map[string]interface{}{
 			"recovered_from": currentStatus,
 		})
+	}
+
+	// #1870 Phase 1: drain one queued A2A request if the target reports
+	// spare capacity. The heartbeat's active_tasks field reflects what the
+	// workspace runtime is ACTUALLY running right now, independent of
+	// whatever we've counted server-side. Fire-and-forget goroutine — the
+	// drain dispatches via ProxyA2ARequest which already has its own
+	// timeouts, retry logic, and activity_logs wiring.
+	if h.drainQueue != nil {
+		var maxConcurrent int
+		_ = db.DB.QueryRowContext(ctx,
+			`SELECT COALESCE(max_concurrent_tasks, 1) FROM workspaces WHERE id = $1`,
+			payload.WorkspaceID,
+		).Scan(&maxConcurrent)
+		if payload.ActiveTasks < maxConcurrent {
+			// context.WithoutCancel: heartbeat handler's ctx is about to
+			// expire as soon as we return. The drain needs to outlive it.
+			drainCtx := context.WithoutCancel(ctx)
+			go h.drainQueue(drainCtx, payload.WorkspaceID)
+		}
 	}
 }
 
