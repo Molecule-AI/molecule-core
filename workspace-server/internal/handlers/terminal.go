@@ -15,6 +15,8 @@ import (
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
 	"github.com/creack/pty"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -53,12 +55,37 @@ func NewTerminalHandler(cli *client.Client) *TerminalHandler {
 	return &TerminalHandler{docker: cli}
 }
 
+// canCommunicateCheck is the communication-authorization predicate used by
+// HandleConnect to enforce the KI-005 workspace-hierarchy guard.
+// Exposed as a package var so tests can stub it without DB fixtures.
+var canCommunicateCheck = registry.CanCommunicate
+
 // HandleConnect handles WS /workspaces/:id/terminal. Routes to the remote
 // path (aws ec2-instance-connect ssh + docker exec) when the workspace row
 // has an instance_id; falls back to local Docker otherwise.
 func (h *TerminalHandler) HandleConnect(c *gin.Context) {
-	workspaceID := c.Param("id")
+	targetID := c.Param("id")
 	ctx := c.Request.Context()
+
+	// KI-005 fix: enforce CanCommunicate hierarchy check before granting
+	// terminal access. WorkspaceAuth validates the bearer's token, but the
+	// token is scoped to a specific workspace ID — Workspace A's token can
+	// reach Workspace A's terminal. Without CanCommunicate, Workspace A could
+	// also reach Workspace B's terminal if it knows B's UUID (enumeration
+	// via canvas, logs, or delegation). Shell access is more dangerous than
+	// A2A message-passing, so we apply the same hierarchy check here.
+	callerID := c.GetHeader("X-Workspace-ID")
+	if callerID != "" {
+		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
+		if tok != "" {
+			if err := wsauth.ValidateAnyToken(ctx, db.DB, tok); err == nil {
+				if !canCommunicateCheck(callerID, targetID) {
+					c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to access this workspace's terminal"})
+					return
+				}
+			}
+		}
+	}
 
 	// Check for CP-provisioned workspace (instance_id persisted by
 	// provisionWorkspaceCP → migration 038). Null instance_id means the
@@ -66,14 +93,14 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 	var instanceID string
 	db.DB.QueryRowContext(ctx,
 		`SELECT COALESCE(instance_id, '') FROM workspaces WHERE id = $1`,
-		workspaceID).Scan(&instanceID)
+		targetID).Scan(&instanceID)
 
 	if instanceID != "" {
-		h.handleRemoteConnect(c, workspaceID, instanceID)
+		h.handleRemoteConnect(c, targetID, instanceID)
 		return
 	}
 
-	h.handleLocalConnect(c, workspaceID)
+	h.handleLocalConnect(c, targetID)
 }
 
 // handleLocalConnect attaches to a Docker container running on this
