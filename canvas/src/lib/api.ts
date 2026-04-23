@@ -38,6 +38,13 @@ async function request<T>(
     credentials: "include",
     signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
   });
+  if (res.status === 401) {
+    // Session expired or credentials lost — redirect to login once.
+    // Import dynamically to avoid circular dependency with auth.ts.
+    const { redirectToLogin } = await import("./auth");
+    redirectToLogin("sign-in");
+    throw new Error("Session expired — redirecting to login");
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`API ${method} ${path}: ${res.status} ${text}`);

@@ -72,6 +72,9 @@ Track competitor releases and market events that affect Phase 30 positioning. En
 | Date | Event | Competitor | PMM Action |
 |------|-------|-----------|------------|
 | 2026-03-12 | **A2A v1.0 officially shipped** — LF, 23.3k stars, 5 official SDKs, 383 community implementations | Linux Foundation / ecosystem | A2A v1.0 is standardized — Molecule AI's native A2A is now a reference implementation story (issue #1286). Position as canonical hosted reference before AWS/GCP/Azure absorb it. |
+| 2026-04-23 | **LangGraph PR verification ✅:** #6645, #7113, #7205 still OPEN as of 2026-04-23T17:38Z. A2A native support still in-progress; Molecule AI "live today" positioning intact. Battlecard v0.3 LangGraph counter accurate. | PMM | Confirmed OPEN — moat intact |
+| 2026-04-23 | **New feat PRs merged:** #1731 (sweepPhantomBusy — infra reliability), #1730 (45-min gh-token refresh daemon — fixes 60-min git 401 in long sessions), #1702 (SSH-backed file writes for SaaS — fixes 500 on file PUT for SaaS customers). Briefs at launches/pr-1702-*.md and pr-1730-*.md. Release note at blog/2026-04-23-saas-file-api-fix.md. | PMM | All assessed; #1702 most urgent (P1 regression). #1730 routed as reliability improvement. |
+| 2026-04-22 | LangGraph PR verification deferred: GH API 401 for external repos. LangGraph PRs #6645, #7113, #7205 still VERIFY. A2A blog uses PR#6645 as governance-gap evidence — if PRs merged, blog claim is stale. | PMM | GH API 401 for external repos — cannot verify |
 | 2026-04-21 | Battlecard v0.3 shipped — added A2A live-today vs LangGraph in-progress side-by-side table; LangGraph counters updated to lead with live production status; buyer bottom line added | PMM | Battlecard updated within same cycle as ecosystem check |
 | 2026-04-21 | LangGraph PR verification: #6645, #7113, #7205 not found in langchain-ai/langgraph open PR list. Possible merge, close, or re-number. **PMM action:** ecosystem-watch updated with VERIFY flags. Battlecard v0.3 LangGraph status is stale until re-verified. | PMM |
 | 2026-04-20 | Chrome DevTools MCP shipped — browser automation now standard MCP tool | MCP ecosystem | Positioned as governance story, not browser story. |
@@ -81,12 +84,12 @@ Track competitor releases and market events that affect Phase 30 positioning. En
 ## Competitor Feature Tracker
 
 ### LangGraph
-- A2A support: **VERIFY** — PRs #6645, #7113, #7205 not found as open PRs in langchain-ai/langgraph. Either merged/closed or re-numbered. Requires manual re-check. Last confirmed: 2026-04-21 cycle.
+- A2A support: **OPEN** — PRs #6645, #7113, #7205 still OPEN in langchain-ai/langgraph as of 2026-04-23T17:38Z. Live production claim intact. Expected GA: Q2-Q3 2026.
 - Graph orchestration: ✅ Live
 - HiTL workflows: **VERIFY** — recent streaming and subgraph PRs (#7559, #7550) do not appear to be HiTL; re-verify
 - Self-hosted enterprise: ❌ SaaS-only via LangGraph Studio
 - Marketplace: ❌ None
-- Source: GitHub langchain-ai/langgraph (verified 2026-04-21 20:35Z) — PRs #6645, #7113, #7205 not found. Recommend manual re-check.
+- Source: GitHub langchain-ai/langgraph (verified 2026-04-23 17:38Z) — PRs #6645, #7113, #7205 confirmed OPEN.
 
 ### CrewAI
 - External agent support: ✅ Secondary path
@@ -115,7 +118,7 @@ Track competitor releases and market events that affect Phase 30 positioning. En
 - **Check frequency:** Every marketing cycle
 - **Trigger:** Any competitor shipping something that invalidates a Phase 30 positioning claim
 - **File location:** `docs/ecosystem-watch.md` (origin/main)
-- **Last updated by:** PMM | 2026-04-21
+- **Last updated by:** PMM | 2026-04-23 (LangGraph PRs verified OPEN; new feat PRs #1730/#1702/#1731 logged; release note written)
 
 ---
 

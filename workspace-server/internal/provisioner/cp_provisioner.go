@@ -3,6 +3,7 @@ package provisioner
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 )
 
 // CPProvisioner provisions workspace agents by calling the control plane's
@@ -182,8 +185,26 @@ func (p *CPProvisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string,
 }
 
 // Stop terminates the workspace's EC2 instance via the control plane.
+//
+// Looks up the actual EC2 instance_id from the workspaces table before
+// calling CP — earlier versions passed workspaceID (a UUID) as the
+// instance_id query param, which CP forwarded to EC2 TerminateInstances,
+// which rejected with InvalidInstanceID.Malformed (EC2 IDs are i-… not
+// UUIDs). The terminate failure then left the workspace's SG attached,
+// blocking the next provision with InvalidGroup.Duplicate — a full
+// "Save & Restart" crash on SaaS.
 func (p *CPProvisioner) Stop(ctx context.Context, workspaceID string) error {
-	url := fmt.Sprintf("%s/cp/workspaces/%s?instance_id=%s", p.baseURL, workspaceID, workspaceID)
+	instanceID, err := resolveInstanceID(ctx, workspaceID)
+	if err != nil {
+		return fmt.Errorf("cp provisioner: stop: resolve instance_id: %w", err)
+	}
+	if instanceID == "" {
+		// No instance was ever provisioned (or already deprovisioned and
+		// the column was cleared). Nothing to terminate — idempotent.
+		log.Printf("CP provisioner: Stop for %s — no instance_id on file, nothing to do", workspaceID)
+		return nil
+	}
+	url := fmt.Sprintf("%s/cp/workspaces/%s?instance_id=%s", p.baseURL, workspaceID, instanceID)
 	req, _ := http.NewRequestWithContext(ctx, "DELETE", url, nil)
 	p.provisionAuthHeaders(req)
 	resp, err := p.httpClient.Do(req)
@@ -192,6 +213,35 @@ func (p *CPProvisioner) Stop(ctx context.Context, workspaceID string) error {
 	}
 	_ = resp.Body.Close()
 	return nil
+}
+
+// resolveInstanceID reads workspaces.instance_id for the given workspace.
+// Returns ("", nil) when the row exists but has no instance_id recorded
+// (edge case for external workspaces or stale rows). Returns an error
+// only on real DB failures, not on missing rows — callers (Stop,
+// IsRunning) treat the empty string as "nothing to act on."
+//
+// Exposed as a package var so tests can substitute a stub without
+// standing up a sqlmock just to unblock the Stop/IsRunning code path.
+// Production code never reassigns it.
+var resolveInstanceID = func(ctx context.Context, workspaceID string) (string, error) {
+	if db.DB == nil {
+		// Defensive: NewCPProvisioner never runs without db.DB being
+		// set in main(). If somehow nil, treat as "no instance" rather
+		// than panicking in the Stop/IsRunning path.
+		return "", nil
+	}
+	var instanceID sql.NullString
+	err := db.DB.QueryRowContext(ctx,
+		`SELECT instance_id FROM workspaces WHERE id = $1`, workspaceID,
+	).Scan(&instanceID)
+	if err != nil && err != sql.ErrNoRows {
+		return "", err
+	}
+	if !instanceID.Valid {
+		return "", nil
+	}
+	return instanceID.String, nil
 }
 
 // IsRunning checks workspace EC2 instance state via the control plane.
@@ -219,7 +269,18 @@ func (p *CPProvisioner) Stop(ctx context.Context, workspaceID string) error {
 // Both callers are happy with (true, err); callers that need the
 // previous (false, err) shape must inspect err themselves.
 func (p *CPProvisioner) IsRunning(ctx context.Context, workspaceID string) (bool, error) {
-	url := fmt.Sprintf("%s/cp/workspaces/%s/status?instance_id=%s", p.baseURL, workspaceID, workspaceID)
+	instanceID, err := resolveInstanceID(ctx, workspaceID)
+	if err != nil {
+		// Treat DB errors the same as transport errors — (true, err) keeps
+		// a2a_proxy on the alive path and logs the signal.
+		return true, fmt.Errorf("cp provisioner: status: resolve instance_id: %w", err)
+	}
+	if instanceID == "" {
+		// No instance recorded. Report "not running" cleanly (no error)
+		// so restart cascades can trigger a fresh provision.
+		return false, nil
+	}
+	url := fmt.Sprintf("%s/cp/workspaces/%s/status?instance_id=%s", p.baseURL, workspaceID, instanceID)
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	p.provisionAuthHeaders(req)
 	resp, err := p.httpClient.Do(req)
