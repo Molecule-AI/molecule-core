@@ -6,6 +6,7 @@ description: "Platform Instructions lets enterprise IT teams enforce org-wide po
 og_title: "Govern Your AI Fleet at the System Prompt Level"
 og_description: "Platform Instructions: global and workspace-scoped rules prepended to the system prompt. Governance before the first turn, not after."
 tags: [governance, platform-instructions, enterprise, security, it-governance, system-prompt, policy, a2a]
+og_image: /assets/blog/2026-04-23-platform-instructions-governance/og.png
 keywords: [AI fleet governance, enterprise AI policy, system prompt governance, AI agent compliance, platform instructions, workspace policy enforcement, enterprise AI security, AI agent ACL]
 canonical: https://docs.molecule.ai/blog/govern-ai-fleet-system-prompt-level
 ---

@@ -6,6 +6,7 @@ description: "See every tool your agent called — inputs, outputs, timing — i
 og_title: "Tool Trace + Platform Instructions: Full Visibility and Policy-Level Governance"
 og_description: "Tool-level observability in every A2A response meets system-prompt governance. Two enterprise-grade features, shipped together."
 tags: [tool-trace, observability, platform-instructions, governance, enterprise, debugging, a2a]
+og_image: /assets/blog/2026-04-23-tool-trace-platform-instructions/og.png
 keywords: [AI agent debugging, tool trace observability, agent governance, platform instructions, enterprise AI audit, system prompt governance, Claude tool call visibility, agent observability]
 canonical: https://docs.molecule.ai/blog/tool-trace-platform-instructions
 ---
