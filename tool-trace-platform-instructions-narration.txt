@@ -1,0 +1,29 @@
+# Tool Trace + Platform Instructions — TTS Narration Script
+# ~60 second read, aimed at platform operators
+
+---
+
+[0–10s]
+
+Every Molecule AI agent is now observable. Two new platform-level features ship in this PR.
+
+The first is Platform Instructions. As a platform operator, you can inject rules that apply to every agent across all workspaces — automatically, without touching template files.
+
+[10–25s]
+
+Here's how it works. You POST to slash instructions with an admin API key. Scope it globally, give it a title, some content, and a priority.
+
+The agent fetches its merged set at startup — both global rules and workspace-specific ones — and prepends them to its system prompt. Highest context precedence. No deploys, no template edits.
+
+[25–45s]
+
+The second feature is Tool Trace. Every tool call an agent makes — bash, file reads, web searches — is captured with its input and a short output preview, and stored in activity logs as a JSON array. Parallel calls are paired correctly via run ID. Capped at 200 entries to prevent runaway loops.
+
+This means operators can now audit exactly what every agent did. Find every agent that called bash. Trace a specific run. The GIN index on the tool_trace column makes these queries fast across the entire platform.
+
+[45–60s]
+
+Together, Platform Instructions and Tool Trace give operators control and visibility — inject rules at startup, inspect behavior after the fact. Observability and control, built into the platform.
+
+---
+END
