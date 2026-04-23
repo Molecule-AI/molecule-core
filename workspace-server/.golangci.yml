@@ -1,0 +1,17 @@
+run:
+  timeout: 3m
+  go: "1.22"
+
+linters:
+  default: none
+  enable:
+    - gofmt
+    - goimports
+    - gosec
+    - staticcheck
+    - unused
+    - gosimple
+    - govet
+
+issues:
+  exclude-use-default: false
