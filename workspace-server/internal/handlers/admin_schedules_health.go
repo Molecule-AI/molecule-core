@@ -89,7 +89,7 @@ func (h *AdminSchedulesHealthHandler) Health(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query schedules"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	entries := make([]adminScheduleHealth, 0)
 	for rows.Next() {

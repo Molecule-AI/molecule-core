@@ -850,11 +850,11 @@ func TestApplyTierConfig_T3_DefaultCap(t *testing.T) {
 	ApplyTierConfig(hc, cfg, "ws-abc123-configs:/configs", "ws-abc123")
 
 	wantMem := int64(defaultTier3MemoryMB) * 1024 * 1024
-	if hc.Resources.Memory != wantMem {
-		t.Errorf("T3 default memory: got %d, want %d", hc.Resources.Memory, wantMem)
+	if hc.Memory != wantMem {
+		t.Errorf("T3 default memory: got %d, want %d", hc.Memory, wantMem)
 	}
 	wantCPU := int64(defaultTier3CPUShares) * 1_000_000_000 / 1024
-	if hc.Resources.NanoCPUs != wantCPU {
-		t.Errorf("T3 default NanoCPUs: got %d, want %d", hc.Resources.NanoCPUs, wantCPU)
+	if hc.NanoCPUs != wantCPU {
+		t.Errorf("T3 default NanoCPUs: got %d, want %d", hc.NanoCPUs, wantCPU)
 	}
 }

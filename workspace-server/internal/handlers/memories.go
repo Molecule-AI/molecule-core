@@ -166,7 +166,7 @@ func (h *MemoriesHandler) Commit(c *gin.Context) {
 	// GLOBAL scope: only root workspaces (no parent) can write
 	if body.Scope == "GLOBAL" {
 		var parentID *string
-		db.DB.QueryRowContext(ctx, `SELECT parent_id FROM workspaces WHERE id = $1`, workspaceID).Scan(&parentID)
+		_ = db.DB.QueryRowContext(ctx, `SELECT parent_id FROM workspaces WHERE id = $1`, workspaceID).Scan(&parentID)
 		if parentID != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": "only root workspaces can write GLOBAL memories"})
 			return
@@ -278,7 +278,7 @@ func (h *MemoriesHandler) Search(c *gin.Context) {
 
 	// Get workspace info for access control
 	var parentID *string
-	db.DB.QueryRowContext(ctx, `SELECT parent_id FROM workspaces WHERE id = $1`, workspaceID).Scan(&parentID)
+	_ = db.DB.QueryRowContext(ctx, `SELECT parent_id FROM workspaces WHERE id = $1`, workspaceID).Scan(&parentID)
 
 	// Try to generate a query embedding for semantic search.
 	// Falls back to the existing FTS/ILIKE path on failure or when no
