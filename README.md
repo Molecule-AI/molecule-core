@@ -261,6 +261,12 @@ cp .env.example .env
 # and Temporal (:7233 gRPC, :8233 UI) on the shared
 # `molecule-monorepo-net` Docker network. Temporal runs with
 # no auth on localhost — dev-only; production must gate it.
+#
+# Also populates the template/plugin registry by cloning every repo
+# listed in manifest.json into workspace-configs-templates/,
+# org-templates/, and plugins/. Requires jq — install via
+# `brew install jq` (macOS) or `apt install jq` (Debian). Idempotent:
+# re-runs skip any target dir that's already populated.
 
 cd workspace-server
 go run ./cmd/server   # applies pending migrations on first boot

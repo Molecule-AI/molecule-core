@@ -217,12 +217,19 @@ func (h *OrgHandler) ListTemplates(c *gin.Context) {
 		}
 		// Expand !include directives before unmarshal so templates that
 		// split across team/role files still report an accurate workspace
-		// count on the /org/templates listing.
+		// count on the /org/templates listing. Fail loudly on expansion
+		// errors — the previous silent-continue made a broken template
+		// show up as "no templates" in the Canvas palette with no log
+		// trail, which is how a fresh-clone user first discovers the gap.
 		if expanded, err := resolveYAMLIncludes(data, templateDir); err == nil {
 			data = expanded
+		} else {
+			log.Printf("ListTemplates: skipping %s — !include expansion failed: %v", e.Name(), err)
+			continue
 		}
 		var tmpl OrgTemplate
 		if err := yaml.Unmarshal(data, &tmpl); err != nil {
+			log.Printf("ListTemplates: skipping %s — yaml unmarshal failed: %v", e.Name(), err)
 			continue
 		}
 		count := countWorkspaces(tmpl.Workspaces)
