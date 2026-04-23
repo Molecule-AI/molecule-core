@@ -2,11 +2,11 @@
 title: "AI Agent Observability Without the Overhead"
 date: 2026-04-23
 slug: ai-agent-observability-without-overhead
-description: "Tool Trace gives every A2A response a structured record of every tool call — inputs, output previews, run_id-paired parallel traces. No sampling, no sidecar, no guesswork."
+description: "Tool Trace gives every A2A response a record of every tool call — inputs, run_id-paired parallel traces. No sampling, no sidecar, no guesswork."
 og_title: "AI Agent Observability Without the Overhead"
 og_description: "See every tool your agent called — inputs, outputs, timing — in every A2A response. Parallel traces handled correctly. No sampling overhead."
 tags: [observability, tool-trace, debugging, devops, platform-engineering, a2a, claude]
-keywords: [AI agent observability, tool trace debugging, Claude agent debugging, agent audit trail, parallel tool call trace, run_id pairing, AI agent monitoring, DevOps agent observability]
+keywords: [AI agent observability, tool trace debugging, Claude agent debugging, agent audit trail, parallel tool call trace, run_id pairing, AI agent monitoring, DevOps agent observability, LLM tool call logging, A2A protocol observability]
 canonical: https://docs.molecule.ai/blog/ai-agent-observability-without-overhead
 ---
 
@@ -94,7 +94,7 @@ For platform engineering teams that need to monitor agent behavior across a flee
 
 ## Enterprise-Grade Auditability
 
-Combined with the [org-scoped API key audit trail](/docs/blog/2026-04-21-org-scoped-api-keys/) from Phase 30, Tool Trace closes the last gap in agent observability: you can now trace a production incident from the org API key that authorized the call, through the workspace and agent that executed it, to every tool that ran and what it returned.
+Combined with the [org-scoped API key audit trail](/blog/org-scoped-api-keys/) from Phase 30, Tool Trace closes the last gap in agent observability: you can now trace a production incident from the org API key that authorized the call, through the workspace and agent that executed it, to every tool that ran and what it returned.
 
 **Tool Trace is available on all Molecule AI plans.** It is enabled by default — check `Message.metadata.tool_trace` in your A2A responses.
 
@@ -106,6 +106,11 @@ Combined with the [org-scoped API key audit trail](/docs/blog/2026-04-21-org-sco
 - Query `activity_logs.tool_trace` JSONB for historical traces
 - Combine with org API key attribution for complete fleet observability
 - Read the [A2A protocol documentation](/docs/api-protocol/a2a-protocol.md)
+
+## Related
+
+- [A2A Protocol for Enterprise](/blog/a2a-v1-agent-platform/) — tool_trace[] metadata in cross-workspace delegation
+- [Partner API Keys](/blog/partner-api-keys/) — scoped, revocable keys for marketplace and CI/CD integrations
 
 ---
 

@@ -1,12 +1,12 @@
 ---
-title: "Ship Partner Integrations Faster with Programmatic Org Management"
+title: "Partner API Keys: Programmatic Org Management for AI Platforms"
 date: 2026-04-23
 slug: partner-api-keys
 description: "Partner API Keys let marketplace resellers, CI/CD pipelines, and automation tools create and manage Molecule AI orgs via API — no browser session required."
-og_title: "Ship Partner Integrations Faster with Programmatic Org Management"
-og_description: "Partner API Keys: scoped, rate-limited, revocable API keys for programmatic org management. Built for marketplaces, CI/CD, and automation platforms."
+og_title: "Partner API Keys: Programmatic Org Management for AI Platforms"
+og_description: "Partner API Keys: scoped, rate-limited, revocable. For AI marketplaces and CI/CD."
 tags: [partner-api-keys, marketplace, ci-cd, automation, api, enterprise, provisioning]
-keywords: [partner API keys, programmatic org management, marketplace integration, CI/CD automation, Molecule AI API, reseller integration, org provisioning API]
+keywords: [partner API keys, programmatic org management, marketplace integration, CI/CD automation, Molecule AI API, reseller integration, org provisioning API, partner API provisioning, agent platform API, scoped API keys, multi-tenant API provisioning]
 canonical: https://docs.molecule.ai/blog/partner-api-keys
 ---
 
@@ -134,6 +134,12 @@ Partner API Keys are available on **Partner and Enterprise plans**. To get start
 - Contact your account team to request Partner API Key issuance
 - Review the partner integration guide (coming soon)
 - Example flows: create org → poll status → redirect to tenant; CI/CD test org lifecycle
+
+## Related
+
+- [Org-Scoped API Keys](/blog/org-scoped-api-keys/) — named, revocable keys for your own integrations
+- [Govern Your AI Fleet at the System Prompt Level](/blog/govern-ai-fleet-system-prompt-level/) — workspace-level governance rules via Platform Instructions
+- [A2A Protocol for Enterprise](/blog/a2a-v1-agent-platform/) — any agent, any infrastructure, full audit trail
 
 ---
 
