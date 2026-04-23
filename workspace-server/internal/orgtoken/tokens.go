@@ -142,8 +142,13 @@ func Validate(ctx context.Context, db *sql.DB, plaintext string) (id, prefix, or
 // symptom of abuse or a bug — the hard cap prevents one runaway
 // minting loop from O(N) pageloads in the admin UI.
 func List(ctx context.Context, db *sql.DB) ([]Token, error) {
+	// org_id is a UUID column — COALESCE must cast to text first,
+	// otherwise Postgres rejects the empty-string literal with
+	// "pq: invalid input syntax for type uuid: ''". sqlmock doesn't
+	// exercise pq type coercion, so this bug only surfaces against
+	// a real Postgres (prod).
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, prefix, COALESCE(name,''), COALESCE(org_id,''),
+		SELECT id, prefix, COALESCE(name,''), COALESCE(org_id::text,''),
 		       COALESCE(created_by,''), created_at, last_used_at
 		FROM org_api_tokens
 		WHERE revoked_at IS NULL
