@@ -1,8 +1,37 @@
+---
+title: "Git for Agents: Cloudflare Artifacts Integration"
+date: "2026-04-21"
+slug: cloudflare-artifacts-integration
+description: "Attach a Cloudflare Artifacts git repository to any Molecule AI workspace. Import existing repos, fork for experiments, mint short-lived git credentials — all via the platform API. Git-native storage for AI agents."
+og_title: "Git for Agents: Cloudflare Artifacts Integration"
+og_description: "Molecule AI workspaces can now clone, commit, fork, and push to their own Git repository via Cloudflare Artifacts. No new primitives — just the git workflow your team already knows."
+og_image: /docs/assets/blog/cloudflare-artifacts-og.png
+tags: [Cloudflare, git, artifacts, AI-agents, workflow, tutorial]
+keywords: [Cloudflare Artifacts, Molecule AI, AI agents, git for agents, versioned agent storage]
+canonical: https://docs.molecule.ai/blog/cloudflare-artifacts-molecule-ai
+---
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Git for Agents: Cloudflare Artifacts Integration",
+  "description": "Attach a Cloudflare Artifacts git repository to any Molecule AI workspace. Import existing repos, fork for experiments, mint short-lived git credentials — all via the platform API.",
+  "author": { "@type": "Organization", "name": "Molecule AI" },
+  "datePublished": "2026-04-21",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Molecule AI",
+    "logo": { "@type": "ImageObject", "url": "https://molecule.ai/logo.png" }
+  }
+}
+</script>
+
 # Git for Agents: Cloudflare Artifacts Integration
 
 **Source:** PR #641 (feat(platform): Cloudflare Artifacts demo integration #595), merged 2026-04-17
 **Issue:** #1174
-**Status:** Draft v1
+**Status:** STAGED ✅ — Publish queue ready. Marketing Lead approved.
 
 ---
 
