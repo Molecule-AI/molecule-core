@@ -23,6 +23,11 @@ import (
 
 func init() {
 	gin.SetMode(gin.TestMode)
+	// Restore SSRFPolicy to the real checker after every test so that a test
+	// that assigns a stub (for localhost/127.0.0.1 validation) always cleans up
+	// after itself. Without this, a stub left in place would silently leak into
+	// subsequent tests in the same package.
+	SSRFPolicy = isSafeURLReal
 }
 
 // setupTestDB creates a sqlmock DB and assigns it to the global db.DB.

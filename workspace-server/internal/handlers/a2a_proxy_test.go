@@ -17,9 +17,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// stubSSRF installs a permissive SSRFPolicy for the duration of a test, allowing
+// localhost and 127.0.0.1 URLs (as used by httptest.Server). The policy is always
+// restored to isSafeURLReal via t.Cleanup so subsequent tests are unaffected.
+func stubSSRF(t *testing.T) {
+	t.Helper()
+	SSRFPolicy = func(rawURL string) error { return nil }
+	t.Cleanup(func() { SSRFPolicy = isSafeURLReal })
+}
+
 // ==================== ProxyA2A — invalid JSON body ====================
 
 func TestProxyA2A_InvalidJSON(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
@@ -57,6 +67,7 @@ func TestProxyA2A_InvalidJSON(t *testing.T) {
 // ==================== ProxyA2A — already-wrapped JSON-RPC ====================
 
 func TestProxyA2A_AlreadyWrappedJSONRPC(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
@@ -112,6 +123,7 @@ func TestProxyA2A_AlreadyWrappedJSONRPC(t *testing.T) {
 // ==================== ProxyA2A — DB lookup fallback (Redis miss) ====================
 
 func TestProxyA2A_DBLookupFallback(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	setupTestRedis(t) // empty Redis — no cached URL
 	broadcaster := newTestBroadcaster()
@@ -157,6 +169,7 @@ func TestProxyA2A_DBLookupFallback(t *testing.T) {
 // ==================== ProxyA2A — DB lookup error (500) ====================
 
 func TestProxyA2A_DBLookupError(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	setupTestRedis(t) // empty Redis
 	broadcaster := newTestBroadcaster()
@@ -189,6 +202,7 @@ func TestProxyA2A_DBLookupError(t *testing.T) {
 // ==================== ProxyA2A — agent returns error status ====================
 
 func TestProxyA2A_AgentReturnsError(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
@@ -232,6 +246,7 @@ func TestProxyA2A_AgentReturnsError(t *testing.T) {
 // ==================== ProxyA2A — messageId injection ====================
 
 func TestProxyA2A_MessageIDInjected(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
@@ -282,6 +297,7 @@ func TestProxyA2A_MessageIDInjected(t *testing.T) {
 // ==================== ProxyA2A — X-Workspace-ID header ====================
 
 func TestProxyA2A_CallerIDPropagated(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
@@ -349,6 +365,7 @@ func mockCanCommunicate(mock sqlmock.Sqlmock, caller, target string, allowed boo
 // ==================== ProxyA2A — Access Control ====================
 
 func TestProxyA2A_AccessDenied_DifferentParents(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
@@ -375,6 +392,7 @@ func TestProxyA2A_AccessDenied_DifferentParents(t *testing.T) {
 }
 
 func TestProxyA2A_AllowedSelf_SkipsAccessCheck(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
@@ -411,6 +429,7 @@ func TestProxyA2A_AllowedSelf_SkipsAccessCheck(t *testing.T) {
 // Legitimate system callers (webhooks, scheduler, restart_context) call
 // proxyA2ARequest directly and never send HTTP headers with these prefixes.
 func TestProxyA2A_SystemCaller_HTTPHeaderRejected(t *testing.T) {
+	stubSSRF(t)
 	setupTestDB(t)
 	setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
@@ -445,6 +464,7 @@ func TestProxyA2A_SystemCaller_HTTPHeaderRejected(t *testing.T) {
 // and CanCommunicate) receives 403 Forbidden — not 200 OK.
 // This is the core fix for issue #761.
 func TestA2AProxy_SystemCallerForge_IsRejected(t *testing.T) {
+	stubSSRF(t)
 	forgePrefixes := []string{
 		"system:forge",
 		"system:admin",
@@ -484,6 +504,7 @@ func TestA2AProxy_SystemCallerForge_IsRejected(t *testing.T) {
 }
 
 func TestIsSystemCaller(t *testing.T) {
+	stubSSRF(t)
 	cases := []struct {
 		caller   string
 		expected bool
@@ -507,6 +528,7 @@ func TestIsSystemCaller(t *testing.T) {
 // ==================== detectPlatformInDocker ====================
 
 func TestDetectPlatformInDocker_EnvVar(t *testing.T) {
+	stubSSRF(t)
 	// Deterministic: asserts the function returns exactly the env-var
 	// value when strconv.ParseBool accepts it. Unparseable values are
 	// covered separately below because their outcome depends on whether
@@ -538,6 +560,7 @@ func TestDetectPlatformInDocker_EnvVar(t *testing.T) {
 }
 
 func TestDetectPlatformInDocker_UnparseableFallsThroughToFilesystemCheck(t *testing.T) {
+	stubSSRF(t)
 	// Unparseable env values must NOT be treated as "true" — they fall
 	// through to the /.dockerenv filesystem check. The result therefore
 	// depends on the host; we only assert the return matches what the
@@ -558,6 +581,7 @@ func TestDetectPlatformInDocker_UnparseableFallsThroughToFilesystemCheck(t *test
 }
 
 func TestSetPlatformInDockerForTest(t *testing.T) {
+	stubSSRF(t)
 	original := platformInDocker
 	restore := setPlatformInDockerForTest(!original)
 	if platformInDocker == original {
@@ -573,6 +597,7 @@ func TestSetPlatformInDockerForTest(t *testing.T) {
 // ==================== isUpstreamBusyError ====================
 
 func TestIsUpstreamBusyError(t *testing.T) {
+	stubSSRF(t)
 	cases := []struct {
 		name string
 		err  error
@@ -609,6 +634,7 @@ func TestIsUpstreamBusyError(t *testing.T) {
 // handler emits, which is the contract callers rely on.
 
 func TestProxyA2AError_BusyShape(t *testing.T) {
+	stubSSRF(t)
 	// Simulate what proxyA2ARequest returns when isUpstreamBusyError fires
 	// and containerDead is false.
 	perr := &proxyA2AError{
@@ -657,6 +683,7 @@ func TestProxyA2AError_BusyShape(t *testing.T) {
 //      distinguish "not delivered" from "delivered, response body lost".
 
 func TestProxyA2A_BodyReadFailure_DeliveryConfirmed(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
@@ -732,6 +759,7 @@ func TestProxyA2A_BodyReadFailure_DeliveryConfirmed(t *testing.T) {
 // (webhook:/system:/test: prefixes), and self-calls all bypass.
 
 func TestValidateCallerToken_LegacyCallerGrandfathered(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 
@@ -756,6 +784,7 @@ func TestValidateCallerToken_LegacyCallerGrandfathered(t *testing.T) {
 }
 
 func TestValidateCallerToken_MissingTokenWhenOnFile(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 
@@ -781,6 +810,7 @@ func TestValidateCallerToken_MissingTokenWhenOnFile(t *testing.T) {
 }
 
 func TestValidateCallerToken_InvalidToken(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 
@@ -805,6 +835,7 @@ func TestValidateCallerToken_InvalidToken(t *testing.T) {
 }
 
 func TestValidateCallerToken_ValidToken(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 
@@ -830,6 +861,7 @@ func TestValidateCallerToken_ValidToken(t *testing.T) {
 }
 
 func TestValidateCallerToken_WrongWorkspaceBindingRejected(t *testing.T) {
+	stubSSRF(t)
 	// Attacker has token T issued to ws-A. Tries to call A2A claiming
 	// X-Workspace-ID: ws-B. Token validates against hash but workspace
 	// mismatch → rejected.
@@ -859,6 +891,7 @@ func TestValidateCallerToken_WrongWorkspaceBindingRejected(t *testing.T) {
 // --- Direct unit tests for normalizeA2APayload (extracted from proxyA2ARequest) ---
 
 func TestNormalizeA2APayload_InvalidJSON(t *testing.T) {
+	stubSSRF(t)
 	_, _, perr := normalizeA2APayload([]byte("not json"))
 	if perr == nil {
 		t.Fatal("expected error for invalid JSON, got nil")
@@ -869,6 +902,7 @@ func TestNormalizeA2APayload_InvalidJSON(t *testing.T) {
 }
 
 func TestNormalizeA2APayload_WrapsBareMessage(t *testing.T) {
+	stubSSRF(t)
 	raw := []byte(`{"method":"message/send","params":{"message":{"role":"user","parts":[{"type":"text","text":"hi"}]}}}`)
 	out, method, perr := normalizeA2APayload(raw)
 	if perr != nil {
@@ -895,6 +929,7 @@ func TestNormalizeA2APayload_WrapsBareMessage(t *testing.T) {
 }
 
 func TestNormalizeA2APayload_PreservesExistingJSONRPC(t *testing.T) {
+	stubSSRF(t)
 	raw := []byte(`{"jsonrpc":"2.0","id":"custom-id","method":"tasks/list","params":{}}`)
 	out, method, perr := normalizeA2APayload(raw)
 	if perr != nil {
@@ -911,6 +946,7 @@ func TestNormalizeA2APayload_PreservesExistingJSONRPC(t *testing.T) {
 }
 
 func TestNormalizeA2APayload_PreservesExistingMessageId(t *testing.T) {
+	stubSSRF(t)
 	raw := []byte(`{"method":"message/send","params":{"message":{"messageId":"fixed-mid","role":"user","parts":[]}}}`)
 	out, _, perr := normalizeA2APayload(raw)
 	if perr != nil {
@@ -926,6 +962,7 @@ func TestNormalizeA2APayload_PreservesExistingMessageId(t *testing.T) {
 }
 
 func TestNormalizeA2APayload_MissingMethodReturnsEmpty(t *testing.T) {
+	stubSSRF(t)
 	raw := []byte(`{"params":{"message":{"role":"user"}}}`)
 	_, method, perr := normalizeA2APayload(raw)
 	if perr != nil {
@@ -939,6 +976,7 @@ func TestNormalizeA2APayload_MissingMethodReturnsEmpty(t *testing.T) {
 // --- resolveAgentURL direct unit tests ---
 
 func TestResolveAgentURL_CacheHit(t *testing.T) {
+	stubSSRF(t)
 	setupTestDB(t)
 	mr := setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -954,6 +992,7 @@ func TestResolveAgentURL_CacheHit(t *testing.T) {
 }
 
 func TestResolveAgentURL_CacheMissDBHit(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -976,6 +1015,7 @@ func TestResolveAgentURL_CacheMissDBHit(t *testing.T) {
 }
 
 func TestResolveAgentURL_WorkspaceNotFound(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -994,6 +1034,7 @@ func TestResolveAgentURL_WorkspaceNotFound(t *testing.T) {
 }
 
 func TestResolveAgentURL_NullURL(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -1012,6 +1053,7 @@ func TestResolveAgentURL_NullURL(t *testing.T) {
 }
 
 func TestResolveAgentURL_DockerRewrite(t *testing.T) {
+	stubSSRF(t)
 	// provisioner.InternalURL is called when platformInDocker && URL begins
 	// with http://127.0.0.1:. We don't have a real *Provisioner so the
 	// rewrite path requires h.provisioner != nil. Since we can't easily
@@ -1039,6 +1081,7 @@ func TestResolveAgentURL_DockerRewrite(t *testing.T) {
 // --- dispatchA2A direct unit tests ---
 
 func TestDispatchA2A_BuildRequestError(t *testing.T) {
+	stubSSRF(t)
 	setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -1057,6 +1100,7 @@ func TestDispatchA2A_BuildRequestError(t *testing.T) {
 }
 
 func TestDispatchA2A_CanvasTimeout(t *testing.T) {
+	stubSSRF(t)
 	setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -1079,6 +1123,7 @@ func TestDispatchA2A_CanvasTimeout(t *testing.T) {
 }
 
 func TestDispatchA2A_AgentTimeout(t *testing.T) {
+	stubSSRF(t)
 	setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -1100,6 +1145,7 @@ func TestDispatchA2A_AgentTimeout(t *testing.T) {
 }
 
 func TestDispatchA2A_ContextDeadline_NoCancelAdded(t *testing.T) {
+	stubSSRF(t)
 	// When ctx already has a deadline, dispatchA2A must NOT layer its own
 	// timeout (cancel should be nil).
 	setupTestDB(t)
@@ -1128,6 +1174,7 @@ func TestDispatchA2A_ContextDeadline_NoCancelAdded(t *testing.T) {
 // --- handleA2ADispatchError ---
 
 func TestHandleA2ADispatchError_ContextDeadline(t *testing.T) {
+	stubSSRF(t)
 	setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -1152,6 +1199,7 @@ func TestHandleA2ADispatchError_ContextDeadline(t *testing.T) {
 }
 
 func TestHandleA2ADispatchError_BuildError(t *testing.T) {
+	stubSSRF(t)
 	setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -1166,6 +1214,7 @@ func TestHandleA2ADispatchError_BuildError(t *testing.T) {
 }
 
 func TestHandleA2ADispatchError_GenericReturns502(t *testing.T) {
+	stubSSRF(t)
 	setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -1183,6 +1232,7 @@ func TestHandleA2ADispatchError_GenericReturns502(t *testing.T) {
 
 // Nil provisioner → short-circuits false.
 func TestMaybeMarkContainerDead_NilProvisioner(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -1198,6 +1248,7 @@ func TestMaybeMarkContainerDead_NilProvisioner(t *testing.T) {
 
 // external runtime → false regardless of provisioner.
 func TestMaybeMarkContainerDead_ExternalRuntime(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -1218,6 +1269,7 @@ func TestMaybeMarkContainerDead_ExternalRuntime(t *testing.T) {
 // returns without panicking and makes the expected DB calls.
 
 func TestLogA2AFailure_Smoke(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -1236,6 +1288,7 @@ func TestLogA2AFailure_Smoke(t *testing.T) {
 }
 
 func TestLogA2AFailure_EmptyNameFallback(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -1252,6 +1305,7 @@ func TestLogA2AFailure_EmptyNameFallback(t *testing.T) {
 }
 
 func TestLogA2ASuccess_Smoke(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -1268,6 +1322,7 @@ func TestLogA2ASuccess_Smoke(t *testing.T) {
 
 // Error-status path (>=400) records an "error" status in activity_logs.
 func TestLogA2ASuccess_ErrorStatus(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -1298,6 +1353,7 @@ func TestLogA2ASuccess_ErrorStatus(t *testing.T) {
 // provisioner is nil in tests, RestartByID returns immediately without any DB
 // calls, so no additional mocks are needed.
 func TestResolveAgentURL_HibernatedWorkspace_Returns503WithWaking(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	setupTestRedis(t) // empty Redis → GetCachedURL returns error → DB fallback
 
@@ -1336,6 +1392,7 @@ func TestResolveAgentURL_HibernatedWorkspace_Returns503WithWaking(t *testing.T) 
 // auto-wake behaviour when the DB returns a SQL NULL for the url column
 // (rather than an empty string). Both forms represent "no URL assigned".
 func TestResolveAgentURL_HibernatedWorkspace_NullURLVariant(t *testing.T) {
+	stubSSRF(t)
 	mock := setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())

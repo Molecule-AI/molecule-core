@@ -8,11 +8,13 @@ import (
 	"strings"
 )
 
-// isSafeURL validates that a URL resolves to a publicly-routable address,
-// preventing A2A requests from being redirected to internal/cloud-metadata
-// infrastructure (SSRF, CWE-918). Workspace URLs come from DB/Redis caches
-// so we validate before making any outbound HTTP call.
-func isSafeURL(rawURL string) error {
+// SSRFPolicy is the function used to validate URLs. Tests can swap it for
+// a stub that allows localhost so that httptest.Server URLs pass validation.
+var SSRFPolicy func(rawURL string) error = isSafeURLReal
+
+// isSafeURLReal is the production SSRF guard. Exported so callers can reference
+// the real checker even when SSRFPolicy has been stubbed in tests.
+func isSafeURLReal(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
@@ -51,6 +53,13 @@ func isSafeURL(rawURL string) error {
 		}
 	}
 	return nil
+}
+
+// isSafeURL delegates to the active SSRF policy. Production uses the real guard
+// (isSafeURLReal). Tests can reassign SSRFPolicy to a stub that permits
+// localhost so httptest.Server URLs pass validation.
+func isSafeURL(rawURL string) error {
+	return SSRFPolicy(rawURL)
 }
 
 // isPrivateOrMetadataIP returns true for RFC-1918 private, carrier-grade NAT,
