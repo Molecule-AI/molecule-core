@@ -1,0 +1,25 @@
+# TTS Script — How Molecule AI Tracks Active Agent Tasks
+**Blog:** docs.molecule.ai/blog/active-tasks-concurrency
+**Duration:** ~75s at ~150 wpm
+**Date:** 2026-04-21
+**Author:** Content Marketer (auto-generated)
+
+---
+
+Every production agent platform eventually faces the same problem: too many agents running at once.
+
+Your infrastructure has limits — CPU, memory, GPU slots, API rate limits. Your agents have variable resource footprints. Without a mechanism to track how many agents are running at any given time, you can't enforce concurrency limits, detect overscheduling, or give your platform team accurate fleet visibility.
+
+Molecule AI's active tasks counter is the answer.
+
+The active tasks counter tracks how many agent tasks are currently running across your deployment. It increments when a task starts and decrements when a task completes — whether it finishes cleanly, errors out, or is cancelled. This makes it a real-time view of fleet load, not just a scheduled queue depth.
+
+The counter uses atomic operations, so it's safe across concurrent goroutines. Your scheduler can increment on task start and decrement on task completion without locks.
+
+Set a maximum concurrent value on your deployment. When active tasks reaches that limit, the scheduler holds new task submissions until a running task completes. No overscheduling, no resource exhaustion.
+
+If active tasks is consistently at your limit and you're seeing queued tasks pile up, that's a signal to scale — more workers, larger instance types, or a sharded deployment.
+
+The Canvas fleet view shows active tasks per workspace, per org. Your platform team sees real load, not just scheduled load.
+
+Alert when active tasks drops unexpectedly — agents crashing — or spikes to your limit — scheduling backlog forming.

@@ -1,0 +1,33 @@
+# TTS Script — Skills vs. Bundled Tools
+**Blog:** docs.molecule.ai/blog/skills-vs-bundled-tools
+**Duration:** ~90s at ~150 wpm
+**Date:** 2026-04-21
+**Author:** Content Marketer (auto-generated)
+
+---
+
+Hermes Agent ships with built-in tools: web search, image generation, text-to-speech, browser automation. Everything works out of the box. For a single agent prototyping on a laptop, that's genuinely useful.
+
+For production AI agent infrastructure — where you're running multiple agents, across multiple teams, with different tool requirements — bundled tools become a constraint.
+
+When a platform bundles tools, the platform makes the tool choice for you. You get what they chose, when they chose it, at the price they set.
+
+In practice, that means the tools are locked to their pricing model. You can't substitute a better option. Your agents all use the same tool stack, even when a specific agent would be better served by a different tool.
+
+For a solo developer running one agent, this is fine. For a platform team running twenty agents across five teams, it's a constraint on every decision downstream.
+
+Molecule AI's skills architecture inverts this. Skills are installable tool definitions — MCP servers, API integrations, custom functions — that agents load at runtime.
+
+You decide what tools your agents can use. Each skill is a discrete tool definition. Agents load what they need. Teams pick their own stack. If a tool changes — new text-to-speech provider, new MCP server, new API — you update one skill, not every agent.
+
+The argument for bundled tools is simplicity: you don't have to choose. The argument for a skills architecture is precision: you choose exactly what you need.
+
+These aren't the same problem. Bundled tools answer: what should every agent have by default? Skills architecture answers: what should this agent have to solve this problem?
+
+For production fleet management, the second question is the right one. Different agents have different tool needs. The content agent needs text-to-speech and Slack. The data agent needs Postgres and filesystem access. The monitoring agent needs cloud API credentials and a metrics MCP server.
+
+With a skills architecture, you control the tool versions — install a specific version and pin it. You control the tool sources — use any MCP-compatible server, any API, any custom tool definition. You control the cost model — pay per-call for the tools you choose. You can share skill configurations across teams.
+
+The question to ask when evaluating an AI agent platform: can I install only the tools my agents need, and nothing else?
+
+If the answer is no, you're working around someone else's tool choices. If the answer is yes, you have a platform built for production fleet management.
