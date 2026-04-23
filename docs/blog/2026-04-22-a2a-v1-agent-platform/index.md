@@ -133,4 +133,9 @@ With protocol-native A2A, you get:
 
 Molecule AI's external agent registration is production-ready. Documentation is live at [External Agent Registration Guide](https://docs.molecule.ai/docs/guides/external-agent-registration). The npm package for the MCP server is available at [`@molecule-ai/mcp-server`](https://www.npmjs.com/package/@molecule-ai/mcp-server).
 
+## Related
+
+- [AI Agent Observability Without the Overhead](/blog/ai-agent-observability-without-overhead/) — inspect every tool your agent calls in every A2A response via `tool_trace[]` metadata
+- [Ship Partner Integrations Faster with Programmatic Org Management](/blog/partner-api-keys/) — scoped, revocable API keys for CI/CD, marketplaces, and reseller integrations
+
 Read the full [A2A v1.0 protocol spec](https://github.com/Molecule-AI/molecule-core/blob/main/docs/api-protocol/a2a-protocol.md) on GitHub.

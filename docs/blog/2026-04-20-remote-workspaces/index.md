@@ -163,3 +163,8 @@ The agent appears on the canvas within seconds.
 → [molecule-sdk-python →](https://github.com/Molecule-AI/molecule-sdk-python)
 
 *Phase 30 shipped in PRs #1075–#1083 and #1085–#1100 on `molecule-core`.*
+
+## Related
+
+- [AI Agent Observability Without the Overhead](/blog/ai-agent-observability-without-overhead/) — see every tool your remote agent calls via `tool_trace[]` in A2A responses
+- [A2A Protocol for Enterprise](/blog/a2a-v1-agent-platform/) — any agent, any infrastructure, full audit trail

@@ -126,7 +126,7 @@ When a request arrives, the platform checks tiers in priority order. An org API 
 
 ## Get Started
 
-Navigate to **Settings → Org API Keys** in the Canvas to mint your first key, or use the REST API directly. Store the plaintext when it is returned — it will not be shown again. Use the key prefix in your observability pipeline to trace calls back to the key that made them.
+Navigate to **Settings → Org API Keys** in the Canvas to mint your first key, or use the REST API directly. For marketplace, CI/CD, and reseller integrations, see [Partner API Keys](/blog/partner-api-keys/) — scoped, rate-limited keys for programmatic org management at scale. Store the plaintext when it is returned — it will not be shown again. Use the key prefix in your observability pipeline to trace calls back to the key that made them.
 
 Revoke and rotate at any time from the same screen.
 
