@@ -115,7 +115,9 @@ func TestLarkAdapter_SendMessage_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = resp.Body.Close()
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 
 	if gotPath != "/open-apis/bot/v2/hook/test" {
 		t.Errorf("path: got %q", gotPath)
