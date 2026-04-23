@@ -94,6 +94,8 @@ docs.moleculesai.app/blog/partner-api-keys
 
 **FAQ should be pinned before the announcement goes out** so people can find it immediately when they arrive.
 
+**Day 2 update:** After the announcement settles, consider pinning the announcement itself in `#announcements` so it stays at the top of the channel.
+
 ---
 
 ## Step 3 — Monitor `#general` and `#feedback` (09:00–11:00 UTC)
@@ -109,7 +111,7 @@ Hey [name] — good question. [1-2 sentence answer]. Full details in our docs: [
 
 **Response template — question you can't answer:**
 ```
-Great question — let me loop in the platform team and get back to you. Tagging @devrel for a closer look.
+Great question — I need to loop in the platform team and get back to you. Tagging @devrel for a closer look.
 ```
 
 **Response template — feature request:**
