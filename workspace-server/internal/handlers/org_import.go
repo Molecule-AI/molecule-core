@@ -104,7 +104,7 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 	}
 
 	// Broadcast
-	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, map[string]interface{}{
+	_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, map[string]interface{}{
 		"name": ws.Name, "tier": tier,
 	})
 
@@ -122,7 +122,7 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'online', url = $1 WHERE id = $2`, ws.URL, id); err != nil {
 			log.Printf("Org import: external workspace status update failed for %s: %v", ws.Name, err)
 		}
-		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_ONLINE", id, map[string]interface{}{
+		_ = h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_ONLINE", id, map[string]interface{}{
 			"name": ws.Name, "external": true,
 		})
 	} else if h.provisioner != nil {
