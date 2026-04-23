@@ -399,11 +399,13 @@ func TestProxyA2A_WorkspaceNoURL(t *testing.T) {
 func TestProxyA2A_AgentUnreachable(t *testing.T) {
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
+	allowLoopbackForTest(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
 	// Point to an unreachable address
 	mr.Set(fmt.Sprintf("ws:%s:url", "ws-dead"), "http://127.0.0.1:1")
+	expectBudgetCheck(mock, "ws-dead")
 
 	// Expect workspace name query for error activity log
 	mock.ExpectQuery("SELECT name FROM workspaces WHERE id =").
