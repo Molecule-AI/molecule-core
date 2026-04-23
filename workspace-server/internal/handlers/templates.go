@@ -402,8 +402,13 @@ func (h *TemplatesHandler) DeleteFile(c *gin.Context) {
 
 	// Delete via docker exec when container is running
 	if containerName := h.findContainer(ctx, workspaceID); containerName != "" {
-		containerPath := "/configs/" + filePath
-		_, err := h.execInContainer(ctx, containerName, []string{"rm", "-rf", containerPath})
+		// FIX: concat form scopes rm to /configs/<filePath>. The 2-arg form
+		// ["rm", "-rf", "/configs", filePath] makes rm treat /configs as a
+		// separate deletion target — rm -rf /configs FILEPATH deletes the
+		// entire /configs volume mount regardless of filePath. concat form
+		// scopes rm target to /configs/<filePath> (F1085 pattern).
+		// validateRelPath(filePath) is called upstream as primary guard.
+		_, err := h.execInContainer(ctx, containerName, []string{"rm", "-rf", "/configs/" + filePath})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to delete: %v", err)})
 			return
@@ -459,6 +464,10 @@ func (h *TemplatesHandler) SharedContext(c *gin.Context) {
 			if err := validateRelPath(relPath); err != nil {
 				continue
 			}
+			// FIX: concat form scopes cat to /configs/<relPath>. The 2-arg form
+			// ["cat", "/configs", relPath] treats relPath as a standalone arg
+			// (not joined with /configs/), so "../../etc/passwd" would read
+			// from a path outside the volume. concat form is correct.
 			content, err := h.execInContainer(ctx, containerName, []string{"cat", "/configs/" + relPath})
 			if err != nil {
 				continue
