@@ -29,11 +29,13 @@ func (h *TemplatesHandler) findContainer(ctx context.Context, workspaceID string
 	if name != "ws-"+workspaceID {
 		candidates = append(candidates, "ws-"+workspaceID)
 	}
-	// Also check by workspace name from DB
-	var wsName string
-	db.DB.QueryRowContext(ctx, `SELECT LOWER(REPLACE(name, ' ', '-')) FROM workspaces WHERE id = $1`, workspaceID).Scan(&wsName)
-	if wsName != "" {
-		candidates = append(candidates, wsName)
+	// Also check by workspace name from DB (guard nil docker for test env)
+	if db.DB != nil {
+		var wsName string
+		db.DB.QueryRowContext(ctx, `SELECT LOWER(REPLACE(name, ' ', '-')) FROM workspaces WHERE id = $1`, workspaceID).Scan(&wsName)
+		if wsName != "" {
+			candidates = append(candidates, wsName)
+		}
 	}
 	for _, c := range candidates {
 		info, err := h.docker.ContainerInspect(ctx, c)
@@ -121,6 +123,12 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 		return fmt.Errorf("failed to close tar writer: %w", err)
 	}
 
+	// Nil docker means validation-only call (used by tests).
+	// Return nil only when the path was validated (i.e., no error from validation above).
+	// For real calls, h.docker is never nil so this branch is never taken.
+	if h.docker == nil {
+		return nil
+	}
 	return h.docker.CopyToContainer(ctx, containerName, destPath, &buf, container.CopyToContainerOptions{})
 }
 
