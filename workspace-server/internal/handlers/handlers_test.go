@@ -383,6 +383,7 @@ func TestWorkspaceList(t *testing.T) {
 // ---------- TestProxyA2A ----------
 
 func TestProxyA2A_JSONRPCWrapping(t *testing.T) {
+	defer setSsrfTestBypass(true)()
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
@@ -447,6 +448,7 @@ func TestProxyA2A_JSONRPCWrapping(t *testing.T) {
 }
 
 func TestProxyA2A_WorkspaceNotFound(t *testing.T) {
+	defer setSsrfTestBypass(true)()
 	mock := setupTestDB(t)
 	setupTestRedis(t) // empty Redis — no cached URL
 	broadcaster := newTestBroadcaster()
@@ -477,6 +479,7 @@ func TestProxyA2A_WorkspaceNotFound(t *testing.T) {
 }
 
 func TestProxyA2A_WorkspaceOffline(t *testing.T) {
+	defer setSsrfTestBypass(true)()
 	mock := setupTestDB(t)
 	setupTestRedis(t) // empty Redis — no cached URL
 	broadcaster := newTestBroadcaster()
@@ -509,6 +512,7 @@ func TestProxyA2A_WorkspaceOffline(t *testing.T) {
 // ---------- TestSharedContext ----------
 
 func TestSharedContext(t *testing.T) {
+	defer setSsrfTestBypass(true)()
 	mock := setupTestDB(t)
 
 	// Create a temp configs directory with a workspace config

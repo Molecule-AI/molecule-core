@@ -309,6 +309,7 @@ func TestWorkspaceBudget_A2A_AboveLimitReturns402(t *testing.T) {
 // TestWorkspaceBudget_A2A_UnderLimitPassesThrough verifies that A2A calls
 // succeed normally when monthly_spend is below budget_limit.
 func TestWorkspaceBudget_A2A_UnderLimitPassesThrough(t *testing.T) {
+	defer setSsrfTestBypass(true)()
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -355,6 +356,7 @@ func TestWorkspaceBudget_A2A_UnderLimitPassesThrough(t *testing.T) {
 // TestWorkspaceBudget_A2A_NilLimitPassesThrough verifies that when
 // budget_limit IS NULL (no ceiling set), A2A calls pass through unconditionally.
 func TestWorkspaceBudget_A2A_NilLimitPassesThrough(t *testing.T) {
+	defer setSsrfTestBypass(true)()
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -398,6 +400,7 @@ func TestWorkspaceBudget_A2A_NilLimitPassesThrough(t *testing.T) {
 // TestWorkspaceBudget_A2A_DBErrorFailOpen verifies that a DB error during the
 // budget check is fail-open — the request proceeds rather than being blocked.
 func TestWorkspaceBudget_A2A_DBErrorFailOpen(t *testing.T) {
+	defer setSsrfTestBypass(true)()
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())

@@ -358,6 +358,7 @@ func TestHeartbeat_DegradedRecovery(t *testing.T) {
 // ---------- a2a_proxy.go: Workspace has no URL (503 with status) ----------
 
 func TestProxyA2A_WorkspaceNoURL(t *testing.T) {
+	defer setSsrfTestBypass(true)()
 	mock := setupTestDB(t)
 	setupTestRedis(t) // empty Redis
 	broadcaster := newTestBroadcaster()
@@ -397,13 +398,16 @@ func TestProxyA2A_WorkspaceNoURL(t *testing.T) {
 // ---------- a2a_proxy.go: Agent unreachable (502) ----------
 
 func TestProxyA2A_AgentUnreachable(t *testing.T) {
+	defer setSsrfTestBypass(true)()
 	mock := setupTestDB(t)
 	mr := setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
-	// Point to an unreachable address
-	mr.Set(fmt.Sprintf("ws:%s:url", "ws-dead"), "http://127.0.0.1:1")
+	// Use a TEST-NET IP (192.0.2.0/24, RFC 5737) so isSafeURL's IP checks
+	// pass (not loopback/private/metadata), allowing the connection to
+	// proceed and fail at the network layer as intended.
+	mr.Set(fmt.Sprintf("ws:%s:url", "ws-dead"), "http://192.0.2.1:1")
 
 	// Expect workspace name query for error activity log
 	mock.ExpectQuery("SELECT name FROM workspaces WHERE id =").

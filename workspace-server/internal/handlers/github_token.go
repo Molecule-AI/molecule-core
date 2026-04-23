@@ -97,6 +97,13 @@ func (h *GitHubTokenHandler) GetInstallationToken(c *gin.Context) {
 		log.Printf("[github] no TokenProvider in registry — using env-based fallback")
 		token, expiresAt, err := generateAppInstallationToken()
 		if err != nil {
+			// Return 404 when env vars are missing — the GitHub App integration
+			// is simply not configured in this environment. Callers distinguish
+			// "not configured" (404) from "transient upstream error" (500).
+			if os.Getenv("GITHUB_APP_ID") == "" {
+				c.JSON(http.StatusNotFound, gin.H{"error": "no GitHub App configured"})
+				return
+			}
 			log.Printf("[github] fallback token generation failed: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "token refresh failed"})
 			return

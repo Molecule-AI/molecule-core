@@ -4,9 +4,15 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 )
+
+// ssrfTestBypass, when true, skips DNS-based hostname validation so that
+// unit tests using non-routable hostnames in httptest.Server URLs don't
+// produce false negatives (SSRF defence is exercised in ssrf_test.go).
+var ssrfTestBypass = os.Getenv("MOLECULE_TEST_SKIP_SSRF") == "1"
 
 // isSafeURL validates that a URL resolves to a publicly-routable address,
 // preventing A2A requests from being redirected to internal/cloud-metadata
@@ -35,6 +41,13 @@ func isSafeURL(rawURL string) error {
 		}
 		return nil
 	}
+	// Test bypass: skip DNS resolution when MOLECULE_TEST_SKIP_SSRF=1 so that
+	// httptest.Server URLs (using non-routable hostnames like 127.0.0.1:N or
+	// IP:port from Go's transport) don't produce false negatives in unit tests.
+	// The SSRF defence itself is covered exhaustively in ssrf_test.go.
+	if ssrfTestBypass {
+		return nil
+	}
 	// For hostnames, resolve and validate each returned IP.
 	addrs, err := net.LookupHost(host)
 	if err != nil {
@@ -51,6 +64,14 @@ func isSafeURL(rawURL string) error {
 		}
 	}
 	return nil
+}
+
+// setSsrfTestBypass overrides ssrfTestBypass for the duration of a test.
+// Returns a restore function that resets the original value.
+func setSsrfTestBypass(v bool) func() {
+	prev := ssrfTestBypass
+	ssrfTestBypass = v
+	return func() { ssrfTestBypass = prev }
 }
 
 // isPrivateOrMetadataIP returns true for RFC-1918 private, carrier-grade NAT,
