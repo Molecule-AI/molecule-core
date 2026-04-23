@@ -15,6 +15,8 @@ import (
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
 	"github.com/creack/pty"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -24,6 +26,11 @@ import (
 )
 
 const terminalSessionTimeout = 30 * time.Minute
+
+// canCommunicateCheck is the communication-authorization predicate used by
+// HandleConnect to enforce the KI-005 workspace-hierarchy guard.
+// Exposed as a package var so tests can stub it without DB fixtures.
+var canCommunicateCheck = registry.CanCommunicate
 
 var termUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -59,6 +66,21 @@ func NewTerminalHandler(cli *client.Client) *TerminalHandler {
 func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 	workspaceID := c.Param("id")
 	ctx := c.Request.Context()
+
+	// KI-005: enforce workspace-hierarchy guard when the caller presents a
+	// different X-Workspace-ID than the one being connected to.
+	callerID := c.GetHeader("X-Workspace-ID")
+	if callerID != "" && callerID != workspaceID {
+		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
+		if tok != "" {
+			if err := wsauth.ValidateToken(ctx, db.DB, callerID, tok); err == nil {
+				if !canCommunicateCheck(callerID, workspaceID) {
+					c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to access this workspace's terminal"})
+					return
+				}
+			}
+		}
+	}
 
 	// Check for CP-provisioned workspace (instance_id persisted by
 	// provisionWorkspaceCP → migration 038). Null instance_id means the
