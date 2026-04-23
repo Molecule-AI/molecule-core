@@ -1,0 +1,1 @@
+version: "2"\nrun:\n  timeout: 3m\nlinters:\n  disable:\n    - errcheck
