@@ -119,7 +119,7 @@ func TestCopyFilesToContainer_CWE22_RejectsTraversal(t *testing.T) {
 					return
 				}
 				if tc.errSubstr != "" && !errors.Is(err, context.DeadlineExceeded) &&
-					!contains(err.Error(), tc.errSubstr) {
+					!containsSubstr(err.Error(), tc.errSubstr) {
 					t.Errorf("error %q does not contain %q", err.Error(), tc.errSubstr)
 				}
 			} else {
@@ -128,7 +128,7 @@ func TestCopyFilesToContainer_CWE22_RejectsTraversal(t *testing.T) {
 				// only if the path check is bypassed.  We use a strict check:
 				// any error other than a docker-initialized error means the path
 				// was incorrectly allowed.
-				if err != nil && contains(err.Error(), "unsafe") {
+				if err != nil && containsSubstr(err.Error(), "unsafe") {
 					t.Errorf("want nil (path accepted), got error: %v", err)
 				}
 			}
@@ -136,8 +136,8 @@ func TestCopyFilesToContainer_CWE22_RejectsTraversal(t *testing.T) {
 	}
 }
 
-// contains is a simple substring check (no external imports needed in this file).
-func contains(s, substr string) bool {
+// containsSubstr is a simple substring check (no external imports needed in this file).
+func containsSubstr(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
 		(len(s) > 0 && len(substr) > 0 && searchSubstring(s, substr)))
 }
