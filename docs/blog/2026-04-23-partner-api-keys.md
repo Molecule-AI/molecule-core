@@ -5,7 +5,6 @@ slug: partner-api-keys
 description: "Partner API Keys let marketplace resellers, CI/CD pipelines, and automation tools create and manage Molecule AI orgs via API — no browser session required."
 og_title: "Ship Partner Integrations Faster with Programmatic Org Management"
 og_description: "Partner API Keys: scoped, rate-limited, revocable API keys for programmatic org management. Built for marketplaces, CI/CD, and automation platforms."
-og_image: /docs/assets/blog/2026-04-23-partner-api-keys-og.png
 tags: [partner-api-keys, marketplace, ci-cd, automation, api, enterprise, provisioning]
 keywords: [partner API keys, programmatic org management, marketplace integration, CI/CD automation, Molecule AI API, reseller integration, org provisioning API]
 canonical: https://docs.molecule.ai/blog/partner-api-keys

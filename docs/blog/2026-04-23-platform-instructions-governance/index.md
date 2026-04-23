@@ -5,7 +5,6 @@ slug: govern-ai-fleet-system-prompt-level
 description: "Platform Instructions lets enterprise IT teams enforce org-wide policy rules at the system prompt level — before the first agent turn executes. No code deploys. No SDK integration."
 og_title: "Govern Your AI Fleet at the System Prompt Level"
 og_description: "Platform Instructions: global and workspace-scoped rules prepended to the system prompt. Governance before the first turn, not after."
-og_image: /docs/assets/blog/2026-04-23-platform-instructions-governance-og.png
 tags: [governance, platform-instructions, enterprise, security, it-governance, system-prompt, policy, a2a]
 keywords: [AI fleet governance, enterprise AI policy, system prompt governance, AI agent compliance, platform instructions, workspace policy enforcement, enterprise AI security, AI agent ACL]
 canonical: https://docs.molecule.ai/blog/govern-ai-fleet-system-prompt-level
@@ -99,7 +98,7 @@ Platform Instructions are available on **Enterprise plans**. To get started:
 - Assign workspace-scoped instructions to specific workspaces via `POST /instructions` with `workspace_id`
 - Verify resolved instructions via `GET /workspaces/{id}/instructions/resolve`
 
-For a complete governance picture, combine Platform Instructions with [Tool Trace](/docs/blog/ai-agent-observability-without-overhead/) — see exactly which tools were called and what inputs were passed, alongside the policy that governed them.
+For a complete governance picture, combine Platform Instructions with [Tool Trace](/blog/ai-agent-observability-without-overhead/) — see exactly which tools were called and what inputs were passed, alongside the policy that governed them.
 
 ---
 
