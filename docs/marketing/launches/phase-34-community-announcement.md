@@ -29,7 +29,7 @@ response. No SDK, no sidecar, no sampling.
 Enable activity logging on your workspace and every task gets a full
 execution record, stored in activity_logs.
 
-Docs: docs/architecture/activity-logs.md
+Docs: docs.moleculesai.app/blog/ai-agent-observability-without-overhead (live on staging)
 PR: #1686 (merged 2026-04-23)
 
 
@@ -50,7 +50,7 @@ These rules prepend to every agent's effective system prompt in your org,
 regardless of individual workspace config. Governance happens before
 execution, not after an incident.
 
-Docs: docs/architecture/platform-instructions.md
+Docs: docs.moleculesai.app/blog/platform-instructions-governance (live on staging)
 
 
 🔑 Partner API Keys (GA April 30)
@@ -70,7 +70,7 @@ irreversibly revocable, and logged in the audit trail.
 This is, to our knowledge, the first partner provisioning API of its kind
 in the agent platform space.
 
-Docs: docs/architecture/partner-api-keys.md
+Docs: docs.moleculesai.app/blog/partner-api-keys (live on staging)
 GA: April 30, 2026
 
 
@@ -84,7 +84,7 @@ If you're running multiple orgs — for partners, for internal teams, or
 for different products — the improvements to federation architecture make
 it more robust to operate at scale.
 
-Docs: docs/architecture/saas-federation.md (or link to relevant docs)
+Docs: docs.moleculesai.app/guides/external-workspace-quickstart (live on staging)
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -95,12 +95,12 @@ Tool Trace is live now — enabled by default for all workspaces.
 Check your A2A responses for message.metadata.tool_trace[].
 
 Platform Instructions: POST /cp/platform-instructions (org admin only)
-Docs: docs/architecture/platform-instructions.md
+Docs: docs.moleculesai.app/blog/platform-instructions-governance (live on staging)
 
-Partner API Keys: GA April 30 — apply for early access via GitHub
-Discussions if you want to test ahead of the release.
+Partner API Keys: GA April 30 — docs.moleculesai.app/blog/partner-api-keys
+Apply for early access via GitHub Discussions if you want to test ahead.
 
-SaaS Fed v2: active for all SaaS tenants, no action needed.
+SaaS Fed v2: docs.moleculesai.app/guides/external-workspace-quickstart (live on staging)
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -113,8 +113,14 @@ monitoring.
 Got feedback on Tool Trace? We want to know what you'd use it for.
 Drop it in GitHub Discussions: github.com/Molecule-AI/molecule-core/discussions
 
-Full positioning and messaging matrix:
-docs/marketing/briefs/phase34-positioning.md
+Full blog coverage on staging:
+- docs.moleculesai.app/blog/tool-trace-platform-instructions (combined overview)
+- docs.moleculesai.app/blog/ai-agent-observability-without-overhead (Tool Trace deep-dive)
+- docs.moleculesai.app/blog/platform-instructions-governance (Platform Instructions)
+- docs.moleculesai.app/blog/partner-api-keys (Partner API Keys)
+- docs.moleculesai.app/guides/external-workspace-quickstart (SaaS Fed v2)
+
+Full messaging matrix: docs/marketing/briefs/phase34-positioning.md
 
 Documentation across all four features is linked above — if something
 is missing or unclear, open an issue and tag @community.
