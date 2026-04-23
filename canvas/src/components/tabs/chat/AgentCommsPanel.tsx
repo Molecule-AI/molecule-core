@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { WS_URL } from "@/store/socket";
+import { closeWebSocketGracefully } from "@/lib/ws-close";
 import { extractResponseText, extractRequestText } from "./message-parser";
 
 interface ActivityEntry {
@@ -122,7 +123,9 @@ export function AgentCommsPanel({ workspaceId }: { workspaceId: string }) {
         }
       } catch { /* ignore */ }
     };
-    return () => ws.close();
+    return () => {
+      closeWebSocketGracefully(ws);
+    };
   }, [workspaceId]);
 
   useEffect(() => {

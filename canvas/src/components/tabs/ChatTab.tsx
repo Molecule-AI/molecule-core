@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { api } from "@/lib/api";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { WS_URL } from "@/store/socket";
+import { closeWebSocketGracefully } from "@/lib/ws-close";
 import { type ChatMessage, createMessage, appendMessageDeduped } from "./chat/types";
 import { extractResponseText, extractRequestText } from "./chat/message-parser";
 import { AgentCommsPanel } from "./chat/AgentCommsPanel";
@@ -304,7 +305,9 @@ function MyChatPanel({ workspaceId, data }: Props) {
       } catch { /* ignore */ }
     };
 
-    return () => ws.close();
+    return () => {
+      closeWebSocketGracefully(ws);
+    };
   }, [sending, workspaceId, resolveWorkspaceName]);
 
   const sendMessage = async () => {

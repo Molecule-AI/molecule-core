@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
+import { useCanvasStore } from "@/store/canvas";
 import { checkDeploySecrets, type PreflightResult } from "@/lib/deploy-preflight";
 import { MissingKeysModal } from "./MissingKeysModal";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -226,6 +227,14 @@ function ImportAgentButton({ onImported }: { onImported: () => void }) {
 
 export function TemplatePalette() {
   const [open, setOpen] = useState(false);
+  // Publish palette-open state to the canvas store so Legend (and any
+  // future floating left-bottom UI) can shift right to avoid being
+  // hidden behind the 280 px palette drawer.
+  const setTemplatePaletteOpen = useCanvasStore((s) => s.setTemplatePaletteOpen);
+  useEffect(() => {
+    setTemplatePaletteOpen(open);
+  }, [open, setTemplatePaletteOpen]);
+
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
