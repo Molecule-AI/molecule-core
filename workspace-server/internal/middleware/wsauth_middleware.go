@@ -148,6 +148,26 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 			}
 		}
 
+		// Tier 1b: Local-dev escape hatch. On `go run ./cmd/server` the
+		// Canvas has no bearer token (there's no WorkOS session, no
+		// baked NEXT_PUBLIC_ADMIN_TOKEN), so the moment the first
+		// workspace token lands in the DB Tier 1 closes and Canvas → 401
+		// on every GET /workspaces. This reopens fail-open *only* when
+		//   - ADMIN_TOKEN is empty (i.e. the operator has not opted in
+		//     to the Phase-30 closure), AND
+		//   - MOLECULE_ENV is explicitly a dev mode.
+		// SaaS never hits this branch because tenant provisioning sets
+		// both ADMIN_TOKEN and MOLECULE_ENV=production. Matches the
+		// existing convention in handlers/admin_test_token.go which
+		// gates the test-token endpoint on MOLECULE_ENV != "production".
+		if adminSecret == "" {
+			env := strings.ToLower(strings.TrimSpace(os.Getenv("MOLECULE_ENV")))
+			if env == "development" || env == "dev" {
+				c.Next()
+				return
+			}
+		}
+
 		// SaaS-canvas path: when the request carries a WorkOS session
 		// cookie AND the CP confirms it's valid, accept without a
 		// bearer. This is how the tenant's Next.js canvas UI
