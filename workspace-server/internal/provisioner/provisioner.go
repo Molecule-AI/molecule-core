@@ -749,6 +749,41 @@ func (p *Provisioner) ReadFromVolume(ctx context.Context, volumeName, filePath s
 	return clean, nil
 }
 
+// WriteAuthTokenToVolume writes the workspace auth token into the config volume
+// BEFORE the container starts, eliminating the token-injection race window where
+// a restarted container could read a stale token from /configs/.auth_token before
+// WriteFilesToContainer writes the new one. Issue #1877.
+//
+// Uses a throwaway alpine container to write directly to the named volume,
+// bypassing the container lifecycle entirely.
+func (p *Provisioner) WriteAuthTokenToVolume(ctx context.Context, workspaceID, token string) error {
+	volName := ConfigVolumeName(workspaceID)
+	resp, err := p.cli.ContainerCreate(ctx, &container.Config{
+		Image: "alpine",
+		Cmd:   []string{"sh", "-c", "mkdir -p /vol && printf '%s' $TOKEN > /vol/.auth_token && chmod 0600 /vol/.auth_token"},
+		Env:   []string{"TOKEN=" + token},
+	}, &container.HostConfig{
+		Binds: []string{volName + ":/vol"},
+	}, nil, nil, "")
+	if err != nil {
+		return fmt.Errorf("failed to create token-write container: %w", err)
+	}
+	defer p.cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+	if err := p.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		return fmt.Errorf("failed to start token-write container: %w", err)
+	}
+	waitCh, errCh := p.cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
+	select {
+	case <-waitCh:
+	case writeErr := <-errCh:
+		if writeErr != nil {
+			return fmt.Errorf("token-write container exited with error: %w", writeErr)
+		}
+	}
+	log.Printf("Provisioner: wrote auth token to volume %s/.auth_token", volName)
+	return nil
+}
+
 // execInContainer runs a command inside a running container as root.
 // Best-effort: logs errors but does not fail the caller.
 func (p *Provisioner) execInContainer(ctx context.Context, containerID string, cmd []string) {

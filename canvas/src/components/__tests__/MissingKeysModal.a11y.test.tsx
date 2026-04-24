@@ -85,7 +85,7 @@ describe("MissingKeysModal — WCAG 2.1 dialog accessibility", () => {
     const backdrop = document.querySelector('[aria-hidden="true"]');
     expect(backdrop).toBeTruthy();
     // Verify the backdrop is the full-screen overlay (has bg-black/70)
-    expect(backdrop?.className).toContain("bg-black");
+    expect(backdrop?.className).toContain("bg-black/70");
   });
 
   it("decorative warning SVG in header has aria-hidden='true'", () => {
