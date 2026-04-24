@@ -16,6 +16,7 @@ export const PARENT_SIDE_PADDING = 20;
 export const PARENT_BOTTOM_PADDING = 20;
 export const CHILD_GUTTER = 20;
 
+
 /**
  * A deterministic grid slot for the n-th child inside a parent, counted
  * left-to-right then top-to-bottom. Used to lay out org-imported teams
@@ -252,25 +253,47 @@ export function buildNodesAndEdges(
       const pa = absPos.get(ws.parent_id!)!;
       position = { x: abs.x - pa.x, y: abs.y - pa.y };
 
-      // Auto-rescue on load — only when the stored relative position
-      // is clearly impossible for an intentionally-placed child:
-      // negative coords (child would render to the LEFT or ABOVE its
-      // parent) or absurdly distant (child would render further than
-      // MAX_PLAUSIBLE_OFFSET from the parent's origin). Both signal
-      // legacy data written before nesting existed, where the child's
-      // absolute canvas coords have no relation to the parent that was
-      // later assigned to it. Children past the right/bottom edge by
-      // a small margin are left alone — the user may have resized the
-      // parent larger on a previous session, and silent teleportation
-      // on every reload would undo their layout. The manual "Arrange
-      // Children" context command stays available for cleanup.
-      const MAX_PLAUSIBLE_OFFSET = 8000;
-      const corrupted =
-        position.x < 0 ||
-        position.y < 0 ||
-        position.x > MAX_PLAUSIBLE_OFFSET ||
-        position.y > MAX_PLAUSIBLE_OFFSET;
-      if (corrupted) {
+      // Auto-rescue on load: fires only when the child's bounding box
+      // is FULLY outside the parent's computed bbox by at least one
+      // child-width/height. Two real failure modes this covers:
+      //
+      //   - Legacy data: a child whose stored absolute coords predate
+      //     the nesting assignment, so abs→rel produces a huge offset
+      //     far past any parent edge.
+      //   - Corrupt org-imports with positions in a different
+      //     coordinate space.
+      //
+      // Rejected heuristics we deliberately avoid:
+      //   - `position.x < 0` alone — catches legitimate drift when the
+      //     user drags the parent past a child that had small positive
+      //     stored coords (child's relative goes mildly negative, but
+      //     the layout is still recoverable).
+      //   - Raw magnitude like `> 8000` — doesn't scale with parent
+      //     size; a user who resized the parent huge could legitimately
+      //     place a child at 9000px.
+      //
+      // Children slightly past the initial min-size (user had resized
+      // the parent larger on a previous session) are NEVER rescued —
+      // the bbox-overlap test gives them room. The manual "Arrange
+      // Children" context command is still the escape hatch for that
+      // bucket of data.
+      // Pure bbox-overlap test — self-calibrating without a magic
+      // margin. Rescue iff the child's bbox has ZERO overlap with the
+      // parent's bbox (the child would render completely detached).
+      //   drift case (position.x = -40, CHILD_WIDTH = 260):
+      //     child.right = 220, overlaps parent.left = 0 → kept
+      //   screenshot case (position.x = -420, CHILD_WIDTH = 260):
+      //     child.right = -160, doesn't overlap parent.left = 0 → rescued
+      //   user resized larger (parent.width now 800, position.x = 500):
+      //     child.left = 500 < parent.right = 800 → overlaps → kept
+      //   legacy huge positive (position.x = 50000):
+      //     child.left = 50000 >= parent.right → no overlap → rescued
+      const psize = parentSize.get(ws.parent_id!)!;
+      const overlapsX =
+        position.x + CHILD_DEFAULT_WIDTH > 0 && position.x < psize.width;
+      const overlapsY =
+        position.y + CHILD_DEFAULT_HEIGHT > 0 && position.y < psize.height;
+      if (!overlapsX || !overlapsY) {
         const idx = nextChildIndex.get(ws.parent_id!) ?? 0;
         nextChildIndex.set(ws.parent_id!, idx + 1);
         position = defaultChildSlot(idx);

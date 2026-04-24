@@ -340,7 +340,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     for (const id of nodeIds) {
       let cursor = byId.get(id)?.data.parentId ?? null;
       let hasSelectedAncestor = false;
-      while (cursor) {
+      // Seen-set guards against a corrupt parentId cycle. Shouldn't
+      // happen with a healthy backend — nestNode itself blocks cycles
+      // via isDescendant — but this walk is user-triggered and the
+      // cost of the guard is one set allocation per selected node.
+      const seen = new Set<string>();
+      while (cursor && !seen.has(cursor)) {
+        seen.add(cursor);
         if (selectedSet.has(cursor)) {
           hasSelectedAncestor = true;
           break;
@@ -511,13 +517,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       });
       // Surface the partial failure — silent rollback would otherwise
       // leave the canvas in a state the user can't explain ("I dragged
-      // 5 cards, 3 moved and 2 snapped back?").
-      const failedNames = rolledBack
+      // 5 cards, 3 moved and 2 snapped back?"). Cap the name list so a
+      // 50-node partial failure doesn't overflow the toast container.
+      const NAMES_IN_TOAST = 3;
+      const names = rolledBack
         .map((id) => byId.get(id)?.data.name)
-        .filter(Boolean)
-        .join(", ");
+        .filter((n): n is string => Boolean(n));
+      const shown = names.slice(0, NAMES_IN_TOAST).join(", ");
+      const overflow = names.length - NAMES_IN_TOAST;
+      const listFragment = shown
+        ? overflow > 0
+          ? `: ${shown} and ${overflow} more`
+          : `: ${shown}`
+        : "";
       showToast(
-        `Could not re-parent ${rolledBack.length} of ${plan.length} workspace${plan.length === 1 ? "" : "s"}${failedNames ? `: ${failedNames}` : ""}`,
+        `Could not re-parent ${rolledBack.length} of ${plan.length} workspace${plan.length === 1 ? "" : "s"}${listFragment}`,
         "error",
       );
     }
