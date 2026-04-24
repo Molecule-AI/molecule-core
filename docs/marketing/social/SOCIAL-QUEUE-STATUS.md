@@ -1,5 +1,5 @@
 # Marketing Social Queue — Status Tracker
-**Owner:** PMM | **Last updated:** 2026-04-24 mid-cycle
+**Owner:** PMM | **Last updated:** 2026-04-24 (T-6 to GA))
 **Purpose:** Single source of truth for all social copy status across campaigns.
 
 ---
@@ -8,7 +8,7 @@
 
 ### 2026-04-26 — Phase 34 GA: Tool Trace + Platform Instructions ⚠️ PENDING APPROVAL (T-4)
 - **File:** `2026-04-26-phase34-ga-launch/social-copy.md`
-- **Status:** PMM pre-write complete. Awaiting Marketing Lead approval. Platform Instructions: confirmed Enterprise plans only (AdminAuth-gated, per plan-gating note). Community FAQ corrected.
+- **Status:** PMM pre-write complete. Awaiting Marketing Lead approval. Platform Instructions plan availability corrected 2026-04-23 (all plans, not enterprise-only).)
 - **Content:** 6-post X thread + LinkedIn post
 - **Owner:** PMM → Social Media Brand
 - **Blocking:** Marketing Lead approval + X credentials
@@ -42,10 +42,12 @@
 - **Status:** PMM positioning approved (GH #1637). DevRel screenshot + blog still outstanding. Whether posted is unconfirmed.
 - **Owner:** PMM → Social Media Brand → DevRel
 
+
 ---
 
 ## Phase 30 Social Campaign — Active (April 24–25)
 
+)
 ### 2026-04-24 — EC2 Console Output ✅ APPROVED (Marketing Lead) [T-6: publish today]
 - **File:** `2026-04-24-ec2-console-output/social-copy.md`
 - **Status:** Approved by Marketing Lead 2026-04-22. Ready for Social Media Brand execution.
