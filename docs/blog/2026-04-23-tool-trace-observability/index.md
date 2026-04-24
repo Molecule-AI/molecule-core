@@ -2,7 +2,7 @@
 title: "AI Agent Observability Without the Overhead"
 date: 2026-04-23
 slug: ai-agent-observability-without-overhead
-description: "Tool Trace gives every A2A response a structured record of every tool call — inputs, output previews, run_id-paired parallel traces. No sampling, no sidecar, no guesswork."
+description: "Tool Trace records every tool call in every A2A response — inputs, output previews, run_id-paired for parallel calls. No SDK, no sidecar, no sampling."
 og_title: "AI Agent Observability Without the Overhead"
 og_description: "See every tool your agent called — inputs, outputs, timing — in every A2A response. Parallel traces handled correctly. No sampling overhead."
 tags: [observability, tool-trace, debugging, devops, platform-engineering, a2a, claude]
