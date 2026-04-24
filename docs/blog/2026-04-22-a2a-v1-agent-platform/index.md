@@ -3,6 +3,8 @@ title: "What A2A v1.0 Means for Your Agent Stack: Why Protocol-Native Beats Prot
 description: "A2A v1.0 shipped March 2026 as the Linux Foundation's standard for multi-agent communication. Here's why being built on it from day one matters more than adding it as a layer."
 date: 2026-04-22
 canonical: https://docs.molecule.ai/blog/a2a-v1-agent-platform
+tags: [a2a, agent-protocol, multi-agent, governance, enterprise, platform]
+og_image: /assets/blog/2026-04-21-chrome-devtools-mcp-og.png
 ---
 
 *Meta description (160 chars): Before you buy an agent platform, ask how A2A delegation is attributed. The answer reveals everything about governance.*
@@ -49,7 +51,7 @@ Both Python and Node.js external agent templates are under 100 lines. Registrati
 
 ## Why This Matters Now: The Governance Gap in Competing Implementations
 
-A2A v1.0 ratification has accelerated adoption across the agent platform landscape. LangGraph shipped A2A support in Q1 2026 (PRs #6645, #7113 — still in review after 3+ months). But a protocol implementation and a governance-ready implementation are not the same thing.
+A2A v1.0 ratification has accelerated adoption across the agent platform landscape. LangGraph's A2A implementation (PRs #6645, #7113 — ⚠️ VERIFY: PMM 2026-04-21 confirmed these PRs not found in langchain-ai/langgraph open PR list; may be merged, closed, or re-numbered) positions against the governance gap. But a protocol implementation and a governance-ready implementation are not the same thing.
 
 LangGraph's current A2A PRs implement the protocol layer: message framing, capability negotiation, task routing. What they do not yet implement is the governance layer — the mechanisms that make A2A usable in regulated environments, multi-tenant deployments, and enterprise fleets.
 
