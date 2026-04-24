@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 )
 
@@ -58,8 +59,26 @@ func TestDropStaleQueueItems_extractMaxAge(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			router := gin.New()
+			mock := setupTestDB(t)
 			h := &AdminQueueHandler{}
+
+			switch tc.name {
+			case "default 60 minutes":
+				// global scope, 1 query arg
+				mock.ExpectQuery("UPDATE a2a_queue").
+					WithArgs(60).
+					WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+			case "explicit 120 minutes":
+				mock.ExpectQuery("UPDATE a2a_queue").
+					WithArgs(120).
+					WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+			case "workspace scoped":
+				mock.ExpectQuery("UPDATE a2a_queue").
+					WithArgs("abc-123", 30).
+					WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+			}
+
+			router := gin.New()
 			router.POST("/admin/a2a-queue/drop-stale", h.DropStale)
 
 			req := httptest.NewRequest(http.MethodPost, "/admin/a2a-queue/drop-stale"+tc.query, nil)
@@ -80,6 +99,10 @@ func TestDropStaleQueueItems_extractMaxAge(t *testing.T) {
 				} else if int(got) != *tc.wantDropped {
 					t.Errorf("got dropped=%d, want %d", int(got), *tc.wantDropped)
 				}
+			}
+
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unmet sqlmock expectations: %v", err)
 			}
 		})
 	}
