@@ -439,7 +439,14 @@ class LangGraphA2AExecutor(AgentExecutor):
                 # deepagents, future ReAct variants) inherits it.
                 _outbound = collect_outbound_files(final_text)
                 if _outbound:
-                    from a2a.types import FilePart, FileWithUri, Message, Part, Role, TextPart
+                    # NOTE: do NOT re-import `Part` here. It is already imported
+                    # at module scope (line 42). A function-scope `from a2a.types
+                    # import ... Part ...` would mark `Part` as a local name
+                    # throughout this function under Python's scoping rules,
+                    # making the earlier `Part(text=text)` call (line ~358, inside
+                    # the astream_events loop) raise UnboundLocalError because
+                    # the local binding is not yet in scope at that point.
+                    from a2a.types import FilePart, FileWithUri, Message, Role, TextPart
                     _parts: list[Part] = [Part(root=TextPart(text=final_text))] if final_text else []
                     for f in _outbound:
                         _parts.append(Part(root=FilePart(file=FileWithUri(
