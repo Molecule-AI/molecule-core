@@ -280,9 +280,6 @@ class CLIAgentExecutor(AgentExecutor):
         # delegation or memory injection happens.
         original_input = user_input
 
-        # Show current task on canvas — extract a brief one-line summary
-        await set_current_task(self._heartbeat, brief_summary(user_input))
-
         logger.debug("CLI execute [%s]: %s", self.runtime, user_input[:200])
 
         # Inject delegation results that arrived since last message
@@ -290,13 +287,20 @@ class CLIAgentExecutor(AgentExecutor):
         if delegation_context:
             user_input = f"[Delegation results received while you were idle]\n{delegation_context}\n\n[New message]\n{user_input}"
 
-        # Auto-recall: inject prior memories into every prompt. (The CLI
-        # runtimes don't keep a session, so there's no "first turn" concept.)
-        memories = await recall_memories()
-        if memories:
-            user_input = f"[Prior context from memory]\n{memories}\n\n{user_input}"
-
         try:
+            # set_current_task INSIDE the try so active_tasks is always
+            # decremented by the finally block even if CancelledError hits
+            # during the heartbeat HTTP push. Moving it outside the try
+            # created a window where cancellation left active_tasks stuck
+            # at 1, permanently blocking queue drain. (#2026)
+            await set_current_task(self._heartbeat, brief_summary(user_input))
+
+            # Auto-recall: inject prior memories into every prompt. (The CLI
+            # runtimes don't keep a session, so there's no "first turn" concept.)
+            memories = await recall_memories()
+            if memories:
+                user_input = f"[Prior context from memory]\n{memories}\n\n{user_input}"
+
             await self._run_cli(user_input, event_queue)
         finally:
             await set_current_task(self._heartbeat, "")

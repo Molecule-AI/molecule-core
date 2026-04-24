@@ -247,8 +247,6 @@ class LangGraphA2AExecutor(AgentExecutor):
             task_span.set_attribute(A2A_TASK_ID, context.context_id or "")
             task_span.set_attribute("a2a.input_preview", user_input[:256])
 
-            await set_current_task(self._heartbeat, brief_task(user_input))
-
             # Resolve IDs — the RequestContextBuilder always sets them, but
             # we generate fallbacks for safety (e.g. in unit tests).
             task_id = context.task_id or str(uuid.uuid4())
@@ -257,6 +255,12 @@ class LangGraphA2AExecutor(AgentExecutor):
             updater = TaskUpdater(event_queue, task_id, context_id)
 
             try:
+                # set_current_task INSIDE the try so active_tasks is always
+                # decremented by the finally block even if CancelledError hits
+                # during the heartbeat HTTP push. Moving it outside the try
+                # created a window where cancellation left active_tasks stuck
+                # at 1, permanently blocking queue drain. (#2026)
+                await set_current_task(self._heartbeat, brief_task(user_input))
                 messages = _extract_history(context)
                 if messages:
                     logger.info("A2A execute: injecting %d history messages", len(messages))
