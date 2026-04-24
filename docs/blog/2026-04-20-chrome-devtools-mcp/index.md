@@ -92,3 +92,5 @@ Then install and govern it through the Molecule AI plugin system — so the tool
 ---
 
 *Chrome DevTools MCP plus Molecule AI's governance layer: browser automation that meets production standards.*
+
+→ [Every MCP Server Available in Molecule AI (2026)](/blog/mcp-server-list) — full catalogue of browser, cloud, code execution, and communication MCP servers, with governance notes.

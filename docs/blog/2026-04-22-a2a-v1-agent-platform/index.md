@@ -137,4 +137,6 @@ Read the full [A2A v1.0 protocol spec](https://github.com/Molecule-AI/molecule-c
 
 **→ See also: [Agent Observability Built In: Tool Trace + Platform Instructions](https://docs.molecule.ai/blog/agent-observability-tool-trace-platform-instructions)** — every A2A response now includes a `tool_trace` field with a complete execution record of every tool call your agent made. Zero SDK setup, ships as part of Phase 34.
 
+→ [Every MCP Server Available in Molecule AI (2026)](/blog/mcp-server-list) — full catalogue of every tool your A2A agents can call, with governance notes on controlling MCP access at org scale.
+
 **Phase 34 ships April 30, 2026** — Partner API Keys (`mol_pk_*`), Tool Trace, Platform Instructions, and SaaS Federation v2. See the [Phase 34 announcement](https://docs.molecule.ai/blog/phase-34-community-announcement) for the full picture.
