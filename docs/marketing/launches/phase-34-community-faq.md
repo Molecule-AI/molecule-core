@@ -150,9 +150,9 @@ For self-hosted users: nothing changes. Federation v2 is SaaS-only.
 
 ## General
 
-### Why are you shipping all four features at once?
+### Why are you shipping these features at once?
 
-Because they're built to work together. Partner API Keys provisions the orgs. Platform Instructions governs what happens inside them. Tool Trace shows you what your agents actually did. SaaS Fed v2 keeps it all isolated and reliable. Shipping them together means you get a coherent system from day one — not four unrelated features with interdependency debt.
+Because they're built to work together. Partner API Keys provisions the orgs. Platform Instructions governs what happens inside them. Tool Trace shows you what your agents actually did. Shipping them together means you get a coherent system from day one — not three unrelated features with interdependency debt.
 
 ---
 

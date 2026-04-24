@@ -85,4 +85,3 @@ Social queue notes file should live on staging under `docs/marketing/blog/2026-0
 ---
 
 *PMM QA notes 2026-04-24. A2A blog reviewed. Platform Instructions plan availability resolved (Enterprise plans only). EC2 + MCP blog posts: blocked on Content Marketer delivery.*
-*PMM QA notes 2026-04-24. A2A blog reviewed. Platform Instructions plan availability resolved (Enterprise plans only). EC2 + MCP blog posts: blocked on Content Marketer delivery.*

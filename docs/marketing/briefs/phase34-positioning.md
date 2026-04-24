@@ -83,7 +83,7 @@ Phase 34 ships four features that address each failure at the platform layer —
 > **2026-04-23 override:** Internal notes previously flagged all Phase 34 features as BETA. Community FAQ (`phase-34-community-faq.md`, Community Manager-owned, approved) and approved social copy are the authoritative external-facing sources. Updated to reconcile:
 > - **Partner API Keys:** GA April 30, 2026 — "generally available" language is correct per community FAQ table and approved social copy.
 > - **Tool Trace:** GA — community FAQ uses no Beta designation. All plans.
-> - **Platform Instructions:** GA — community FAQ "Is Platform Instructions on all plans? Yes." Enterprise IT is primary ICP, not a plan restriction.
+> - **Platform Instructions:** GA — Enterprise plans only. Confirmed via code review: AdminAuth-gated at router.go:376. Community FAQ updated accordingly. Enterprise IT is primary ICP — plan gate is consistent with buyer audience, not a hidden limitation.
 > - **SaaS Federation v2:** REMOVED from community announcement and social copy pending PM confirmation. Do not reference in external materials.
 > - Do not use "Acme Corp" in any externally published copy — placeholder only. Confirm partner name with PM before press release.
 > - Phase 30 linkage: Phase 30 shipped `mol_ws_*` (per-workspace auth). Phase 34 extends to `mol_pk_*` (partner-level keys). Cross-sell: "Phase 30 workspace isolation + Phase 34 partner scoping — the only platform with both."

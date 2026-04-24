@@ -8,7 +8,7 @@
 
 ### 2026-04-26 — Phase 34 GA: Tool Trace + Platform Instructions ⚠️ PENDING APPROVAL (T-4)
 - **File:** `2026-04-26-phase34-ga-launch/social-copy.md`
-- **Status:** PMM pre-write complete. Awaiting Marketing Lead approval. Platform Instructions plan availability corrected 2026-04-23 (all plans, not enterprise-only).
+- **Status:** PMM pre-write complete. Awaiting Marketing Lead approval. **Internally consistent** — all sources agree: Tool Trace (all plans) + Platform Instructions (Enterprise plans). Conflict resolved this tick. Blog posts confirmed on `origin/staging` (commit `cfdaefe5`, PR #1799).
 - **Content:** 6-post X thread + LinkedIn post
 - **Owner:** PMM → Social Media Brand
 - **Blocking:** Marketing Lead approval + X credentials
