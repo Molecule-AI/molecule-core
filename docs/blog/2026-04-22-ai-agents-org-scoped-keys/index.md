@@ -69,16 +69,13 @@ Until role scoping ships: name your keys well, monitor their usage, and treat th
 
 ## Monitoring what your agents call
 
-Once an agent is running on an org-scoped key, the audit log is your instrument panel:
+Once an agent is running on an org-scoped key, you monitor it the same way you'd monitor any long-lived service credential:
 
-```bash
-curl https://acme.moleculesai.app/org/tokens/ci-agent-prod_abc123/logs \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
-```
+**In Canvas:** Settings → Org API Keys → [key name] → Activity Log shows recent calls for that key.
 
-Returns a paginated log of every call the key has made — timestamp, endpoint, response code, duration. Rotate this view into your observability stack and you have agent-level call attribution without any agent-side instrumentation.
+**Per-token activity logs via API** (planned): a structured API endpoint for querying an org-scoped key's call history — timestamp, endpoint, response code, duration — is on the roadmap. Until it ships, the Canvas Activity Log is the primary monitoring interface.
 
-If the call pattern changes — a monitoring agent suddenly starts calling `/workspaces POST` — that's a signal. Revoke the key, investigate, re-issue with tighter scope if needed.
+If a monitoring agent's call pattern changes — it suddenly starts calling `/workspaces POST` instead of read-only endpoints — that's a signal. Revoke the key, investigate, and re-issue with tighter scope if needed.
 
 ## The security properties that survive agent compromise
 
@@ -107,4 +104,4 @@ curl -X POST https://acme.moleculesai.app/org/tokens \
 
 Store the returned plaintext token in your secret manager. Hand it to the agent. Monitor the key's usage in Settings → Org API Keys → [key name] → Activity Log.
 
-*Org-scoped API keys shipped in PRs #1105, #1107, #1109, and #1110. Role scoping and per-workspace bindings are on the roadmap.*
+*Org-scoped API keys shipped in PRs #1105, #1107, #1109, and #1110. Role scoping, per-workspace bindings, and per-token activity logs via API are on the roadmap.*

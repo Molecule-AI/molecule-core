@@ -243,7 +243,28 @@ if [ -n "${E2E_OPENAI_API_KEY:-}" ]; then
   # model name → 404 model_not_found. Also set OPENAI_BASE_URL to
   # OpenAI's own endpoint — default is openrouter.ai which would need
   # a different key format.
-  SECRETS_JSON="{\"OPENAI_API_KEY\":\"$E2E_OPENAI_API_KEY\",\"OPENAI_BASE_URL\":\"https://api.openai.com/v1\",\"MODEL_PROVIDER\":\"openai:gpt-4o\"}"
+  #
+  # The HERMES_* fields below bypass template-hermes/scripts/derive-provider.sh
+  # — verified 2026-04-24 that even with template-hermes#19's fix in main,
+  # staging tenants sometimes resolve openai/* to PROVIDER=openrouter and
+  # emit {'message':'Missing Authentication header','code':401} (OpenRouter's
+  # shape) in the A2A reply. Setting HERMES_INFERENCE_PROVIDER=custom +
+  # HERMES_CUSTOM_{BASE_URL,API_KEY,API_MODE} pins the bridge deterministically
+  # so the test doesn't depend on every tenant EC2 having a freshly-cloned
+  # template-hermes.
+  SECRETS_JSON=$(python3 -c "
+import json, os
+k = os.environ['E2E_OPENAI_API_KEY']
+print(json.dumps({
+    'OPENAI_API_KEY': k,
+    'OPENAI_BASE_URL': 'https://api.openai.com/v1',
+    'MODEL_PROVIDER': 'openai:gpt-4o',
+    'HERMES_INFERENCE_PROVIDER': 'custom',
+    'HERMES_CUSTOM_BASE_URL': 'https://api.openai.com/v1',
+    'HERMES_CUSTOM_API_KEY': k,
+    'HERMES_CUSTOM_API_MODE': 'chat_completions',
+}))
+")
 fi
 
 # Model slug MUST be provider-prefixed for hermes — the template's
