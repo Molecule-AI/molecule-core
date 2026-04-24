@@ -2,7 +2,7 @@
 **Campaign:** Phase 30 / A2A v1 enterprise positioning
 **Author:** SEO Analyst (5b277fc4) — consolidated from PMM brief + molecule-core brief
 **Date:** 2026-04-23
-**Status:** ✅ CONFIRMED — Marketing Lead direct approval 2026-04-23; PMM step waived
+**Status:** ✅ Approved by Marketing Lead 2026-04-23 — ready for Content Marketer (#1492)
 **Post:** `docs/blog/2026-04-22-a2a-v1-agent-platform/index.md` (✅ Published 2026-04-22)
 **Slug:** `a2a-v1-agent-platform` ✅
 **Target URL:** `https://docs.molecule.ai/blog/a2a-v1-agent-platform`

@@ -19,4 +19,4 @@ There is no feature flag or plan-tier check in the handler code — the gating i
 
 ---
 
-*Source: `workspace-server/internal/router/router.go:373` (AdminAuth on CRUD routes), staged blog post line 94.*
+*Source: `workspace-server/internal/router/router.go:376` (AdminAuth on CRUD routes), `workspace-server/internal/handlers/instructions.go` (no plan/tier/enitle/enterprise references — gating is purely middleware-enforced). Staged blog post line 94.*

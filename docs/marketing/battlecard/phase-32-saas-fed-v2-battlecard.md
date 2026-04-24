@@ -7,6 +7,29 @@
 
 ---
 
+## Feature Summary
+
+SaaS Federation v2 makes Molecule AI a multi-tenant cloud product — every signup gets a fully isolated org with their own workspaces, secrets, audit logs, and billing, without requiring self-hosting. The platform ships with WorkOS per-org SSO, Stripe-backed workspace-hours billing, and a Partner API Key layer (Phase 34) that lets platform builders provision and manage tenant orgs programmatically. For enterprise IT, compliance, and platform teams that need to offer agent orchestration as a product, SaaS Federation v2 is the commercial infrastructure layer that Phase 30, Phase 32, and Phase 34 build together.
+
+---
+
+## Target Buyer / ICP
+
+| Priority | Role | What they care about |
+|---|---|---|
+| **Primary** | Enterprise IT / Platform leads | Org-level isolation, SSO, audit trail, compliance — without self-hosting |
+| **Primary** | Platform / SaaS builders | API-first tenant provisioning, Stripe billing hooks, white-label canvas |
+| **Secondary** | DevOps / Infrastructure leads | Multi-tenant billing, Fly Machines pricing, self-hosted fallback |
+| **Secondary** | Partner / Reseller teams | Programmatic tenant management, per-tenant governance, Partner API Keys |
+
+---
+
+## Primary Value Prop
+
+> "Molecule AI SaaS is the first agent platform where org-level isolation, WorkOS SSO, Stripe billing, and a Partner API Key provisioning layer ship together — so you can offer agent orchestration as a product without self-hosting."
+
+---
+
 ## Competitive Context
 
 SaaS Federation v2 is Molecule AI's multi-tenant cloud product — offering organizations their own isolated agent platform with signup in under 5 minutes, workspace-hours billing, and org-level governance that doesn't require self-hosting.
@@ -133,6 +156,48 @@ The competitive question this battlecard answers: **how does Molecule AI's multi
 - LangGraph ships enterprise multi-tenancy → update lead claim to "first agent platform with native multi-tenancy + Partner API Key layer"
 - CrewAI Enterprise ships reseller billing → update reseller story to "programmatic billing" differentiator
 - Stripe Atlas application delayed → Phase 32 GA moves with Stripe timeline
+
+---
+
+## Key Talking Points
+
+1. **"Signup under 5 minutes, fully isolated org."** — Every new tenant gets their own org with parent/child/sibling workspace hierarchy, per-workspace auth tokens, and an immutable audit trail — no sales call, no infrastructure setup.
+
+2. **"Org-level isolation, not shared-namespace."** — Every row-returning handler filters by `org_id`. Secrets, activity logs, and memory are scoped per org. Tenant isolation is tested in CI on every commit — not a policy, a structural guarantee.
+
+3. **"WorkOS SSO, per-org."** — AuthKit SSO is configured at the org level. Every tenant brings their own identity provider. No shared authentication state between tenants.
+
+4. **"Partner API Keys (Phase 34) for programmatic tenant management."** — `mol_pk_*` keys let you spin up a tenant org via API, configure their Platform Instructions, monitor their Tool Trace, and teardown the org when done — no browser, no manual handoff.
+
+5. **"Stripe-backed workspace-hours billing."** — Tenants pay for what runs, not per seat. Per-org usage visible in the admin panel. Stripe Connect (future) enables reseller billing.
+
+6. **"A2A-native fleet federation."** — External agents on AWS, GCP, or bare-metal register via A2A and appear on the same canvas as platform-managed agents — same audit log, same org hierarchy, no separate integration layer.
+
+---
+
+## Objection Handlers
+
+**"LangGraph Cloud has enterprise features too."**
+LangGraph Cloud charges per seat and has no org hierarchy. "Org-level" means parent/child/sibling workspace relationships — with per-workspace tokens, org-scoped secrets, and `org_id`-filtered activity logs. LangGraph Cloud's workspace concept is a namespace, not an org. If compliance teams need to demonstrate cross-tenant isolation, LangGraph Cloud cannot.
+
+**"We can just self-host Molecule AI."**
+You can — and that's a real option for data-residency requirements. But SaaS Federation v2 removes the infrastructure burden: Fly Machines, Neon, Upstash, and WorkOS are managed by Molecule AI. For teams that want enterprise controls without ops overhead, SaaS Federation v2 is the answer. Self-hosted is always available as the data-residency fallback.
+
+**"CrewAI Enterprise marketplace is already live — why switch?"**
+CrewAI's marketplace is for consuming curated agents and tools. Molecule AI SaaS + Partner API Keys is for building an agent platform. If you want to offer agent orchestration as a feature in your product — provision tenants, enforce their governance rules, see their execution traces, and bill them — CrewAI doesn't have that. Phase 34 ships the API to build it.
+
+---
+
+## CTA Copy
+
+**For platform/sales conversations:**
+> "Molecule AI SaaS: multi-tenant agent platform with org-level isolation, WorkOS SSO, Stripe billing, and Partner API Key provisioning. Sign up at moleculesai.app or talk to us about building your agent platform."
+
+**For platform builder / reseller conversations:**
+> "Phase 34 ships Partner API Keys. Combined with SaaS Federation v2, that's the full stack: provision tenants via API, enforce their governance via Platform Instructions, monitor their execution via Tool Trace, and bill them via Stripe. No other agent platform gives you this."
+
+**For DevOps / enterprise IT conversations:**
+> "Enterprise SSO (WorkOS), org-level audit trails, per-workspace isolation, and self-hosted fallback. All without managing the infrastructure yourself."
 
 ---
 

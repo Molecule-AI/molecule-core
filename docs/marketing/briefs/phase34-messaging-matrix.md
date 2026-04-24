@@ -44,7 +44,7 @@
 | **Who cares** | Platform integrations engineers, DevRel leads building partner ecosystems, CI/CD DevOps teams, marketplace listing owners (AWS/GCP Marketplace) |
 | **One-liner** | Programmatic org provisioning via API — no browser required, no manual handoff. |
 | **Proof point** | `POST /cp/admin/partner-keys` creates a fully configured org with one API call. Keys are scoped to the org they create, rate-limited, revocable with `DELETE /cp/admin/partner-keys/:id`. Ephemeral CI test orgs: `POST` → run tests → `DELETE` → clean billing. |
-| **HN/Reddit framing** | "Molecule AI now lets partners provision orgs via API — the same week Acme Corp [design partner, placeholder] ships their integration." Do NOT claim GA. Use "beta" or "now available." |
+| **HN/Reddit framing** | Lead with the developer experience: "Molecule AI now lets platform builders provision orgs via API." GA April 30 — use "generally available" or "shipping today." Do not mention any design partner name. |
 | **What to soft-pedal** | Specific partner tiers and pricing (PM not confirmed). Marketplace billing integration status (PM to confirm). Do not mention "Acme Corp" in published copy. |
 
 ---
@@ -57,7 +57,7 @@
 | **Who cares** | Platform engineers, DevOps leads, SREs, enterprise IT debugging production incidents |
 | **One-liner** | Built-in execution tracing for every A2A task — no SDK, no sidecar, no sampling. |
 | **Proof point** | `tool_trace[]` in every `Message.metadata` — array of `{tool, input, output_preview, run_id}` entries. Entries written to `activity_logs.tool_trace` as JSONB. run_id pairs concurrent calls so parallel traces don't merge. Platform-native: ships with the A2A response, no instrumentation required. |
-| **HN/Reddit framing** | Lead with the developer experience: "Tool Trace ships today in Molecule AI. Every agent turn now includes a structured record of every tool called — inputs, output previews, run_id-paired for parallel calls." Be honest: this is a beta feature. |
+| **HN/Reddit framing** | Lead with the developer experience: "Tool Trace ships today in Molecule AI. Every agent turn now includes a structured record of every tool called — inputs, output previews, run_id-paired for parallel calls." GA — "shipping today" or "generally available." |
 | **What to soft-pedal** | Technical implementation details (run_id pairing schema, JSONB storage format). Overlap with Langfuse/Helicone — frame as complementary, not competitive. |
 
 ---

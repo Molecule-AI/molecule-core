@@ -1,6 +1,6 @@
 # Phase 34 GA Launch — Social Copy
-**Publish day:** 2026-04-30 (Partner API Keys GA)  
-**Status:** APPROVED — Marketing Lead 2026-04-23  
+**Publish day:** 2026-04-30 (Partner API Keys GA)
+**Status:** APPROVED — GA language confirmed per community FAQ and updated positioning brief (2026-04-23)
 **Issue refs:** #1829 (Tool Trace/Platform Instructions thread already posted Apr 23)
 
 ---
@@ -42,9 +42,8 @@ Phase 34 also shipped this week:
 
 • Tool Trace — execution record in every A2A response
 • Platform Instructions — org-level system prompt via API
-• SaaS Fed v2 — improved multi-org federation
 
-Observability + governance + provisioning. In one stack.
+Observability + governance. In one stack. [⚠️ SaaS Fed v2 — confirm PM before mentioning.]
 ```
 
 **Tweet 5 — CTA**
@@ -61,7 +60,7 @@ Partner program → #partner-program on Discord
 
 ## LinkedIn Post (~250 words)
 
-**Partner API Keys are generally available.**
+**Partner API Keys are generally available today.**
 
 Starting today, any platform, marketplace, or CI/CD pipeline can programmatically create and manage Molecule AI organizations via API — no browser session, no manual setup, no shared credentials.
 
@@ -73,7 +72,7 @@ The core API is straightforward:
 
 This is infrastructure-first agent orchestration. You provision the platform; your customers use it. The model is closer to Stripe's API or Twilio's account provisioning than to a SaaS seat license.
 
-Phase 34 also delivered three companion features this week: **Tool Trace** (full execution record in every A2A response), **Platform Instructions** (org-level system prompt via API), and **SaaS Fed v2** (improved multi-org federation). Together, they give platform builders observability, governance, and provisioning as native platform primitives — not bolt-on integrations.
+Phase 34 also delivered Tool Trace (full execution record in every A2A response) and Platform Instructions (org-level system prompt via API). Together, they give platform builders observability and governance as native platform primitives — not bolt-on integrations. [⚠️ SaaS Fed v2 — confirm with PM before referencing in published copy.]
 
 We believe this makes Molecule AI the first agent platform with a first-class partner provisioning API.
 

@@ -1,50 +1,52 @@
 # Marketing Social Queue — Status Tracker
-**Owner:** PMM | **Last updated:** 2026-04-23
+**Owner:** PMM | **Last updated:** 2026-04-24 mid-cycle
 **Purpose:** Single source of truth for all social copy status across campaigns.
 
 ---
 
 ## Phase 34 GA Launch (April 30, 2026)
 
-### 2026-04-26 — Phase 34 GA: Tool Trace + Platform Instructions ✅ DRAFT (PMM)
+### 2026-04-26 — Phase 34 GA: Tool Trace + Platform Instructions ⚠️ PENDING APPROVAL (T-4)
 - **File:** `2026-04-26-phase34-ga-launch/social-copy.md`
-- **Status:** PMM pre-write complete (commit 5f020914). Awaiting Marketing Lead approval → approved queue.
+- **Status:** PMM pre-write complete. Awaiting Marketing Lead approval. Platform Instructions: confirmed Enterprise plans only (AdminAuth-gated, per plan-gating note). Community FAQ corrected.
 - **Content:** 6-post X thread + LinkedIn post
 - **Owner:** PMM → Social Media Brand
-- **Blocking:** Marketing Lead approval
+- **Blocking:** Marketing Lead approval + X credentials
+- **Canonical:** `docs.molecule.ai/blog/tool-trace-platform-instructions`
+
+### 2026-04-30 — Phase 34 GA: Partner API Keys ✅ APPROVED (Marketing Lead)
+- **File:** `2026-04-30-phase-34-ga-launch/social-copy.md`
+- **Status:** APPROVED by Marketing Lead 2026-04-23. GA language confirmed (community FAQ + updated positioning brief). Ready for Social Media Brand execution.
+- **Content:** 5-post X thread
+- **Owner:** Social Media Brand
+- **Blocking:** X credentials
+- **Canonical:** `docs.molecule.ai/blog/partner-api-keys`
+- **Note:** Issue #1829 — Tool Trace/Platform Instructions thread already posted Apr 23. Partner API Keys thread targets Apr 30 GA date.
 
 ---
 
-## Phase 30 Social Campaign (days 1–5, April 21–25)
+## Phase 30 Social Campaign — Archive (April 21–23, past)
 
-### 2026-04-21 — Chrome DevTools MCP ✅ MERGED (awaiting ML publish)
+### 2026-04-21 — Chrome DevTools MCP 🟡 PAST — posting status unknown
 - **File:** `2026-04-21-chrome-devtools-mcp/social-copy.md`
-- **Status:** Copy complete, organized. Awaiting Marketing Lead publish approval.
-- **Content:** 3 X variants (governance / production use cases / developer) + LinkedIn
+- **Status:** Copy was ready. Whether it was posted is unconfirmed — X credentials missing blocked all Phase 30 publishing.
 - **Owner:** PMM → Social Media Brand
-- **Blocking:** Marketing Lead publish approval + X credentials
-- **Visual assets needed:** 3-item checklist graphic (Lighthouse/Regression/Auth) + fleet diagram (reusable)
 
-### 2026-04-21 — Cloudflare Artifacts ✅ DRAFT (PMM, catch-up)
+### 2026-04-21 — Cloudflare Artifacts 🟡 PAST — posting status unknown
 - **File:** `2026-04-21-cloudflare-artifacts/social-copy.md`
-- **Status:** PMM pre-write complete (commit 56ea6375). Awaiting Marketing Lead approval → approved queue.
-- **Content:** 5-post X thread + LinkedIn + Reddit + HN copy
-- **Blog:** Live 2026-04-21 (`moleculesai.app/blog/cloudflare-artifacts-molecule-ai`)
-- **Angle:** "Git for agents" — pain story first, technology as answer
+- **Status:** PMM pre-write complete. Whether it was posted is unconfirmed.
 - **Owner:** PMM → Social Media Brand
-- **Blocking:** Marketing Lead approval + X credentials
-- **Visual assets needed:** Artifacts repo attach flow screenshot + git commit terminal output
-- **Note:** Blog shipped April 21; social copy delayed, now catching up. Cloudflare Artifacts is in beta — do not claim GA.
 
-### 2026-04-22 — EC2 Instance Connect SSH ✅ APPROVED (PMM positioning)
+### 2026-04-22 — EC2 Instance Connect SSH 🟡 PAST — posting status unknown
 - **File:** `2026-04-22-ec2-instance-connect-ssh/social-copy.md`
-- **Status:** PMM positioning approved (GH #1637). Social Media Brand unblocked for Versions A + D.
-- **Content:** 5-post X thread + LinkedIn
-- **Owner:** PMM → Social Media Brand → DevRel (screenshot)
-- **Blocking:** DevRel terminal screenshot (PR #1545) + Content Marketer blog (#1546) + X credentials
-- **Note:** PR #1686 DevRel demo package (PR #1878) may supersede the original screenshot requirement
+- **Status:** PMM positioning approved (GH #1637). DevRel screenshot + blog still outstanding. Whether posted is unconfirmed.
+- **Owner:** PMM → Social Media Brand → DevRel
 
-### 2026-04-24 — EC2 Console Output ✅ APPROVED (Marketing Lead)
+---
+
+## Phase 30 Social Campaign — Active (April 24–25)
+
+### 2026-04-24 — EC2 Console Output ✅ APPROVED (Marketing Lead) [T-6: publish today]
 - **File:** `2026-04-24-ec2-console-output/social-copy.md`
 - **Status:** Approved by Marketing Lead 2026-04-22. Ready for Social Media Brand execution.
 - **Content:** 4-post X thread + LinkedIn
@@ -52,7 +54,7 @@
 - **Blocking:** X credentials + visual asset (`ec2-console-output-canvas.png`, 1200×800 dark mode)
 - **Campaign position:** Day 4 of Phase 30 social campaign
 
-### 2026-04-25 — Org-Scoped API Keys ✅ APPROVED (Marketing Lead)
+### 2026-04-25 — Org-Scoped API Keys ✅ APPROVED (Marketing Lead) [T-5: publish tomorrow]
 - **File:** `2026-04-25-org-scoped-api-keys/social-copy.md`
 - **Status:** Approved by Marketing Lead 2026-04-21. Ready for Social Media Brand execution.
 - **Content:** 5-post X thread + LinkedIn
@@ -79,13 +81,22 @@
 - **Canonical URL:** `docs.molecule.ai/blog/discord-adapter` (live, PR #1301 merged)
 - **Owner:** Social Media Brand → Marketing Lead (Day 2 approval)
 
+### A2A Enterprise Deep-Dive — Day T+1 ⚠️ ON STAGING ONLY
+- **File:** `docs/marketing/campaigns/a2a-enterprise-deep-dive/social-copy.md` (on staging only, not main)
+- **Status:** COPY READY (PMM-approved, 72h window). Not on origin/main.
+- **Content:** 4-post X thread + LinkedIn
+- **Canonical URL:** `docs.molecule.ai/blog/a2a-v1-agent-platform`
+- **Owner:** PMM → Social Media Brand
+- **Blocking:** X credentials + needs to be cherry-picked to origin/main for execution
+- **Note:** File needs to be on origin/main before Social Media Brand can execute. Executor must confirm staging access, or file must be cherry-picked to main.
+
 ---
 
 ## Held / Pending Decision
 
-### Fly.io Deploy Anywhere — Stale (T+5)
-- **File:** `fly-deploy-anywhere-social-copy.md`
-- **Status:** 5 days stale (blog shipped April 17). PMM selected Option A (retrospective framing).
+### Fly.io Deploy Anywhere — Stale (T+6)
+- **File:** `fly-deploy-anywhere-social-copy.md` (on staging)
+- **Status:** PMM recommendation: Option A (retrospective framing). Decision memo: `fly-deploy-anywhere-decision-memo.md`
 - **Campaign position:** Phase 30 social campaign catch-up
 - **Decision needed:** Marketing Lead confirmation on Option A framing
 - **Blocking:** Marketing Lead decision + X credentials
@@ -128,3 +139,28 @@
 
 *PMM compiled 2026-04-23. Consolidated from multiple inline social-queue files into single status tracker.*
 *Marketing Lead: approve queue items to unblock Social Media Brand for execution once X credentials are restored.*
+
+---
+
+## Battlecards (complete)
+
+| Battlecard | Phase | Status | Pushed |
+|---|---|---|---|
+| Phase 30 Remote Workspaces | 30 | ✅ PMM DRAFT | `marketing/phase-34-launch-prep` (2026-04-23) |
+| Phase 32 SaaS Federation v2 | 32 | ✅ PMM DRAFT | `marketing/phase-34-launch-prep` |
+| Phase 34 Partner API Keys | 34 | ✅ PMM DRAFT | `marketing/phase-34-launch-prep` |
+
+---
+
+## Research Files (complete this cycle)
+
+| File | Status | Blocking |
+|---|---|---|
+| `briefs/saas-fed-v2-what-shipped.md` | ⚠️ NO IMPLEMENTATION FOUND — PM must confirm scope | PM confirmation before battlecard copy |
+| `briefs/partner-api-keys-rate-limits-note.md` | ✅ 60 req/min per mol_pk_* key (default, configurable) | PM confirm Go implementation |
+| `launches/partner-onboarding-guide.md` | ✅ First pass (831 words, 6 sections) | `[PARTNER TIER TBD]` placeholder |
+| `launches/phase-34-community-announcement.md` | ✅ Updated — SaaS Fed v2 section flagged ⚠️ PM REVIEW NEEDED | PM confirm before publish |
+
+---
+
+*PMM compiled 2026-04-23. Updated 2026-04-23 late cycle: research files section added.*

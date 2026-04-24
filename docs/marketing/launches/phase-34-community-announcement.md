@@ -58,11 +58,6 @@ We believe this makes Molecule AI the first agent platform with a first-class pa
 
 ---
 
-### 🌐 SaaS Fed v2 — improved multi-org federation
-Federation for multi-org deployments got a round of improvements in this phase. If you're running federated Molecule AI across multiple orgs, check the changelog for the specifics — the headline is better reliability and cleaner org boundary enforcement.
-
----
-
 ## Quick start
 
 - **Tool Trace**: no config needed — it's in every A2A response today. Check `message.metadata.tool_trace`.
@@ -73,7 +68,7 @@ Federation for multi-org deployments got a round of improvements in this phase. 
 
 ## Try it & tell us what you think
 
-All four features are live now (Partner API Keys GA on April 30). Spin them up and let us know:
+All three features are live now (Partner API Keys arriving April 30). Spin them up and let us know:
 
 - 🐛 Bugs or unexpected behavior → `#bug-reports`
 - 💡 Feature requests → `#feedback`  
