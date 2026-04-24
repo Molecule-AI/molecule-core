@@ -344,6 +344,7 @@ print(json.dumps({
 ")
 A2A_RESP=$(tenant_call POST "/workspaces/$PARENT_ID/a2a" \
   -H "Content-Type: application/json" \
+  -H "X-Workspace-ID: $PARENT_ID" \
   -d "$A2A_PAYLOAD")
 AGENT_TEXT=$(echo "$A2A_RESP" | python3 -c "
 import json, sys
