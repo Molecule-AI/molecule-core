@@ -15,6 +15,11 @@ on:
     types: [opened, synchronize, reopened]
   push:
     branches: [main, staging]
+  # Required for GitHub merge queue: the queue's pre-merge CI run on
+  # `gh-readonly-queue/...` refs needs this check to fire so the queue
+  # gets a real result instead of stalling forever AWAITING_CHECKS.
+  merge_group:
+    types: [checks_requested]
 
 jobs:
   check:
