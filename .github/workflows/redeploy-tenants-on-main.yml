@@ -1,0 +1,164 @@
+name: redeploy-tenants-on-main
+
+# Auto-refresh prod tenant EC2s after every main merge.
+#
+# Why this workflow exists: publish-workspace-server-image builds and
+# pushes a new platform-tenant:latest + :<sha> to GHCR on every merge
+# to main, but running tenants pulled their image once at boot and
+# never re-pull. Users see stale code indefinitely.
+#
+# This workflow closes the gap by calling the control-plane admin
+# endpoint that performs a canary-first, batched, health-gated rolling
+# redeploy across every live tenant. Implemented in Molecule-AI/
+# molecule-controlplane as POST /cp/admin/tenants/redeploy-fleet
+# (feat/tenant-auto-redeploy, landing alongside this workflow).
+#
+# Runtime ordering:
+#   1. publish-workspace-server-image completes → new :latest in GHCR.
+#   2. This workflow fires via workflow_run, waits 30s for GHCR's
+#      CDN to propagate the new tag to the region the tenants pull from.
+#   3. Calls redeploy-fleet with canary_slug=hongmingwang and a 60s
+#      soak. Canary proves the image boots; batches follow.
+#   4. Any failure aborts the rollout and leaves older tenants on the
+#      prior image — safer default than half-and-half state.
+#
+# Rollback path: re-run this workflow with a specific SHA pinned via
+# the workflow_dispatch input. That calls redeploy-fleet with
+# target_tag=<sha>, re-pulling the older image on every tenant.
+
+on:
+  workflow_run:
+    workflows: ['publish-workspace-server-image']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target_tag:
+        description: 'Tenant image tag to deploy (e.g. "latest" or "a59f1a6c"). Defaults to latest when empty.'
+        required: false
+        type: string
+        default: 'latest'
+      canary_slug:
+        description: 'Tenant slug to deploy first + soak (empty = skip canary, fan out immediately).'
+        required: false
+        type: string
+        default: 'hongmingwang'
+      soak_seconds:
+        description: 'Seconds to wait after canary before fanning out.'
+        required: false
+        type: string
+        default: '60'
+      batch_size:
+        description: 'How many tenants SSM redeploys in parallel per batch.'
+        required: false
+        type: string
+        default: '3'
+      dry_run:
+        description: 'Plan only — do not actually redeploy.'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  # No write scopes needed — the workflow hits an external CP endpoint,
+  # not the GitHub API.
+
+jobs:
+  redeploy:
+    # Skip the auto-trigger if publish-workspace-server-image didn't
+    # actually succeed. workflow_run fires on any completion state; we
+    # don't want to redeploy against a half-built image.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Wait for GHCR tag propagation
+        # GHCR's edge cache takes ~15-30s to consistently serve the new
+        # :latest manifest after the registry accepts the push. Without
+        # this sleep, the first tenant's docker pull sometimes races
+        # and fetches the previous digest; sleeping is the cheapest
+        # way to reduce that without polling GHCR for the new digest.
+        run: sleep 30
+
+      - name: Call CP redeploy-fleet
+        # CP_ADMIN_API_TOKEN must be set as a repo/org secret on
+        # Molecule-AI/molecule-core, matching the staging/prod CP's
+        # CP_ADMIN_API_TOKEN env. Stored in Railway, mirrored to this
+        # repo's secrets for CI.
+        env:
+          CP_URL: ${{ vars.CP_URL || 'https://api.moleculesai.app' }}
+          CP_ADMIN_API_TOKEN: ${{ secrets.CP_ADMIN_API_TOKEN }}
+          TARGET_TAG: ${{ inputs.target_tag || 'latest' }}
+          CANARY_SLUG: ${{ inputs.canary_slug || 'hongmingwang' }}
+          SOAK_SECONDS: ${{ inputs.soak_seconds || '60' }}
+          BATCH_SIZE: ${{ inputs.batch_size || '3' }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CP_ADMIN_API_TOKEN:-}" ]; then
+            echo "::error::CP_ADMIN_API_TOKEN secret not set — skipping redeploy"
+            echo "::notice::Set CP_ADMIN_API_TOKEN in repo secrets to enable auto-redeploy."
+            exit 1
+          fi
+
+          BODY=$(jq -nc \
+            --arg tag "$TARGET_TAG" \
+            --arg canary "$CANARY_SLUG" \
+            --argjson soak "$SOAK_SECONDS" \
+            --argjson batch "$BATCH_SIZE" \
+            --argjson dry "$DRY_RUN" \
+            '{
+              target_tag: $tag,
+              canary_slug: $canary,
+              soak_seconds: $soak,
+              batch_size: $batch,
+              dry_run: $dry
+            }')
+
+          echo "POST $CP_URL/cp/admin/tenants/redeploy-fleet"
+          echo "  body: $BODY"
+
+          HTTP_RESPONSE=$(mktemp)
+          HTTP_CODE=$(curl -sS -o "$HTTP_RESPONSE" -w '%{http_code}' \
+            -m 1200 \
+            -H "Authorization: Bearer $CP_ADMIN_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -X POST "$CP_URL/cp/admin/tenants/redeploy-fleet" \
+            -d "$BODY" || echo "000")
+
+          echo "HTTP $HTTP_CODE"
+          cat "$HTTP_RESPONSE" | jq . || cat "$HTTP_RESPONSE"
+
+          # Pretty-print per-tenant results in the job summary so
+          # ops can see which tenants were redeployed without drilling
+          # into the raw response.
+          {
+            echo "## Tenant redeploy fleet"
+            echo ""
+            echo "**Target tag:** \`$TARGET_TAG\`"
+            echo "**Canary:** \`$CANARY_SLUG\` (soak ${SOAK_SECONDS}s)"
+            echo "**Batch size:** $BATCH_SIZE"
+            echo "**Dry run:** $DRY_RUN"
+            echo "**HTTP:** $HTTP_CODE"
+            echo ""
+            echo "### Per-tenant result"
+            echo ""
+            echo '| Slug | Phase | SSM Status | Exit | Healthz | Error |'
+            echo '|------|-------|------------|------|---------|-------|'
+            jq -r '.results[]? | "| \(.slug) | \(.phase) | \(.ssm_status // "-") | \(.ssm_exit_code) | \(.healthz_ok) | \(.error // "-") |"' "$HTTP_RESPONSE" || true
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::redeploy-fleet returned HTTP $HTTP_CODE"
+            exit 1
+          fi
+          OK=$(jq -r '.ok' "$HTTP_RESPONSE")
+          if [ "$OK" != "true" ]; then
+            echo "::error::redeploy-fleet reported ok=false (see summary for which tenant halted the rollout)"
+            exit 1
+          fi
+          echo "::notice::Tenant fleet redeploy complete."
