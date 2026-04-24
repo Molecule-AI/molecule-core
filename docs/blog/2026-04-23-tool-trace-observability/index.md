@@ -9,6 +9,7 @@ tags: [observability, tool-trace, debugging, devops, platform-engineering, a2a, 
 og_image: /assets/blog/2026-04-23-tool-trace-observability/og.png
 keywords: [AI agent observability, tool trace debugging, Claude agent debugging, agent audit trail, parallel tool call trace, run_id pairing, AI agent monitoring, DevOps agent observability]
 canonical: https://docs.molecule.ai/blog/ai-agent-observability-without-overhead
+og_image: ""
 ---
 
 <script type="application/ld+json">
@@ -107,6 +108,7 @@ Combined with the [org-scoped API key audit trail](/docs/blog/2026-04-21-org-sco
 - Query `activity_logs.tool_trace` JSONB for historical traces
 - Combine with org API key attribution for complete fleet observability
 - Read the [A2A protocol documentation](/docs/api-protocol/a2a-protocol.md)
+- Govern agent behavior with [Platform Instructions — system-prompt level policy](/blog/govern-ai-fleet-system-prompt-level/)
 
 ---
 
