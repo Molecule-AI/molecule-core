@@ -5,6 +5,55 @@ import type { WorkspaceNodeData } from "./canvas";
 const H_SPACING = 320;
 const V_SPACING = 200;
 
+// Default card footprint we use when we don't yet have a measured size
+// (first render, before React Flow reports dimensions). These match the
+// min-width / min-height that WorkspaceNode.tsx sets, so a parent built
+// from them will never start too small for its children on first paint.
+export const CHILD_DEFAULT_WIDTH = 260;
+export const CHILD_DEFAULT_HEIGHT = 140;
+export const PARENT_HEADER_PADDING = 60; // room for the parent's own header
+export const PARENT_SIDE_PADDING = 20;
+export const PARENT_BOTTOM_PADDING = 20;
+export const CHILD_GUTTER = 20;
+
+/**
+ * A deterministic grid slot for the n-th child inside a parent, counted
+ * left-to-right then top-to-bottom. Used to lay out org-imported teams
+ * and to rescue children whose stored position puts them outside the
+ * parent's bounding box. 2-column grid is wide enough to read but
+ * narrow enough to keep the parent card from becoming a widescreen.
+ */
+export function defaultChildSlot(index: number): { x: number; y: number } {
+  const col = index % 2;
+  const row = Math.floor(index / 2);
+  const x = PARENT_SIDE_PADDING + col * (CHILD_DEFAULT_WIDTH + CHILD_GUTTER);
+  const y =
+    PARENT_HEADER_PADDING + row * (CHILD_DEFAULT_HEIGHT + CHILD_GUTTER);
+  return { x, y };
+}
+
+/**
+ * Minimum parent size that still fits `childCount` children laid out via
+ * defaultChildSlot. Never shrinks below the leaf-card min.
+ */
+export function parentMinSize(childCount: number): { width: number; height: number } {
+  if (childCount <= 0) {
+    return { width: 210, height: 120 };
+  }
+  const cols = Math.min(2, childCount);
+  const rows = Math.ceil(childCount / 2);
+  const width =
+    PARENT_SIDE_PADDING * 2 +
+    cols * CHILD_DEFAULT_WIDTH +
+    (cols - 1) * CHILD_GUTTER;
+  const height =
+    PARENT_HEADER_PADDING +
+    rows * CHILD_DEFAULT_HEIGHT +
+    (rows - 1) * CHILD_GUTTER +
+    PARENT_BOTTOM_PADDING;
+  return { width, height };
+}
+
 /**
  * Computes auto-layout positions for workspaces that have no persisted position
  * (x === 0 AND y === 0). Workspaces with an existing non-zero position are used
@@ -148,6 +197,29 @@ export function buildNodesAndEdges(
     absPos.set(ws.id, { x: o?.x ?? ws.x, y: o?.y ?? ws.y });
   }
 
+  // Count children per parent so we can size parents to fit their team
+  // before any runtime measurement comes back.
+  const childCounts = new Map<string, number>();
+  for (const ws of workspaces) {
+    if (ws.parent_id) {
+      childCounts.set(ws.parent_id, (childCounts.get(ws.parent_id) ?? 0) + 1);
+    }
+  }
+
+  // Track each parent's initial size so we can reset children that land
+  // outside those bounds. Parents without children fall back to the leaf
+  // default; parents with children get the grid-derived minimum.
+  const parentSize = new Map<string, { width: number; height: number }>();
+  for (const ws of workspaces) {
+    const n = childCounts.get(ws.id) ?? 0;
+    parentSize.set(ws.id, n > 0 ? parentMinSize(n) : { width: 260, height: 140 });
+  }
+
+  // Running index of children already placed per parent — used to hand
+  // out default grid slots for children whose stored position is outside
+  // the parent's computed box.
+  const nextChildIndex = new Map<string, number>();
+
   const nodes: Node<WorkspaceNodeData>[] = sorted.map((ws) => {
     const abs = absPos.get(ws.id)!;
     const hasParent = !!ws.parent_id && byId.has(ws.parent_id);
@@ -155,6 +227,24 @@ export function buildNodesAndEdges(
     if (hasParent) {
       const pa = absPos.get(ws.parent_id!)!;
       position = { x: abs.x - pa.x, y: abs.y - pa.y };
+
+      // If the stored relative position falls outside the parent's
+      // current bounds (or landed at exactly the origin before any
+      // layout pass), assign a deterministic grid slot instead. This
+      // rescues org-imported children that ended up at (0,0) and
+      // legacy rows whose absolute coords were far from the parent.
+      const psize = parentSize.get(ws.parent_id!)!;
+      const outside =
+        position.x < 0 ||
+        position.y < 0 ||
+        position.x + CHILD_DEFAULT_WIDTH > psize.width ||
+        position.y + CHILD_DEFAULT_HEIGHT > psize.height;
+      const atOrigin = position.x === -abs.x + abs.x && abs.x === 0 && abs.y === 0;
+      if (outside || atOrigin) {
+        const idx = nextChildIndex.get(ws.parent_id!) ?? 0;
+        nextChildIndex.set(ws.parent_id!, idx + 1);
+        position = defaultChildSlot(idx);
+      }
     }
     const node: Node<WorkspaceNodeData> = {
       id: ws.id,
@@ -185,6 +275,16 @@ export function buildNodesAndEdges(
       // the user can drag a child out to un-nest (handled in Canvas.tsx
       // onNodeDragStop with a bbox hit test).
       node.parentId = ws.parent_id!;
+    }
+    // Give parents a measured-ish starting size so NodeResizer has a
+    // baseline and child positions have somewhere to live. Without this,
+    // parents start at React Flow's default min size (well under a
+    // single child) and children render visually outside their parent
+    // until the next resize measurement settles.
+    if ((childCounts.get(ws.id) ?? 0) > 0) {
+      const size = parentSize.get(ws.id)!;
+      node.width = size.width;
+      node.height = size.height;
     }
     return node;
   });
