@@ -76,7 +76,7 @@ function CanvasInner() {
   const nestNode = useCanvasStore((s) => s.nestNode);
   const isDescendant = useCanvasStore((s) => s.isDescendant);
   const dragStartParentRef = useRef<string | null>(null);
-  const { getIntersectingNodes } = useReactFlow();
+  const { getInternalNode } = useReactFlow();
 
   const onNodeDragStart: OnNodeDrag<Node<WorkspaceNodeData>> = useCallback(
     (_event, node) => {
@@ -85,35 +85,48 @@ function CanvasInner() {
     []
   );
 
+  // Absolute-bounds hit test: find the deepest workspace whose measured
+  // bounding box contains `point`, excluding the dragged node itself and
+  // its descendants. Works regardless of nesting depth because React Flow
+  // exposes each node's absolute position + measured size on the internal
+  // node record. "Deepest" wins so dropping a card onto a grand-child lands
+  // there rather than on the outermost ancestor.
+  const findDropTarget = useCallback(
+    (draggedId: string, point: { x: number; y: number }): string | null => {
+      const all = useCanvasStore.getState().nodes;
+      let best: { id: string; area: number } | null = null;
+      for (const n of all) {
+        if (n.id === draggedId || isDescendant(draggedId, n.id)) continue;
+        const internal = getInternalNode(n.id);
+        if (!internal) continue;
+        const abs = internal.internals.positionAbsolute;
+        const w = internal.measured?.width ?? n.width ?? 220;
+        const h = internal.measured?.height ?? n.height ?? 120;
+        if (point.x < abs.x || point.x > abs.x + w) continue;
+        if (point.y < abs.y || point.y > abs.y + h) continue;
+        const area = w * h;
+        // Smaller area = deeper/more specific match wins.
+        if (!best || area < best.area) best = { id: n.id, area };
+      }
+      return best?.id ?? null;
+    },
+    [getInternalNode, isDescendant]
+  );
+
   const onNodeDrag: OnNodeDrag<Node<WorkspaceNodeData>> = useCallback(
     (_event, node) => {
-      // Only consider nodes within a proximity threshold as nest targets.
-      // Without this check, getIntersectingNodes returns any node whose bounding
-      // boxes overlap — which can be hundreds of pixels away on a sparse canvas,
-      // causing accidental nesting when the user drags a node across the board.
-      const thresholdPx = 100;
-      const threshold = thresholdPx * thresholdPx; // compare squared distances
-      let nearest: { id: string; dist: number } | null = null;
-      for (const candidate of getIntersectingNodes(node)) {
-        if (candidate.id === node.id || isDescendant(node.id, candidate.id)) continue;
-        // Skip nodes already nested inside another workspace: they render
-        // as TEAM MEMBERS rows inside their parent card and share its
-        // bounding box, so getIntersectingNodes would otherwise pick the
-        // nested child (same "Hermes Agent" name) over the visible parent
-        // the user actually dropped onto. Hidden nodes + nodes with a
-        // parentId are never valid top-level drop targets.
-        const candData = candidate.data as WorkspaceNodeData | undefined;
-        if (candidate.hidden || candData?.parentId) continue;
-        const dx = candidate.position.x - node.position.x;
-        const dy = candidate.position.y - node.position.y;
-        const dist2 = dx * dx + dy * dy;
-        if (dist2 <= threshold && (!nearest || dist2 < nearest.dist)) {
-          nearest = { id: candidate.id, dist: dist2 };
-        }
+      const internal = getInternalNode(node.id);
+      if (!internal) {
+        setDragOverNode(null);
+        return;
       }
-      setDragOverNode(nearest?.id ?? null);
+      const abs = internal.internals.positionAbsolute;
+      const w = internal.measured?.width ?? 220;
+      const h = internal.measured?.height ?? 120;
+      const center = { x: abs.x + w / 2, y: abs.y + h / 2 };
+      setDragOverNode(findDropTarget(node.id, center));
     },
-    [getIntersectingNodes, isDescendant, setDragOverNode]
+    [findDropTarget, getInternalNode, setDragOverNode]
   );
 
   // Confirmation dialog state for structure changes
@@ -149,23 +162,30 @@ function CanvasInner() {
       setDragOverNode(null);
 
       const nodeName = (node.data as WorkspaceNodeData).name;
+      const currentParentId = (node.data as WorkspaceNodeData).parentId;
 
-      if (dragOverNodeId) {
+      // The drag-stop offers three possible intents:
+      //   1. Drop inside a different parent  → nest into that parent.
+      //   2. Drop onto empty canvas while I was nested → un-nest.
+      //   3. Drop inside my current parent (or no parent)  → just a move.
+      if (dragOverNodeId && dragOverNodeId !== currentParentId) {
         const targetNode = allNodes.find((n) => n.id === dragOverNodeId);
         const targetName = targetNode?.data.name || "Unknown";
         setPendingNest({ nodeId: node.id, targetId: dragOverNodeId, nodeName, targetName });
-      } else {
-        const currentParentId = (node.data as WorkspaceNodeData).parentId;
-        if (currentParentId) {
-          const parentNode = allNodes.find((n) => n.id === currentParentId);
-          const parentName = parentNode?.data.name || "Unknown";
-          setPendingNest({ nodeId: node.id, targetId: null, nodeName, targetName: parentName });
-        }
+      } else if (!dragOverNodeId && currentParentId) {
+        const parentNode = allNodes.find((n) => n.id === currentParentId);
+        const parentName = parentNode?.data.name || "Unknown";
+        setPendingNest({ nodeId: node.id, targetId: null, nodeName, targetName: parentName });
       }
 
-      savePosition(node.id, node.position.x, node.position.y);
+      // savePosition expects ABSOLUTE coords. When node is a child, its
+      // `position` is relative to its parent, so translate through the
+      // measured absolute position React Flow tracks.
+      const internal = getInternalNode(node.id);
+      const abs = internal?.internals.positionAbsolute ?? node.position;
+      savePosition(node.id, abs.x, abs.y);
     },
-    [savePosition, setDragOverNode]
+    [getInternalNode, savePosition, setDragOverNode]
   );
 
   const confirmNest = useCallback(() => {

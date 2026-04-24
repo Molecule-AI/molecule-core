@@ -174,7 +174,7 @@ export function handleCanvasEvent(
             n.data.parentId === msg.workspace_id
               ? {
                   ...n,
-                  hidden: !!parentOfRemoved,
+                  parentId: parentOfRemoved ?? undefined,
                   data: { ...n.data, parentId: parentOfRemoved },
                 }
               : n

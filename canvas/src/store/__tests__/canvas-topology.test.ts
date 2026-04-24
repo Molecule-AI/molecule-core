@@ -110,7 +110,10 @@ describe("buildNodesAndEdges – parent + child workspaces", () => {
     expect(edges).toHaveLength(0);
   });
 
-  it("marks parent as visible and child as hidden", () => {
+  it("binds child to parent via React Flow's native parentId", () => {
+    // Children are first-class nodes now (rendered as full cards inside
+    // their parent via RF's parentId). No `hidden` flag anymore — the
+    // nesting is visual, not hide-and-show.
     const { nodes } = buildNodesAndEdges([
       makeWS({ id: "parent" }),
       makeWS({ id: "child", parent_id: "parent" }),
@@ -120,7 +123,9 @@ describe("buildNodesAndEdges – parent + child workspaces", () => {
     const child = nodes.find((n) => n.id === "child")!;
 
     expect(parent.hidden).toBeFalsy();
-    expect(child.hidden).toBe(true);
+    expect(child.hidden).toBeFalsy();
+    expect(parent.parentId).toBeUndefined();
+    expect(child.parentId).toBe("parent");
   });
 
   it("stores parent_id in child node data as parentId", () => {
@@ -157,9 +162,9 @@ describe("buildNodesAndEdges – deeply nested hierarchy", () => {
     expect(nodes).toHaveLength(3);
     expect(edges).toHaveLength(0);
 
-    expect(nodes.find((n) => n.id === "root")!.hidden).toBeFalsy();
-    expect(nodes.find((n) => n.id === "mid")!.hidden).toBe(true);
-    expect(nodes.find((n) => n.id === "leaf")!.hidden).toBe(true);
+    expect(nodes.find((n) => n.id === "root")!.parentId).toBeUndefined();
+    expect(nodes.find((n) => n.id === "mid")!.parentId).toBe("root");
+    expect(nodes.find((n) => n.id === "leaf")!.parentId).toBe("mid");
 
     expect(nodes.find((n) => n.id === "mid")!.data.parentId).toBe("root");
     expect(nodes.find((n) => n.id === "leaf")!.data.parentId).toBe("mid");
@@ -175,9 +180,9 @@ describe("buildNodesAndEdges – deeply nested hierarchy", () => {
     const { nodes } = buildNodesAndEdges(workspaces);
 
     expect(nodes).toHaveLength(3);
-    expect(nodes.find((n) => n.id === "root-a")!.hidden).toBeFalsy();
-    expect(nodes.find((n) => n.id === "root-b")!.hidden).toBeFalsy();
-    expect(nodes.find((n) => n.id === "child-a")!.hidden).toBe(true);
+    expect(nodes.find((n) => n.id === "root-a")!.parentId).toBeUndefined();
+    expect(nodes.find((n) => n.id === "root-b")!.parentId).toBeUndefined();
+    expect(nodes.find((n) => n.id === "child-a")!.parentId).toBe("root-a");
   });
 });
 

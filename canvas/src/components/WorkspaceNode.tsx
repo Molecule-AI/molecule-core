@@ -1,31 +1,25 @@
 "use client";
 
-import { useCallback, useMemo, useRef } from "react";
-import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
+import { useCallback } from "react";
+import { Handle, NodeResizer, Position, type NodeProps, type Node } from "@xyflow/react";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { showToast } from "@/components/Toaster";
 import { Tooltip } from "@/components/Tooltip";
 import { STATUS_CONFIG, TIER_CONFIG } from "@/lib/design-tokens";
-import { useShallow } from "zustand/react/shallow";
 
-/** Stable selector: returns children, grandchild flag, and descendant count for a node */
-function useHierarchyInfo(parentId: string) {
-  const childIds = useCanvasStore(
-    useCallback((s) => s.nodes.filter((n) => n.data.parentId === parentId).map((n) => n.id).join(","), [parentId])
+/** Descendant count for the "N sub" badge — children are first-class nodes
+ *  rendered as full cards inside this one via React Flow's native parentId,
+ *  so we don't need to subscribe to the actual child list here. */
+function useDescendantCount(nodeId: string): number {
+  return useCanvasStore(
+    useCallback((s) => countDescendants(nodeId, s.nodes), [nodeId])
   );
-  const children = useCanvasStore(
-    useShallow((s) => s.nodes.filter((n) => n.data.parentId === parentId))
+}
+
+function useHasChildren(nodeId: string): boolean {
+  return useCanvasStore(
+    useCallback((s) => s.nodes.some((n) => n.data.parentId === nodeId), [nodeId])
   );
-  const hasGrandchildren = useCanvasStore(
-    useCallback((s) => {
-      const ids = childIds.split(",").filter(Boolean);
-      return ids.length > 0 && ids.some((cid) => s.nodes.some((n) => n.data.parentId === cid));
-    }, [childIds])
-  );
-  const descendantCount = useCanvasStore(
-    useCallback((s) => countDescendants(parentId, s.nodes), [parentId])
-  );
-  return { children, hasGrandchildren, descendantCount };
 }
 
 /** Eject/extract arrow icon — visually distinct from delete ✕ */
@@ -52,18 +46,26 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
   const toggleNodeSelection = useCanvasStore((s) => s.toggleNodeSelection);
   const isOnline = data.status === "online";
 
-  // Get children + hierarchy info (single stable selector avoids redundant re-renders)
-  const { children, hasGrandchildren, descendantCount } = useHierarchyInfo(id);
-  const hasChildren = children.length > 0;
+  // Children are first-class RF nodes now (rendered inside this one via
+  // React Flow's native parentId). We only need the count for the badge
+  // and a boolean so parent cards default to a larger size.
+  const hasChildren = useHasChildren(id);
+  const descendantCount = useDescendantCount(id);
 
   const skills = getSkillNames(data.agentCard);
 
-  const handleExtract = useCallback(
-    (childId: string) => nestNode(childId, null),
-    [nestNode]
-  );
-
   return (
+    <>
+      {/* NodeResizer — visible only on the selected card. Lets the user
+       *  drag any edge/corner to grow or shrink the workspace, which is
+       *  useful on cards that contain nested child workspaces. */}
+      <NodeResizer
+        isVisible={isSelected}
+        minWidth={hasChildren ? 360 : 210}
+        minHeight={hasChildren ? 200 : 110}
+        lineClassName="!border-blue-500/40"
+        handleClassName="!w-2 !h-2 !bg-blue-500 !border !border-blue-300"
+      />
     <div
       role="button"
       tabIndex={0}
@@ -108,8 +110,8 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
         }
       }}
       className={`
-        group relative rounded-xl
-        ${hasGrandchildren ? "min-w-[720px] max-w-[960px]" : hasChildren ? "min-w-[320px] max-w-[450px]" : "min-w-[210px] max-w-[280px]"}
+        group relative rounded-xl h-full w-full
+        ${hasChildren ? "min-w-[360px] min-h-[200px]" : "min-w-[210px]"}
         cursor-pointer overflow-hidden
         transition-all duration-200 ease-out
         ${isDragTarget
@@ -214,10 +216,9 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
           </div>
         )}
 
-        {/* Embedded children — rendered INSIDE the parent node */}
-        {hasChildren && (
-          <EmbeddedTeam members={children} depth={0} onSelect={selectNode} onExtract={handleExtract} />
-        )}
+        {/* Children render as first-class React Flow nodes inside this
+         *  card (parentId binding). No embedded TEAM MEMBERS list here —
+         *  just keep visual breathing room via the min-height above. */}
 
         {/* Current task */}
         {data.currentTask && (
@@ -283,10 +284,9 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
         className="!w-2.5 !h-1 !rounded-full !bg-zinc-600/80 !border-0 !-bottom-0.5 hover:!bg-blue-400 hover:!h-1.5 transition-all"
       />
     </div>
+    </>
   );
 }
-
-const MAX_NESTING_DEPTH = 3;
 
 /** Count all descendants (children + grandchildren + ...) */
 function countDescendants(nodeId: string, allNodes: Node<WorkspaceNodeData>[], visited = new Set<string>()): number {
@@ -300,192 +300,6 @@ function countDescendants(nodeId: string, allNodes: Node<WorkspaceNodeData>[], v
   return count;
 }
 
-/** Subscribes to allNodes only when children exist — isolates re-renders from parent */
-function EmbeddedTeam({ members, depth, onSelect, onExtract }: {
-  members: Node<WorkspaceNodeData>[];
-  depth: number;
-  onSelect: (id: string) => void;
-  onExtract: (id: string) => void;
-}) {
-  const allNodes = useCanvasStore((s) => s.nodes);
-  // Use grid layout at depth 0 when there are multiple members (departments side-by-side)
-  const useGrid = depth === 0 && members.length >= 2;
-  return (
-    <div className="mt-2 pt-2 border-t border-zinc-700/30">
-      <div className="text-[10px] text-zinc-500 uppercase tracking-widest mb-1.5">Team Members</div>
-      <div className={useGrid
-        ? "grid grid-cols-2 gap-1.5 lg:grid-cols-3"
-        : "space-y-1.5"
-      }>
-        {members.map((child) => (
-          <TeamMemberChip key={child.id} node={child} allNodes={allNodes} depth={depth} onSelect={onSelect} onExtract={onExtract} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/** Recursive mini-card — mirrors parent card layout at smaller scale */
-function TeamMemberChip({
-  node,
-  allNodes,
-  depth,
-  onSelect,
-  onExtract,
-}: {
-  node: Node<WorkspaceNodeData>;
-  allNodes: Node<WorkspaceNodeData>[];
-  depth: number;
-  onSelect: (id: string) => void;
-  onExtract: (id: string) => void;
-}) {
-  const { data } = node;
-  const statusCfg = STATUS_CONFIG[data.status] || STATUS_CONFIG.offline;
-  const tierCfg = TIER_CONFIG[data.tier] || { label: `T${data.tier}`, color: "text-zinc-500 bg-zinc-800" };
-  const isOnline = data.status === "online";
-  const skills = getSkillNames(data.agentCard);
-
-  const subChildren = useMemo(
-    () => allNodes.filter((n) => n.data.parentId === node.id),
-    [allNodes, node.id]
-  );
-  const hasSubChildren = subChildren.length > 0;
-  const descendantCount = useMemo(
-    () => hasSubChildren ? countDescendants(node.id, allNodes) : 0,
-    [allNodes, node.id, hasSubChildren]
-  );
-
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-label={`Select ${data.name}`}
-      className="group/child relative rounded-lg bg-zinc-800/60 hover:bg-zinc-700/70 border border-zinc-700/30 hover:border-zinc-600/40 overflow-hidden transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
-      onClick={(e) => {
-        e.stopPropagation();
-        onSelect(node.id);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          e.stopPropagation();
-          onSelect(node.id);
-        }
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        useCanvasStore.getState().openContextMenu({ x: e.clientX, y: e.clientY, nodeId: node.id, nodeData: data });
-      }}
-    >
-      {/* Status gradient bar */}
-      <div className={`absolute inset-x-0 top-0 h-5 bg-gradient-to-b ${statusCfg.bar} pointer-events-none`} />
-
-      <div className="relative px-2 py-1.5">
-        {/* Header: name + badges + extract */}
-        <div className="flex items-center justify-between gap-1 mb-0.5">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusCfg.dot}`} />
-            <span className="text-[10px] font-semibold text-zinc-200 truncate leading-tight">
-              {data.name}
-            </span>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            {hasSubChildren && (
-              <span className="text-[7px] font-mono text-violet-300 bg-violet-900/40 border border-violet-700/30 px-1 py-0.5 rounded">
-                {descendantCount}
-              </span>
-            )}
-            <span className={`text-[7px] font-mono px-1 py-0.5 rounded ${tierCfg.color}`}>
-              {tierCfg.label}
-            </span>
-            <button
-              aria-label={`Extract ${data.name} from team`}
-              title={`Extract ${data.name} from team`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onExtract(node.id);
-              }}
-              className="opacity-0 group-hover/child:opacity-100 text-zinc-500 hover:text-sky-400 transition-all focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none rounded"
-            >
-              <EjectIcon aria-hidden="true" />
-            </button>
-          </div>
-        </div>
-
-        {/* Role */}
-        {data.role && (
-          <div className="text-[10px] text-zinc-500 mb-1 leading-tight truncate">{data.role}</div>
-        )}
-
-        {/* Skills */}
-        {skills.length > 0 && (
-          <div className="flex flex-wrap gap-0.5 mb-1">
-            {skills.slice(0, 3).map((skill) => (
-              <span
-                key={skill}
-                className={`text-[10px] px-1 py-0.5 rounded border ${
-                  isOnline
-                    ? "text-emerald-300/70 bg-emerald-950/20 border-emerald-800/20"
-                    : "text-zinc-500 bg-zinc-800/40 border-zinc-700/30"
-                }`}
-              >
-                {skill}
-              </span>
-            ))}
-            {skills.length > 3 && (
-              <span className="text-[10px] text-zinc-400 self-center">+{skills.length - 3}</span>
-            )}
-          </div>
-        )}
-
-        {/* Status + active tasks row */}
-        <div className="flex items-center justify-between">
-          {data.status !== "online" ? (
-            <span className={`text-[10px] uppercase tracking-widest font-medium ${
-              data.status === "failed" ? "text-red-400" :
-              data.status === "degraded" ? "text-amber-300" :
-              data.status === "provisioning" ? "text-sky-400" :
-              "text-zinc-500"
-            }`}>
-              {statusCfg.label}
-            </span>
-          ) : <div />}
-          {data.activeTasks > 0 && (
-            <div className="flex items-center gap-0.5">
-              <div className="w-1 h-1 rounded-full bg-amber-400 motion-safe:animate-pulse" />
-              <span className="text-[10px] text-amber-300 tabular-nums">
-                {data.activeTasks}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Current task banner for sub-agents */}
-        {data.currentTask && (
-          <Tooltip text={String(data.currentTask)}>
-            <div className="flex items-center gap-1 mt-0.5 px-1.5 py-0.5 bg-amber-950/20 rounded border border-amber-800/20 cursor-default">
-              <div className="w-1 h-1 rounded-full bg-amber-400 motion-safe:animate-pulse shrink-0" />
-              <span className="text-[10px] text-amber-300 truncate">{data.currentTask}</span>
-            </div>
-          </Tooltip>
-        )}
-
-        {/* Recursive sub-children rendered inside this card */}
-        {hasSubChildren && depth < MAX_NESTING_DEPTH && (
-          <div className="mt-1.5 pt-1.5 border-t border-zinc-700/20">
-            <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-1">Team</div>
-            <div className={subChildren.length >= 2 ? "grid grid-cols-2 gap-1" : "space-y-1"}>
-              {subChildren.map((sub) => (
-                <TeamMemberChip key={sub.id} node={sub} allNodes={allNodes} depth={depth + 1} onSelect={onSelect} onExtract={onExtract} />
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function getSkillNames(agentCard: Record<string, unknown> | null): string[] {
   if (!agentCard) return [];
