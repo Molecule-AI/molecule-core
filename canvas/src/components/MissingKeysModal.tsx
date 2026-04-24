@@ -404,12 +404,6 @@ function AllKeysModal({
 
   useEffect(() => {
     if (!open) return;
-    const raf = requestAnimationFrame(() => firstInputRef.current?.focus());
-    return () => cancelAnimationFrame(raf);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onCancel();
     };
