@@ -277,20 +277,48 @@ else
 fi
 
 # ─── 7. Wait for workspace(s) online ───────────────────────────────────
-log "7/11 Waiting for workspace(s) to reach status=online..."
-WS_DEADLINE=$(( $(date +%s) + 600 ))
+# Hermes cold-boot takes 10-13 min on slow apt days (apt + uv + hermes
+# install + npm browser-tools). The controlplane bootstrap-watcher
+# deadline fires at 5 min and sets status=failed prematurely; heartbeat
+# then transitions failed → online after install.sh finishes. So:
+#
+#   - 20 min deadline (hermes worst-case + slack)
+#   - 'failed' is a TRANSIENT state we must tolerate — log and keep
+#     polling, only hard-fail at the deadline. Pre-bootstrap-watcher-fix
+#     (controlplane#245) this was a flake generator: workspace went
+#     failed→online inside our window but we bailed at the failed read.
+log "7/11 Waiting for workspace(s) to reach status=online (up to 20 min — hermes cold boot)..."
+WS_DEADLINE=$(( $(date +%s) + 1200 ))
 WS_TO_CHECK="$PARENT_ID"
 [ -n "$CHILD_ID" ] && WS_TO_CHECK="$WS_TO_CHECK $CHILD_ID"
 for wid in $WS_TO_CHECK; do
+  WS_LAST_STATUS=""
+  WS_FAILED_LOGGED=0
   while true; do
     if [ "$(date +%s)" -gt "$WS_DEADLINE" ]; then
-      fail "Workspace $wid never reached online within 10 min"
+      WS_LAST_ERR=$(tenant_call GET "/workspaces/$wid" 2>/dev/null | \
+        python3 -c "import json,sys; print(json.load(sys.stdin).get('last_sample_error',''))" 2>/dev/null || echo "")
+      fail "Workspace $wid never reached online within 20 min (last status=$WS_LAST_STATUS, err=$WS_LAST_ERR)"
     fi
     WS_JSON=$(tenant_call GET "/workspaces/$wid" 2>/dev/null || echo '{}')
     WS_STATUS=$(echo "$WS_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('status',''))" 2>/dev/null)
+    if [ "$WS_STATUS" != "$WS_LAST_STATUS" ]; then
+      log "    $wid → $WS_STATUS"
+      WS_LAST_STATUS="$WS_STATUS"
+    fi
     case "$WS_STATUS" in
       online) break ;;
-      failed) fail "Workspace $wid status=failed: $(echo "$WS_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("last_sample_error",""))')" ;;
+      failed)
+        # Not a hard fail — bootstrap-watcher frequently marks failed at
+        # 5 min on hermes, then heartbeat recovers to online around 10-13
+        # min when install.sh finishes. Log once per workspace so the CI
+        # output isn't spammy.
+        if [ "$WS_FAILED_LOGGED" = "0" ]; then
+          log "    $wid transiently failed — waiting for heartbeat recovery (bootstrap-watcher deadline, see cp#245)"
+          WS_FAILED_LOGGED=1
+        fi
+        sleep 10
+        ;;
       *)      sleep 10 ;;
     esac
   done
