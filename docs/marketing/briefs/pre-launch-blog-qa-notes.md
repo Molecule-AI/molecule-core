@@ -1,6 +1,6 @@
 # Pre-Launch Blog QA Notes
 **Owner:** PMM | **Date:** 2026-04-24 | **Status:** PARTIAL — two posts not yet on main/staging
-**Owner:** PMM | **Date:** 2026-04-23 | **Status:** PARTIAL — two posts not yet on main/staging
+**Owner:** PMM | **Date:** 2026-04-24 | **Status:** PARTIAL — two posts not yet on main/staging
 **Purpose:** Flag accuracy issues vs. approved positioning briefs before content goes live.
 
 ---
@@ -64,8 +64,8 @@ Social queue notes file should live on staging under `docs/marketing/blog/2026-0
 | Watch item | Brief approved claim | Risk if not verified |
 |---|---|---|
 | MCP server names | Chrome DevTools MCP, Playwright MCP, Cloudflare Artifacts, EC2 Instance Connect, WriteFile, ReadFile, Glob, Grep, Slack, Discord adapters | Omitting or misnaming a server category is an accuracy error |
-| Governance claims | Org-scoped API keys + Platform Instructions | Platform Instructions confirmed all plans (community FAQ). Org-scoped API keys — verify plan gate. |
-| Platform Instructions plan gate | Enterprise-only feature | Corrected 2026-04-23: community FAQ says all plans. PMM has updated all Phase 34 materials. Verify blog copy matches. |
+| Governance claims | Org-scoped API keys + Platform Instructions (Enterprise plans) | Platform Instructions confirmed Enterprise plans only (AdminAuth-gated, router.go:376). Blog post correct; community FAQ corrected 2026-04-24. |
+| Platform Instructions plan gate | Enterprise-only feature | ✅ CONFIRMED 2026-04-24: Enterprise plans only per code review + plan-gating note. Blog post correct; community FAQ corrected. |
 | Blog title/URL alignment | Brief targets `mcp-server-list-explainer` keyword | Title should match SEO intent |
 
 **PMM action:** Flag to Marketing Lead and Content Marketer — blog post not on staging, QA blocked. Request Content Marketer commit the file.
@@ -85,4 +85,4 @@ Social queue notes file should live on staging under `docs/marketing/blog/2026-0
 ---
 
 *PMM QA notes 2026-04-24. A2A blog reviewed. Platform Instructions plan availability resolved (Enterprise plans only). EC2 + MCP blog posts: blocked on Content Marketer delivery.*
-*PMM QA notes 2026-04-23. A2A blog reviewed this cycle. EC2 + MCP blog posts: blocked on Content Marketer delivery.*
+*PMM QA notes 2026-04-24. A2A blog reviewed. Platform Instructions plan availability resolved (Enterprise plans only). EC2 + MCP blog posts: blocked on Content Marketer delivery.*
