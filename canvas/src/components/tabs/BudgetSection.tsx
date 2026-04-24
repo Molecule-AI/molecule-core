@@ -128,6 +128,7 @@ export function BudgetSection({ workspaceId }: Props) {
       {budgetExceeded && (
         <div
           role="alert"
+          aria-live="assertive"
           data-testid="budget-exceeded-banner"
           className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-950 border border-amber-700/50 text-amber-400 text-xs font-medium"
         >
@@ -232,6 +233,7 @@ export function BudgetSection({ workspaceId }: Props) {
         {saveError && (
           <div
             role="alert"
+            aria-live="assertive"
             data-testid="budget-save-error"
             className="px-3 py-1.5 rounded-lg bg-red-950/40 border border-red-800/50 text-xs text-red-400"
           >
@@ -240,6 +242,7 @@ export function BudgetSection({ workspaceId }: Props) {
         )}
 
         <button
+          type="button"
           onClick={handleSave}
           disabled={saving}
           data-testid="budget-save-btn"

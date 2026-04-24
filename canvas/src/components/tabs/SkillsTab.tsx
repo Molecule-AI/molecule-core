@@ -156,6 +156,7 @@ export function SkillsTab({ data }: Props) {
             </h3>
           </div>
           <button
+            type="button"
             onClick={() => setShowRegistry(!showRegistry)}
             className="rounded-full border border-violet-700/50 bg-violet-950/30 px-3 py-1 text-[10px] text-violet-200 hover:bg-violet-900/40 transition-colors"
           >
@@ -205,6 +206,8 @@ export function SkillsTab({ data }: Props) {
                     )}
                   </div>
                   <button
+                    type="button"
+                    aria-label={`Remove plugin ${p.name}${uninstalling === p.name ? ' (removing...)' : ''}`}
                     onClick={() => handleUninstall(p.name)}
                     disabled={uninstalling === p.name}
                     className="shrink-0 rounded-full border border-red-800/40 bg-red-950/20 px-2 py-0.5 text-[11px] text-red-400 hover:bg-red-900/30 disabled:opacity-30"
@@ -253,6 +256,7 @@ export function SkillsTab({ data }: Props) {
                   className="flex-1 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-[10px] text-zinc-200 placeholder:text-zinc-600 focus:border-violet-600 focus:outline-none"
                 />
                 <button
+                  type="button"
                   onClick={handleInstallCustom}
                   disabled={!customSource.trim() || installing !== null}
                   className="shrink-0 rounded-full border border-violet-700/50 bg-violet-950/30 px-2.5 py-1 text-[11px] text-violet-300 hover:bg-violet-900/40 disabled:opacity-30"
@@ -298,6 +302,7 @@ export function SkillsTab({ data }: Props) {
                         <span className="shrink-0 text-[10px] text-emerald-500">Installed</span>
                       ) : (
                         <button
+                          type="button"
                           onClick={() => handleInstall(p.name)}
                           disabled={installing === p.name}
                           className="shrink-0 rounded-full border border-violet-700/50 bg-violet-950/30 px-2.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-900/40 disabled:opacity-30"
@@ -331,12 +336,14 @@ export function SkillsTab({ data }: Props) {
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
+            type="button"
             onClick={() => setPanelTab("config")}
             className="rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1 text-[10px] text-zinc-300 hover:bg-zinc-900"
           >
             Open Config
           </button>
           <button
+            type="button"
             onClick={() => setPanelTab("files")}
             className="rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1 text-[10px] text-zinc-300 hover:bg-zinc-900"
           >

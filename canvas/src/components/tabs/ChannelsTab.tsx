@@ -215,6 +215,7 @@ export function ChannelsTab({ workspaceId }: Props) {
           Channels
         </h3>
         <button
+          type="button"
           onClick={() => setShowForm(!showForm)}
           className="text-[10px] px-2.5 py-1 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition"
         >
@@ -259,6 +260,7 @@ export function ChannelsTab({ workspaceId }: Props) {
             <div className="flex items-center justify-between mb-1">
               <label htmlFor={chatIdId} className="text-[10px] text-zinc-500">Chat IDs</label>
               <button
+                type="button"
                 onClick={handleDiscover}
                 disabled={discovering || !formBotToken}
                 className="text-[10px] px-2 py-0.5 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition disabled:opacity-40"
@@ -300,6 +302,7 @@ export function ChannelsTab({ workspaceId }: Props) {
                   Chats: <span className="text-zinc-400">{formChatId || "(none selected)"}</span>
                   {" · "}
                   <button
+                    type="button"
                     onClick={() => setShowManualInput(!showManualInput)}
                     className="text-blue-400 hover:underline"
                   >
@@ -330,6 +333,7 @@ export function ChannelsTab({ workspaceId }: Props) {
             <p className="text-[10px] text-red-400">{formError}</p>
           )}
           <button
+            type="button"
             onClick={handleCreate}
             className="w-full text-xs py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white transition"
           >
@@ -369,6 +373,7 @@ export function ChannelsTab({ workspaceId }: Props) {
             </div>
             <div className="flex items-center gap-1.5">
               <button
+                type="button"
                 onClick={() => handleTest(ch)}
                 disabled={testing === ch.id}
                 className="text-[10px] px-2 py-0.5 rounded bg-zinc-700/50 text-zinc-400 hover:text-zinc-200 transition disabled:opacity-50"
@@ -376,6 +381,8 @@ export function ChannelsTab({ workspaceId }: Props) {
                 {testing === ch.id ? "Sent!" : "Test"}
               </button>
               <button
+                type="button"
+                aria-pressed={ch.enabled}
                 onClick={() => handleToggle(ch)}
                 className={`text-[10px] px-2 py-0.5 rounded transition ${
                   ch.enabled
@@ -386,6 +393,8 @@ export function ChannelsTab({ workspaceId }: Props) {
                 {ch.enabled ? "On" : "Off"}
               </button>
               <button
+                type="button"
+                aria-label={`Remove ${ch.channel_type} channel`}
                 onClick={() => setPendingDelete(ch)}
                 className="text-[10px] px-2 py-0.5 rounded bg-red-900/20 text-red-400 hover:bg-red-900/40 transition"
               >

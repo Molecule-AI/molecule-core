@@ -314,7 +314,11 @@ export function ScheduleTab({ workspaceId }: Props) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <button
+                      type="button"
+                      role="button"
+                      tabIndex={0}
                       onClick={() => handleToggle(sched)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleToggle(sched); } }}
                       className={`w-2 h-2 rounded-full flex-shrink-0 ${
                         sched.last_status === "error"
                           ? "bg-red-400"
@@ -323,6 +327,7 @@ export function ScheduleTab({ workspaceId }: Props) {
                           : "bg-zinc-600"
                       }`}
                       title={sched.enabled ? "Click to disable" : "Click to enable"}
+                      aria-label={sched.enabled ? `Disable schedule ${sched.name}` : `Enable schedule ${sched.name}`}
                     />
                     <span className="text-[10px] font-medium text-zinc-200 truncate">
                       {sched.name || "Unnamed schedule"}

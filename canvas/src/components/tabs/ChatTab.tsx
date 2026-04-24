@@ -118,6 +118,7 @@ export function ChatTab({ workspaceId, data }: Props) {
           aria-selected={subTab === "my-chat"}
           aria-controls="chat-panel-my-chat"
           tabIndex={subTab === "my-chat" ? 0 : -1}
+          type="button"
           onClick={() => setSubTab("my-chat")}
           className={`px-3 py-1.5 text-[10px] font-medium transition-colors ${
             subTab === "my-chat"
@@ -133,6 +134,7 @@ export function ChatTab({ workspaceId, data }: Props) {
           aria-selected={subTab === "agent-comms"}
           aria-controls="chat-panel-agent-comms"
           tabIndex={subTab === "agent-comms" ? 0 : -1}
+          type="button"
           onClick={() => setSubTab("agent-comms")}
           className={`px-3 py-1.5 text-[10px] font-medium transition-colors ${
             subTab === "agent-comms"
@@ -398,12 +400,14 @@ function MyChatPanel({ workspaceId, data }: Props) {
         {!loading && loadError !== null && messages.length === 0 && (
           <div
             role="alert"
+            aria-live="assertive"
             className="mx-2 mt-2 rounded-lg border border-red-800/50 bg-red-950/30 px-3 py-2.5"
           >
             <p className="text-[11px] text-red-400 mb-1.5">
               Failed to load chat history: {loadError}
             </p>
             <button
+              type="button"
               onClick={() => {
                 setLoading(true);
                 setLoadError(null);
@@ -415,6 +419,8 @@ function MyChatPanel({ workspaceId, data }: Props) {
               }}
               className="text-[10px] px-2 py-0.5 rounded bg-red-800/40 text-red-300 hover:bg-red-700/50 transition-colors"
             >
+              Retry
+            </button>
               Retry
             </button>
           </div>
@@ -478,6 +484,7 @@ function MyChatPanel({ workspaceId, data }: Props) {
             <span className="text-[10px] text-red-400">{error}</span>
             {!isOnline && (
               <button
+                type="button"
                 onClick={() => setConfirmRestart(true)}
                 className="text-[11px] px-2 py-0.5 bg-red-800/40 text-red-300 rounded hover:bg-red-700/50"
               >
@@ -507,6 +514,8 @@ function MyChatPanel({ workspaceId, data }: Props) {
             className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500 resize-none disabled:opacity-50"
           />
           <button
+            type="button"
+            aria-label="Send message"
             onClick={sendMessage}
             disabled={!input.trim() || !agentReachable || sending}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-xs font-medium rounded-lg text-white disabled:opacity-30 transition-colors shrink-0"
