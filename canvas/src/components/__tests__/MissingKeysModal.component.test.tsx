@@ -36,12 +36,10 @@ vi.mock("@/lib/deploy-preflight", () => ({
     };
     return labels[key] ?? key;
   },
-  // Runtime names here ("test" / "openai") aren't in the real
-  // RUNTIME_PROVIDERS map; return [] so the modal falls back to
-  // synthesising providers from the missingKeys prop. That preserves
-  // the single-key-per-runtime semantics these tests were written for.
-  getRuntimeProviders: () => [],
 }));
+// Tests render the modal without a `providers` prop — the component
+// falls back to the all-keys mode using the `missingKeys` array, which
+// matches the contract these tests were written for.
 
 // ── Suite 1: Visibility and ARIA ────────────────────────────────────────────
 

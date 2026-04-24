@@ -53,8 +53,14 @@ type templateSummary struct {
 	Runtime     string      `json:"runtime"`
 	Model       string      `json:"model"`
 	Models      []modelSpec `json:"models,omitempty"`
-	Skills      []string    `json:"skills"`
-	SkillCount  int         `json:"skill_count"`
+	// RequiredEnv mirrors runtime_config.required_env from the template's
+	// config.yaml — the AND-required env vars the template declares at the
+	// runtime level (separate from per-model required_env). The canvas
+	// preflight uses this as the fallback provider when `models` is empty
+	// so provider picker stays data-driven instead of hardcoded in the UI.
+	RequiredEnv []string `json:"required_env,omitempty"`
+	Skills      []string `json:"skills"`
+	SkillCount  int      `json:"skill_count"`
 }
 
 // resolveTemplateDir finds the template directory for a workspace on the host.
@@ -100,8 +106,9 @@ func (h *TemplatesHandler) List(c *gin.Context) {
 			Model         string   `yaml:"model"`
 			Skills        []string `yaml:"skills"`
 			RuntimeConfig struct {
-				Model  string      `yaml:"model"`
-				Models []modelSpec `yaml:"models"`
+				Model       string      `yaml:"model"`
+				Models      []modelSpec `yaml:"models"`
+				RequiredEnv []string    `yaml:"required_env"`
 			} `yaml:"runtime_config"`
 		}
 		if err := yaml.Unmarshal(data, &raw); err != nil {
@@ -122,6 +129,7 @@ func (h *TemplatesHandler) List(c *gin.Context) {
 			Runtime:     raw.Runtime,
 			Model:       model,
 			Models:      raw.RuntimeConfig.Models,
+			RequiredEnv: raw.RuntimeConfig.RequiredEnv,
 			Skills:      raw.Skills,
 			SkillCount:  len(raw.Skills),
 		})

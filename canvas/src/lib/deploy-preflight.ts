@@ -1,110 +1,37 @@
 /**
- * Pre-deploy secret check per runtime.
+ * Pre-deploy secret check driven by the template's config.yaml.
  *
- * Before a workspace is deployed, validates that all required secrets/env vars
- * are configured for the target runtime. Each runtime defines its own set of
- * required keys (derived from each runtime's config.yaml `env.required` field).
+ * The single source of truth for which env vars a workspace needs is
+ * each template repo's config.yaml — the `runtime_config.models[].required_env`
+ * array names the key(s) required per model, and `runtime_config.required_env`
+ * names any AND-required keys at the runtime level. The Go `/templates`
+ * handler parses these and exposes them as `models` and `required_env` on
+ * each template summary.
+ *
+ * This module consumes that shape; it does NOT hardcode a per-runtime
+ * provider table. When a template declares alternative models (e.g.
+ * Hermes supports 35 models across 8 providers), the unique required_env
+ * tuples become the provider options shown in the picker modal.
  */
 
 import { api } from "./api";
 
-/* ---------- Required keys per runtime ----------
- *
- * A runtime may accept ANY of several provider keys (Hermes speaks
- * OpenRouter or OpenAI or its native Nous API; LangGraph speaks
- * OpenAI or Anthropic; …). Represent that as a list of provider
- * choices — the UI renders a picker when length > 1, and the
- * preflight check treats the runtime as satisfied if *any one* of
- * the listed keys is configured.
- *
- * The first entry is the default / recommended provider for that
- * runtime.
- */
+/* ---------- Types matching the /templates response ---------- */
 
-export interface ProviderChoice {
-  /** Stable id for the provider. Used as React key + picker value. */
+export interface ModelSpec {
   id: string;
-  /** Human label shown in the provider picker. */
-  label: string;
-  /** Env var name the workspace container reads at runtime. */
-  envVar: string;
-  /** Short rationale shown under the picker option, optional. */
-  note?: string;
+  name?: string;
+  required_env?: string[];
 }
 
-export const RUNTIME_PROVIDERS: Record<string, ProviderChoice[]> = {
-  langgraph: [
-    { id: "openai", label: "OpenAI", envVar: "OPENAI_API_KEY" },
-    { id: "anthropic", label: "Anthropic", envVar: "ANTHROPIC_API_KEY" },
-    { id: "openrouter", label: "OpenRouter (proxy — any model)", envVar: "OPENROUTER_API_KEY", note: "Broadest model coverage incl. Minimax, DeepSeek, Groq" },
-  ],
-  "claude-code": [
-    { id: "anthropic", label: "Anthropic", envVar: "ANTHROPIC_API_KEY" },
-  ],
-  openclaw: [
-    { id: "openai", label: "OpenAI", envVar: "OPENAI_API_KEY" },
-    { id: "openrouter", label: "OpenRouter", envVar: "OPENROUTER_API_KEY" },
-  ],
-  deepagents: [
-    { id: "openai", label: "OpenAI", envVar: "OPENAI_API_KEY" },
-    { id: "anthropic", label: "Anthropic", envVar: "ANTHROPIC_API_KEY" },
-    { id: "openrouter", label: "OpenRouter", envVar: "OPENROUTER_API_KEY" },
-  ],
-  crewai: [
-    { id: "openai", label: "OpenAI", envVar: "OPENAI_API_KEY" },
-    { id: "anthropic", label: "Anthropic", envVar: "ANTHROPIC_API_KEY" },
-  ],
-  autogen: [
-    { id: "openai", label: "OpenAI", envVar: "OPENAI_API_KEY" },
-    { id: "openrouter", label: "OpenRouter", envVar: "OPENROUTER_API_KEY" },
-  ],
-  hermes: [
-    { id: "openrouter", label: "OpenRouter", envVar: "OPENROUTER_API_KEY", note: "Recommended — widest model coverage (Minimax, DeepSeek, Llama, …)" },
-    { id: "openai", label: "OpenAI", envVar: "OPENAI_API_KEY" },
-    { id: "hermes-native", label: "Nous Research (Hermes native)", envVar: "HERMES_API_KEY" },
-  ],
-  "gemini-cli": [
-    { id: "google", label: "Google AI", envVar: "GOOGLE_API_KEY" },
-  ],
-};
-
-/** Back-compat: flat list of the DEFAULT (first) env var per runtime.
- *  Preserved so existing callers keep working; the richer provider-
- *  aware UX consumes RUNTIME_PROVIDERS directly. */
-export const RUNTIME_REQUIRED_KEYS: Record<string, string[]> = Object.fromEntries(
-  Object.entries(RUNTIME_PROVIDERS).map(([rt, choices]) => [rt, [choices[0].envVar]]),
-);
-
-/** Human-readable labels for common secret keys */
-export const KEY_LABELS: Record<string, string> = {
-  OPENAI_API_KEY: "OpenAI API Key",
-  ANTHROPIC_API_KEY: "Anthropic API Key",
-  GOOGLE_API_KEY: "Google AI API Key",
-  SERP_API_KEY: "SERP API Key",
-  OPENROUTER_API_KEY: "OpenRouter API Key",
-  HERMES_API_KEY: "Nous Research API Key",
-  DEEPSEEK_API_KEY: "DeepSeek API Key",
-};
-
-/** Get the provider choices for a runtime. Returns [] for unknown runtimes. */
-export function getRuntimeProviders(runtime: string): ProviderChoice[] {
-  return RUNTIME_PROVIDERS[runtime] ?? [];
+/** Minimal template shape consumed by the preflight check. Any object
+ *  that matches this subset of the `/templates` response works. */
+export interface TemplateLike {
+  runtime: string;
+  models?: ModelSpec[];
+  /** AND-required env vars declared at runtime_config level. */
+  required_env?: string[];
 }
-
-/** Returns the first provider choice whose env var is in `configured`,
- *  or null if none are set. Used to auto-skip the picker when the
- *  user has already wired up a supported provider. */
-export function findConfiguredProvider(
-  runtime: string,
-  configured: Set<string>,
-): ProviderChoice | null {
-  for (const p of getRuntimeProviders(runtime)) {
-    if (configured.has(p.envVar)) return p;
-  }
-  return null;
-}
-
-/* ---------- Types ---------- */
 
 export interface SecretEntry {
   key: string;
@@ -116,77 +43,184 @@ export interface SecretEntry {
 
 export interface PreflightResult {
   ok: boolean;
+  /** Flat list of env var names needed — for the legacy modal path and
+   *  for callers that want a single display of "what's missing". */
   missingKeys: string[];
+  /** Grouped provider options derived from the template. When length ≥ 2
+   *  the modal renders a picker; length 1 means exactly one provider is
+   *  required (AllKeysModal renders the N envVars inline). */
+  providers: ProviderChoice[];
   runtime: string;
 }
 
-/* ---------- Pure helpers (easily testable) ---------- */
+/* ---------- Provider options ---------- */
 
-/** Get required env keys for a given runtime. Returns empty array for unknown runtimes. */
-export function getRequiredKeys(runtime: string): string[] {
-  return RUNTIME_REQUIRED_KEYS[runtime] ?? [];
+/** One row in the provider picker. `envVars` is the set of keys required
+ *  TOGETHER to satisfy this option (usually length 1 — e.g. just
+ *  OPENROUTER_API_KEY). When length ≥ 2 all must be saved. */
+export interface ProviderChoice {
+  /** Stable id for React keys + picker value — the sorted envVars joined. */
+  id: string;
+  /** Human label, e.g. "OpenRouter" or "OpenAI + Serper". */
+  label: string;
+  /** Env vars required for this provider option. */
+  envVars: string[];
+  /** Short rationale shown under the option, optional. */
+  note?: string;
 }
 
-/** Given a runtime and a set of configured key names, return which keys are missing. */
-export function findMissingKeys(
-  runtime: string,
-  configuredKeys: Set<string>,
-): string[] {
-  return getRequiredKeys(runtime).filter((k) => !configuredKeys.has(k));
-}
+/** Human-readable labels for well-known secret keys. Anything not in
+ *  this table falls back to a humanized form of the env var. */
+export const KEY_LABELS: Record<string, string> = {
+  OPENAI_API_KEY: "OpenAI",
+  ANTHROPIC_API_KEY: "Anthropic",
+  GOOGLE_API_KEY: "Google AI",
+  GEMINI_API_KEY: "Google Gemini",
+  SERP_API_KEY: "SERP",
+  SERPER_API_KEY: "Serper",
+  OPENROUTER_API_KEY: "OpenRouter",
+  HERMES_API_KEY: "Nous Research (Hermes native)",
+  DEEPSEEK_API_KEY: "DeepSeek",
+  GLM_API_KEY: "z.ai GLM",
+  KIMI_API_KEY: "Moonshot Kimi",
+  MINIMAX_API_KEY: "MiniMax",
+  KILOCODE_API_KEY: "Kilo Code",
+  CLAUDE_CODE_OAUTH_TOKEN: "Claude Code subscription",
+};
 
-/** Get human-readable label for a key, or fall back to the key itself. */
+/** Full "API Key" label used for input field headers. */
 export function getKeyLabel(key: string): string {
-  return KEY_LABELS[key] ?? key;
+  const base = KEY_LABELS[key];
+  if (base) return `${base} API Key`;
+  return humanizeEnvVar(key);
 }
 
-/* ---------- API-calling preflight check ---------- */
+/** Short provider name used in the picker (no trailing "API Key"). */
+export function getProviderLabel(key: string): string {
+  return KEY_LABELS[key] ?? humanizeEnvVar(key);
+}
+
+function humanizeEnvVar(key: string): string {
+  return key
+    .replace(/_API_KEY$|_TOKEN$|_KEY$/i, "")
+    .split(/[_-]/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
 
 /**
- * Fetch configured secrets from the platform and check whether all required
- * keys for the target runtime are present.
+ * Derive the provider options for a template from its declared shape.
  *
- * If `workspaceId` is provided, fetches the merged (global + workspace) secret
- * list for that workspace. Otherwise falls back to global secrets only.
+ *   1. `models[].required_env` — each unique (sorted) tuple becomes a
+ *      provider option. E.g. Hermes exposes 8 options (Nous, OpenRouter,
+ *      Anthropic, Gemini, DeepSeek, GLM, Kimi, Kilocode) even though it
+ *      lists 35 models. Insertion order is preserved so the template's
+ *      author controls which provider is offered first.
+ *   2. If `models` is empty or has no required_env, fall back to the
+ *      top-level `required_env` as a single all-required option.
+ *   3. If neither is declared, return [] — no preflight needed.
+ *
+ * Models with `required_env: []` (local / self-hosted endpoints) are
+ * skipped when computing options; they never block a deploy.
  */
-export async function checkDeploySecrets(
-  runtime: string,
-  workspaceId?: string,
-): Promise<PreflightResult> {
-  const providers = getRuntimeProviders(runtime);
-  if (providers.length === 0) {
-    // Unknown runtime — nothing to preflight.
-    return { ok: true, missingKeys: [], runtime };
+export function providersFromTemplate(template: TemplateLike): ProviderChoice[] {
+  const out: ProviderChoice[] = [];
+  const seen = new Set<string>();
+  const modelCount: Record<string, number> = {};
+
+  for (const m of template.models ?? []) {
+    const envs = m.required_env ?? [];
+    if (envs.length === 0) continue;
+    const id = [...envs].sort().join("|");
+    modelCount[id] = (modelCount[id] ?? 0) + 1;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      envVars: envs,
+      label: envs.map(getProviderLabel).join(" + "),
+    });
   }
 
+  // Decorate labels with model-count hints when multiple models share
+  // the same provider. Gives the user context: "OpenRouter (14 models)".
+  for (const p of out) {
+    const n = modelCount[p.id];
+    if (n && n > 1) p.label = `${p.label} (${n} models)`;
+  }
+
+  if (out.length === 0 && template.required_env?.length) {
+    const envs = template.required_env;
+    out.push({
+      id: [...envs].sort().join("|"),
+      envVars: envs,
+      label: envs.map(getProviderLabel).join(" + "),
+    });
+  }
+
+  return out;
+}
+
+/** Helper: is any single provider option already satisfied by the set of
+ *  configured keys? A provider is satisfied when EVERY envVar it requires
+ *  is present. Returns the first such option or null. */
+export function findSatisfiedProvider(
+  providers: ProviderChoice[],
+  configured: Set<string>,
+): ProviderChoice | null {
+  for (const p of providers) {
+    if (p.envVars.every((k) => configured.has(k))) return p;
+  }
+  return null;
+}
+
+/* ---------- Preflight ---------- */
+
+/**
+ * Fetch configured secrets from the platform and decide whether the
+ * workspace can deploy. When `workspaceId` is provided the merged
+ * (global + workspace) secrets are checked; otherwise only globals.
+ *
+ * Returns `ok=true` immediately if any provider option's env vars are
+ * already configured. Otherwise returns all candidate env vars flat in
+ * `missingKeys` plus the grouped `providers` list for the picker.
+ */
+export async function checkDeploySecrets(
+  template: TemplateLike,
+  workspaceId?: string,
+): Promise<PreflightResult> {
+  const providers = providersFromTemplate(template);
+  const runtime = template.runtime;
+
+  if (providers.length === 0) {
+    // Template declares no env requirements — nothing to preflight.
+    return { ok: true, missingKeys: [], providers: [], runtime };
+  }
+
+  let configured: Set<string>;
   try {
     const secrets = workspaceId
       ? await api.get<SecretEntry[]>(`/workspaces/${workspaceId}/secrets`)
       : await api.get<SecretEntry[]>("/settings/secrets");
-
-    const configuredKeys = new Set(
-      secrets.filter((s) => s.has_value).map((s) => s.key),
-    );
-
-    // If ANY supported provider's key is already set we're satisfied —
-    // the picker is only for "none yet" cases.
-    if (findConfiguredProvider(runtime, configuredKeys)) {
-      return { ok: true, missingKeys: [], runtime };
-    }
-
-    // Nothing configured — surface every supported provider so the
-    // modal can render a picker. The default (first) still renders at
-    // the top.
-    const missingKeys = providers.map((p) => p.envVar);
-    return { ok: false, missingKeys, runtime };
+    configured = new Set(secrets.filter((s) => s.has_value).map((s) => s.key));
   } catch (error) {
-    // Log the error before falling back — aids debugging when the API is down.
-    console.error("[deploy-preflight] Failed to check secrets, assuming all missing:", error);
-    // If we can't reach the secrets API, assume missing — safer to prompt the user.
-    return {
-      ok: false,
-      missingKeys: providers.map((p) => p.envVar),
-      runtime,
-    };
+    console.error(
+      "[deploy-preflight] Failed to read secrets, assuming all missing:",
+      error,
+    );
+    // Safer to prompt the user than to silently deploy.
+    configured = new Set();
   }
+
+  if (findSatisfiedProvider(providers, configured)) {
+    return { ok: true, missingKeys: [], providers, runtime };
+  }
+
+  // Nothing configured — surface every candidate env var so the modal
+  // can render the picker or the all-keys fallback.
+  const missingKeys = Array.from(
+    new Set(providers.flatMap((p) => p.envVars)),
+  );
+  return { ok: false, missingKeys, providers, runtime };
 }

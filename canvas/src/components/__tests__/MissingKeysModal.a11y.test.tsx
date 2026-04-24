@@ -27,11 +27,9 @@ vi.mock("@/lib/deploy-preflight", () => ({
     };
     return labels[key] ?? key;
   },
-  // These tests use unknown runtimes ("test" / "openai") — let the
-  // modal fall back to synthesising providers from the missingKeys
-  // prop. Real runtimes look this up from RUNTIME_PROVIDERS.
-  getRuntimeProviders: () => [],
 }));
+// a11y tests render the modal without a `providers` prop — it falls
+// back to all-keys mode driven by the `missingKeys` array.
 
 // ── Import after mocks ────────────────────────────────────────────────────────
 

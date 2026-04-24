@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import { useCanvasStore } from "@/store/canvas";
-import { checkDeploySecrets, type PreflightResult } from "@/lib/deploy-preflight";
+import { checkDeploySecrets, type PreflightResult, type ModelSpec } from "@/lib/deploy-preflight";
 import { MissingKeysModal } from "./MissingKeysModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Spinner } from "./Spinner";
@@ -14,7 +14,11 @@ interface Template {
   name: string;
   description: string;
   tier: number;
+  runtime?: string;
   model: string;
+  models?: ModelSpec[];
+  /** AND-required env vars declared at runtime_config.required_env. */
+  required_env?: string[];
   skills: string[];
   skill_count: number;
 }
@@ -329,8 +333,15 @@ export function TemplatePalette() {
     setCreating(template.id);
     setError(null);
 
-    const runtime = resolveRuntime(template.id);
-    const preflight = await checkDeploySecrets(runtime);
+    // Prefer the runtime the Go /templates endpoint returned verbatim —
+    // resolveRuntime() is a legacy id→runtime fallback for installs whose
+    // template summary predates the `runtime` field.
+    const runtime = template.runtime ?? resolveRuntime(template.id);
+    const preflight = await checkDeploySecrets({
+      runtime,
+      models: template.models,
+      required_env: template.required_env,
+    });
 
     if (!preflight.ok) {
       // Missing keys — show the modal instead of deploying
@@ -368,6 +379,7 @@ export function TemplatePalette() {
       <MissingKeysModal
         open={!!missingKeysInfo}
         missingKeys={missingKeysInfo?.preflight.missingKeys ?? []}
+        providers={missingKeysInfo?.preflight.providers ?? []}
         runtime={missingKeysInfo?.preflight.runtime ?? ""}
         onKeysAdded={() => {
           if (missingKeysInfo) {

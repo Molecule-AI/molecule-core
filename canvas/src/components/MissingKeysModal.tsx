@@ -2,29 +2,31 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { api } from "@/lib/api";
-import {
-  getKeyLabel,
-  getRuntimeProviders,
-  type ProviderChoice,
-} from "@/lib/deploy-preflight";
+import { getKeyLabel, type ProviderChoice } from "@/lib/deploy-preflight";
 
 interface Props {
   open: boolean;
+  /** Flat list of every candidate env var. Used as the fallback input
+   *  set when `providers` is empty (or length 1). */
   missingKeys: string[];
+  /** Grouped provider options derived from the template's models[] /
+   *  required_env. When length ≥ 2 the modal shows a radio picker. */
+  providers?: ProviderChoice[];
+  /** Runtime slug — used only for the "The <runtime> runtime …"
+   *  headline; behavior is driven by providers/missingKeys. */
   runtime: string;
-  /** Called when user adds all required keys and wants to proceed with deploy. */
+  /** Called when all required keys for the chosen provider are saved. */
   onKeysAdded: () => void;
-  /** Called when user cancels the deploy. */
+  /** Called when the user cancels the deploy. */
   onCancel: () => void;
-  /** Called when user wants to open the Settings Panel (Config tab → Secrets). */
+  /** Optional — open the Settings Panel (Config tab → Secrets). */
   onOpenSettings?: () => void;
-  /** Optional workspace ID — if provided, secrets are saved at workspace scope. */
+  /** If provided, secrets save at workspace scope instead of global. */
   workspaceId?: string;
 }
 
 interface KeyEntry {
   key: string;
-  label: string;
   value: string;
   saved: boolean;
   saving: boolean;
@@ -34,45 +36,38 @@ interface KeyEntry {
 /**
  * MissingKeysModal
  * ----------------
- * Two rendering modes, picked automatically from the runtime:
+ * Dispatches between two modes based on what the template declares:
  *
- *  1. PROVIDER-PICKER mode — when `getRuntimeProviders(runtime)` returns
- *     ≥2 alternatives. The modal shows a radio list of supported
- *     providers first ("Hermes supports OpenRouter / OpenAI / Nous
- *     native — pick one") and only the chosen provider's env input
- *     below. Saving that one key satisfies the deploy.
+ *  1. PROVIDER PICKER — when the preflight returned ≥2 `providers` (e.g.
+ *     a Hermes template whose models[].required_env enumerate OpenRouter,
+ *     Anthropic, Nous-native, etc.). Radio list of options, saving the
+ *     chosen option's env vars satisfies the deploy.
  *
- *  2. LEGACY all-keys mode — when the runtime has <2 provider
- *     alternatives, or the caller supplied multiple unrelated keys.
- *     Renders one input per `missingKeys` entry; all must be saved
- *     before deploy. Preserves the pre-provider-picker contract so
- *     callers that pass unrelated-key lists (e.g. a workspace that
- *     needs an LLM key AND a separate tool key) keep working.
+ *  2. ALL-KEYS — every entry in `missingKeys` rendered as its own input,
+ *     all must save before Deploy. Used when the template has a single
+ *     provider option or no declared alternatives.
+ *
+ * The modal never hardcodes per-runtime provider lists; the upstream
+ * preflight derives that from the template config.yaml.
  */
 export function MissingKeysModal({
   open,
   missingKeys,
+  providers,
   runtime,
   onKeysAdded,
   onCancel,
   onOpenSettings,
   workspaceId,
 }: Props) {
-  const providers: ProviderChoice[] = useMemo(
-    () => getRuntimeProviders(runtime),
-    [runtime],
-  );
-
-  // Picker mode activates only when we have a real provider list with
-  // genuine alternatives. If the runtime is unknown (providers=[]) or
-  // has a single forced provider, fall back to the legacy all-keys UX.
-  const pickerMode = providers.length > 1;
+  const pickerProviders = providers ?? [];
+  const pickerMode = pickerProviders.length > 1;
 
   if (pickerMode) {
     return (
       <ProviderPickerModal
         open={open}
-        providers={providers}
+        providers={pickerProviders}
         runtime={runtime}
         onKeysAdded={onKeysAdded}
         onCancel={onCancel}
@@ -82,10 +77,15 @@ export function MissingKeysModal({
     );
   }
 
+  // Prefer the (single) provider's envVars over the raw missingKeys when
+  // we have one — the provider list is already de-duped and ordered.
+  const keys =
+    pickerProviders.length === 1 ? pickerProviders[0].envVars : missingKeys;
+
   return (
     <AllKeysModal
       open={open}
-      missingKeys={missingKeys}
+      missingKeys={keys}
       runtime={runtime}
       onKeysAdded={onKeysAdded}
       onCancel={onCancel}
@@ -96,7 +96,7 @@ export function MissingKeysModal({
 }
 
 // -----------------------------------------------------------------------------
-// Provider-picker mode — one-of-N providers, save one, deploy.
+// Provider-picker mode — choose one option, save its env var(s), deploy.
 // -----------------------------------------------------------------------------
 
 function ProviderPickerModal({
@@ -117,20 +117,31 @@ function ProviderPickerModal({
   workspaceId?: string;
 }) {
   const [selectedId, setSelectedId] = useState(providers[0].id);
-  const [value, setValue] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [entries, setEntries] = useState<KeyEntry[]>([]);
   const firstInputRef = useRef<HTMLInputElement>(null);
+
+  const selected = useMemo(
+    () => providers.find((p) => p.id === selectedId) ?? providers[0],
+    [providers, selectedId],
+  );
 
   useEffect(() => {
     if (!open) return;
     setSelectedId(providers[0].id);
-    setValue("");
-    setSaving(false);
-    setSaved(false);
-    setError(null);
   }, [open, providers]);
+
+  useEffect(() => {
+    if (!open) return;
+    setEntries(
+      selected.envVars.map((key) => ({
+        key,
+        value: "",
+        saved: false,
+        saving: false,
+        error: null,
+      })),
+    );
+  }, [open, selected]);
 
   useEffect(() => {
     if (!open) return;
@@ -147,39 +158,58 @@ function ProviderPickerModal({
     return () => window.removeEventListener("keydown", handler);
   }, [open, onCancel]);
 
-  const selected = providers.find((p) => p.id === selectedId) ?? providers[0];
+  const updateEntry = useCallback(
+    (index: number, updates: Partial<KeyEntry>) => {
+      setEntries((prev) =>
+        prev.map((e, i) => (i === index ? { ...e, ...updates } : e)),
+      );
+    },
+    [],
+  );
 
-  const handleSave = useCallback(async () => {
-    if (!value.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      if (workspaceId) {
-        await api.put(`/workspaces/${workspaceId}/secrets`, {
-          key: selected.envVar,
-          value: value.trim(),
-        });
-      } else {
-        await api.put("/settings/secrets", {
-          key: selected.envVar,
-          value: value.trim(),
+  const handleSaveKey = useCallback(
+    async (index: number) => {
+      const entry = entries[index];
+      if (!entry.value.trim()) return;
+      updateEntry(index, { saving: true, error: null });
+      try {
+        if (workspaceId) {
+          await api.put(`/workspaces/${workspaceId}/secrets`, {
+            key: entry.key,
+            value: entry.value.trim(),
+          });
+        } else {
+          await api.put("/settings/secrets", {
+            key: entry.key,
+            value: entry.value.trim(),
+          });
+        }
+        updateEntry(index, { saved: true, saving: false });
+      } catch (e) {
+        updateEntry(index, {
+          saving: false,
+          error: e instanceof Error ? e.message : "Failed to save",
         });
       }
-      setSaved(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save");
-    } finally {
-      setSaving(false);
-    }
-  }, [selected, value, workspaceId]);
+    },
+    [entries, updateEntry, workspaceId],
+  );
 
   if (!open) return null;
 
-  const runtimeLabel = runtime.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const allSaved = entries.length > 0 && entries.every((e) => e.saved);
+  const anySaving = entries.some((e) => e.saving);
+  const runtimeLabel = runtime
+    .replace(/[-_]/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div aria-hidden="true" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onCancel} />
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        onClick={onCancel}
+      />
 
       <div
         role="dialog"
@@ -189,7 +219,10 @@ function ProviderPickerModal({
       >
         <div className="px-5 py-4 border-b border-zinc-800">
           <div className="flex items-center gap-2 mb-1">
-            <div className="w-5 h-5 rounded-md bg-amber-600/20 border border-amber-500/30 flex items-center justify-center" aria-hidden="true">
+            <div
+              className="w-5 h-5 rounded-md bg-amber-600/20 border border-amber-500/30 flex items-center justify-center"
+              aria-hidden="true"
+            >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                 <path d="M6 1L11 10H1L6 1Z" stroke="#fbbf24" strokeWidth="1.2" strokeLinejoin="round" />
                 <path d="M6 5V7" stroke="#fbbf24" strokeWidth="1.2" strokeLinecap="round" />
@@ -201,8 +234,8 @@ function ProviderPickerModal({
             </h3>
           </div>
           <p className="text-[12px] text-zinc-400 leading-relaxed">
-            The <span className="text-amber-300 font-medium">{runtimeLabel}</span> runtime
-            supports multiple providers. Pick one and paste its API key.
+            The <span className="text-amber-300 font-medium">{runtimeLabel}</span>{" "}
+            runtime supports multiple providers. Pick one and paste its API key.
           </p>
         </div>
 
@@ -225,69 +258,77 @@ function ProviderPickerModal({
                   name="provider"
                   value={p.id}
                   checked={selectedId === p.id}
-                  onChange={() => {
-                    setSelectedId(p.id);
-                    setValue("");
-                    setSaved(false);
-                    setError(null);
-                  }}
+                  onChange={() => setSelectedId(p.id)}
                   className="mt-0.5 accent-blue-500"
                 />
                 <div className="min-w-0 flex-1">
                   <div className="text-[12px] text-zinc-100 font-medium">{p.label}</div>
-                  <div className="text-[10px] font-mono text-zinc-500">{p.envVar}</div>
+                  <div className="text-[10px] font-mono text-zinc-500">
+                    {p.envVars.join(", ")}
+                  </div>
                   {p.note && (
-                    <div className="text-[10px] text-zinc-500 mt-1 leading-relaxed">{p.note}</div>
+                    <div className="text-[10px] text-zinc-500 mt-1 leading-relaxed">
+                      {p.note}
+                    </div>
                   )}
                 </div>
               </label>
             ))}
           </fieldset>
 
-          <div className="bg-zinc-800/50 rounded-lg px-3 py-2.5 border border-zinc-700/50">
-            <div className="flex items-center justify-between mb-1.5">
-              <div>
-                <div className="text-[11px] text-zinc-300 font-medium">
-                  {getKeyLabel(selected.envVar)}
+          <div className="space-y-2">
+            {entries.map((entry, index) => (
+              <div
+                key={entry.key}
+                className="bg-zinc-800/50 rounded-lg px-3 py-2.5 border border-zinc-700/50"
+              >
+                <div className="flex items-center justify-between mb-1.5">
+                  <div>
+                    <div className="text-[11px] text-zinc-300 font-medium">
+                      {getKeyLabel(entry.key)}
+                    </div>
+                    <div className="text-[9px] font-mono text-zinc-500">{entry.key}</div>
+                  </div>
+                  {entry.saved && (
+                    <span className="text-[9px] text-emerald-400 bg-emerald-900/30 px-1.5 py-0.5 rounded flex items-center gap-1">
+                      <svg width="8" height="8" viewBox="0 0 8 8" fill="none" aria-hidden="true">
+                        <path d="M1.5 4L3.5 6L6.5 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      Saved
+                    </span>
+                  )}
                 </div>
-                <div className="text-[9px] font-mono text-zinc-500">{selected.envVar}</div>
-              </div>
-              {saved && (
-                <span className="text-[9px] text-emerald-400 bg-emerald-900/30 px-1.5 py-0.5 rounded flex items-center gap-1">
-                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" aria-hidden="true">
-                    <path d="M1.5 4L3.5 6L6.5 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  Saved
-                </span>
-              )}
-            </div>
 
-            {!saved && (
-              <div className="flex gap-2 mt-2">
-                <input
-                  value={value}
-                  onChange={(e) => setValue(e.target.value.trimStart())}
-                  placeholder={selected.envVar.includes("API_KEY") ? "sk-..." : "Enter value"}
-                  type="password"
-                  ref={firstInputRef}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && value.trim()) {
-                      handleSave();
-                    }
-                  }}
-                  className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1.5 text-[11px] text-zinc-100 font-mono focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 transition-colors"
-                />
-                <button
-                  onClick={handleSave}
-                  disabled={!value.trim() || saving}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-[11px] rounded text-white disabled:opacity-30 transition-colors shrink-0"
-                >
-                  {saving ? "..." : "Save"}
-                </button>
-              </div>
-            )}
+                {!entry.saved && (
+                  <div className="flex gap-2 mt-2">
+                    <input
+                      value={entry.value}
+                      onChange={(e) => updateEntry(index, { value: e.target.value.trimStart() })}
+                      placeholder={entry.key.includes("API_KEY") ? "sk-..." : "Enter value"}
+                      type="password"
+                      ref={index === 0 ? firstInputRef : undefined}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && entry.value.trim()) {
+                          handleSaveKey(index);
+                        }
+                      }}
+                      className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1.5 text-[11px] text-zinc-100 font-mono focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 transition-colors"
+                    />
+                    <button
+                      onClick={() => handleSaveKey(index)}
+                      disabled={!entry.value.trim() || entry.saving}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-[11px] rounded text-white disabled:opacity-30 transition-colors shrink-0"
+                    >
+                      {entry.saving ? "..." : "Save"}
+                    </button>
+                  </div>
+                )}
 
-            {error && <div className="mt-1.5 text-[10px] text-red-400">{error}</div>}
+                {entry.error && (
+                  <div className="mt-1.5 text-[10px] text-red-400">{entry.error}</div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
@@ -311,10 +352,10 @@ function ProviderPickerModal({
             </button>
             <button
               onClick={onKeysAdded}
-              disabled={!saved || saving}
+              disabled={!allSaved || anySaving}
               className="px-3.5 py-1.5 text-[12px] bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-40"
             >
-              {saved ? "Deploy" : "Add Key"}
+              {allSaved ? "Deploy" : entries.length > 1 ? "Add Keys" : "Add Key"}
             </button>
           </div>
         </div>
@@ -324,9 +365,7 @@ function ProviderPickerModal({
 }
 
 // -----------------------------------------------------------------------------
-// Legacy all-keys mode — every missingKey rendered as its own input,
-// all must save before deploy. Kept for single-provider runtimes +
-// callers that pass unrelated-key lists (old contract).
+// All-keys mode — every missingKey rendered as its own input, all required.
 // -----------------------------------------------------------------------------
 
 function AllKeysModal({
@@ -337,7 +376,15 @@ function AllKeysModal({
   onCancel,
   onOpenSettings,
   workspaceId,
-}: Props) {
+}: {
+  open: boolean;
+  missingKeys: string[];
+  runtime: string;
+  onKeysAdded: () => void;
+  onCancel: () => void;
+  onOpenSettings?: () => void;
+  workspaceId?: string;
+}) {
   const [entries, setEntries] = useState<KeyEntry[]>([]);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
@@ -347,7 +394,6 @@ function AllKeysModal({
     setEntries(
       missingKeys.map((key) => ({
         key,
-        label: getKeyLabel(key),
         value: "",
         saved: false,
         saving: false,
@@ -427,13 +473,19 @@ function AllKeysModal({
 
   if (!open) return null;
 
-  const allSaved = entries.every((e) => e.saved);
+  const allSaved = entries.length > 0 && entries.every((e) => e.saved);
   const anySaving = entries.some((e) => e.saving);
-  const runtimeLabel = runtime.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const runtimeLabel = runtime
+    .replace(/[-_]/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div aria-hidden="true" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onCancel} />
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        onClick={onCancel}
+      />
 
       <div
         role="dialog"
@@ -443,7 +495,10 @@ function AllKeysModal({
       >
         <div className="px-5 py-4 border-b border-zinc-800">
           <div className="flex items-center gap-2 mb-1">
-            <div className="w-5 h-5 rounded-md bg-amber-600/20 border border-amber-500/30 flex items-center justify-center" aria-hidden="true">
+            <div
+              className="w-5 h-5 rounded-md bg-amber-600/20 border border-amber-500/30 flex items-center justify-center"
+              aria-hidden="true"
+            >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                 <path d="M6 1L11 10H1L6 1Z" stroke="#fbbf24" strokeWidth="1.2" strokeLinejoin="round" />
                 <path d="M6 5V7" stroke="#fbbf24" strokeWidth="1.2" strokeLinecap="round" />
@@ -455,8 +510,8 @@ function AllKeysModal({
             </h3>
           </div>
           <p className="text-[12px] text-zinc-400 leading-relaxed">
-            The <span className="text-amber-300 font-medium">{runtimeLabel}</span> runtime
-            requires the following keys to be configured before deploying.
+            The <span className="text-amber-300 font-medium">{runtimeLabel}</span>{" "}
+            runtime requires the following keys to be configured before deploying.
           </p>
         </div>
 
@@ -468,7 +523,9 @@ function AllKeysModal({
             >
               <div className="flex items-center justify-between mb-1">
                 <div>
-                  <div className="text-[11px] text-zinc-300 font-medium">{entry.label}</div>
+                  <div className="text-[11px] text-zinc-300 font-medium">
+                    {getKeyLabel(entry.key)}
+                  </div>
                   <div className="text-[9px] font-mono text-zinc-500">{entry.key}</div>
                 </div>
                 {entry.saved && (
