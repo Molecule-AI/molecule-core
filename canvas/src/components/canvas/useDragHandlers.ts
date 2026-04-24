@@ -232,13 +232,24 @@ export function useDragHandlers(): DragHandlers {
     const start = dragStartStateRef.current;
     if (start) {
       const { nodes } = useCanvasStore.getState();
-      useCanvasStore.setState({
-        nodes: nodes.map((n) =>
-          n.id === start.nodeId
-            ? { ...n, position: start.position }
-            : n,
-        ),
+      // Strip the parent's explicit width/height while we're restoring
+      // the child. `growParentsToFitChildren` ran on drag-stop to fit
+      // the then-outside child, so without this step the parent stays
+      // visibly grown even after the child snaps back inside.
+      // Clearing width/height lets React Flow re-measure from CSS
+      // min-width/min-height, which collapses to the actual content.
+      const nextNodes = nodes.map((n) => {
+        if (n.id === start.nodeId) {
+          return { ...n, position: start.position };
+        }
+        if (start.parentId && n.id === start.parentId) {
+          const { width: _w, height: _h, ...rest } = n;
+          void _w; void _h;
+          return rest as typeof n;
+        }
+        return n;
       });
+      useCanvasStore.setState({ nodes: nextNodes });
       // Write the restore back to the DB so a reload shows the same
       // position. Convert the stored relative position back to absolute
       // via the parent's absolute origin before saving.
