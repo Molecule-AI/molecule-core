@@ -69,16 +69,25 @@ export function ChannelsTab({ workspaceId }: Props) {
       api.get<Channel[]>(`/workspaces/${workspaceId}/channels`),
       api.get<ChannelAdapter[]>(`/channels/adapters`),
     ]);
+    const errors: string[] = [];
     if (chResult.status === "fulfilled") {
       setChannels(Array.isArray(chResult.value) ? chResult.value : []);
     } else {
       console.warn("ChannelsTab: channels load failed", chResult.reason);
+      errors.push("connected channels");
     }
     if (adResult.status === "fulfilled") {
       setAdapters(Array.isArray(adResult.value) ? adResult.value : []);
     } else {
       console.warn("ChannelsTab: adapters load failed", adResult.reason);
-      setError("Failed to load channel platforms — try refreshing");
+      errors.push("platforms");
+    }
+    // Surface BOTH failure modes so the user can distinguish
+    // "no channels configured" from "API unreachable".
+    if (errors.length > 0) {
+      setError(`Failed to load ${errors.join(" and ")} — try refreshing`);
+    } else {
+      setError("");
     }
     setLoading(false);
   }, [workspaceId]);

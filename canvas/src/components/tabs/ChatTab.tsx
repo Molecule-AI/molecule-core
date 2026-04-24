@@ -152,7 +152,6 @@ export function ChatTab({ workspaceId, data }: Props) {
         id="chat-panel-my-chat"
         role="tabpanel"
         aria-labelledby="chat-tab-my-chat"
-        aria-hidden={subTab !== "my-chat"}
         className={`flex-1 overflow-hidden flex-col ${
           subTab === "my-chat" ? "flex" : "hidden"
         }`}
@@ -163,7 +162,6 @@ export function ChatTab({ workspaceId, data }: Props) {
         id="chat-panel-agent-comms"
         role="tabpanel"
         aria-labelledby="chat-tab-agent-comms"
-        aria-hidden={subTab !== "agent-comms"}
         className={`flex-1 overflow-hidden flex-col ${
           subTab === "agent-comms" ? "flex" : "hidden"
         }`}
