@@ -3,10 +3,13 @@
 **Owner:** Community Manager
 **Use:** Ready-to-deploy response templates for launch day inbound questions
 **Date:** 2026-04-23
-**Status:** READY — hold posting until PM confirms GA vs Beta framing
+**Status:** ⚠️ HOLD — GA vs Beta label conflict unresolved (PM must confirm)
 
-> ⚠️ HOLD ON ALL PHASE 34 GA POSTING — GA vs Beta conflict unresolved.
-> Do not post Discord announcement, Reddit, or HN until PM confirms framing.
+> ⚠️ **ALL PHASE 34 POSTING ON HOLD.**
+> Internal positioning briefs say "BETA" for Tool Trace + Platform Instructions.
+> External launch assets say "live now / GA."
+> PM must confirm labeling before any Discord announcement, Reddit, or HN post goes live.
+> Full conflict documented at `docs/marketing/briefs/phase34-ga-vs-beta-conflict.md`.
 
 ---
 
