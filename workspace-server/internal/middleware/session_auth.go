@@ -230,11 +230,3 @@ func VerifiedCPSession(cookieHeader string) (valid, presented bool) {
 	sessionCachePut(key, true)
 	return true, true
 }
-
-// VerifiedCPSession is the exported alias for handlers/discovery.go.
-// Internal-only deployments (self-hosted / dev) where CP_UPSTREAM_URL
-// is unset get (false, true) so the session path is skipped and the
-// bearer token path runs as normal.
-func VerifiedCPSession(cookieHeader string) (valid, presented bool) {
-	return verifiedCPSession(cookieHeader)
-}
