@@ -32,6 +32,10 @@ export interface Plan {
 // plans is the canonical order shown on the pricing page: free → starter
 // → pro. Change the order here + the rendered columns follow. Keeping
 // this as a module-level const so tests can assert against a known list.
+//
+// Flat-rate positioning (Issue #1833): "starter" and "pro" are flat-rate
+// per-org, not per-seat. This is a deliberate wedge against Cursor/Windsurf
+// ($40/seat) — at 5 engineers the Team tier is 28% cheaper.
 export const plans: Plan[] = [
   {
     id: "free",
@@ -48,8 +52,8 @@ export const plans: Plan[] = [
   },
   {
     id: "starter",
-    name: "Starter",
-    tagline: "For small teams shipping real agents",
+    name: "Team",
+    tagline: "Flat-rate for teams — one price, no per-seat fees",
     price: "$29/month",
     features: [
       "10 workspaces",
@@ -57,14 +61,15 @@ export const plans: Plan[] = [
       "Private Upstash Redis namespace",
       "Email support (48h)",
       "5M LLM tokens / month included",
+      "No per-seat pricing",
     ],
-    ctaLabel: "Upgrade to Starter",
+    ctaLabel: "Upgrade to Team",
     highlighted: true,
   },
   {
     id: "pro",
-    name: "Pro",
-    tagline: "For production multi-agent orgs",
+    name: "Growth",
+    tagline: "Flat-rate for production multi-agent orgs",
     price: "$99/month",
     features: [
       "Unlimited workspaces",
@@ -72,9 +77,10 @@ export const plans: Plan[] = [
       "Cross-workspace A2A audit log",
       "Priority support (24h)",
       "25M LLM tokens / month included",
+      "No per-seat pricing",
       "Usage-based overage billing",
     ],
-    ctaLabel: "Upgrade to Pro",
+    ctaLabel: "Upgrade to Growth",
   },
 ];
 
