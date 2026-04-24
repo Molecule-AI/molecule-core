@@ -42,8 +42,9 @@ Phase 34 also shipped this week:
 
 • Tool Trace — execution record in every A2A response
 • Platform Instructions — org-level system prompt via API
+• SaaS Federation v2 — multi-tenant control plane with cleaner org isolation
 
-Observability + governance. In one stack. [⚠️ SaaS Fed v2 — confirm PM before mentioning.]
+Observability + governance. In one stack.
 ```
 
 **Tweet 5 — CTA**
@@ -72,7 +73,7 @@ The core API is straightforward:
 
 This is infrastructure-first agent orchestration. You provision the platform; your customers use it. The model is closer to Stripe's API or Twilio's account provisioning than to a SaaS seat license.
 
-Phase 34 also delivered Tool Trace (full execution record in every A2A response) and Platform Instructions (org-level system prompt via API). Together, they give platform builders observability and governance as native platform primitives — not bolt-on integrations. [⚠️ SaaS Fed v2 — confirm with PM before referencing in published copy.]
+Phase 34 also delivered Tool Trace (full execution record in every A2A response), Platform Instructions (org-level system prompt via API), and SaaS Federation v2 (multi-tenant control plane with cleaner org isolation). Together, they give platform builders observability and governance as native platform primitives — not bolt-on integrations.
 
 We believe this makes Molecule AI the first agent platform with a first-class partner provisioning API.
 

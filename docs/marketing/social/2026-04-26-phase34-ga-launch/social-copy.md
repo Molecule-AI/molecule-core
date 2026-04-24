@@ -1,7 +1,8 @@
 # Phase 34 GA Launch — Social Copy
 **Campaign:** Phase 34 GA | **Features:** Tool Trace + Platform Instructions
-**Publish day:** 2026-04-26 (Day 6 of Phase 30 social campaign)
-**Status:** ✅ INTERNALLY CONSISTENT — awaiting Marketing Lead approval (2026-04-24)
+**Publish day:** ~~2026-04-26 (Day 6 of Phase 30 social campaign)~~ → **2026-04-30 (GA day)**
+**Status:** ✅ INTERNALLY CONSISTENT — awaiting Marketing Lead approval
+**⚠️ TEASER VERSION:** This file is the launch-day (Apr 30) canonical copy. Fork to `2026-04-26-phase34-teaser/social-copy.md` for the Apr 26 pre-launch teaser.
 **Conflicts resolved:** Platform Instructions = Enterprise plans only (confirmed via `router.go:376 AdminAuth`). Blog post was correct. Community FAQ wrong → fixed commit `6a9d52a3`.
 **Source:** PRs #1686 + #1824 + blog posts `docs/blog/2026-04-23-tool-trace-*` and `docs/blog/2026-04-23-platform-instructions-governance`
 **Owner:** PMM → Social Media Brand | **Canonical:** `docs.molecule.ai/blog/tool-trace-platform-instructions`
@@ -36,7 +37,7 @@ Tool Trace: every tool call, every input, every output — in the response.
 ---
 
 ### Post 2 — What Tool Trace captures (product detail)
-Each A2A response from a Molecule AI agent now carries a structured tool trace:
+Each A2A response from a Molecule AI agent will carry a structured tool trace:
 
 → Which tools were called (Write, Bash, Grep, MCP tools)
 → What inputs were passed (file paths, commands, prompts)
@@ -57,7 +58,7 @@ Most platforms give you the result. Molecule AI gives you the trace.
 
 If you're running agents in production — especially anything touching code, data, or external APIs — you need this visibility before something goes wrong.
 
-Tool Trace is live on all Molecule AI plans.
+Tool Trace drops April 30 — on all Molecule AI plans.
 
 → [docs link]
 
@@ -94,13 +95,13 @@ Platform Instructions: Enterprise plans.
 ---
 
 ### Post 6 — CTA + Phase 34 reference
-Phase 34 shipped today: Tool Trace + Platform Instructions.
+Phase 34 drops April 30: Tool Trace + Platform Instructions.
 
 Tool Trace — every tool call, every input, every output — in every A2A response.
 
 Platform Instructions — org-wide and workspace-scoped governance at the system prompt level.
 
-If you're running AI agents in production and don't know what they're doing inside a turn — fix that.
+If you're running AI agents in production and don't know what they're doing inside a turn — this is worth watching.
 
 → [docs.molecule.ai/blog/tool-trace-platform-instructions]
 
@@ -116,11 +117,11 @@ When you're running an AI agent fleet in production — touching code, data pipe
 
 2. **Can we enforce what the agent should do at the platform level?** Before the first turn executes. Not a filter — a governance rule baked into the agent's instruction set.
 
-Most platforms answer neither question well. Some answer one. Phase 34 from Molecule AI ships both:
+Most platforms answer neither question well. Some answer one. Phase 34 changes that:
 
-**Tool Trace** — embedded in every A2A response. Every tool call, input, output preview, parallel call grouping, and timing metadata. The full trace without an extra API call. Available on all plans.
+**Tool Trace** — embedded in every A2A response (April 30). Every tool call, input, output preview, parallel call grouping, and timing metadata. The full trace without an extra API call. On all plans.
 
-**Platform Instructions** — configurable rules scoped globally or per-workspace. Enforced before every agent turn. The rule is part of the system prompt, not a filter applied after. Available to org admins on Enterprise plans.
+**Platform Instructions** — configurable rules scoped globally or per-workspace (April 30). Enforced before every agent turn. The rule is part of the system prompt, not a filter applied after. Available to org admins on Enterprise plans.
 
 Together: write the policy once, enforce it everywhere, trace every execution.
 

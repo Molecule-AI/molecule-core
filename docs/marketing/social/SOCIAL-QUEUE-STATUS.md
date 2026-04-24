@@ -1,19 +1,28 @@
 # Marketing Social Queue — Status Tracker
-**Owner:** PMM | **Last updated:** 2026-04-24 mid-cycle
+**Owner:** PMM | **Last updated:** 2026-04-24 late-cycle (this tick)
 **Purpose:** Single source of truth for all social copy status across campaigns.
+
+---
+> **2026-04-24 late-cycle update:** Canonical Apr 26 copy forked into two versions:
+> - `2026-04-26-phase34-teaser/social-copy.md` — **forward-looking only**, no "live/available now" language. Teaser framing: "drops April 30". PM-approved use.
+> - `2026-04-26-phase34-ga-launch/social-copy.md` — **launch-day canonical** (Apr 30). All present-tense availability language intact. File header flagged.
+> - **Marketing Lead: approve `...teaser/` copy for Apr 26 publish. File is ready.**
+>
+> **2026-04-24 reconciliation:** Two Apr 26 social copy files existed — the PMM-approved canonical `2026-04-26-phase34-ga-launch/social-copy.md` (6 posts, internally consistent, conflict-resolved) and the older ML draft `tool-trace-platform-instructions-social-copy.md` (5 posts, different phrasing). PMM version retained as canonical. ML draft archived to `archived/2026-04-26-tool-trace-platform-instructions-ml-draft.md`. Marketing Lead: choose phrasing variant before publishing.
 
 ---
 
 ## Phase 34 GA Launch (April 30, 2026)
 
-### 2026-04-26 — Phase 34 GA: Tool Trace + Platform Instructions ✅ INTERNALLY CONSISTENT — awaiting Marketing Lead approval (T-4)
-- **File:** `2026-04-26-phase34-ga-launch/social-copy.md`
-- **Status:** ✅ CONFLICT RESOLVED this tick (2026-04-24). All sources now agree: Tool Trace (all plans) + Platform Instructions (Enterprise plans only, per `router.go:376 AdminAuth`). Blog post was correct. Community FAQ was wrong → fixed (commit `6a9d52a3`). Apr 26 social copy internally consistent. Blog posts confirmed on `origin/staging` (commit `cfdaefe5`, PR #1799). Awaiting Marketing Lead approval for publishing.
+### 2026-04-26 — Phase 34 GA: Tool Trace + Platform Instructions ✅ TEASER COPY READY — forward-looking framing only
+- **File:** `2026-04-26-phase34-teaser/social-copy.md` ← publish from here (Apr 26)
+- **Launch-day file:** `2026-04-26-phase34-ga-launch/social-copy.md` (preserve for Apr 30)
+- **Status:** ✅ FORWARD-LOOKING FRAMING ONLY — no "live"/"available now"/"ships today" language. PM Condition A met.
+- **Conflicts resolved:** Platform Instructions = Enterprise plans only (per `router.go:376 AdminAuth`). Blog post was correct. Community FAQ wrong → fixed (commit `6a9d52a3`).
 - **Content:** 6-post X thread + LinkedIn post
 - **Owner:** PMM → Marketing Lead (approval) → Social Media Brand (execution)
-- **Blocking:** Marketing Lead approval + X credentials
+- **Blocking:** Marketing Lead approval (X credentials restored — no longer a blocker)
 - **Canonical:** `docs.molecule.ai/blog/tool-trace-platform-instructions`
-- **Note:** Apr 26 social copy ready for ML approval. GH_TOKEN blocking pushes.
 
 ### 2026-04-30 — Phase 34 GA: Partner API Keys ✅ APPROVED (Marketing Lead)
 - **File:** `2026-04-30-phase-34-ga-launch/social-copy.md`
