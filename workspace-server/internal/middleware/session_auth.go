@@ -230,11 +230,3 @@ func VerifiedCPSession(cookieHeader string) (valid, presented bool) {
 	sessionCachePut(key, true)
 	return true, true
 }
-
-// VerifiedCPSession is the exported alias — callers in other packages
-// (discovery.go, wsauth_middleware.go) use this name. Internal-only
-// deployments (self-hosted/dev) where CP_UPSTREAM_URL is unset get
-// (false, true) so the session path is skipped and bearer token auth runs.
-func VerifiedCPSession(cookieHeader string) (valid, presented bool) {
-	return verifiedCPSession(cookieHeader)
-}
