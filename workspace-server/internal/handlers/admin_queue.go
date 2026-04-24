@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/gin-gonic/gin"
 )
 
