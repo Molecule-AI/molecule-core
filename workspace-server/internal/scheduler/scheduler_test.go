@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 
@@ -599,3 +600,55 @@ func TestRecordSkipped_AdvancesNextRunAt(t *testing.T) {
 	}
 }
 // trigger CI
+
+// ── TestTruncate_utf8Safe_regression2026 ──────────────────────────────────────
+
+// TestTruncate_utf8Safe_regression2026 locks in the #2026 fix: truncate must
+// never split a multi-byte UTF-8 rune. Before the fix, a prompt whose byte-197
+// landed mid-rune (e.g. U+2026 `…` = 0xe2 0x80 0xa6) would be sliced at
+// maxLen-3 and produce the sequence 0xe2 0x80 0x2e when concatenated with
+// "...", which Postgres rejects as invalid UTF-8 — wedging the activity_logs
+// INSERT and stalling the entire scheduler.
+func TestTruncate_utf8Safe_regression2026(t *testing.T) {
+	// Build a prompt where the byte at position 197 is the middle of the
+	// 3-byte rune U+2026 (`…`). With maxLen=200 the pre-fix code slices at
+	// byte 197 (maxLen-3), which lands on `0x80` — a continuation byte.
+	filler := ""
+	for len(filler) < 195 {
+		filler += "a"
+	}
+	input := filler + "…xxx" // 195 ASCII + 3-byte rune + 3 trailing
+	out := truncate(input, 200)
+
+	if !utf8.ValidString(out) {
+		t.Fatalf("truncate produced invalid UTF-8: %x", []byte(out))
+	}
+	// Must not contain the 0xe2 0x80 0x2e wedge sequence (partial rune
+	// followed by the "..." suffix).
+	for i := 0; i < len(out)-2; i++ {
+		if out[i] == 0xe2 && out[i+1] == 0x80 && out[i+2] == 0x2e {
+			t.Fatalf("truncate produced the 0xe2 0x80 0x2e wedge sequence at byte %d", i)
+		}
+	}
+	if len(out) > 200 {
+		t.Fatalf("truncate returned %d bytes, want <= 200", len(out))
+	}
+}
+
+// ── TestSanitizeUTF8 ──────────────────────────────────────────────────────────
+
+// TestSanitizeUTF8 confirms sanitizeUTF8 leaves valid UTF-8 unchanged and
+// replaces invalid sequences with the Unicode replacement character.
+func TestSanitizeUTF8(t *testing.T) {
+	// Valid UTF-8 passes through unchanged.
+	valid := "hello … world"
+	if got := sanitizeUTF8(valid); got != valid {
+		t.Errorf("sanitizeUTF8(valid) = %q, want %q", got, valid)
+	}
+	// Invalid UTF-8 (orphan continuation byte) is sanitized.
+	bad := "hello \x80 world"
+	out := sanitizeUTF8(bad)
+	if !utf8.ValidString(out) {
+		t.Errorf("sanitizeUTF8 did not produce valid UTF-8: %x", []byte(out))
+	}
+}
