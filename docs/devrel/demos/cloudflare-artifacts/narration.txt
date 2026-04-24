@@ -1,0 +1,13 @@
+Every Molecule AI workspace can now have its own versioned Git repo on Cloudflare's edge.
+
+Here's how it works in three steps.
+
+First: attach a Cloudflare Artifacts Git repo to a workspace with a single API call. The platform calls the CF Artifacts API, creates the repo, and links it to your workspace. The remote URL is returned, with credentials stripped — nothing sensitive is stored.
+
+Second: mint a short-lived Git credential. Each push gets a fresh token, scoped to this workspace, valid for up to seven days. The plaintext token is shown exactly once at mint time. After that, it's gone from the server — only the hash is kept.
+
+Third: clone, commit, push. The agent pulls the repo, writes its work as a Git commit — every agent run becomes a versioned snapshot — and pushes it back. Nothing is lost. Every decision is traceable.
+
+And before a risky experiment: fork first. The fork creates an isolated copy on Cloudflare. If the experiment succeeds, merge back. If it fails, discard the fork. Main stays clean.
+
+Cloudflare Artifacts: versioned snapshots, isolated forks, short-lived credentials. Every agent run is a Git commit.

@@ -2,10 +2,11 @@
 title: "AI Agent Observability Without the Overhead"
 date: 2026-04-23
 slug: ai-agent-observability-without-overhead
-description: "Tool Trace gives every A2A response a structured record of every tool call — inputs, output previews, run_id-paired parallel traces. No sampling, no sidecar, no guesswork."
+description: "Tool Trace records every tool call in every A2A response — inputs, output previews, run_id-paired for parallel calls. No SDK, no sidecar, no sampling."
 og_title: "AI Agent Observability Without the Overhead"
 og_description: "See every tool your agent called — inputs, outputs, timing — in every A2A response. Parallel traces handled correctly. No sampling overhead."
 tags: [observability, tool-trace, debugging, devops, platform-engineering, a2a, claude]
+og_image: /assets/blog/2026-04-23-tool-trace-observability/og.png
 keywords: [AI agent observability, tool trace debugging, Claude agent debugging, agent audit trail, parallel tool call trace, run_id pairing, AI agent monitoring, DevOps agent observability]
 canonical: https://docs.molecule.ai/blog/ai-agent-observability-without-overhead
 ---
@@ -110,3 +111,9 @@ Combined with the [org-scoped API key audit trail](/docs/blog/2026-04-21-org-sco
 ---
 
 *Molecule AI is open source. Tool Trace shipped in Phase 34 (2026-04-23).*
+
+---
+
+**Phase 34 also shipped:**
+→ [Platform Instructions: Governance at the System Prompt Level](/blog/tool-trace-platform-instructions) — set org-wide behavioral rules before the first agent turn
+→ [Partner API Keys: Programmatic Org Provisioning](/blog/partner-api-keys) — CI/CD-native ephemeral orgs via API
