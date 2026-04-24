@@ -252,16 +252,22 @@ export function buildNodesAndEdges(
       const pa = absPos.get(ws.parent_id!)!;
       position = { x: abs.x - pa.x, y: abs.y - pa.y };
 
-      // Trust-the-data default: keep the stored position even if it
-      // falls outside the parent bbox (matches Figma's "don't move my
-      // shapes" rule). The one exception is a child still at
-      // origin (0,0) in the absolute frame — that's almost certainly
-      // an unlaid-out org-import row and would stack every child on
-      // the same point. Drop those into the grid so the first paint
-      // isn't a useless pile. Users can always trigger "Arrange
-      // children" to rescue the rest.
-      const atOrigin = abs.x === 0 && abs.y === 0;
-      if (atOrigin) {
+      // Auto-rescue on load: if the child's stored relative position
+      // would render it outside the parent's current bounding box, drop
+      // it into the next default grid slot. This fixes three real
+      // failure modes at once: (1) legacy rows written before nesting
+      // existed, whose absolute coords have no relation to the parent;
+      // (2) org-imports at (0, 0); (3) a child whose parent was later
+      // resized smaller. Dragging a child past the edge after load is
+      // still the way to un-nest — that's handled separately in
+      // Canvas.onNodeDragStop with the hysteresis check.
+      const psize = parentSize.get(ws.parent_id!)!;
+      const outside =
+        position.x < 0 ||
+        position.y < 0 ||
+        position.x + CHILD_DEFAULT_WIDTH > psize.width ||
+        position.y + CHILD_DEFAULT_HEIGHT > psize.height;
+      if (outside) {
         const idx = nextChildIndex.get(ws.parent_id!) ?? 0;
         nextChildIndex.set(ws.parent_id!, idx + 1);
         position = defaultChildSlot(idx);

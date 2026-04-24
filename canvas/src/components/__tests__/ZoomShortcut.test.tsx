@@ -71,11 +71,14 @@ describe("Toolbar help panel — zoom shortcut entry", () => {
     expect(src).toContain("Zoom canvas to fit a team node");
   });
 
-  it("Canvas.tsx Z key handler guards against input elements", async () => {
+  it("Keyboard shortcuts hook guards against input elements", async () => {
     const { readFileSync } = await import("fs");
     const { join } = await import("path");
+    // After the canvas split (commit c5abed98 → f3423a51 series), the
+    // Z-key / hierarchy / zoom shortcuts moved out of Canvas.tsx into
+    // the useKeyboardShortcuts hook under src/components/canvas/.
     const src = readFileSync(
-      join(__dirname, "../../components/Canvas.tsx"),
+      join(__dirname, "../../components/canvas/useKeyboardShortcuts.ts"),
       "utf8"
     );
     expect(src).toContain('e.key === "z" || e.key === "Z"');

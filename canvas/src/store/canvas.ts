@@ -330,11 +330,163 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       await get().nestNode(nodeIds[0], targetId);
       return;
     }
-    // Run sequentially so each nestNode's absolute-position calc sees
-    // the previous update committed. Not a hot path — multi-select
-    // re-parents rarely touch more than a handful of nodes.
+    // Batch path: do all state math against one snapshot so every
+    // selected node sees the same "before" world, commit one set(),
+    // then fire every PATCH in parallel. Previously this called
+    // nestNode sequentially, which cost 2N round-trips (parent_id +
+    // x/y) strictly serialized; now it's 1 round-trip per node, all
+    // in flight at once. For a typical 3-5 node selection on a
+    // ~200ms link this drops the perceived re-parent latency from
+    // ~2s to ~200ms.
+    const { nodes: before, edges: beforeEdges } = get();
+    const byId = new Map(before.map((n) => [n.id, n]));
+
+    const absOf = (id: string | null | undefined): { x: number; y: number } => {
+      let sum = { x: 0, y: 0 };
+      let cursor: string | null | undefined = id;
+      while (cursor) {
+        const n = byId.get(cursor);
+        if (!n) break;
+        sum = { x: sum.x + n.position.x, y: sum.y + n.position.y };
+        cursor = n.data.parentId;
+      }
+      return sum;
+    };
+    const depthOf = (id: string | null | undefined): number => {
+      let d = 0;
+      let cursor: string | null | undefined = id;
+      while (cursor) {
+        const n = byId.get(cursor);
+        if (!n) break;
+        cursor = n.data.parentId;
+        d += 1;
+      }
+      return d;
+    };
+
+    const newParentAbs = absOf(targetId);
+    const newOwnDepth = targetId ? depthOf(targetId) + 1 : 0;
+
+    interface Plan {
+      id: string;
+      newRelative: { x: number; y: number };
+      draggedAbs: { x: number; y: number };
+      depthDelta: number;
+    }
+    const plan: Plan[] = [];
+    const movedIds = new Set<string>();
+    // Filter out nodes that would be invalid targets / no-ops.
     for (const id of nodeIds) {
-      await get().nestNode(id, targetId);
+      const dragged = byId.get(id);
+      if (!dragged) continue;
+      const currentParentId = dragged.data.parentId;
+      if (currentParentId === targetId) continue;
+      // Can't nest into yourself or your own descendant.
+      if (targetId && get().isDescendant(id, targetId)) continue;
+      const oldParentAbs = absOf(currentParentId);
+      const draggedAbs = {
+        x: dragged.position.x + oldParentAbs.x,
+        y: dragged.position.y + oldParentAbs.y,
+      };
+      const newRelative = {
+        x: draggedAbs.x - newParentAbs.x,
+        y: draggedAbs.y - newParentAbs.y,
+      };
+      const oldOwnDepth =
+        dragged.zIndex ?? depthOf(currentParentId) + (currentParentId ? 1 : 0);
+      plan.push({
+        id,
+        newRelative,
+        draggedAbs,
+        depthDelta: newOwnDepth - oldOwnDepth,
+      });
+      movedIds.add(id);
+      // Every descendant of a moved node also shifts by the same delta
+      // so grandchildren don't fall behind their re-parented ancestor.
+      const bfs = [id];
+      while (bfs.length) {
+        const head = bfs.shift()!;
+        for (const n of before) {
+          if (n.data.parentId === head && !movedIds.has(n.id)) {
+            movedIds.add(n.id);
+            bfs.push(n.id);
+          }
+        }
+      }
+    }
+
+    if (plan.length === 0) return;
+    const planById = new Map(plan.map((p) => [p.id, p]));
+
+    // One optimistic set() covers every re-parent + every descendant
+    // zIndex shift; no further state mutations before the PATCHes come
+    // back (failed PATCHes roll back individual nodes below).
+    set({
+      nodes: before.map((n) => {
+        const p = planById.get(n.id);
+        if (p) {
+          return {
+            ...n,
+            position: p.newRelative,
+            parentId: targetId ?? undefined,
+            zIndex: newOwnDepth,
+            data: { ...n.data, parentId: targetId },
+          };
+        }
+        // Descendant of a moved node — shift zIndex only. Find the
+        // nearest ancestor in `plan` (walking up parents) to know
+        // which depthDelta applies.
+        if (movedIds.has(n.id)) {
+          let cursor: string | null | undefined = n.data.parentId;
+          while (cursor) {
+            const anc = planById.get(cursor);
+            if (anc) {
+              if (anc.depthDelta === 0) break;
+              return { ...n, zIndex: (n.zIndex ?? 0) + anc.depthDelta };
+            }
+            cursor = byId.get(cursor)?.data.parentId ?? null;
+          }
+          return n;
+        }
+        return n;
+      }),
+      edges: beforeEdges.filter(
+        (e) => !movedIds.has(e.source) && !movedIds.has(e.target),
+      ),
+    });
+
+    // Fire every PATCH in parallel. Individual failures roll back just
+    // that node (others remain committed, matching the single-node
+    // rollback behaviour in nestNode).
+    const results = await Promise.allSettled(
+      plan.map((p) =>
+        api.patch(`/workspaces/${p.id}`, {
+          parent_id: targetId,
+          x: p.draggedAbs.x,
+          y: p.draggedAbs.y,
+        }),
+      ),
+    );
+    const rolledBack: string[] = [];
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].status === "rejected") rolledBack.push(plan[i].id);
+    }
+    if (rolledBack.length > 0) {
+      const rollbackSet = new Set(rolledBack);
+      set({
+        nodes: get().nodes.map((n) => {
+          if (!rollbackSet.has(n.id)) return n;
+          const original = byId.get(n.id);
+          if (!original) return n;
+          return {
+            ...n,
+            position: original.position,
+            parentId: original.parentId,
+            zIndex: original.zIndex,
+            data: { ...n.data, parentId: original.data.parentId },
+          };
+        }),
+      });
     }
   },
 
@@ -474,11 +626,16 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
 
     try {
-      await api.patch(`/workspaces/${draggedId}`, { parent_id: targetId });
-      // Persist absolute position as DB canonical (matches what
-      // savePosition writes elsewhere); keeps reloads stable regardless
-      // of which parent the child was under at save time.
-      await api.patch(`/workspaces/${draggedId}`, { x: draggedAbs.x, y: draggedAbs.y });
+      // One round-trip per nest: the /workspaces/:id PATCH handler
+      // accepts parent_id + x + y in a single body. The absolute x/y
+      // is what the DB stores as canonical (matches savePosition
+      // elsewhere), so reload renders the same place regardless of
+      // which parent the child was under at save time.
+      await api.patch(`/workspaces/${draggedId}`, {
+        parent_id: targetId,
+        x: draggedAbs.x,
+        y: draggedAbs.y,
+      });
     } catch {
       set({
         nodes: get().nodes.map((n) =>
