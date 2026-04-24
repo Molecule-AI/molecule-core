@@ -60,7 +60,7 @@ What this looks like in a GitHub Actions workflow:
 
 Create → test → teardown. The `if: always()` ensures cleanup even on failure.
 
-Full CI/CD example in the partner onboarding guide: docs.molecule.ai/docs/guides/partner-onboarding#cicd-example
+Full CI/CD example in the partner onboarding guide: https://doc.moleculesai.app/blog/tool-trace-platform-instructions
 
 ---
 
@@ -70,7 +70,7 @@ Partner API Keys go GA April 30.
 
 If your team tests against a shared staging org today, this is worth looking at before your next sprint planning.
 
-Docs: docs.molecule.ai/docs/guides/partner-onboarding
+Docs: https://doc.moleculesai.app/blog/tool-trace-platform-instructions
 Partner Discord: join the conversation before launch day.
 
 ---

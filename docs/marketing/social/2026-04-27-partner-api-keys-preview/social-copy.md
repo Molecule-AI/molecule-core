@@ -46,7 +46,7 @@ Each pipeline run gets a clean org. No cross-contamination. No manual cleanup. C
 
 April 30. Partner API Keys go GA.
 
-Docs + partner onboarding guide: docs.molecule.ai/docs/guides/partner-onboarding
+Docs + partner onboarding guide: https://doc.moleculesai.app/blog/tool-trace-platform-instructions
 
 Building something? Come find us in the partner Discord before launch day.
 
