@@ -823,6 +823,11 @@ func TestCanvasOrBearer_TokensExist_NoCreds_Returns401(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("no creds: got %d, want 401", w.Code)
 	}
+	// Audit #32 regression: without `return` after AbortWithStatusJSON the handler
+	// overwrites the 401 with its own 200 body. Explicitly check the handler did NOT run.
+	if body := w.Body.String(); body == `{"ok":true}` {
+		t.Errorf("no creds: handler was called after AbortWithStatusJSON (got body %q — should be auth error, not handler output)", body)
+	}
 }
 
 func TestCanvasOrBearer_TokensExist_CanvasOrigin_Passes(t *testing.T) {
@@ -924,6 +929,12 @@ func TestCanvasOrBearer_TokensExist_WrongOrigin_Returns401(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("wrong origin: got %d, want 401", w.Code)
+	}
+	// Audit #32 regression: missing `return` after AbortWithStatusJSON caused requests
+	// to flow into the handler after writing 401, overwriting the status and body.
+	// Verify the final response is definitively the auth error, not handler output.
+	if body := w.Body.String(); body == `{"ok":true}` {
+		t.Errorf("wrong origin: handler was called after AbortWithStatusJSON (got body %q — should be auth error, not handler output)", body)
 	}
 }
 

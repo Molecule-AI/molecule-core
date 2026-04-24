@@ -289,6 +289,7 @@ func CanvasOrBearer(database *sql.DB) gin.HandlerFunc {
 		}
 
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "admin auth required"})
+		return
 	}
 }
 
