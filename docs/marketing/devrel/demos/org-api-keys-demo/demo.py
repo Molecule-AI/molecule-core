@@ -23,9 +23,7 @@ Usage:
 
 from __future__ import annotations
 
-import json, os, textwrap, time
-from dataclasses import dataclass
-from typing import Optional
+import os, textwrap, time
 
 try:
     import requests
