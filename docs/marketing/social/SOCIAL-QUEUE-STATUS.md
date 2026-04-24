@@ -68,7 +68,7 @@
 - **File:** `docs/marketing/campaigns/mcp-server-list/social-copy.md` (on staging, commit `0d3ad96`)
 - **Status:** Copy complete. Awaiting visual assets + X credentials.
 - **Content:** 5-post X thread + LinkedIn
-- **Canonical URL:** `docs.molecule.ai/blog/mcp-server-list`
+- **Canonical URL:** `https://doc.moleculesai.app/docs/blog/mcp-server-list` ⚠️ NOTE: blog section not yet published on doc.moleculesai.app — verify before posting
 - **Owner:** Social Media Brand
 - **Blocking:** Visual assets + X credentials
 
@@ -76,7 +76,7 @@
 - **File:** `discord-adapter-social-copy.md` (on staging)
 - **Status:** Copy complete. Awaiting Marketing Lead Day 2 approval + X credentials + visual assets.
 - **Content:** 4 X variants + LinkedIn + Reddit + HN copy
-- **Canonical URL:** `docs.molecule.ai/blog/discord-adapter` (live, PR #1301 merged)
+- **Canonical URL:** `https://doc.moleculesai.app/docs/channels/discord-adapter` (live, PR #1301 merged)
 - **Owner:** Social Media Brand → Marketing Lead (Day 2 approval)
 
 ---

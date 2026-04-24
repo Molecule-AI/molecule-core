@@ -1,67 +1,53 @@
-# Phase 34 Reddit Post
-
-**Target subreddits:** r/MachineLearning, r/LocalLLaMA, r/artificial  
-**Publish:** April 30, 2026 (GA day)  
-**Status:** APPROVED — Marketing Lead 2026-04-23
+# Phase 34 — Reddit Launch Post
+**Campaign:** Phase 34 GA (April 30, 2026)
+**Owner:** Community Manager
+**Target:** r/MachineLearning
+**Date:** 2026-04-23
+**Status:** READY — post April 30 ~09:00 PT / 16:00 UTC
 
 ---
 
-## Title (recommended)
+## Title options
 
-> Molecule AI Phase 34: built-in agent execution tracing + programmatic org provisioning API (GA today)
+1. "Molecule AI Phase 34: built-in agent execution tracing and governance — no SDK required" (recommended)
+2. "How are you handling agent observability in production? We just shipped a platform-native option"
+3. "Built agent execution tracing into the platform — no SDK, no sidecar, no sampling"
 
 ---
 
 ## Body
 
-We shipped Phase 34 today. Two things worth knowing about:
+We've been thinking about a specific gap in agent frameworks: when something goes wrong in a multi-step agent task, you often have no record of *what the agent actually did* — only what it returned.
 
-**Tool Trace** — every A2A response now includes a `tool_trace` field in `Message.metadata`. It's a structured list of every tool the agent called during the task: name, input, output preview, and a `run_id` for parallel calls. No SDK to install. No sampling. It's in the response envelope by default for every agent on every plan.
+Phase 34 ships two features aimed at that gap.
 
-```json
-{
-  "metadata": {
-    "tool_trace": [
-      {
-        "tool_name": "web_search",
-        "input": { "query": "molecule ai benchmarks" },
-        "output_preview": "Molecule AI ranked #1 in agent coordination latency..."
-      },
-      {
-        "tool_name": "write_file",
-        "input": { "path": "research/output.md", "content": "..." },
-        "output_preview": "File written successfully (2,847 bytes)"
-      }
-    ]
-  }
-}
+**Tool Trace** is a structured execution record embedded in every A2A response. For each tool your agent calls, you get the tool name, input params, and a short output preview — in order, with parallel calls paired via `run_id`. It's in the response envelope. No SDK, no sidecar, no sampling.
+
+```python
+response = agent.send(task="deploy to staging")
+for entry in response.metadata.tool_trace:
+    print(f"{entry['tool']}: {entry['input']} → {entry['output_preview']}")
 ```
 
-The trace is stored as JSONB in `activity_logs.tool_trace`, queryable, capped at 200 entries per response.
+Stored in `activity_logs` as JSONB — queryable and auditable. 200-entry cap prevents runaway loops. Works with custom MCP tools and built-in tools identically.
 
-**Partner API Keys (`mol_pk_*`)** — programmatic org provisioning via API. No browser session. CI/CD pipelines can spin up an isolated Molecule AI org per PR and tear it down on merge:
+**Platform Instructions** lets org admins set system-level rules that apply to every agent in the org — at startup, before the agent reads its own config. Think of it as a system prompt for your whole org. "Confirm before prod writes." "Tag all audit-sensitive operations." Rules are injected by the platform — workspace users can't remove them by editing config.yaml.
 
-```bash
-# Create ephemeral org
-curl -X POST https://api.molecule.ai/cp/admin/partner-keys \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -d '{"name": "ci-pr-142"}'
+Both are platform-native, not plugins. They live in the workspace startup path and the A2A response envelope — nothing to install, no external vendor relationship.
 
-# ... run tests ...
+**Partner API Keys** (`mol_pk_*`) are GA April 30 — programmatic org provisioning for CI/CD pipelines, marketplace integrations, internal tooling. Ephemeral test orgs per pipeline run, billed by the second, fully revocable.
 
-# Tear it down, billing stops
-curl -X DELETE https://api.molecule.ai/cp/admin/partner-keys/pk_xxx \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
-```
-
-**Phase 34 also ships:** Platform Instructions (set behavioral rules in agent system prompt via API, all plans) and SaaS Federation v2 (improved multi-tenant isolation).
-
-**Honest caveats:** Rate limits per partner key are still being confirmed. SaaS Fed v2 docs are sparse — we'll have more detail post-launch. The workspace-server is open source at github.com/Molecule-AI/molecule-core if you want to look at the Tool Trace implementation directly.
-
-Docs: https://docs.molecule.ai/changelog/phase-34  
-Partner keys: https://docs.molecule.ai/api/partner-keys  
-Discord: #partner-program if you're building on top of this
+Curious what others are using for agent observability today — Langfuse, Helicone, custom logging? What are the pain points?
 
 ---
 
-*Marketing review note: Reddit tone is honest + technical. Do not add marketing language. Link to open source repo prominently. Acknowledge what's not yet confirmed (rate limits, SaaS Fed details).*
+## Posting notes
+
+- **Timing:** April 30, ~09:00 PT / 16:00 UTC
+- **Engagement SLA:** reply to top-level comments within 30 min
+- **Do not name** any design partners
+- **Partner API Keys:** frame as "ships April 30" — not available now
+- **Tool Trace + Platform Instructions:** available now for all plans
+- **SaaS Fed v2:** SaaS-only, affects multi-org operators — not relevant for most r/ML readers, skip unless asked
+
+**CTA:** Discord: discord.gg/moleculeai · Docs: docs.moleculesai.app/blog/tool-trace-platform-instructions

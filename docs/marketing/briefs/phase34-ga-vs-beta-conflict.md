@@ -1,8 +1,9 @@
 # CRITICAL: Phase 34 GA vs Beta Label Conflict
 
 **Date:** 2026-04-23  
-**Status:** 🔴 UNRESOLVED — Requires PM or PMM decision before April 30 publish  
-**Raised by:** Marketing Lead  
+**Status:** 🔴 UNRESOLVED — Requires PM decision before April 30 publish  
+**Raised by:** Marketing Lead + Community Manager  
+**Hold:** Phase 34 GA posting ON HOLD pending PM sign-off
 
 ---
 
@@ -12,86 +13,80 @@ Two sets of documents make contradictory claims about the Phase 34 launch label:
 
 ### Internal positioning docs say BETA
 
-`docs/marketing/briefs/phase34-positioning.md` (lines 83–85):
-> "Partner API Keys are **BETA** — do not claim GA in press materials."  
-> "Tool Trace and Platform Instructions shipped via PR #1686 — **BETA**."  
-> "SaaS Federation v2 — **BETA** or **EARLY ACCESS**, pending PM label confirmation."
+`docs/marketing/briefs/phase34-positioning.md`:
+> *"Partner API Keys are **BETA** — do not claim GA in press materials. Use 'now available in beta' or 'shipping April 30, 2026.'"*  
+> *"Tool Trace and Platform Instructions shipped via PR #1686 — **BETA**."*  
+> *"SaaS Federation v2 — **BETA** or **EARLY ACCESS**, pending PM label confirmation."*
 
 `docs/marketing/briefs/phase34-messaging-matrix.md`:
-> Partner API Keys HN/Reddit framing: "**Do NOT claim GA.** Use 'beta' or 'now available.'"  
-> Tool Trace HN/Reddit framing: "Be honest: **this is a beta feature.**"
+> *"HN/Reddit framing: 'Be honest: this is a beta feature.'"* (Tool Trace)  
+> *"SaaS Federation v2: **Do NOT draft community copy for this feature** until PM confirms the GA/beta/alpha label."*
 
 ### Approved external-facing launch posts say GA
 
 | File | Language |
 |------|----------|
-| `docs/marketing/launches/phase-34-hn-show-hn.md` | "Molecule AI – every agent tool call now logged in A2A response (no SDK, **GA today**)" — APPROVED ML 2026-04-23 |
-| `docs/marketing/launches/phase-34-reddit-post.md` | "Molecule AI Phase 34: built-in agent execution tracing + programmatic org provisioning API (**GA today**)" — APPROVED ML 2026-04-23 |
-| `docs/marketing/social/2026-04-26-phase34-ga-launch/social-copy.md` | "🚀 **Phase 34 is GA.**" — APPROVED ML 2026-04-23 |
-| `docs/marketing/launches/phase-34-community-announcement.md` | "Partner API Keys (`mol_pk_*`) — **GA April 30**" |
-| `docs/marketing/blog/2026-04-30-partner-api-keys-ga.md` | Blog title contains "**GA**" — published on April 30 |
+| `docs/marketing/launches/phase-34-hn-show-hn.md` | "GA today" — APPROVED ML 2026-04-23 |
+| `docs/marketing/launches/phase-34-reddit-post.md` | "GA today" — APPROVED ML 2026-04-23 |
+| `docs/marketing/social/2026-04-26-phase34-ga-launch/social-copy.md` | "Phase 34 is GA" — APPROVED ML 2026-04-23 |
+| `docs/marketing/launches/phase-34-community-announcement.md` | "Partner API Keys — GA April 30" |
+| `docs/marketing/blog/2026-04-30-partner-api-keys-ga.md` | Blog title contains "GA" |
 
 ---
 
-## Resolution Required
+## Feature-by-Feature Conflict Table
 
-**PM or PMM must confirm the authoritative launch label for each feature before April 30:**
-
-| Feature | Internal brief says | External posts say | Confirm: |
-|---------|--------------------|--------------------|---------|
-| Tool Trace | Beta | GA | GA / Beta? |
-| Platform Instructions | Beta | GA | GA / Beta? |
-| Partner API Keys | Beta — Do NOT claim GA | GA today | GA / Beta? |
-| SaaS Federation v2 | BETA or Early Access (TBD) | "improved multi-org federation" (vague) | GA / Beta / EA? |
+| Feature | Internal brief | External assets | Severity |
+|---------|---------------|-----------------|----------|
+| Tool Trace | BETA | "live now" / GA | 🔴 HIGH |
+| Platform Instructions | BETA | "live now" / GA | 🔴 HIGH |
+| Partner API Keys | BETA (shipping Apr 30) | "GA April 30" | 🟡 LOW — aligns on date |
+| SaaS Fed v2 | BETA or EARLY ACCESS | "live now" | 🟠 MEDIUM |
 
 ---
 
-## If Decision Is GA (External posts are correct)
+## Questions for PM
 
-No changes needed to launch assets. Update internal positioning brief and messaging matrix to reflect GA status. Delete or update the internal BETA language so it doesn't contradict future copy.
+1. Is Tool Trace **GA or BETA**? (Internal brief says BETA, external assets say live)
+2. Is Platform Instructions **GA or BETA**? (Internal brief says BETA, external assets say live)
+3. Is SaaS Fed v2 ready for external community copy at all? (Brief says do NOT draft copy)
+4. Should Partner API Keys be "BETA — GA April 30" or "shipping April 30"?
 
 ---
 
-## If Decision Is Beta (Internal briefs are correct)
+## Resolution Paths
 
+### If Decision Is GA (external posts are correct)
+No changes needed to launch assets. Update internal positioning brief and messaging matrix to reflect GA status.
+
+### If Decision Is Beta (internal briefs are correct)
 The following files must be edited before April 30 publish:
 
-1. **`docs/marketing/launches/phase-34-hn-show-hn.md`**
-   - Title: "GA today" → "now in beta" or "beta today"
-   - Body: "GA today" → "shipping in beta today"
-
-2. **`docs/marketing/launches/phase-34-reddit-post.md`**
-   - Title: "GA today" → "now available in beta"
-   - Body: soften GA language throughout
-
-3. **`docs/marketing/social/2026-04-26-phase34-ga-launch/social-copy.md`**
-   - Post 1: "Phase 34 is GA" → "Phase 34 is live" or "Phase 34 is in beta"
-   - Multiple posts reference "GA" — audit required
-
-4. **`docs/marketing/launches/phase-34-community-announcement.md`**
-   - "Partner API Keys — GA April 30" → "Partner API Keys — beta April 30"
-
-5. **`docs/marketing/blog/2026-04-30-partner-api-keys-ga.md`**
-   - Rename file and update title — remove "GA" from title
-   - Update body language throughout
-
-6. **`docs/marketing/launches/partner-onboarding-guide.md`**
-   - Update any "GA" references to "beta"
-
-7. **`docs/marketing/launches/phase-34-community-faq.md`**
-   - Q&A answers referencing GA status
+1. `docs/marketing/launches/phase-34-hn-show-hn.md` — soften "GA today" → "now in beta" / "shipping today"
+2. `docs/marketing/launches/phase-34-reddit-post.md` — soften "GA today" throughout
+3. `docs/marketing/social/2026-04-26-phase34-ga-launch/social-copy.md` — audit all GA references
+4. `docs/marketing/launches/phase-34-community-announcement.md` — "GA April 30" → "beta April 30"
+5. `docs/marketing/blog/2026-04-30-partner-api-keys-ga.md` — rename file + update title and body
+6. `docs/marketing/launches/partner-onboarding-guide.md` — update any GA references
+7. `docs/marketing/launches/phase-34-community-faq.md` — Q&A answers referencing GA status
 
 ---
 
 ## Context Note
 
-The GA label was used in all external launch assets written 2026-04-23 during the Phase 34 launch prep sprint. The internal positioning briefs (also 2026-04-23) predate the external copy and may reflect an earlier working assumption. The external assets reflect a subsequent (implicit) GA decision.
+The GA label was used in all external launch assets written 2026-04-23. The internal positioning briefs (also 2026-04-23) predate the external copy and may reflect an earlier working assumption.
 
-**Most likely resolution:** PM confirms GA, internal briefs are updated to reflect the final decision.  
+**Most likely resolution:** PM confirms GA, internal briefs are updated to match.  
 **Worst case:** PM confirms Beta, 7 external files need editing before April 30.
-
-PM + PMM: please confirm via `/docs/marketing/briefs/phase34-ga-vs-beta-conflict.md`.
 
 ---
 
-*Marketing Lead 2026-04-23. PM and PMM unreachable via A2A at time of writing (delegation failures). Surfaced for human decision.*
+## Current Posture
+
+All Phase 34 GA posting is **ON HOLD** pending PM sign-off. Assets are committed locally on `marketing/phase-34-launch-prep`. Once PM resolves the GA vs Beta question, the hold can lift.
+
+Response queue (`phase-34-community-response-queue.md`) is built and ready for when the hold lifts.
+
+---
+
+*Marketing Lead + Community Manager, 2026-04-23. PM must resolve before any public Phase 34 launch post.*
