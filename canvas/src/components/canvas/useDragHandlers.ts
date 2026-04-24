@@ -9,6 +9,8 @@ import {
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { clampChildIntoParent, shouldDetach } from "./dragUtils";
 
+type WorkspaceNode = Node<WorkspaceNodeData>;
+
 export interface PendingNestState {
   nodeId: string;
   targetId: string | null;
@@ -24,6 +26,8 @@ interface DragHandlers {
   confirmNest: () => void;
   cancelNest: () => void;
 }
+
+
 
 /**
  * Encapsulates every drag gesture on the canvas:
@@ -48,7 +52,6 @@ export function useDragHandlers(): DragHandlers {
   const isDescendant = useCanvasStore((s) => s.isDescendant);
   const { getInternalNode } = useReactFlow();
 
-  const dragStartParentRef = useRef<string | null>(null);
   const dragModifiersRef = useRef<{ alt: boolean; meta: boolean }>({
     alt: false,
     meta: false,
@@ -98,9 +101,8 @@ export function useDragHandlers(): DragHandlers {
     [getInternalNode, isDescendant],
   );
 
-  const onNodeDragStart: OnNodeDrag<Node<WorkspaceNodeData>> = useCallback(
-    (event, node) => {
-      dragStartParentRef.current = (node.data as WorkspaceNodeData).parentId;
+  const onNodeDragStart: OnNodeDrag<WorkspaceNode> = useCallback(
+    (event) => {
       dragModifiersRef.current = {
         alt: event.altKey,
         meta: event.metaKey || event.ctrlKey,
@@ -109,7 +111,7 @@ export function useDragHandlers(): DragHandlers {
     [],
   );
 
-  const onNodeDrag: OnNodeDrag<Node<WorkspaceNodeData>> = useCallback(
+  const onNodeDrag: OnNodeDrag<WorkspaceNode> = useCallback(
     (event, node) => {
       dragModifiersRef.current = {
         alt: event.altKey,
@@ -129,13 +131,13 @@ export function useDragHandlers(): DragHandlers {
     [findDropTarget, getInternalNode, setDragOverNode],
   );
 
-  const onNodeDragStop: OnNodeDrag<Node<WorkspaceNodeData>> = useCallback(
+  const onNodeDragStop: OnNodeDrag<WorkspaceNode> = useCallback(
     (event, node) => {
       const { dragOverNodeId, nodes: allNodes } = useCanvasStore.getState();
       setDragOverNode(null);
 
-      const nodeName = (node.data as WorkspaceNodeData).name;
-      const currentParentId = (node.data as WorkspaceNodeData).parentId;
+      const nodeName = node.data.name;
+      const currentParentId = node.data.parentId;
       const altHeld = event.altKey || dragModifiersRef.current.alt;
       const forceDetach =
         event.metaKey || event.ctrlKey || dragModifiersRef.current.meta;
@@ -188,16 +190,21 @@ export function useDragHandlers(): DragHandlers {
 
   const confirmNest = useCallback(() => {
     if (!pendingNest) return;
+    // Close the dialog before dispatching the async store action so a
+    // second drag can't kick off a competing batch while this one is
+    // still mid-flight. The store actions surface their own errors via
+    // showToast, so `void` is the right pattern here.
+    const pending = pendingNest;
+    setPendingNest(null);
     const state = useCanvasStore.getState();
     if (
       state.selectedNodeIds.size > 1 &&
-      state.selectedNodeIds.has(pendingNest.nodeId)
+      state.selectedNodeIds.has(pending.nodeId)
     ) {
-      batchNest(Array.from(state.selectedNodeIds), pendingNest.targetId);
+      void batchNest(Array.from(state.selectedNodeIds), pending.targetId);
     } else {
-      nestNode(pendingNest.nodeId, pendingNest.targetId);
+      void nestNode(pending.nodeId, pending.targetId);
     }
-    setPendingNest(null);
   }, [pendingNest, nestNode, batchNest]);
 
   const cancelNest = useCallback(() => setPendingNest(null), []);

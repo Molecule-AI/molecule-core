@@ -952,3 +952,78 @@ describe("bumpZOrder", () => {
     expect(afterZ).toEqual(beforeZ);
   });
 });
+
+// ---------- batchNest ----------
+
+describe("batchNest", () => {
+  beforeEach(() => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockClear();
+    // Scenario: two root nodes (a, b) and one nested under a (a-child).
+    // Tests below re-parent various subsets into `target`.
+    useCanvasStore.getState().hydrate([
+      makeWS({ id: "target", name: "Target", x: 1000, y: 0 }),
+      makeWS({ id: "a", name: "A", x: 0, y: 0 }),
+      makeWS({ id: "b", name: "B", x: 200, y: 0 }),
+      makeWS({ id: "a-child", name: "A/Child", parent_id: "a", x: 50, y: 50 }),
+    ]);
+  });
+
+  it("re-parents every selected root into the target via one PATCH each", async () => {
+    const mock = global.fetch as ReturnType<typeof vi.fn>;
+    mock.mockImplementation(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response),
+    );
+    // Clear any PATCHes that hydrate's computeAutoLayout may have fired
+    // (auto-positioned workspaces trigger a savePosition → PATCH).
+    mock.mockClear();
+    await useCanvasStore.getState().batchNest(["a", "b"], "target");
+    const nodes = useCanvasStore.getState().nodes;
+    expect(nodes.find((n) => n.id === "a")!.data.parentId).toBe("target");
+    expect(nodes.find((n) => n.id === "b")!.data.parentId).toBe("target");
+    // Every PATCH fired by batchNest should target /workspaces/<id>
+    // and carry `parent_id: "target"` plus absolute x,y. One per root.
+    const nestPatchCalls = mock.mock.calls.filter((c) => {
+      const init = c[1] as RequestInit | undefined;
+      if (init?.method !== "PATCH") return false;
+      const body = init.body ? JSON.parse(init.body as string) : {};
+      return body.parent_id === "target";
+    });
+    expect(nestPatchCalls).toHaveLength(2);
+    for (const call of nestPatchCalls) {
+      const body = JSON.parse((call[1] as RequestInit).body as string);
+      expect(body.x).toBeTypeOf("number");
+      expect(body.y).toBeTypeOf("number");
+    }
+  });
+
+  it("filters out selected descendants so a subtree moves intact", async () => {
+    // User selects both A AND its child A/Child, then drags into target.
+    // Intent: move the A subtree — A/Child stays under A, not target.
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response),
+    );
+    await useCanvasStore.getState().batchNest(["a", "a-child"], "target");
+    const nodes = useCanvasStore.getState().nodes;
+    expect(nodes.find((n) => n.id === "a")!.data.parentId).toBe("target");
+    // The descendant is NOT independently re-parented; its parent is still A.
+    expect(nodes.find((n) => n.id === "a-child")!.data.parentId).toBe("a");
+  });
+
+  it("rolls back only the nodes whose PATCH rejected", async () => {
+    // Reject the PATCH for `a`, accept the one for `b`.
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (typeof url === "string" && url.endsWith("/workspaces/a")) {
+        return Promise.reject(new Error("network"));
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({}),
+      } as Response);
+    });
+    await useCanvasStore.getState().batchNest(["a", "b"], "target");
+    const nodes = useCanvasStore.getState().nodes;
+    // `a` rolled back to its original parent (null), `b` stayed committed.
+    expect(nodes.find((n) => n.id === "a")!.data.parentId).toBeNull();
+    expect(nodes.find((n) => n.id === "b")!.data.parentId).toBe("target");
+  });
+});

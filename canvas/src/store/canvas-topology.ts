@@ -252,22 +252,25 @@ export function buildNodesAndEdges(
       const pa = absPos.get(ws.parent_id!)!;
       position = { x: abs.x - pa.x, y: abs.y - pa.y };
 
-      // Auto-rescue on load: if the child's stored relative position
-      // would render it outside the parent's current bounding box, drop
-      // it into the next default grid slot. This fixes three real
-      // failure modes at once: (1) legacy rows written before nesting
-      // existed, whose absolute coords have no relation to the parent;
-      // (2) org-imports at (0, 0); (3) a child whose parent was later
-      // resized smaller. Dragging a child past the edge after load is
-      // still the way to un-nest — that's handled separately in
-      // Canvas.onNodeDragStop with the hysteresis check.
-      const psize = parentSize.get(ws.parent_id!)!;
-      const outside =
+      // Auto-rescue on load — only when the stored relative position
+      // is clearly impossible for an intentionally-placed child:
+      // negative coords (child would render to the LEFT or ABOVE its
+      // parent) or absurdly distant (child would render further than
+      // MAX_PLAUSIBLE_OFFSET from the parent's origin). Both signal
+      // legacy data written before nesting existed, where the child's
+      // absolute canvas coords have no relation to the parent that was
+      // later assigned to it. Children past the right/bottom edge by
+      // a small margin are left alone — the user may have resized the
+      // parent larger on a previous session, and silent teleportation
+      // on every reload would undo their layout. The manual "Arrange
+      // Children" context command stays available for cleanup.
+      const MAX_PLAUSIBLE_OFFSET = 8000;
+      const corrupted =
         position.x < 0 ||
         position.y < 0 ||
-        position.x + CHILD_DEFAULT_WIDTH > psize.width ||
-        position.y + CHILD_DEFAULT_HEIGHT > psize.height;
-      if (outside) {
+        position.x > MAX_PLAUSIBLE_OFFSET ||
+        position.y > MAX_PLAUSIBLE_OFFSET;
+      if (corrupted) {
         const idx = nextChildIndex.get(ws.parent_id!) ?? 0;
         nextChildIndex.set(ws.parent_id!, idx + 1);
         position = defaultChildSlot(idx);
