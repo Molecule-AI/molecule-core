@@ -159,9 +159,6 @@ func (h *TemplatesHandler) writeViaEphemeral(ctx context.Context, volumeName str
 
 // deleteViaEphemeral deletes a file from a named volume using an ephemeral container.
 func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, filePath string) error {
-	if h.docker == nil {
-		return fmt.Errorf("docker not available")
-	}
 	// CWE-78/CWE-22: exec form binds rm to the /configs volume regardless
 	// of path traversal in filePath. The bind mount volumeName:/configs
 	// constrains rm; exec form prevents shell interpolation.
@@ -169,8 +166,16 @@ func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, f
 	// The concat form is the critical fix: rm receives ONE path argument
 	// so ".." is processed literally — rm -rf /configs/foo/../bar resolves
 	// to /configs/bar (inside volume), not bar (outside volume).
+	//
+	// Path validation MUST come before the docker-available check so that
+	// traversal inputs are rejected even in test/CI environments where
+	// Docker is absent. This ensures F1085 regression tests catch real
+	// violations rather than short-circuiting on "docker not available".
 	if err := validateRelPath(filePath); err != nil {
 		return err
+	}
+	if h.docker == nil {
+		return fmt.Errorf("docker not available")
 	}
 
 	resp, err := h.docker.ContainerCreate(ctx, &container.Config{
