@@ -54,3 +54,12 @@ func isDevModeFailOpen() bool {
 	_, ok := devModeEnvValues[env]
 	return ok
 }
+
+// IsDevModeFailOpen exposes isDevModeFailOpen to packages outside the
+// middleware module (handlers, discovery, etc.) so they can apply the
+// same Tier-1b escape hatch their sibling AdminAuth / WorkspaceAuth
+// already do. Keep every call site audit-tagged so security review can
+// grep them.
+func IsDevModeFailOpen() bool {
+	return isDevModeFailOpen()
+}

@@ -241,15 +241,53 @@ export function ConfigTab({ workspaceId }: Props) {
     setSuccess(false);
     try {
       const content = rawMode ? rawDraft : toYaml(config);
-      await api.put(`/workspaces/${workspaceId}/files/config.yaml`, { content });
+      const runtimeManagesOwnConfig = RUNTIMES_WITH_OWN_CONFIG.has(config.runtime || "");
+      // Only write the platform-managed config.yaml when the runtime
+      // actually consumes it. Hermes + external runtimes manage their
+      // own config file inside the container, so writing this one is a
+      // no-op at best and can fail with 404 if config.yaml was never
+      // created for this workspace.
+      if (!runtimeManagesOwnConfig) {
+        await api.put(`/workspaces/${workspaceId}/files/config.yaml`, { content });
+      }
 
-      // If runtime changed, update it in the DB so restart uses the correct image
-      const newRuntime = rawMode
-        ? (parseYaml(rawDraft).runtime as string || "")
-        : (config.runtime || "");
-      const oldRuntime = (parseYaml(originalYaml).runtime as string || "");
-      if (newRuntime && newRuntime !== oldRuntime) {
-        await api.patch(`/workspaces/${workspaceId}`, { runtime: newRuntime });
+      // DB-backed fields (name, tier, runtime, model) live on the
+      // workspace row, NOT in config.yaml. Fire separate PATCHes for
+      // the ones that actually changed — otherwise a Hermes user edits
+      // the form, hits Save, sees the request succeed, then watches the
+      // values snap back on the next reload because the workspace row
+      // never heard about the change.
+      const oldParsed = parseYaml(originalYaml);
+      const nextParsed = rawMode ? parseYaml(rawDraft) : null;
+      const effective = nextParsed
+        ? { ...DEFAULT_CONFIG, ...nextParsed } as ConfigData
+        : config;
+      const dbPatch: Record<string, unknown> = {};
+      if (effective.name && effective.name !== oldParsed.name) {
+        dbPatch.name = effective.name;
+      }
+      if (effective.tier && effective.tier !== (oldParsed.tier ?? null)) {
+        dbPatch.tier = effective.tier;
+      }
+      const oldRuntime = (oldParsed.runtime as string) || "";
+      if (effective.runtime && effective.runtime !== oldRuntime) {
+        dbPatch.runtime = effective.runtime;
+      }
+      if (Object.keys(dbPatch).length > 0) {
+        await api.patch(`/workspaces/${workspaceId}`, dbPatch);
+      }
+
+      // Model has its own endpoint (separate from the general workspace
+      // PATCH) because the runtime may need to validate it against the
+      // template's supported models list.
+      const oldModel = (oldParsed.model as string) || "";
+      if (effective.model && effective.model !== oldModel) {
+        try {
+          await api.put(`/workspaces/${workspaceId}/model`, { model: effective.model });
+        } catch (e) {
+          // Non-fatal — log and continue so the rest of the save commits.
+          console.warn("ConfigTab: model PATCH failed", e);
+        }
       }
 
       setOriginalYaml(content);
