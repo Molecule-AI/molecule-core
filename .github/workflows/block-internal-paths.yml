@@ -34,6 +34,7 @@ jobs:
             "^research/"
             "^marketing/"
             "^docs/marketing/"
+            "^docs/marketing/.*$"
             "^comment-[0-9]+\.json$"
             "^test-pmm.*\.(txt|md)$"
             "^tick-reflections.*\.(txt|md)$"
