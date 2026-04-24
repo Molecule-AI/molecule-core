@@ -433,6 +433,7 @@ class ClaudeSDKExecutor(AgentExecutor):
         prompt = await self._inject_memories_if_first_turn(prompt)
 
         response_text: str = ""
+        stderr_preview: str | None = None
         try:
             for attempt in range(_MAX_RETRIES):
                 options = self._build_options()
@@ -443,6 +444,19 @@ class ClaudeSDKExecutor(AgentExecutor):
                     response_text = result.text
                     break  # success
                 except Exception as exc:
+                    # Capture stderr for the A2A response body (first ~1 KB).
+                    # Don't let a huge CLI crash dump bloat the error response.
+                    raw_stderr = getattr(exc, "stderr", None)
+                    if raw_stderr:
+                        stderr_preview = raw_stderr[:1024]
+                        if len(raw_stderr) > 1024:
+                            stderr_preview += "... [truncated]"
+                    elif _SWALLOWED_STDERR_MARKER in str(exc):
+                        # SDK swallowed CLI stderr into a generic Exception
+                        # placeholder — probe directly for actionable context.
+                        probed = _probe_claude_cli_error()
+                        if probed and not probed.startswith("<cli probe succeeded"):
+                            stderr_preview = probed[:1024]
                     formatted = _format_process_error(exc)
                     # #75: CLI subprocess crashes leave our _session_id
                     # referencing a session the next subprocess can't
@@ -468,7 +482,7 @@ class ClaudeSDKExecutor(AgentExecutor):
                     # subprocess died.
                     logger.error("SDK agent error [claude-code]: %s", formatted)
                     logger.exception("SDK agent error [claude-code] — full traceback follows")
-                    response_text = sanitize_agent_error(exc)
+                    response_text = sanitize_agent_error(exc, stderr_preview=stderr_preview)
                     break
         finally:
             await set_current_task(self.heartbeat, "")

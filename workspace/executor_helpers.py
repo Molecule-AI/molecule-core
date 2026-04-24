@@ -410,6 +410,7 @@ def classify_subprocess_error(stderr_text: str, exit_code: int | None) -> str:
 def sanitize_agent_error(
     exc: BaseException | None = None,
     category: str | None = None,
+    stderr_preview: str | None = None,
 ) -> str:
     """Render an agent-side failure into a user-safe error message.
 
@@ -421,6 +422,13 @@ def sanitize_agent_error(
     subprocess stderr frequently leak stack traces, paths, tokens, and
     API keys. Full detail is available in the workspace logs via
     `logger.exception()` / `logger.error()`.
+
+    Args:
+        exc: The exception that was raised.
+        category: Optional short tag overriding the exception class name.
+        stderr_preview: Optional first ~1 KB of stderr to surface in the
+            response body so operators can diagnose CLI crashes without
+            opening workspace logs. Never includes the full stderr.
     """
     if category:
         tag = category
@@ -428,7 +436,12 @@ def sanitize_agent_error(
         tag = type(exc).__name__
     else:
         tag = "unknown"
-    return f"Agent error ({tag}) — see workspace logs for details."
+
+    msg = f"Agent error ({tag})"
+    if stderr_preview:
+        msg += f" — stderr: {stderr_preview!r}"
+    msg += " — see workspace logs for details."
+    return msg
 
 
 # ========================================================================

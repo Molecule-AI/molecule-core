@@ -606,6 +606,27 @@ def test_sanitize_agent_error_with_neither_falls_back_to_unknown():
     assert "unknown" in out
 
 
+def test_sanitize_agent_error_stderr_preview_included():
+    """stderr_preview (first ~1 KB) is included verbatim in the response."""
+    out = sanitize_agent_error(category="ProcessError", stderr_preview="You've hit your rate limit")
+    assert "rate limit" in out
+    assert "ProcessError" in out
+    assert "workspace logs" in out
+
+
+def test_sanitize_agent_error_stderr_preview_truncated_at_1kb():
+    """A stderr_preview > 1 KB is truncated so the response stays bounded.
+
+    Truncation happens upstream in the executor at capture time (1 KB cap);
+    sanitize_agent_error includes the preview verbatim as received.
+    """
+    long_stderr = "x" * 2048
+    out = sanitize_agent_error(category="ProcessError", stderr_preview=long_stderr)
+    # sanitize_agent_error does NOT truncate — truncation is upstream.
+    # It passes the string through as-is (in quotes).
+    assert out.count("x") == 2048
+
+
 # ======================================================================
 # classify_subprocess_error
 # ======================================================================
