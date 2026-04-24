@@ -165,8 +165,8 @@ export function FilesTab({ workspaceId }: Props) {
         <div className="mx-3 mt-2 px-3 py-2 bg-red-950/30 border border-red-800/40 rounded space-y-1.5">
           <p className="text-xs text-red-300">Delete all {files.filter((f) => !f.dir).length} files? This cannot be undone.</p>
           <div className="flex gap-2">
-            <button onClick={() => { handleDeleteAll(); setShowDeleteAll(false); }} className="px-2 py-0.5 bg-red-600 hover:bg-red-500 text-[10px] rounded text-white">Delete All</button>
-            <button onClick={() => setShowDeleteAll(false)} className="px-2 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-[10px] rounded text-zinc-300">Cancel</button>
+            <button type="button" onClick={() => { handleDeleteAll(); setShowDeleteAll(false); }} className="px-2 py-0.5 bg-red-600 hover:bg-red-500 text-[10px] rounded text-white">Delete All</button>
+            <button type="button" onClick={() => setShowDeleteAll(false)} className="px-2 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-[10px] rounded text-zinc-300">Cancel</button>
           </div>
         </div>
       )}
@@ -179,8 +179,8 @@ export function FilesTab({ workspaceId }: Props) {
         <div className="mx-3 mt-2 px-3 py-2 bg-amber-950/30 border border-amber-800/40 rounded space-y-1.5">
           <p className="text-xs text-amber-300">Delete <span className="font-mono">{confirmDelete}</span>{files.find((f) => f.path === confirmDelete && f.dir) ? " and all its contents" : ""}?</p>
           <div className="flex gap-2">
-            <button onClick={confirmDeleteFile} className="px-2 py-0.5 bg-red-600 hover:bg-red-500 text-[10px] rounded text-white">Delete</button>
-            <button onClick={() => setConfirmDelete(null)} className="px-2 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-[10px] rounded text-zinc-300">Cancel</button>
+            <button type="button" onClick={confirmDeleteFile} className="px-2 py-0.5 bg-red-600 hover:bg-red-500 text-[10px] rounded text-white">Delete</button>
+            <button type="button" onClick={() => setConfirmDelete(null)} className="px-2 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-[10px] rounded text-zinc-300">Cancel</button>
           </div>
         </div>
       )}
