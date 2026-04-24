@@ -321,6 +321,18 @@ func (h *OrgHandler) ListTemplates(c *gin.Context) {
 			orgFile = filepath.Join(templateDir, "org.yml")
 			data, err = os.ReadFile(orgFile)
 			if err != nil {
+				// Half-clone detection: a directory that contains a `.git/`
+				// but no `org.yaml`/`org.yml` is almost always a manifest
+				// clone that got truncated mid-checkout. Surfacing this as
+				// a warning instead of a silent skip prevents the
+				// "template missing from registry" failure mode (audit
+				// 2026-04-24: org-templates/molecule-dev/ had only `.git/`
+				// and silently dropped from the Canvas palette for hours
+				// before anyone noticed).
+				gitDir := filepath.Join(templateDir, ".git")
+				if _, gitErr := os.Stat(gitDir); gitErr == nil {
+					log.Printf("ListTemplates: WARNING %q has .git but no org.yaml/.yml — likely a half-checkout. Try 'cd %s && git checkout main -- .' to restore the working tree.", e.Name(), templateDir)
+				}
 				continue
 			}
 		}
