@@ -103,3 +103,14 @@ def clear_cache() -> None:
     files between cases."""
     global _cached_token
     _cached_token = None
+
+
+def refresh_cache() -> str | None:
+    """Force re-read of the token from disk, discarding the in-process cache.
+
+    Use this when a 401 response suggests the cached token is stale —
+    e.g. after the platform rotates tokens during a restart (issue #1877).
+    Returns the (new) token value or None if not found/error."""
+    global _cached_token
+    _cached_token = None
+    return get_token()
