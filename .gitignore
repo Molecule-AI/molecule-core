@@ -126,3 +126,18 @@ backups/
 # Cloned by publish-workspace-server-image.yml so the Dockerfile's
 # replace-directive path resolves. Lives in its own repo.
 /molecule-ai-plugin-github-app-auth/
+
+# Internal-flavored content lives in Molecule-AI/internal — NEVER in this
+# public monorepo. Migrated 2026-04-23 (CEO directive). The CI workflow
+# .github/workflows/block-internal-paths.yml enforces this; this gitignore
+# is the second line of defence so accidental local writes don't reach a
+# commit. See docs/internal-content-policy.md for the full rationale.
+/research/
+/marketing/
+/docs/marketing/
+# Common temp/scratch patterns agents have produced
+/comment-*.json
+*-temp.md
+*-temp.txt
+/test-pmm-*.txt
+/tick-reflections-*.md
