@@ -11,7 +11,7 @@
 // Each test pins one invariant. If any fails, the bug is back.
 
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import React from "react";
 
 afterEach(cleanup);
