@@ -298,9 +298,13 @@ func (h *TemplatesHandler) ReadFile(c *gin.Context) {
 		return
 	}
 
-	// Try container first
+	// Try container first. `cat` wants a single path argument — passing
+	// rootPath and filePath as two args would make `cat` try to read the
+	// rootPath directory (error) and then resolve filePath relative to
+	// the container's cwd, which isn't guaranteed to equal rootPath.
 	if containerName := h.findContainer(ctx, workspaceID); containerName != "" {
-		content, err := h.execInContainer(ctx, containerName, []string{"cat", rootPath, filePath})
+		fullPath := strings.TrimRight(rootPath, "/") + "/" + filePath
+		content, err := h.execInContainer(ctx, containerName, []string{"cat", fullPath})
 		if err == nil {
 			c.JSON(http.StatusOK, gin.H{
 				"path":    filePath,
