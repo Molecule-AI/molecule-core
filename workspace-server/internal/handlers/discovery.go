@@ -358,13 +358,14 @@ func validateDiscoveryCaller(ctx context.Context, c *gin.Context, workspaceID st
 	tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
 	if tok == "" {
 		// Canvas hits this endpoint via session cookie, not bearer token.
-		// Add verifiedCPSession() as a fallback after the bearer check so
-		// SaaS canvas Peers tab doesn't 401. Self-hosted workspaces are
-		// unaffected — they have no CP session cookie.
-	if ok, presented := middleware.VerifiedCPSession(c.GetHeader("Cookie")); ok {
-			return nil
-		}
-		if presented {
+		// verifiedCPSession returns (valid, presented):
+		//   - (false, false) = no cookie, 401
+		//   - (true, true)   = valid session, allow
+		//   - (false, true)  = cookie presented but invalid, 401
+		if ok, presented := middleware.VerifiedCPSession(c.GetHeader("Cookie")); presented {
+			if ok {
+				return nil
+			}
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid session"})
 			return errors.New("invalid session")
 		}
