@@ -56,6 +56,16 @@ export function useDragHandlers(): DragHandlers {
     alt: false,
     meta: false,
   });
+  // Remember where the dragged node started so we can put it back on
+  // cancel. React Flow tracks only the current position during drag;
+  // if the user drags out → "Extract?" dialog → Cancel, we want the
+  // card to go back inside its parent at its original coords rather
+  // than stay dangling at the cancel-time position.
+  const dragStartStateRef = useRef<{
+    nodeId: string;
+    parentId: string | null;
+    position: { x: number; y: number };
+  } | null>(null);
   const [pendingNest, setPendingNest] = useState<PendingNestState | null>(null);
 
   // Absolute-bounds hit test. Tiebreakers in order: highest zIndex
@@ -102,10 +112,15 @@ export function useDragHandlers(): DragHandlers {
   );
 
   const onNodeDragStart: OnNodeDrag<WorkspaceNode> = useCallback(
-    (event) => {
+    (event, node) => {
       dragModifiersRef.current = {
         alt: event.altKey,
         meta: event.metaKey || event.ctrlKey,
+      };
+      dragStartStateRef.current = {
+        nodeId: node.id,
+        parentId: node.data.parentId,
+        position: { x: node.position.x, y: node.position.y },
       };
     },
     [],
@@ -196,6 +211,7 @@ export function useDragHandlers(): DragHandlers {
     // showToast, so `void` is the right pattern here.
     const pending = pendingNest;
     setPendingNest(null);
+    dragStartStateRef.current = null;
     const state = useCanvasStore.getState();
     if (
       state.selectedNodeIds.size > 1 &&
@@ -207,7 +223,44 @@ export function useDragHandlers(): DragHandlers {
     }
   }, [pendingNest, nestNode, batchNest]);
 
-  const cancelNest = useCallback(() => setPendingNest(null), []);
+  const cancelNest = useCallback(() => {
+    // Restore the dragged card to wherever it started. Without this,
+    // a user who drags a child out of a parent then clicks Cancel
+    // leaves the card stranded outside the parent with no visual
+    // parent link — a state that doesn't match any save-backed
+    // truth (the DB position was already written on drag-stop).
+    const start = dragStartStateRef.current;
+    if (start) {
+      const { nodes } = useCanvasStore.getState();
+      useCanvasStore.setState({
+        nodes: nodes.map((n) =>
+          n.id === start.nodeId
+            ? { ...n, position: start.position }
+            : n,
+        ),
+      });
+      // Write the restore back to the DB so a reload shows the same
+      // position. Convert the stored relative position back to absolute
+      // via the parent's absolute origin before saving.
+      const parent = start.parentId
+        ? nodes.find((n) => n.id === start.parentId)
+        : null;
+      const parentInternal = start.parentId
+        ? getInternalNode(start.parentId)
+        : null;
+      const parentAbs = parentInternal?.internals.positionAbsolute ?? {
+        x: parent?.position.x ?? 0,
+        y: parent?.position.y ?? 0,
+      };
+      savePosition(
+        start.nodeId,
+        start.position.x + parentAbs.x,
+        start.position.y + parentAbs.y,
+      );
+    }
+    dragStartStateRef.current = null;
+    setPendingNest(null);
+  }, [getInternalNode, savePosition]);
 
   return {
     onNodeDragStart,
