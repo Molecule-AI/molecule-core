@@ -53,7 +53,7 @@ Partner API Keys: GA today.
 
 If you're a platform builder, marketplace operator, or running CI/CD on Molecule AI — this is your release.
 
-Docs → https://docs.molecule.ai/api/partner-keys
+Docs: https://doc.moleculesai.app/docs/guides/org-api-keys
 Partner program → #partner-program on Discord
 ```
 
@@ -79,7 +79,7 @@ We believe this makes Molecule AI the first agent platform with a first-class pa
 
 If you're building on top of Molecule AI — or evaluating agent infrastructure for your platform — Partner API Keys GA is the milestone to look at.
 
-Docs: https://docs.molecule.ai/api/partner-keys  
+Docs: https://doc.moleculesai.app/docs/guides/org-api-keys  
 Partner program: join `#partner-program` in the Molecule AI Discord
 
 ---

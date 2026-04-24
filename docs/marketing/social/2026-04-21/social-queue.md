@@ -95,7 +95,7 @@ Chrome DevTools MCP plus Molecule AI's governance layer: browser automation that
 **File:** `docs/marketing/campaigns/mcp-server-list/social-copy.md`
 **⚠️ Status:** FILE MISSING — `social-copy.md` not on staging (only `assets/` directory present). Queue entry is stale.
 **Action required:** Content Marketer to write social copy or confirm location. Remove or restore this entry.
-**Canonical URL:** `docs.molecule.ai/blog/mcp-server-list`
+**Canonical URL:** `https://doc.moleculesai.app/docs/blog/mcp-server-list`
 **Owner:** Content Marketer | **Day:** TBD
 
 ---
