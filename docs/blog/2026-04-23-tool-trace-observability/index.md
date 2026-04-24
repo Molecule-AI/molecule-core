@@ -111,3 +111,9 @@ Combined with the [org-scoped API key audit trail](/docs/blog/2026-04-21-org-sco
 ---
 
 *Molecule AI is open source. Tool Trace shipped in Phase 34 (2026-04-23).*
+
+---
+
+**Phase 34 also shipped:**
+→ [Platform Instructions: Governance at the System Prompt Level](/blog/tool-trace-platform-instructions) — set org-wide behavioral rules before the first agent turn
+→ [Partner API Keys: Programmatic Org Provisioning](/blog/partner-api-keys) — CI/CD-native ephemeral orgs via API

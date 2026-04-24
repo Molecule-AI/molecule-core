@@ -103,3 +103,9 @@ For a complete governance picture, combine Platform Instructions with [Tool Trac
 ---
 
 *Molecule AI is open source. Platform Instructions shipped in Phase 34 (2026-04-23). Available on all plans — org-scoped governance, wsAuth-gated resolve endpoints, and full instruction audit logs included.*
+
+---
+
+**Phase 34 also shipped:**
+→ [Tool Trace: Agent Observability Without the Overhead](/blog/ai-agent-observability-without-overhead) — every tool call recorded in every A2A response
+→ [Partner API Keys: Programmatic Org Provisioning](/blog/partner-api-keys) — CI/CD-native ephemeral orgs via API

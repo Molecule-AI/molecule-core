@@ -139,3 +139,9 @@ Partner API Keys reach GA on **April 30, 2026**. To get started:
 ---
 
 *Molecule AI is open source. Partner API Keys GA April 30, 2026 — part of Phase 34.*
+
+---
+
+**Phase 34 also shipped:**
+→ [Tool Trace: Agent Observability Without the Overhead](/blog/ai-agent-observability-without-overhead) — every tool call recorded in every A2A response, zero config
+→ [Platform Instructions: Governance at the System Prompt Level](/blog/tool-trace-platform-instructions) — org-wide behavioral rules enforced before the first agent turn
