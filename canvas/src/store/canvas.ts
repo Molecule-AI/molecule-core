@@ -13,6 +13,7 @@ import {
   buildNodesAndEdges,
   computeAutoLayout,
   defaultChildSlot,
+  parentMinSizeFromChildren,
   sortParentsBeforeChildren,
   CHILD_DEFAULT_HEIGHT,
   CHILD_DEFAULT_WIDTH,
@@ -836,15 +837,42 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         stack.push({ id: childId, hidden: hidden || isCollapsed });
       }
     }
+    // Expanded size must fit the target's ACTUAL children, including
+    // any nested-parent children that are themselves oversized. Using a
+    // leaf-count formula (parentMinSize) would undersize the parent
+    // whenever a child was itself a team — e.g. CTO expanding to show
+    // Dev Lead (which carries 6 engineers) would render Dev Lead
+    // clipped. Read each direct child's current width/height from the
+    // node itself; those already reflect the subtree sizing computed
+    // in buildNodesAndEdges.
+    const directChildIds = childrenByParent.get(parentId) ?? [];
+    const childSizes = directChildIds.map((cid) => {
+      const cn = nodes.find((n) => n.id === cid);
+      return {
+        width: (cn?.width as number | undefined) ?? CHILD_DEFAULT_WIDTH,
+        height: (cn?.height as number | undefined) ?? CHILD_DEFAULT_HEIGHT,
+      };
+    });
+    const expandedSize = parentMinSizeFromChildren(childSizes);
+
     set({
       nodes: nodes.map((n) => {
         const isTarget = n.id === parentId;
         const nextHidden = hiddenById.get(n.id) ?? false;
         if (!isTarget && n.hidden === nextHidden) return n;
+        if (!isTarget) {
+          return { ...n, hidden: nextHidden };
+        }
+        // Target parent: update collapsed flag + size. Dropping width/
+        // height would leave the node at its prior (possibly huge)
+        // dimensions after a collapse, leaving a gigantic empty card
+        // with no visible children.
         return {
           ...n,
           hidden: nextHidden,
-          data: isTarget ? { ...n.data, collapsed } : n.data,
+          data: { ...n.data, collapsed },
+          width: collapsed ? CHILD_DEFAULT_WIDTH : expandedSize.width,
+          height: collapsed ? CHILD_DEFAULT_HEIGHT : expandedSize.height,
         };
       }),
     });

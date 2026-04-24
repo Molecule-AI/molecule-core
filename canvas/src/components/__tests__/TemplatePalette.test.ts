@@ -73,6 +73,26 @@ describe("importOrgTemplate", () => {
     mockFetch.mockRejectedValueOnce(new Error("offline"));
     await expect(importOrgTemplate("x")).rejects.toThrow("offline");
   });
+
+  it("treats 2xx with `error` field as a failure (StatusMultiStatus partial)", async () => {
+    // Server returns 207 — `api.post` treats the 2xx as success and
+    // returns the body. Without the post-check, a partial failure
+    // (0 workspaces created) would surface as a green "Imported"
+    // toast and the user would see no canvas change.
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 207,
+      json: async () => ({
+        org: "Data Team",
+        workspaces: [],
+        count: 0,
+        error: 'pq: column "collapsed" of relation "workspaces" does not exist',
+      }),
+    });
+    await expect(importOrgTemplate("data-team")).rejects.toThrow(
+      /collapsed.*relation.*workspaces.*created 0 workspaces/,
+    );
+  });
 });
 
 describe("module exports", () => {

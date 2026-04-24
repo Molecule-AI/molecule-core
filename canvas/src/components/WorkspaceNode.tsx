@@ -202,9 +202,12 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
           );
         })()}
 
-        {/* Role */}
+        {/* Role — clamp to 2 lines. Without this, a verbose role
+         *  description (common on org-template imports) lets the card
+         *  grow arbitrarily tall, which wrecks the grid-slot layout
+         *  because siblings all plan for the same CHILD_DEFAULT_HEIGHT. */}
         {data.role && (
-          <div className="text-[10px] text-zinc-400 mb-1.5 leading-tight">{data.role}</div>
+          <div className="text-[10px] text-zinc-400 mb-1.5 leading-tight line-clamp-2">{data.role}</div>
         )}
 
         {/* Skills */}

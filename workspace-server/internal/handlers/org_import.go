@@ -21,7 +21,14 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/scheduler"
 	"github.com/google/uuid"
 )
-func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defaults OrgDefaults, orgBaseDir string, results *[]map[string]interface{}, provisionSem chan struct{}) error {
+// createWorkspaceTree recursively materialises an OrgWorkspace (and its
+// descendants) into the workspaces + canvas_layouts tables and kicks off
+// Docker provisioning. absX/absY are THIS workspace's absolute canvas
+// coordinates — roots inherit them from ws.Canvas, children receive
+// parent.abs + childSlotInGrid(index, siblingSizes) computed by the
+// caller. Storing already-absolute coords means a child that is itself
+// a parent can simply compound the grid without any per-call math.
+func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, absX, absY float64, defaults OrgDefaults, orgBaseDir string, results *[]map[string]interface{}, provisionSem chan struct{}) error {
 	// Apply defaults
 	runtime := ws.Runtime
 	if runtime == "" {
@@ -88,26 +95,35 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 
 	ctx := context.Background()
 
-	// Org-template imports can drop dozens of nested workspaces onto the
-	// canvas at once. Letting them render expanded by default sprays
-	// child cards across the viewport (sibling workspaces spill below
-	// the parent before the user can orient themselves). Default every
-	// parent in the imported tree to collapsed — the parent card shows
-	// only its header + "N sub" badge until the user double-clicks to
-	// expand it. Leaf workspaces stay expanded (nothing to hide).
-	initialCollapsed := len(ws.Children) > 0
+	// Org-template imports default to expanded so children render
+	// visually nested inside their parent — matches the user's mental
+	// model ("all children should be in front of its parent"). The
+	// topology rescue heuristic lays any children whose YAML coords
+	// fall outside the computed parent bbox into a tidy 2-column grid
+	// (see canvas-topology.ts), so imports don't spray the viewport.
+	initialCollapsed := false
 
 	_, err := db.DB.ExecContext(ctx, `
-		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access, collapsed)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-	`, id, ws.Name, role, tier, runtime, awarenessNS, "provisioning", parentID, workspaceDir, workspaceAccess, initialCollapsed)
+		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, id, ws.Name, role, tier, runtime, awarenessNS, "provisioning", parentID, workspaceDir, workspaceAccess)
 	if err != nil {
 		log.Printf("Org import: failed to create %s: %v", ws.Name, err)
 		return fmt.Errorf("failed to create %s: %w", ws.Name, err)
 	}
 
-	// Canvas layout with coordinates from YAML
-	if _, err := db.DB.ExecContext(ctx, `INSERT INTO canvas_layouts (workspace_id, x, y) VALUES ($1, $2, $3)`, id, ws.Canvas.X, ws.Canvas.Y); err != nil {
+	// Canvas layout — absX/absY were computed by the caller using the
+	// subtree-aware grid (childSlotInGrid) so a nested-parent child
+	// doesn't clip into its siblings. Raw YAML canvas coords are only
+	// consulted at the root: many templates predate the nested-parent
+	// model and author them as a flat horizontal row (y=180, x=100..1220),
+	// which overlaps chaotically once the cards render inside a parent
+	// container.
+	//
+	// `collapsed` lives on canvas_layouts (005_canvas_layouts.sql), not
+	// on workspaces; the UI-only flag is intentionally decoupled from
+	// the workspace row.
+	if _, err := db.DB.ExecContext(ctx, `INSERT INTO canvas_layouts (workspace_id, x, y, collapsed) VALUES ($1, $2, $3, $4)`, id, absX, absY, initialCollapsed); err != nil {
 		log.Printf("Org import: canvas layout insert failed for %s: %v", ws.Name, err)
 	}
 
@@ -480,11 +496,24 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 	// Recurse into children. Brief pacing avoids overwhelming Docker when
 	// creating many containers in sequence; container provisioning runs in
 	// goroutines so the main createWorkspaceTree returns quickly.
-	for _, child := range ws.Children {
-		if err := h.createWorkspaceTree(child, &id, defaults, orgBaseDir, results, provisionSem); err != nil {
-			return err
+	// Children's abs coords = this.abs + childSlotInGrid(index, siblingSizes),
+	// with sibling sizes computed by sizeOfSubtree so a nested-parent
+	// child claims a bigger grid slot than a leaf sibling — no slot
+	// clipping across mixed leaf / parent siblings.
+	if len(ws.Children) > 0 {
+		siblingSizes := make([]nodeSize, len(ws.Children))
+		for i, c := range ws.Children {
+			siblingSizes[i] = sizeOfSubtree(c)
 		}
-		time.Sleep(workspaceCreatePacingMs * time.Millisecond)
+		for i, child := range ws.Children {
+			slotX, slotY := childSlotInGrid(i, siblingSizes)
+			childAbsX := absX + slotX
+			childAbsY := absY + slotY
+			if err := h.createWorkspaceTree(child, &id, childAbsX, childAbsY, defaults, orgBaseDir, results, provisionSem); err != nil {
+				return err
+			}
+			time.Sleep(workspaceCreatePacingMs * time.Millisecond)
+		}
 	}
 
 	return nil

@@ -38,12 +38,26 @@ export function sortParentsBeforeChildren<T extends { id: string; parentId?: str
   return out;
 }
 
-export const CHILD_DEFAULT_WIDTH = 260;
-export const CHILD_DEFAULT_HEIGHT = 140;
-export const PARENT_HEADER_PADDING = 60; // room for the parent's own header
-export const PARENT_SIDE_PADDING = 20;
-export const PARENT_BOTTOM_PADDING = 20;
-export const CHILD_GUTTER = 20;
+// Grid-slot defaults for children laid under a parent. The card
+// component (WorkspaceNode.tsx) sets `max-w-[240px]` on leaves, so a
+// slot stride of CHILD_DEFAULT_WIDTH + CHILD_GUTTER guarantees cards
+// never bleed into their neighbour's slot. Keep these in sync with
+// the Go mirror in workspace-server/internal/handlers/org.go —
+// changing one without the other leads to import-time / runtime drift.
+export const CHILD_DEFAULT_WIDTH = 240;
+export const CHILD_DEFAULT_HEIGHT = 130;
+// Parent header space — reserves room above the child grid so the
+// parent's own name + runtime pill + clamped role + currentTask
+// banner aren't covered by the first row of child cards. The
+// currentTask banner appears on freshly-provisioning agents (initial
+// prompt gets queued as their current task) and adds ~30px below the
+// role; without this headroom, the first child overlaps the amber
+// banner and makes the parent card look broken on import. Keep in
+// sync with the Go mirror in org.go.
+export const PARENT_HEADER_PADDING = 130;
+export const PARENT_SIDE_PADDING = 16;
+export const PARENT_BOTTOM_PADDING = 16;
+export const CHILD_GUTTER = 14;
 
 
 /**
@@ -52,6 +66,9 @@ export const CHILD_GUTTER = 20;
  * and to rescue children whose stored position puts them outside the
  * parent's bounding box. 2-column grid is wide enough to read but
  * narrow enough to keep the parent card from becoming a widescreen.
+ *
+ * Leaf-sized slots only — for variable-size siblings (mix of leaves
+ * and nested parents), use `childSlotInGrid` below instead.
  */
 export function defaultChildSlot(index: number): { x: number; y: number } {
   const col = index % 2;
@@ -62,16 +79,66 @@ export function defaultChildSlot(index: number): { x: number; y: number } {
   return { x, y };
 }
 
+export interface NodeSize {
+  width: number;
+  height: number;
+}
+
+/** Grid column count for laying children inside a parent. Matches the
+ *  Go server mirror (childGridColumnCount). */
+const GRID_COLS = 2;
+
+/** Utility: per-row max height in a size[] laid out column-major. */
+function rowHeightsOf(sizes: NodeSize[], cols: number): number[] {
+  const rows = Math.ceil(sizes.length / cols);
+  const out = new Array(rows).fill(0);
+  sizes.forEach((s, i) => {
+    const row = Math.floor(i / cols);
+    out[row] = Math.max(out[row], s.height);
+  });
+  return out;
+}
+
+/** Uniform column width = max of all sibling widths. Keeps the grid
+ *  rectangular (alternative: variable col widths — visually unstable
+ *  when one sibling is much wider than the rest). */
+function colWidthOf(sizes: NodeSize[]): number {
+  return sizes.reduce((m, s) => Math.max(m, s.width), 0);
+}
+
 /**
- * Minimum parent size that still fits `childCount` children laid out via
- * defaultChildSlot. Never shrinks below the leaf-card min.
+ * Grid slot for the n-th sibling when siblings have variable sizes
+ * (e.g., a mix of leaves and nested parents). Uniform column width +
+ * per-row max height, so bigger nested parents push their row down
+ * without displacing columns.
+ */
+export function childSlotInGrid(
+  index: number,
+  siblingSizes: NodeSize[],
+): { x: number; y: number } {
+  if (siblingSizes.length === 0) return { x: PARENT_SIDE_PADDING, y: PARENT_HEADER_PADDING };
+  const cols = Math.min(GRID_COLS, siblingSizes.length);
+  const col = index % cols;
+  const row = Math.floor(index / cols);
+  const colW = colWidthOf(siblingSizes);
+  const rowHs = rowHeightsOf(siblingSizes, cols);
+  const x = PARENT_SIDE_PADDING + col * (colW + CHILD_GUTTER);
+  let y = PARENT_HEADER_PADDING;
+  for (let r = 0; r < row; r++) y += rowHs[r] + CHILD_GUTTER;
+  return { x, y };
+}
+
+/**
+ * Minimum parent size that still fits `childCount` uniformly-sized
+ * children. Leaf-slot variant — kept for back-compat with callers that
+ * don't have per-child sizes (bumpZOrder, arrangeChildren).
  */
 export function parentMinSize(childCount: number): { width: number; height: number } {
   if (childCount <= 0) {
     return { width: 210, height: 120 };
   }
-  const cols = Math.min(2, childCount);
-  const rows = Math.ceil(childCount / 2);
+  const cols = Math.min(GRID_COLS, childCount);
+  const rows = Math.ceil(childCount / cols);
   const width =
     PARENT_SIDE_PADDING * 2 +
     cols * CHILD_DEFAULT_WIDTH +
@@ -82,6 +149,30 @@ export function parentMinSize(childCount: number): { width: number; height: numb
     (rows - 1) * CHILD_GUTTER +
     PARENT_BOTTOM_PADDING;
   return { width, height };
+}
+
+/**
+ * Minimum parent size that fits a set of (possibly non-uniform)
+ * children. Uniform column width, per-row max height — matches the
+ * geometry produced by `childSlotInGrid`. Used when a parent has
+ * grandchildren and a leaf-slot-sized grid can't hold the real,
+ * bigger nested cards.
+ */
+export function parentMinSizeFromChildren(children: NodeSize[]): NodeSize {
+  if (children.length === 0) return { width: 210, height: 120 };
+  const cols = Math.min(GRID_COLS, children.length);
+  const rows = Math.ceil(children.length / cols);
+  const colW = colWidthOf(children);
+  const rowHs = rowHeightsOf(children, cols);
+  const totalRowH = rowHs.reduce((a, b) => a + b, 0);
+  return {
+    width: PARENT_SIDE_PADDING * 2 + colW * cols + CHILD_GUTTER * (cols - 1),
+    height:
+      PARENT_HEADER_PADDING +
+      totalRowH +
+      CHILD_GUTTER * (rows - 1) +
+      PARENT_BOTTOM_PADDING,
+  };
 }
 
 /**
@@ -236,13 +327,44 @@ export function buildNodesAndEdges(
     }
   }
 
+  // Index direct children per parent for post-order subtree sizing.
+  // We walk `sorted` in REVERSE (post-order — children first) so
+  // subtreeSize[parent] sees its grandchildren-inclusive sizes via the
+  // already-computed subtreeSize[child].
+  const childrenByParent = new Map<string, WorkspaceData[]>();
+  for (const ws of workspaces) {
+    if (ws.parent_id && byId.has(ws.parent_id)) {
+      const arr = childrenByParent.get(ws.parent_id) ?? [];
+      arr.push(ws);
+      childrenByParent.set(ws.parent_id, arr);
+    }
+  }
+  const subtreeSize = new Map<string, NodeSize>();
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const ws = sorted[i];
+    const kids = childrenByParent.get(ws.id) ?? [];
+    if (kids.length === 0 || ws.collapsed) {
+      subtreeSize.set(ws.id, { width: CHILD_DEFAULT_WIDTH, height: CHILD_DEFAULT_HEIGHT });
+    } else {
+      const kidSizes = kids.map((k) =>
+        subtreeSize.get(k.id) ?? { width: CHILD_DEFAULT_WIDTH, height: CHILD_DEFAULT_HEIGHT },
+      );
+      subtreeSize.set(ws.id, parentMinSizeFromChildren(kidSizes));
+    }
+  }
+
   // Track each parent's initial size so we can reset children that land
   // outside those bounds. Parents without children fall back to the leaf
-  // default; parents with children get the grid-derived minimum.
+  // default; parents with children get the grid-derived minimum — which
+  // now accounts for grandchildren via subtreeSize, so a nested parent
+  // no longer overflows its slot.
   const parentSize = new Map<string, { width: number; height: number }>();
   for (const ws of workspaces) {
-    const n = childCounts.get(ws.id) ?? 0;
-    parentSize.set(ws.id, n > 0 ? parentMinSize(n) : { width: 260, height: 140 });
+    // Reuse subtreeSize — it already accounts for nested grandchildren.
+    parentSize.set(
+      ws.id,
+      subtreeSize.get(ws.id) ?? { width: CHILD_DEFAULT_WIDTH, height: CHILD_DEFAULT_HEIGHT },
+    );
   }
 
   // Running index of children already placed per parent — used to hand
@@ -318,14 +440,21 @@ export function buildNodesAndEdges(
       //   legacy huge positive (position.x = 50000):
       //     child.left = 50000 >= parent.right → no overlap → rescued
       const psize = parentSize.get(ws.parent_id!)!;
+      const myW = subtreeSize.get(ws.id)?.width ?? CHILD_DEFAULT_WIDTH;
+      const myH = subtreeSize.get(ws.id)?.height ?? CHILD_DEFAULT_HEIGHT;
       const overlapsX =
-        position.x + CHILD_DEFAULT_WIDTH > 0 && position.x < psize.width;
+        position.x + myW > 0 && position.x < psize.width;
       const overlapsY =
-        position.y + CHILD_DEFAULT_HEIGHT > 0 && position.y < psize.height;
+        position.y + myH > 0 && position.y < psize.height;
       if (!overlapsX || !overlapsY) {
         const idx = nextChildIndex.get(ws.parent_id!) ?? 0;
         nextChildIndex.set(ws.parent_id!, idx + 1);
-        position = defaultChildSlot(idx);
+        // Use sibling-size-aware grid so a nested parent doesn't collide
+        // with a leaf sibling in the next row.
+        const siblings = (childrenByParent.get(ws.parent_id!) ?? []).map(
+          (c) => subtreeSize.get(c.id) ?? { width: CHILD_DEFAULT_WIDTH, height: CHILD_DEFAULT_HEIGHT },
+        );
+        position = childSlotInGrid(idx, siblings);
       }
     }
     const node: Node<WorkspaceNodeData> = {
@@ -365,15 +494,26 @@ export function buildNodesAndEdges(
     if (hiddenById.get(ws.id)) {
       node.hidden = true;
     }
-    // Give parents a measured-ish starting size so NodeResizer has a
-    // baseline and child positions have somewhere to live. Without this,
-    // parents start at React Flow's default min size (well under a
-    // single child) and children render visually outside their parent
-    // until the next resize measurement settles.
-    if ((childCounts.get(ws.id) ?? 0) > 0) {
+    // Seed every node with an explicit starting size so the initial
+    // grid layout is stable before React Flow has measured the DOM.
+    //   - Parents (has children, not collapsed): sized to fit the
+    //     child grid via parentMinSize so children don't render
+    //     outside the bounds on first paint.
+    //   - Collapsed parents: leaf-sized (header-only card).
+    //   - Leaves: leaf-sized — they land in their grid slot cleanly.
+    //
+    // NodeResizer still drives user-initiated growth at runtime; these
+    // are only the initial values, and React Flow updates them in place
+    // when the user drags a resize handle. A future hydrate() will
+    // reset to the default until we persist width/height server-side.
+    const kids = childCounts.get(ws.id) ?? 0;
+    if (kids > 0 && !ws.collapsed) {
       const size = parentSize.get(ws.id)!;
       node.width = size.width;
       node.height = size.height;
+    } else {
+      node.width = CHILD_DEFAULT_WIDTH;
+      node.height = CHILD_DEFAULT_HEIGHT;
     }
     return node;
   });

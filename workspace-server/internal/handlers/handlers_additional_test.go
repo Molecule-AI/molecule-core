@@ -191,12 +191,14 @@ func TestWorkspaceUpdate_Collapsed(t *testing.T) {
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
-	// Canvas "collapse team" flip — the handler must run the UPDATE
-	// to persist the flag, otherwise the UI state resets on reload.
+	// Canvas "collapse team" flip — the handler must run the UPSERT
+	// on canvas_layouts to persist the flag, otherwise the UI state
+	// resets on reload. `collapsed` lives on canvas_layouts, not
+	// workspaces (see 005_canvas_layouts.sql).
 	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
 		WithArgs("dddddddd-0005-0000-0000-000000000000").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectExec("UPDATE workspaces SET collapsed").
+	mock.ExpectExec("INSERT INTO canvas_layouts .* collapsed").
 		WithArgs("dddddddd-0005-0000-0000-000000000000", true).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
