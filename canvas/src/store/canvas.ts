@@ -653,6 +653,14 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       }
     }
 
+    // When a child leaves its parent, clear the parent's explicit
+    // width/height. growParentsToFitChildren is grow-only so it can't
+    // shrink on its own; without this, a parent that auto-grew to
+    // contain the dragged child stays at that size after un-nest,
+    // leaving a large empty frame. React Flow then measures the new
+    // size from the card's own min-width/min-height CSS.
+    const shrinkOldParent = !!currentParentId && targetId !== currentParentId;
+
     set({
       nodes: nodes.map((n) => {
         if (n.id === draggedId) {
@@ -663,6 +671,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             zIndex: newOwnDepth,
             data: { ...n.data, parentId: targetId },
           };
+        }
+        if (shrinkOldParent && n.id === currentParentId) {
+          const { width: _w, height: _h, ...rest } = n;
+          void _w; void _h;
+          return rest as typeof n;
         }
         if (movedIds.has(n.id) && depthDelta !== 0) {
           return { ...n, zIndex: (n.zIndex ?? 0) + depthDelta };
