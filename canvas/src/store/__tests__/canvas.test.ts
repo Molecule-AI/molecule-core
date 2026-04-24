@@ -92,7 +92,11 @@ describe("hydrate", () => {
     expect(edges).toHaveLength(0);
   });
 
-  it("sets hidden=true for nodes with parent_id", () => {
+  it("binds children to their parent via React Flow parentId", () => {
+    // The old model hid child nodes + embedded them as chips inside the
+    // parent card. The new model renders every workspace as a first-class
+    // card, using React Flow's native parentId to group them so moving
+    // the parent carries the children along.
     const workspaces = [
       makeWS({ id: "parent", name: "Parent" }),
       makeWS({ id: "child", name: "Child", parent_id: "parent" }),
@@ -105,7 +109,9 @@ describe("hydrate", () => {
     const child = nodes.find((n) => n.id === "child")!;
 
     expect(parent.hidden).toBeFalsy();
-    expect(child.hidden).toBe(true);
+    expect(child.hidden).toBeFalsy();
+    expect(parent.parentId).toBeUndefined();
+    expect(child.parentId).toBe("parent");
     expect(child.data.parentId).toBe("parent");
   });
 
@@ -331,7 +337,7 @@ describe("applyEvent", () => {
     expect(nodes).toHaveLength(1);
     expect(nodes[0].id).toBe("ws-2");
     expect(nodes[0].data.parentId).toBeNull();
-    expect(nodes[0].hidden).toBe(false);
+    expect(nodes[0].parentId).toBeUndefined();
   });
 
   it("WORKSPACE_REMOVED clears selectedNodeId if removed", () => {
@@ -454,7 +460,7 @@ describe("removeNode", () => {
 
     const leaf = useCanvasStore.getState().nodes.find((n) => n.id === "leaf")!;
     expect(leaf.data.parentId).toBe("root");
-    expect(leaf.hidden).toBe(true); // still has a parent
+    expect(leaf.parentId).toBe("root"); // RF binding also re-pointed
   });
 
   it("reparents children to null when root is deleted", () => {
@@ -462,7 +468,7 @@ describe("removeNode", () => {
 
     const mid = useCanvasStore.getState().nodes.find((n) => n.id === "mid")!;
     expect(mid.data.parentId).toBeNull();
-    expect(mid.hidden).toBe(false);
+    expect(mid.parentId).toBeUndefined();
   });
 
   it("clears selection if removed node was selected", () => {
@@ -655,23 +661,21 @@ describe("nestNode", () => {
     ]);
   });
 
-  it("optimistically updates parentId and hidden", async () => {
+  it("optimistically updates parentId and the RF parent binding", async () => {
     await useCanvasStore.getState().nestNode("b", "a");
 
     const b = useCanvasStore.getState().nodes.find((n) => n.id === "b")!;
     expect(b.data.parentId).toBe("a");
-    expect(b.hidden).toBe(true);
+    expect(b.parentId).toBe("a");
   });
 
-  it("un-nesting sets parentId to null and shows node", async () => {
-    // First nest
+  it("un-nesting clears parentId and the RF binding", async () => {
     await useCanvasStore.getState().nestNode("b", "a");
-    // Then un-nest
     await useCanvasStore.getState().nestNode("b", null);
 
     const b = useCanvasStore.getState().nodes.find((n) => n.id === "b")!;
     expect(b.data.parentId).toBeNull();
-    expect(b.hidden).toBe(false);
+    expect(b.parentId).toBeUndefined();
   });
 
   it("skips when parentId is already the target", async () => {
@@ -694,7 +698,7 @@ describe("nestNode", () => {
     // Should revert to original state (no parent)
     const b = useCanvasStore.getState().nodes.find((n) => n.id === "b")!;
     expect(b.data.parentId).toBeNull();
-    expect(b.hidden).toBe(false);
+    expect(b.parentId).toBeUndefined();
   });
 });
 

@@ -109,6 +109,14 @@ export function computeAutoLayout(
  * Converts raw workspace data from the API into React Flow nodes and edges.
  * Accepts an optional layoutOverrides map (from computeAutoLayout) to override
  * positions for workspaces that were at 0,0.
+ *
+ * Parent/child rendering model: every workspace is a first-class React Flow
+ * node (full card). When a workspace has parent_id set, its RF `parentId` is
+ * set to the parent's id and its position is stored RELATIVE to the parent
+ * origin — React Flow renders the child inside the parent's coordinate space,
+ * so moving the parent automatically moves all children. The DB keeps
+ * absolute x/y; the abs→rel conversion happens here on load, and the
+ * reverse translation happens in savePosition.
  */
 export function buildNodesAndEdges(
   workspaces: WorkspaceData[],
@@ -117,16 +125,41 @@ export function buildNodesAndEdges(
   nodes: Node<WorkspaceNodeData>[];
   edges: Edge[];
 } {
-  // All workspaces become nodes (children are rendered inside parent via WorkspaceNode)
-  const nodes: Node<WorkspaceNodeData>[] = workspaces.map((ws) => {
-    const override = layoutOverrides.get(ws.id);
-    const x = override?.x ?? ws.x;
-    const y = override?.y ?? ws.y;
-    return {
+  // React Flow requires parent nodes to appear before children in the nodes
+  // array. Topological-sort by depth-first walk from roots so children come
+  // after their parent regardless of the order the API returned them.
+  const byId = new Map(workspaces.map((w) => [w.id, w]));
+  const visited = new Set<string>();
+  const sorted: WorkspaceData[] = [];
+  function visit(ws: WorkspaceData) {
+    if (visited.has(ws.id)) return;
+    if (ws.parent_id && byId.has(ws.parent_id) && !visited.has(ws.parent_id)) {
+      visit(byId.get(ws.parent_id)!);
+    }
+    visited.add(ws.id);
+    sorted.push(ws);
+  }
+  workspaces.forEach(visit);
+
+  // Resolve each workspace's absolute position (apply layout override if any).
+  const absPos = new Map<string, { x: number; y: number }>();
+  for (const ws of workspaces) {
+    const o = layoutOverrides.get(ws.id);
+    absPos.set(ws.id, { x: o?.x ?? ws.x, y: o?.y ?? ws.y });
+  }
+
+  const nodes: Node<WorkspaceNodeData>[] = sorted.map((ws) => {
+    const abs = absPos.get(ws.id)!;
+    const hasParent = !!ws.parent_id && byId.has(ws.parent_id);
+    let position = abs;
+    if (hasParent) {
+      const pa = absPos.get(ws.parent_id!)!;
+      position = { x: abs.x - pa.x, y: abs.y - pa.y };
+    }
+    const node: Node<WorkspaceNodeData> = {
       id: ws.id,
       type: "workspaceNode",
-      position: { x, y },
-      // Don't set React Flow parentId — children render embedded inside the WorkspaceNode component
+      position,
       data: {
         name: ws.name,
         status: ws.status,
@@ -145,13 +178,18 @@ export function buildNodesAndEdges(
         budgetLimit: ws.budget_limit ?? null,
         budgetUsed: ws.budget_used ?? null,
       },
-      // Hide child nodes from canvas — they render inside the parent WorkspaceNode
-      hidden: !!ws.parent_id,
     };
+    if (hasParent) {
+      // React Flow native parent binding: children render inside parent's
+      // coordinate space and move with the parent. No `extent: 'parent'` —
+      // the user can drag a child out to un-nest (handled in Canvas.tsx
+      // onNodeDragStop with a bbox hit test).
+      node.parentId = ws.parent_id!;
+    }
+    return node;
   });
 
-  // No parent→child edges — children are embedded inside the parent node.
-  // Only create edges between siblings or cross-team connections if needed in future.
+  // Edges stay empty — the visual parent/child cue is the enclosing card.
   const edges: Edge[] = [];
 
   return { nodes, edges };

@@ -258,17 +258,40 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   nestNode: async (draggedId, targetId) => {
     const { nodes, edges } = get();
-    const currentParentId = nodes.find((n) => n.id === draggedId)?.data.parentId ?? null;
-
-    // No change needed
+    const dragged = nodes.find((n) => n.id === draggedId);
+    if (!dragged) return;
+    const currentParentId = dragged.data.parentId;
     if (currentParentId === targetId) return;
 
-    // Optimistic update:
-    // - Set parentId in data
-    // - Hide child nodes (they render inside parent WorkspaceNode)
-    // - Remove all edges involving the dragged node
+    // Compute each ancestor's absolute position by walking up the
+    // parentId chain. We need this to translate the dragged node's
+    // `position` (relative to its current parent when nested) between
+    // the old and new coordinate spaces so the card doesn't visually
+    // jump on nest/unnest.
+    const absOf = (id: string | null): { x: number; y: number } => {
+      let sum = { x: 0, y: 0 };
+      let cursor: string | null = id;
+      while (cursor) {
+        const n = nodes.find((nn) => nn.id === cursor);
+        if (!n) break;
+        sum = { x: sum.x + n.position.x, y: sum.y + n.position.y };
+        cursor = n.data.parentId;
+      }
+      return sum;
+    };
+    const oldParentAbs = absOf(currentParentId);
+    const newParentAbs = absOf(targetId);
+    const draggedAbs = {
+      x: dragged.position.x + oldParentAbs.x,
+      y: dragged.position.y + oldParentAbs.y,
+    };
+    const newRelative = {
+      x: draggedAbs.x - newParentAbs.x,
+      y: draggedAbs.y - newParentAbs.y,
+    };
+
     const newEdges = edges.filter(
-      (e) => e.source !== draggedId && e.target !== draggedId
+      (e) => e.source !== draggedId && e.target !== draggedId,
     );
 
     set({
@@ -276,28 +299,32 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         n.id === draggedId
           ? {
               ...n,
-              hidden: !!targetId, // Hide if becoming a child, show if un-nesting
+              position: newRelative,
+              parentId: targetId ?? undefined,
               data: { ...n.data, parentId: targetId },
             }
-          : n
+          : n,
       ),
       edges: newEdges,
     });
 
-    // Persist to API
     try {
       await api.patch(`/workspaces/${draggedId}`, { parent_id: targetId });
+      // Persist absolute position as DB canonical (matches what
+      // savePosition writes elsewhere); keeps reloads stable regardless
+      // of which parent the child was under at save time.
+      await api.patch(`/workspaces/${draggedId}`, { x: draggedAbs.x, y: draggedAbs.y });
     } catch {
-      // Revert on failure
       set({
         nodes: get().nodes.map((n) =>
           n.id === draggedId
             ? {
                 ...n,
-                hidden: !!currentParentId,
+                position: dragged.position,
+                parentId: currentParentId ?? undefined,
                 data: { ...n.data, parentId: currentParentId },
               }
-            : n
+            : n,
         ),
         edges,
       });
@@ -325,7 +352,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   removeNode: (id) => {
     const { nodes, edges, selectedNodeId } = get();
-    // Re-parent children to the deleted node's parent (or root)
+    // Re-parent children to the deleted node's parent (or root).
+    // Children are first-class RF nodes now — we just re-point their
+    // parentId (both RF's native field and our data mirror). No hidden
+    // flag is toggled because cards are always visible.
     const deletedNode = nodes.find((n) => n.id === id);
     const parentOfDeleted = deletedNode?.data.parentId ?? null;
     set({
@@ -335,7 +365,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           n.data.parentId === id
             ? {
                 ...n,
-                hidden: !!parentOfDeleted,
+                parentId: parentOfDeleted ?? undefined,
                 data: { ...n.data, parentId: parentOfDeleted },
               }
             : n
