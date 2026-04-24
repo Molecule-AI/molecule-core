@@ -257,21 +257,26 @@ export function ConfigTab({ workspaceId }: Props) {
       // the form, hits Save, sees the request succeed, then watches the
       // values snap back on the next reload because the workspace row
       // never heard about the change.
+      //
+      // Diff against the RAW parsed YAML (or the form `config` in non-
+      // raw mode) rather than the DEFAULT_CONFIG-merged shape — if the
+      // user deleted a field in raw mode the merge would substitute the
+      // default (e.g. tier=1) and we'd silently PATCH that down from
+      // the stored value. Only fields the user actually typed get sent.
       const oldParsed = parseYaml(originalYaml);
-      const nextParsed = rawMode ? parseYaml(rawDraft) : null;
-      const effective = nextParsed
-        ? { ...DEFAULT_CONFIG, ...nextParsed } as ConfigData
-        : config;
+      const nextSource = rawMode
+        ? (parseYaml(rawDraft) as Record<string, unknown>)
+        : (config as unknown as Record<string, unknown>);
       const dbPatch: Record<string, unknown> = {};
-      if (effective.name && effective.name !== oldParsed.name) {
-        dbPatch.name = effective.name;
+      if (typeof nextSource.name === "string" && nextSource.name && nextSource.name !== oldParsed.name) {
+        dbPatch.name = nextSource.name;
       }
-      if (effective.tier && effective.tier !== (oldParsed.tier ?? null)) {
-        dbPatch.tier = effective.tier;
+      if (typeof nextSource.tier === "number" && nextSource.tier !== (oldParsed.tier ?? null)) {
+        dbPatch.tier = nextSource.tier;
       }
       const oldRuntime = (oldParsed.runtime as string) || "";
-      if (effective.runtime && effective.runtime !== oldRuntime) {
-        dbPatch.runtime = effective.runtime;
+      if (typeof nextSource.runtime === "string" && nextSource.runtime && nextSource.runtime !== oldRuntime) {
+        dbPatch.runtime = nextSource.runtime;
       }
       if (Object.keys(dbPatch).length > 0) {
         await api.patch(`/workspaces/${workspaceId}`, dbPatch);
@@ -279,14 +284,21 @@ export function ConfigTab({ workspaceId }: Props) {
 
       // Model has its own endpoint (separate from the general workspace
       // PATCH) because the runtime may need to validate it against the
-      // template's supported models list.
+      // template's supported models list. A model rejection is a
+      // partial-save state — we report it as a user-visible warning
+      // rather than lying "Saved" and letting the user discover the
+      // revert on next reload.
       const oldModel = (oldParsed.model as string) || "";
-      if (effective.model && effective.model !== oldModel) {
+      let modelSaveError: string | null = null;
+      if (
+        typeof nextSource.model === "string" &&
+        nextSource.model &&
+        nextSource.model !== oldModel
+      ) {
         try {
-          await api.put(`/workspaces/${workspaceId}/model`, { model: effective.model });
+          await api.put(`/workspaces/${workspaceId}/model`, { model: nextSource.model });
         } catch (e) {
-          // Non-fatal — log and continue so the rest of the save commits.
-          console.warn("ConfigTab: model PATCH failed", e);
+          modelSaveError = e instanceof Error ? e.message : "Model update was rejected";
         }
       }
 
@@ -302,9 +314,16 @@ export function ConfigTab({ workspaceId }: Props) {
       } else {
         useCanvasStore.getState().updateNodeData(workspaceId, { needsRestart: true });
       }
-      setSuccess(true);
-      clearTimeout(successTimerRef.current);
-      successTimerRef.current = setTimeout(() => setSuccess(false), 2000);
+      if (modelSaveError) {
+        // Partial-save UX: surface the model rejection instead of
+        // showing "Saved" — the user would otherwise watch the model
+        // field revert on next reload with no explanation.
+        setError(`Other fields saved, but model update failed: ${modelSaveError}`);
+      } else {
+        setSuccess(true);
+        clearTimeout(successTimerRef.current);
+        successTimerRef.current = setTimeout(() => setSuccess(false), 2000);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
