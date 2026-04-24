@@ -1,13 +1,14 @@
 ---
 title: "Tool Trace + Platform Instructions: Full Visibility and Policy-Level Governance"
 date: 2026-04-23
-slug: tool-trace-platform-instructions
+slug: tool-trace-platform-instructions-overview
 description: "See every tool your agent called — inputs, outputs, timing — in real-time. And enforce org-wide governance policy at the system prompt level with Platform Instructions."
 og_title: "Tool Trace + Platform Instructions: Full Visibility and Policy-Level Governance"
 og_description: "Tool-level observability in every A2A response meets system-prompt governance. Two enterprise-grade features, shipped together."
 tags: [tool-trace, observability, platform-instructions, governance, enterprise, debugging, a2a]
 keywords: [AI agent debugging, tool trace observability, agent governance, platform instructions, enterprise AI audit, system prompt governance, Claude tool call visibility, agent observability]
-canonical: https://docs.molecule.ai/blog/tool-trace-platform-instructions
+canonical: https://docs.molecule.ai/blog/tool-trace-platform-instructions-overview
+og_image: ""
 ---
 
 <script type="application/ld+json">
@@ -116,7 +117,9 @@ When something goes wrong — an agent calls an unexpected tool, or behavior dri
 
 - Tool Trace is enabled by default on all workspaces. Check `Message.metadata.tool_trace` in your A2A responses.
 - Platform Instructions are available on Enterprise plans. Visit your workspace settings or contact your account team.
-- Explore the full A2A protocol documentation in `docs/api-protocol/a2a-protocol.md`.
+- Explore the [A2A protocol documentation](/docs/api-protocol/a2a-protocol.md)
+- Deep-dive: [Tool Trace — every tool call captured](/blog/ai-agent-observability-without-overhead/)
+- Deep-dive: [Platform Instructions — governance at the system prompt level](/blog/govern-ai-fleet-system-prompt-level/)
 
 ---
 
