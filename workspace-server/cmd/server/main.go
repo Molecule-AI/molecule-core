@@ -23,10 +23,13 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/supervised"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/ws"
 
-	// External plugin — registers an EnvMutator that injects GITHUB_TOKEN /
-	// GH_TOKEN from a GitHub App installation token. Soft-dep: only active
-	// when GITHUB_APP_ID env var is set (see main() for the gate).
-	pluginloader "github.com/Molecule-AI/molecule-ai-plugin-github-app-auth/pluginloader"
+	// External plugins — each registers EnvMutator(s) that run at workspace
+	// provision time. Loaded via soft-dep gates in main() so self-hosters
+	// without the App or without per-agent identity configured keep working.
+	githubappauth "github.com/Molecule-AI/molecule-ai-plugin-github-app-auth/pluginloader"
+	ghidentity "github.com/Molecule-AI/molecule-ai-plugin-gh-identity/pluginloader"
+
+	"github.com/Molecule-AI/molecule-monorepo/platform/pkg/provisionhook"
 )
 
 func main() {
@@ -153,21 +156,48 @@ func main() {
 		wh.SetCPProvisioner(cpProv)
 	}
 
+	// External-plugin env mutators — each plugin contributes 0+ mutators
+	// onto a shared registry. Order matters: gh-identity populates
+	// MOLECULE_AGENT_ROLE-derived attribution env vars that downstream
+	// mutators and the workspace's install.sh can then read. Keep
+	// github-app-auth last because it fails loudly on misconfig and its
+	// failure mode is "no GITHUB_TOKEN" — worth surfacing after the
+	// cheaper mutators already ran.
+	envReg := provisionhook.NewRegistry()
+
+	// gh-identity plugin — per-agent attribution via env injection + gh
+	// wrapper shipped as base64 env. Soft-dep: no config file is OK
+	// (plugin no-ops when no role is set on the workspace).
+	// Tracks molecule-core#1957.
+	if res, err := ghidentity.BuildRegistry(); err != nil {
+		log.Fatalf("gh-identity plugin: %v", err)
+	} else {
+		envReg.Register(res.Mutator)
+		log.Printf("gh-identity: registered (config file=%q)", os.Getenv("MOLECULE_GH_IDENTITY_CONFIG_FILE"))
+	}
+
 	// github-app-auth plugin — injects GITHUB_TOKEN + GH_TOKEN into every
 	// workspace env using the App's installation access token (rotates ~hourly).
 	// Soft-skip when GITHUB_APP_* env vars are absent so dev/self-hosters
 	// without an App configured keep working; fail-loud only on MISCONFIG
 	// (e.g. APP_ID set but key file missing), not on unset.
 	if os.Getenv("GITHUB_APP_ID") != "" {
-		if reg, err := pluginloader.BuildRegistry(); err != nil {
+		if reg, err := githubappauth.BuildRegistry(); err != nil {
 			log.Fatalf("github-app-auth plugin: %v", err)
 		} else {
-			wh.SetEnvMutators(reg)
-			log.Printf("github-app-auth: registered, %d mutator(s) in chain", reg.Len())
+			// Copy the plugin's mutators onto the shared registry so the
+			// TokenProvider probe (FirstTokenProvider) still finds them.
+			for _, m := range reg.Mutators() {
+				envReg.Register(m)
+			}
+			log.Printf("github-app-auth: registered, %d mutator(s) added to chain", reg.Len())
 		}
 	} else {
 		log.Println("github-app-auth: GITHUB_APP_ID unset — skipping plugin registration (agents will use any PAT from .env)")
 	}
+
+	wh.SetEnvMutators(envReg)
+	log.Printf("env-mutator chain: %v", envReg.Names())
 
 	// Offline handler: broadcast event + auto-restart the dead workspace
 	onWorkspaceOffline := func(innerCtx context.Context, workspaceID string) {
