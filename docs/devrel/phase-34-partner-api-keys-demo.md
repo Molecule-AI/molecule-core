@@ -74,7 +74,7 @@ echo "Ephemeral org $ORG_ID destroyed — billing stopped"
 
 **Demo narration:** "This is the CI/CD use case. Each PR gets its own isolated org — no shared state, no test pollution. When the pipeline finishes, one DELETE call stops the billing immediately. This is what programmatic partner access enables."
 
-**⚠️ PM NEEDED:** Org creation rate limits — add as comments.
+**Rate limits:** 60 req/min per partner key (default, configurable). Enforced per-key — partner traffic has its own ceiling and cannot affect session-based rate limits for other users.
 
 ---
 
