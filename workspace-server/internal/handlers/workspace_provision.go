@@ -96,6 +96,14 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 	applyAgentGitIdentity(envVars, payload.Name)
 	applyRuntimeModelEnv(envVars, payload.Runtime, payload.Model)
 
+	// Propagate the workspace's role into env so role-aware plugins
+	// (gh-identity — molecule-core#1957) can read it without the
+	// plugin interface having to carry the full payload. Role is
+	// cosmetic metadata — no auth weight on it — safe to surface as env.
+	if payload.Role != "" {
+		envVars["MOLECULE_AGENT_ROLE"] = payload.Role
+	}
+
 	// Plugin extension point: run any registered EnvMutators (e.g.
 	// github-app-auth, vault-secrets) AFTER built-in identity injection so
 	// plugins can override or augment GIT_AUTHOR_*, GITHUB_TOKEN, etc.
@@ -678,6 +686,11 @@ func (h *WorkspaceHandler) provisionWorkspaceCP(workspaceID, templatePath string
 
 	applyAgentGitIdentity(envVars, payload.Name)
 	applyRuntimeModelEnv(envVars, payload.Runtime, payload.Model)
+	// Propagate role for role-aware plugins (#1957). See provisionWorkspace
+	// above for rationale.
+	if payload.Role != "" {
+		envVars["MOLECULE_AGENT_ROLE"] = payload.Role
+	}
 	if err := h.envMutators.Run(ctx, workspaceID, envVars); err != nil {
 		log.Printf("CPProvisioner: env mutator failed for %s: %v", workspaceID, err)
 		// F1086 / #1206: env mutator errors (missing tokens, vault paths) must not
