@@ -80,7 +80,6 @@ docs.moleculesai.app/blog/tool-trace-platform-instructions
 docs.moleculesai.app/blog/ai-agent-observability-without-overhead
 docs.moleculesai.app/blog/platform-instructions-governance
 docs.moleculesai.app/blog/partner-api-keys
-docs.moleculesai.app/guides/external-workspace-quickstart
 ```
 
 ---

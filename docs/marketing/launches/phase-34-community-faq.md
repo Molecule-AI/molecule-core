@@ -198,6 +198,5 @@ General migration docs will be at `docs.moleculesai.app/guides/phase-34-migratio
 | Tool Trace | `docs.moleculesai.app/blog/ai-agent-observability-without-overhead` | |
 | Platform Instructions | `docs.moleculesai.app/blog/platform-instructions-governance` | |
 | Partner API Keys | `docs.moleculesai.app/blog/partner-api-keys` | GA April 30 |
-| SaaS Fed v2 | `docs.moleculesai.app/guides/external-workspace-quickstart` | |
 
 Questions not answered here? GitHub Discussions: `github.com/Molecule-AI/molecule-core/discussions`
