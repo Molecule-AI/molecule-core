@@ -428,8 +428,11 @@ func (h *TemplatesHandler) DeleteFile(c *gin.Context) {
 
 	// Delete via docker exec when container is running
 	if containerName := h.findContainer(ctx, workspaceID); containerName != "" {
-		containerPath := "/configs/" + filePath
-		_, err := h.execInContainer(ctx, containerName, []string{"rm", "-rf", containerPath})
+		// CWE-78: use filepath.Join instead of string concat to prevent path
+		// injection into the exec argument. validateRelPath above is the primary
+		// guard; filepath.Join is defence-in-depth. Use -f (not -rf) to avoid
+		// recursive deletion of an entire directory via traversal.
+		_, err := h.execInContainer(ctx, containerName, []string{"rm", "-f", filepath.Join("/configs", filePath)})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to delete: %v", err)})
 			return
@@ -485,7 +488,11 @@ func (h *TemplatesHandler) SharedContext(c *gin.Context) {
 			if err := validateRelPath(relPath); err != nil {
 				continue
 			}
-			content, err := h.execInContainer(ctx, containerName, []string{"cat", "/configs/" + relPath})
+			// CWE-78: pass path components as separate exec args instead of
+			// concatenating into a single string. validateRelPath above is the
+			// primary guard; separate args is defence-in-depth (no shell
+			// interpolation possible in exec form).
+			content, err := h.execInContainer(ctx, containerName, []string{"cat", "/configs", relPath})
 			if err != nil {
 				continue
 			}
