@@ -15,7 +15,7 @@ Two separate product capabilities. One narrative:
 - Together → complete observability + governance loop for enterprise AI fleets
 
 **Lead with Tool Trace** (accessible to all audiences, available on all plans).
-**Pull in Platform Instructions** (enterprise governance feature — LinkedIn primary; X secondary. ⚠️ PLAN AVAILABILITY CONFLICT: blog says Enterprise plans only; community FAQ says all plans. Marketing Lead must confirm before publish.)
+**Pull in Platform Instructions** (enterprise governance, available to org admins on all plans — but target enterprise IT audience on LinkedIn, not X).
 
 ---
 
@@ -86,7 +86,7 @@ Run them together: write the policy once, enforce it everywhere, trace every exe
 That's the observability + governance loop enterprise AI teams need.
 
 Tool Trace: all plans.
-Platform Instructions: Enterprise plans.
+Platform Instructions: all plans.
 
 → [blog link]
 
@@ -119,7 +119,7 @@ Most platforms answer neither question well. Some answer one. Phase 34 from Mole
 
 **Tool Trace** — embedded in every A2A response. Every tool call, input, output preview, parallel call grouping, and timing metadata. The full trace without an extra API call. Available on all plans.
 
-**Platform Instructions** — configurable rules scoped globally or per-workspace. Enforced before every agent turn. The rule is part of the system prompt, not a filter applied after. ⚠️ PLAN AVAILABILITY CONFLICT — see angle note.
+**Platform Instructions** — configurable rules scoped globally or per-workspace. Enforced before every agent turn. The rule is part of the system prompt, not a filter applied after. Available to org admins on all plans.
 
 Together: write the policy once, enforce it everywhere, trace every execution.
 
