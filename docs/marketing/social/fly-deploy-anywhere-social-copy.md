@@ -1,6 +1,6 @@
 # Fly.io Deploy Anywhere — Social Copy
 **Campaign:** Fly.io Deploy Anywhere | **Blog:** `docs/blog/2026-04-17-deploy-anywhere/index.md`
-**Canonical URL:** `moleculesai.app/blog/deploy-anywhere`
+**Canonical URL:** `docs.molecule.ai/blog/deploy-anywhere`
 **Status:** DRAFT — PMM wrote this copy; no file existed anywhere before this entry
 **Owner:** PMM → Social Media Brand | **Day:** T+3 (campaign delayed from April 17)
 

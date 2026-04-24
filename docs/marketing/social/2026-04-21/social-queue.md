@@ -87,7 +87,7 @@ Chrome DevTools MCP plus Molecule AI's governance layer: browser automation that
 
 ## Blog canonical URL
 
-`docs.moleculesai.app/blog/browser-automation-ai-agents-mcp`
+`docs.molecule.ai/blog/browser-automation-ai-agents-mcp`
 
 ---
 
@@ -114,7 +114,7 @@ See `discord-adapter-social-copy.md` for full copy (4 X variants + LinkedIn draf
 **Source:** Blog live 2026-04-17 | Social delayed 5 days
 **File:** `fly-deploy-anywhere-social-copy.md` (local)
 **Status:** COPY READY — PMM executing Option A (retrospective catch-up). Awaiting X credentials.
-**Canonical URL:** `moleculesai.app/blog/deploy-anywhere`
+**Canonical URL:** `docs.molecule.ai/blog/deploy-anywhere`
 **Owner:** Social Media Brand | **Day:** Queue immediately after Chrome DevTools MCP Day 1 posts
 **Decision:** PMM chose Option A per decision brief. Frame: "we shipped this last week."
 

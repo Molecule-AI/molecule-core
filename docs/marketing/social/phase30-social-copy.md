@@ -13,7 +13,7 @@ Phase 30 ships: Molecule AI remote workspaces are GA.
 Agents running on your laptop, AWS, GCP, or on-prem now register to the same org as your Docker agents. Same A2A. Same auth. Same canvas.
 
 Remote badge. That's the only difference.
-→ docs: https://moleculesai.app/docs/guides/remote-workspaces
+→ docs: https://docs.molecule.ai/docs/guides/remote-workspaces
 ```
 
 ### Version B — Product
@@ -34,7 +34,7 @@ How to run a Molecule AI agent on your laptop in 3 steps:
 3. Watch it appear on the canvas
 
 That's it. Phase 30 is live.
-docs → https://moleculesai.app/docs/guides/remote-workspaces
+docs → https://docs.molecule.ai/docs/guides/remote-workspaces
 ```
 
 ### Version D — Enterprise

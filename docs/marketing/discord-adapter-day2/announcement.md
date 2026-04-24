@@ -1,7 +1,7 @@
 # Discord Adapter Day 2 — Community Copy
 
 > Posted 2026-04-21. Discord adapter launched Day 1; Day 2 covers Reddit, Hacker News.
-> Blog URL: https://moleculesai.app/blog/discord-adapter-launch
+> Blog URL: https://docs.molecule.ai/blog/discord-adapter-launch
 > PR: https://github.com/Molecule-AI/molecule-core/pull/656
 
 ---
@@ -49,7 +49,7 @@ The approach: use Discord's native webhook delivery for inbound slash commands (
 No bot token. No intents. No Gateway.
 
 Code: https://github.com/Molecule-AI/molecule-core/tree/main/docs/blog/2026-04-21-discord-adapter
-Launch post: https://moleculesai.app/blog/discord-adapter-launch
+Launch post: https://docs.molecule.ai/blog/discord-adapter-launch
 ```
 
 ---
@@ -76,6 +76,6 @@ The adapter lives in the MCP server (`mcp-server/src/tools/channels/discord.go`)
 
 **Links**
 
-- Docs: https://moleculesai.app/blog/discord-adapter-launch
+- Docs: https://docs.molecule.ai/blog/discord-adapter-launch
 - Code + examples: https://github.com/Molecule-AI/molecule-core/tree/main/docs/blog/2026-04-21-discord-adapter
 - PR: https://github.com/Molecule-AI/molecule-core/pull/656

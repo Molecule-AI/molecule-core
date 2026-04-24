@@ -1,7 +1,7 @@
 # EC2 Instance Connect SSH — Social Copy
 **Feature:** PR #1533 — `feat(terminal): remote path via aws ec2-instance-connect + pty`
 **Campaign:** EC2 Instance Connect SSH | **Blog:** `docs/infra/workspace-terminal.md` (shipped in PR #1533)
-**Canonical URL:** `moleculesai.app/docs/infra/workspace-terminal`
+**Canonical URL:** `docs.molecule.ai/docs/infra/workspace-terminal`
 **Status:** APPROVED — unblocked for Social Media Brand
 **Owner:** PMM → Social Media Brand | **Day:** Blocked on DevRel code demo (#1545) + Content Marketer blog (#1546)
 **Positioning approved by:** PMM (GH issue #1637)
@@ -117,7 +117,7 @@ This is what SaaS terminal access looks like when it's designed for agents, not 
 
 ## CTA
 
-`moleculesai.app/docs/infra/workspace-terminal`
+`docs.molecule.ai/docs/infra/workspace-terminal`
 
 ---
 

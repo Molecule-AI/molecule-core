@@ -74,7 +74,7 @@ Parallel tool calls are handled correctly via run_id pairing. When the agent fir
 
 Tool Trace is enabled by default on all plans.
 
-→ moleculesai.app/blog/ai-agent-observability-without-overhead
+→ docs.molecule.ai/blog/ai-agent-observability-without-overhead
 ```
 
 ### Version B — Governance lead
@@ -87,7 +87,7 @@ Rules are prepended to the system prompt at workspace startup. The agent doesn't
 
 Platform Instructions are available on Enterprise plans.
 
-→ moleculesai.app/blog/govern-ai-fleet-system-prompt-level
+→ docs.molecule.ai/blog/govern-ai-fleet-system-prompt-level
 ```
 
 ### Version C — Combined / enterprise
@@ -102,7 +102,7 @@ Platform Instructions: admin-configurable rules injected into every agent's syst
 
 Together, they close the last gaps in agent observability and governance.
 
-→ moleculesai.app/blog/tool-trace-platform-instructions
+→ docs.molecule.ai/blog/tool-trace-platform-instructions
 ```
 
 ---

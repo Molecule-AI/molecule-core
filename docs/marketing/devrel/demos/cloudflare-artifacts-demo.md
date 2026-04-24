@@ -18,7 +18,7 @@
 ### Step 1: Create a Repo
 
 ```bash
-curl -s -X POST https://your-deployment.moleculesai.app/artifacts/repos \
+curl -s -X POST https://your-deployment.molecule.ai/artifacts/repos \
   -H "Authorization: Bearer $ORG_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name": "demo-workspace", "description": "Agent demo workspace"}' | jq .
@@ -66,7 +66,7 @@ git push origin main
 
 ```bash
 # Fork the workspace — creates an isolated branch
-curl -s -X POST https://your-deployment.moleculesai.app/artifacts/repos/demo-workspace/fork \
+curl -s -X POST https://your-deployment.molecule.ai/artifacts/repos/demo-workspace/fork \
   -H "Authorization: Bearer $ORG_API_KEY" \
   -d '{"name": "demo-workspace/experiment"}' | jq '.repo.remote_url'
 ```

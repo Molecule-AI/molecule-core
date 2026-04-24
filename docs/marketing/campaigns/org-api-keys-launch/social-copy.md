@@ -1,6 +1,6 @@
 # Org-Scoped API Keys — Social Copy
 **Campaign:** Org-Scoped API Keys | **Blog:** `docs/blog/2026-04-25-org-scoped-api-keys/index.md`
-**Canonical URL:** `moleculesai.app/blog/org-scoped-api-keys`
+**Canonical URL:** `docs.molecule.ai/blog/org-scoped-api-keys`
 **Status:** APPROVED — URL and asset fixes applied by PMM (2026-04-25 Day 5 pre-publish)
 **Owner:** PMM → Social Media Brand | **Launch:** Coordinated with PR #1342 merge
 
@@ -65,7 +65,7 @@ Every call traced. Every key revocable. Every rotation zero-downtime.
 
 Navigate to Settings → Org API Keys in the Canvas, or use the REST API directly.
 
-→ moleculesai.app/blog/org-scoped-api-keys
+→ docs.molecule.ai/blog/org-scoped-api-keys
 ```
 
 ---
@@ -82,7 +82,7 @@ Navigate to Settings → Org API Keys in the Canvas, or use the REST API directl
 
 **Do NOT use:** `phase30-fleet-diagram.png` — wrong visual for this campaign.
 
-**CTA URL:** `moleculesai.app/blog/org-scoped-api-keys` *(corrected from `moleculesai.app/blog/deploy-anywhere`)*
+**CTA URL:** `docs.molecule.ai/blog/org-scoped-api-keys` *(corrected from `moleculesai.app/blog/deploy-anywhere`)*
 
 ---
 

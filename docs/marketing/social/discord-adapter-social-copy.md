@@ -85,7 +85,7 @@ One protocol. Any channel. Molecule AI's channel adapter layer makes social plat
 
 ## CTA
 
-`moleculesai.app/docs/agent-runtime/social-channels`
+`docs.molecule.ai/docs/agent-runtime/social-channels`
 
 ---
 
