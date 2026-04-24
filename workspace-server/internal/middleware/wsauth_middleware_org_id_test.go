@@ -36,6 +36,11 @@ func TestWorkspaceAuth_ValidOrgToken_SetsOrgIDContext(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
 			AddRow("tok-org-abc", "tok_test", "00000000-0000-0000-0000-000000000001"))
 
+	// Best-effort last_used_at update after Validate succeeds.
+	mock.ExpectExec("UPDATE org_api_tokens SET last_used_at").
+		WithArgs("tok-org-abc").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
 	r := gin.New()
 	r.GET("/workspaces/:id/secrets", WorkspaceAuth(mockDB), func(c *gin.Context) {
 		v, exists := c.Get("org_id")
@@ -83,6 +88,11 @@ func TestWorkspaceAuth_ValidOrgToken_OrgIDNULL_DoesNotSetContext(t *testing.T) {
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
 			AddRow("tok-old-xyz", "tok_old_", nil))
+
+	// Best-effort last_used_at update after Validate succeeds (even for NULL org_id).
+	mock.ExpectExec("UPDATE org_api_tokens SET last_used_at").
+		WithArgs("tok-old-xyz").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	r := gin.New()
 	r.GET("/workspaces/:id/secrets", WorkspaceAuth(mockDB), func(c *gin.Context) {
@@ -216,6 +226,11 @@ func TestWorkspaceAuth_OrgToken_DBRowScanError_DoesNotPanic(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
 			AddRow("tok-ok", "tok_tok_", "00000000-0000-0000-0000-000000000099"))
 
+	// Best-effort last_used_at update after Validate succeeds.
+	mock.ExpectExec("UPDATE org_api_tokens SET last_used_at").
+		WithArgs("tok-ok").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
 	r := gin.New()
 	r.GET("/workspaces/:id/secrets", WorkspaceAuth(mockDB), func(c *gin.Context) {
 		// org_id key may or may not be set — either is acceptable here.
@@ -254,6 +269,11 @@ func TestWorkspaceAuth_OrgToken_SetsAllContextKeys(t *testing.T) {
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
 			AddRow("tok-full", "tok_fu_", expectedOrgID))
+
+	// Best-effort last_used_at update after Validate succeeds.
+	mock.ExpectExec("UPDATE org_api_tokens SET last_used_at").
+		WithArgs("tok-full").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	r := gin.New()
 	r.GET("/workspaces/:id/secrets", WorkspaceAuth(mockDB), func(c *gin.Context) {
