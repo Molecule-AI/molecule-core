@@ -11,6 +11,7 @@ import { handleCanvasEvent } from "./canvas-events";
 import {
   buildNodesAndEdges,
   computeAutoLayout,
+  defaultChildSlot,
   CHILD_DEFAULT_HEIGHT,
   CHILD_DEFAULT_WIDTH,
   PARENT_BOTTOM_PADDING,
@@ -38,6 +39,10 @@ function growParentsToFitChildren<T extends Record<string, unknown>>(
   const out = nodes.map((n) => {
     const kids = childrenByParent.get(n.id);
     if (!kids || kids.length === 0) return n;
+    // Collapsed parents intentionally render compact — skip the grow
+    // pass so their size isn't pushed back out by their hidden kids.
+    const nData = n.data as unknown as WorkspaceNodeData | undefined;
+    if (nData?.collapsed) return n;
     let maxRight = 0;
     let maxBottom = 0;
     for (const k of kids) {
@@ -127,6 +132,28 @@ interface CanvasState {
   setDragOverNode: (id: string | null) => void;
   nestNode: (draggedId: string, targetId: string | null) => Promise<void>;
   isDescendant: (ancestorId: string, nodeId: string) => boolean;
+  /** Re-order siblings in z-index space. `direction = +1` sends the node
+   *  one step forward among its parent's children (or among canvas
+   *  roots); -1 sends it one step back. Figma Cmd+]/[ parity. */
+  bumpZOrder: (nodeId: string, direction: 1 | -1) => void;
+  /** Re-parent many nodes at once, preserving each node's absolute
+   *  position. Lucidchart pattern: drag a selection into a frame and
+   *  the inter-node layout stays intact. Used when the primary dragged
+   *  node of a multi-select drag triggers a nest confirmation. */
+  batchNest: (nodeIds: string[], targetId: string | null) => Promise<void>;
+  /** Run the parent auto-grow pass once. Canvas.onNodeDragStop calls
+   *  this so a drag that pushed a child past the parent edge commits
+   *  the parent grow on release (commit-on-release pattern). */
+  growParentsToFitChildren: () => void;
+  /** Re-layout a parent's children to the default 2-column grid. Used
+   *  by the "Arrange children" context-menu command so users can rescue
+   *  out-of-bounds children on demand — topology no longer does it
+   *  automatically (P3.12 opt-in rescue). */
+  arrangeChildren: (parentId: string) => void;
+  /** Toggle the collapsed flag on a parent and hide/show every
+   *  descendant so the card renders as a compact header-only frame.
+   *  Miro "frame outline view" analog. */
+  setCollapsed: (parentId: string, collapsed: boolean) => void;
   openContextMenu: (menu: ContextMenuState) => void;
   closeContextMenu: () => void;
   // Pending delete confirmation — lives in the store (not inside ContextMenu's
@@ -297,6 +324,41 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   setPanelTab: (tab) => set({ panelTab: tab }),
   setDragOverNode: (id) => set({ dragOverNodeId: id }),
 
+  batchNest: async (nodeIds, targetId) => {
+    if (nodeIds.length === 0) return;
+    if (nodeIds.length === 1) {
+      await get().nestNode(nodeIds[0], targetId);
+      return;
+    }
+    // Run sequentially so each nestNode's absolute-position calc sees
+    // the previous update committed. Not a hot path — multi-select
+    // re-parents rarely touch more than a handful of nodes.
+    for (const id of nodeIds) {
+      await get().nestNode(id, targetId);
+    }
+  },
+
+  bumpZOrder: (nodeId, direction) => {
+    const { nodes } = get();
+    const target = nodes.find((n) => n.id === nodeId);
+    if (!target) return;
+    // Siblings = nodes sharing the same parent (null for roots).
+    const siblings = nodes.filter(
+      (n) => n.data.parentId === target.data.parentId,
+    );
+    if (siblings.length < 2) return;
+    // React Flow uses a flat zIndex; we keep children above parents
+    // (+1 per depth) so any nudge here stays within the sibling tier.
+    // Reorder in zIndex space by adjusting the target +/- 1.
+    const current = target.zIndex ?? 0;
+    const newZ = current + direction;
+    set({
+      nodes: nodes.map((n) =>
+        n.id === nodeId ? { ...n, zIndex: newZ } : n,
+      ),
+    });
+  },
+
   isDescendant: (ancestorId, nodeId) => {
     const { nodes } = get();
     let current = nodes.find((n) => n.id === nodeId);
@@ -345,6 +407,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       (e) => e.source !== draggedId && e.target !== draggedId,
     );
 
+    // Depth walk so zIndex gets bumped correctly on nest/unnest
+    // (children render above their new ancestor chain).
+    const depthOf = (id: string | null | undefined): number => {
+      let d = 0;
+      let cursor: string | null | undefined = id;
+      while (cursor) {
+        const n = nodes.find((nn) => nn.id === cursor);
+        if (!n) break;
+        cursor = n.data.parentId;
+        d += 1;
+      }
+      return d;
+    };
+    const newDepth = depthOf(targetId) + (targetId ? 1 : 0);
+
     set({
       nodes: nodes.map((n) =>
         n.id === draggedId
@@ -352,6 +429,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
               ...n,
               position: newRelative,
               parentId: targetId ?? undefined,
+              zIndex: newDepth,
               data: { ...n.data, parentId: targetId },
             }
           : n,
@@ -441,12 +519,74 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   onNodesChange: (changes) => {
     const next = applyNodeChanges(changes, get().nodes);
-    // Auto-grow parents to fit their children: if any child's
-    // (position + size) extends beyond the parent's current dimensions,
-    // the parent's explicit width/height is bumped so it stays the
-    // visual container (Miro/FigJam-style frame auto-fit).
-    const grown = growParentsToFitChildren(next);
-    set({ nodes: grown });
+    // Parent auto-grow is intentionally conservative. Running
+    // growParentsToFitChildren on every change (including the dozens of
+    // position updates emitted during a single drag) caused the
+    // "edge-chase" artifact tldraw documented — as the parent grows in
+    // response to the child near its edge, the child's relative
+    // position becomes valid again and the grow stops mid-drag, only to
+    // resume on the next tick. Commit-on-release: only run grow when a
+    // change set contains a `dimensions` change (NodeResizer commit),
+    // not on pure `position` changes. Drag-stop grow is handled
+    // explicitly in Canvas.onNodeDragStop via growOnce().
+    const hasDimensionChange = changes.some((c) => c.type === "dimensions");
+    set({ nodes: hasDimensionChange ? growParentsToFitChildren(next) : next });
+  },
+
+  growParentsToFitChildren: () => {
+    set({ nodes: growParentsToFitChildren(get().nodes) });
+  },
+
+  setCollapsed: (parentId, collapsed) => {
+    const { nodes } = get();
+    // Find all descendant ids via BFS.
+    const descendantIds = new Set<string>();
+    const queue = [parentId];
+    while (queue.length) {
+      const id = queue.shift()!;
+      for (const n of nodes) {
+        if (n.data.parentId === id && !descendantIds.has(n.id)) {
+          descendantIds.add(n.id);
+          queue.push(n.id);
+        }
+      }
+    }
+    set({
+      nodes: nodes.map((n) => {
+        if (n.id === parentId) {
+          return { ...n, data: { ...n.data, collapsed } };
+        }
+        if (descendantIds.has(n.id)) {
+          return { ...n, hidden: collapsed };
+        }
+        return n;
+      }),
+    });
+  },
+
+  arrangeChildren: (parentId) => {
+    const { nodes } = get();
+    const kids = nodes
+      .filter((n) => n.parentId === parentId)
+      .sort((a, b) => (a.data.name || "").localeCompare(b.data.name || ""));
+    if (kids.length === 0) return;
+    const slotByKid = new Map<string, { x: number; y: number }>();
+    kids.forEach((k, i) => slotByKid.set(k.id, defaultChildSlot(i)));
+    set({
+      nodes: nodes.map((n) => {
+        const slot = slotByKid.get(n.id);
+        return slot ? { ...n, position: slot } : n;
+      }),
+    });
+    // Persist the new positions so they survive reload.
+    for (const k of kids) {
+      const slot = slotByKid.get(k.id)!;
+      const parent = nodes.find((nn) => nn.id === parentId);
+      if (!parent) continue;
+      const absX = slot.x + parent.position.x;
+      const absY = slot.y + parent.position.y;
+      api.patch(`/workspaces/${k.id}`, { x: absX, y: absY }).catch(() => {});
+    }
   },
 
   savePosition: async (nodeId: string, x: number, y: number) => {

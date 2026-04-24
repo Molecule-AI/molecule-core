@@ -220,6 +220,30 @@ export function buildNodesAndEdges(
   // the parent's computed box.
   const nextChildIndex = new Map<string, number>();
 
+  // Depth per node so children always render above parents (and above
+  // parent's root-level siblings). React Flow uses a flat zIndex, so a
+  // child inherits zIndex = parent.zIndex + 1 — xyflow issue #4012.
+  const depthById = new Map<string, number>();
+  for (const ws of sorted) {
+    const d = ws.parent_id ? (depthById.get(ws.parent_id) ?? 0) + 1 : 0;
+    depthById.set(ws.id, d);
+  }
+
+  // Mark each node as hidden if any ancestor is collapsed. Walk from
+  // the root so children inherit the flag efficiently. (Parents stay
+  // visible; only descendants are hidden so the parent renders as a
+  // compact header-only card.)
+  const hiddenById = new Map<string, boolean>();
+  for (const ws of sorted) {
+    if (!ws.parent_id) {
+      hiddenById.set(ws.id, false);
+      continue;
+    }
+    const parent = byId.get(ws.parent_id);
+    const parentHidden = hiddenById.get(ws.parent_id) ?? false;
+    hiddenById.set(ws.id, parentHidden || !!parent?.collapsed);
+  }
+
   const nodes: Node<WorkspaceNodeData>[] = sorted.map((ws) => {
     const abs = absPos.get(ws.id)!;
     const hasParent = !!ws.parent_id && byId.has(ws.parent_id);
@@ -228,19 +252,16 @@ export function buildNodesAndEdges(
       const pa = absPos.get(ws.parent_id!)!;
       position = { x: abs.x - pa.x, y: abs.y - pa.y };
 
-      // If the stored relative position falls outside the parent's
-      // current bounds (or landed at exactly the origin before any
-      // layout pass), assign a deterministic grid slot instead. This
-      // rescues org-imported children that ended up at (0,0) and
-      // legacy rows whose absolute coords were far from the parent.
-      const psize = parentSize.get(ws.parent_id!)!;
-      const outside =
-        position.x < 0 ||
-        position.y < 0 ||
-        position.x + CHILD_DEFAULT_WIDTH > psize.width ||
-        position.y + CHILD_DEFAULT_HEIGHT > psize.height;
-      const atOrigin = position.x === -abs.x + abs.x && abs.x === 0 && abs.y === 0;
-      if (outside || atOrigin) {
+      // Trust-the-data default: keep the stored position even if it
+      // falls outside the parent bbox (matches Figma's "don't move my
+      // shapes" rule). The one exception is a child still at
+      // origin (0,0) in the absolute frame — that's almost certainly
+      // an unlaid-out org-import row and would stack every child on
+      // the same point. Drop those into the grid so the first paint
+      // isn't a useless pile. Users can always trigger "Arrange
+      // children" to rescue the rest.
+      const atOrigin = abs.x === 0 && abs.y === 0;
+      if (atOrigin) {
         const idx = nextChildIndex.get(ws.parent_id!) ?? 0;
         nextChildIndex.set(ws.parent_id!, idx + 1);
         position = defaultChildSlot(idx);
@@ -275,6 +296,13 @@ export function buildNodesAndEdges(
       // the user can drag a child out to un-nest (handled in Canvas.tsx
       // onNodeDragStop with a bbox hit test).
       node.parentId = ws.parent_id!;
+    }
+    // Stack children above their ancestors (xyflow #4012).
+    node.zIndex = depthById.get(ws.id) ?? 0;
+    // Collapse: descendants of a collapsed parent get hidden so the
+    // parent renders as a compact header-only card.
+    if (hiddenById.get(ws.id)) {
+      node.hidden = true;
     }
     // Give parents a measured-ish starting size so NodeResizer has a
     // baseline and child positions have somewhere to live. Without this,
