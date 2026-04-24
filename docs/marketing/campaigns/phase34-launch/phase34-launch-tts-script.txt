@@ -1,0 +1,13 @@
+Phase 34 ships today. Four production features that change what running AI agents at scale actually means.
+
+Feature one: Partner API Keys. Marketplace resellers, CI/CD pipelines, and automation platforms can now provision and manage Molecule AI organizations programmatically. No browser. No admin dashboard. Scoped, rate-limited, revocable API keys with full audit attribution. The mol_pk underscore key model.
+
+Feature two: Tool Trace. Full observability into every agent execution. Tool Trace records every tool call an agent makes — the input, the result, the latency, and the call chain. You see what the agent actually did, not just what it said it did. Built in. Not an add-on.
+
+Feature three: Platform Instructions. Governance enforced at the system prompt level. Set rules like, quote, always tag every outbound message with the org ID, end quote. Or, quote, never output raw API keys, end quote. Or, quote, route sensitive operations through an approval gate, end quote. The rule applies to every agent on your platform. You set it once.
+
+Feature four: SaaS Federation version two. Cross-organization collaboration at scale. Organizations can now establish trust relationships and delegate tasks across org boundaries. With org-scoped API keys, every cross-org call is attributable and auditable. A2A protocol plus Federation version two equals agents that collaborate across organizational boundaries without breaking your audit trail.
+
+Phase 34 is available today. Four production features, not experiments, not betas. Available now on Molecule AI.
+
+docs.molecule.ai slash blog slash phase dash 34 dash launch.
