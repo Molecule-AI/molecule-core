@@ -80,15 +80,16 @@ describe("CreateWorkspaceDialog — accessibility", () => {
     // Non-SaaS build (jsdom hostname is localhost) shows all four tiers:
     // T1 Sandboxed, T2 Standard, T3 Privileged, T4 Full Access.
     expect(radios.length).toBe(4);
-    // T1 is default selection
+    // T3 is the default selection on non-SaaS hosts (see
+    // CreateWorkspaceDialog.tsx `defaultTier` comment).
     const t1 = radios.find((r) => r.textContent?.includes("T1"));
-    const t2 = radios.find((r) => r.textContent?.includes("T2"));
-    expect(t1?.getAttribute("aria-checked")).toBe("true");
-    expect(t2?.getAttribute("aria-checked")).toBe("false");
-    // Click T2 and verify aria-checked flips
-    fireEvent.click(t2!);
+    const t3 = radios.find((r) => r.textContent?.includes("T3"));
+    expect(t3?.getAttribute("aria-checked")).toBe("true");
+    expect(t1?.getAttribute("aria-checked")).toBe("false");
+    // Click T1 and verify aria-checked flips
+    fireEvent.click(t1!);
     await waitFor(() =>
-      expect(t2?.getAttribute("aria-checked")).toBe("true")
+      expect(t1?.getAttribute("aria-checked")).toBe("true")
     );
   });
 
@@ -101,10 +102,10 @@ describe("CreateWorkspaceDialog — accessibility", () => {
     const t2 = radios.find((r) => r.textContent?.includes("T2"))!;
     const t3 = radios.find((r) => r.textContent?.includes("T3"))!;
     const t4 = radios.find((r) => r.textContent?.includes("T4"))!;
-    // T1 is default selected (non-SaaS test env; SaaS would default to T4)
-    expect(t1.getAttribute("tabindex")).toBe("0");
+    // T3 is default selected (non-SaaS test env; SaaS would default to T4).
+    expect(t3.getAttribute("tabindex")).toBe("0");
+    expect(t1.getAttribute("tabindex")).toBe("-1");
     expect(t2.getAttribute("tabindex")).toBe("-1");
-    expect(t3.getAttribute("tabindex")).toBe("-1");
     expect(t4.getAttribute("tabindex")).toBe("-1");
   });
 

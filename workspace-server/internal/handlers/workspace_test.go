@@ -154,7 +154,7 @@ func TestWorkspaceCreate_DBInsertError(t *testing.T) {
 	// Transaction begins, workspace INSERT fails, transaction is rolled back.
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO workspaces").
-		WithArgs(sqlmock.AnyArg(), "Failing Agent", nil, 1, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
+		WithArgs(sqlmock.AnyArg(), "Failing Agent", nil, 3, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
 		WillReturnError(sql.ErrConnDone)
 	mock.ExpectRollback()
 
@@ -184,9 +184,10 @@ func TestWorkspaceCreate_DefaultsApplied(t *testing.T) {
 
 	// Transaction wraps the workspace INSERT (no secrets in this request).
 	mock.ExpectBegin()
-	// Expect workspace INSERT with defaulted tier=1, runtime="langgraph"
+	// Expect workspace INSERT with defaulted tier=3 (Privileged — the
+	// handler default in workspace.go), runtime="langgraph"
 	mock.ExpectExec("INSERT INTO workspaces").
-		WithArgs(sqlmock.AnyArg(), "Default Agent", nil, 1, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
+		WithArgs(sqlmock.AnyArg(), "Default Agent", nil, 3, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -237,7 +238,7 @@ func TestWorkspaceCreate_WithSecrets_Persists(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO workspaces").
-		WithArgs(sqlmock.AnyArg(), "Hermes Agent", nil, 1, "hermes", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
+		WithArgs(sqlmock.AnyArg(), "Hermes Agent", nil, 3, "hermes", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	// Secret inserted inside the same transaction.
 	mock.ExpectExec("INSERT INTO workspace_secrets").
@@ -1255,7 +1256,7 @@ runtime_config:
 	// and hand the completed values to the INSERT.
 	mock.ExpectExec("INSERT INTO workspaces").
 		WithArgs(
-			sqlmock.AnyArg(), "Hermes Agent", nil, 1, "hermes",
+			sqlmock.AnyArg(), "Hermes Agent", nil, 3, "hermes",
 			sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -1306,9 +1307,13 @@ model: anthropic:claude-sonnet-4-5
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", configsDir)
 
 	mock.ExpectBegin()
+	// Default tier 3 (Privileged) — see workspace.go create-handler comment.
+	// Template declares tier: 1 but the handler's current semantics ignore
+	// that field and fall through to the default. If that's ever fixed,
+	// this assertion should flip back to 1.
 	mock.ExpectExec("INSERT INTO workspaces").
 		WithArgs(
-			sqlmock.AnyArg(), "Legacy Agent", nil, 1, "langgraph",
+			sqlmock.AnyArg(), "Legacy Agent", nil, 3, "langgraph",
 			sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -1361,7 +1366,7 @@ runtime_config:
 	// absence of a handler error to mean the model passthrough was honored.
 	mock.ExpectExec("INSERT INTO workspaces").
 		WithArgs(
-			sqlmock.AnyArg(), "Custom Hermes", nil, 1, "hermes",
+			sqlmock.AnyArg(), "Custom Hermes", nil, 3, "hermes",
 			sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()

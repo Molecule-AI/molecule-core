@@ -104,6 +104,13 @@ interface RuntimeOption {
 // Fallback used when /templates can't be fetched (offline, older backend).
 // Keep in sync with manifest.json workspace_templates as a defensive default.
 // Model + env suggestions only flow when the backend is reachable.
+// Runtimes that manage their own config outside the platform's config.yaml
+// template. For these, a missing config.yaml is expected — the user manages
+// config via the runtime's own mechanism (e.g. hermes edits
+// ~/.hermes/config.yaml on the workspace EC2 via the Terminal tab or its
+// own CLI). Showing a "No config.yaml found" error for these is misleading.
+const RUNTIMES_WITH_OWN_CONFIG = new Set<string>(["hermes", "external"]);
+
 const FALLBACK_RUNTIME_OPTIONS: RuntimeOption[] = [
   { value: "", label: "LangGraph (default)", models: [] },
   { value: "claude-code", label: "Claude Code", models: [] },
@@ -134,14 +141,50 @@ export function ConfigTab({ workspaceId }: Props) {
   const loadConfig = useCallback(async () => {
     setLoading(true);
     setError(null);
+
+    // ALWAYS load workspace metadata first (runtime + model). These are the
+    // source of truth regardless of whether the runtime uses our config.yaml
+    // template. Without this the form falls back to empty/default values on
+    // a hermes workspace (which doesn't use our template), creating the
+    // appearance that the saved runtime is unset — and worse, clicking Save
+    // would silently flip `runtime` from `hermes` back to the dropdown
+    // default `LangGraph`. See GH #1894.
+    let wsMetadataRuntime = "";
+    let wsMetadataModel = "";
+    try {
+      const ws = await api.get<{ runtime?: string }>(`/workspaces/${workspaceId}`);
+      wsMetadataRuntime = (ws.runtime || "").trim();
+    } catch { /* fall back to config.yaml */ }
+    try {
+      const m = await api.get<{ model?: string }>(`/workspaces/${workspaceId}/model`);
+      wsMetadataModel = (m.model || "").trim();
+    } catch { /* non-fatal */ }
+
     try {
       const res = await api.get<{ content: string }>(`/workspaces/${workspaceId}/files/config.yaml`);
       const parsed = parseYaml(res.content);
       setOriginalYaml(res.content);
       setRawDraft(res.content);
-      setConfig({ ...DEFAULT_CONFIG, ...parsed } as ConfigData);
+      // Merge: config.yaml wins for fields it declares, but workspace metadata
+      // wins for runtime + model when config.yaml doesn't set them.
+      const merged = { ...DEFAULT_CONFIG, ...parsed } as ConfigData;
+      if (!merged.runtime && wsMetadataRuntime) merged.runtime = wsMetadataRuntime;
+      if (!merged.model && wsMetadataModel) merged.model = wsMetadataModel;
+      setConfig(merged);
     } catch {
-      setError("No config.yaml found");
+      // No platform-managed config.yaml. Some runtimes (hermes, external)
+      // manage their own config outside this template; that's expected, not
+      // an error. Populate the form from workspace metadata so the user
+      // still sees the saved runtime + model.
+      const runtimeManagesOwnConfig = RUNTIMES_WITH_OWN_CONFIG.has(wsMetadataRuntime);
+      if (!runtimeManagesOwnConfig) {
+        setError("No config.yaml found");
+      }
+      setConfig({
+        ...DEFAULT_CONFIG,
+        runtime: wsMetadataRuntime,
+        model: wsMetadataModel,
+      } as ConfigData);
     } finally {
       setLoading(false);
     }
@@ -198,15 +241,65 @@ export function ConfigTab({ workspaceId }: Props) {
     setSuccess(false);
     try {
       const content = rawMode ? rawDraft : toYaml(config);
-      await api.put(`/workspaces/${workspaceId}/files/config.yaml`, { content });
+      const runtimeManagesOwnConfig = RUNTIMES_WITH_OWN_CONFIG.has(config.runtime || "");
+      // Only write the platform-managed config.yaml when the runtime
+      // actually consumes it. Hermes + external runtimes manage their
+      // own config file inside the container, so writing this one is a
+      // no-op at best and can fail with 404 if config.yaml was never
+      // created for this workspace.
+      if (!runtimeManagesOwnConfig) {
+        await api.put(`/workspaces/${workspaceId}/files/config.yaml`, { content });
+      }
 
-      // If runtime changed, update it in the DB so restart uses the correct image
-      const newRuntime = rawMode
-        ? (parseYaml(rawDraft).runtime as string || "")
-        : (config.runtime || "");
-      const oldRuntime = (parseYaml(originalYaml).runtime as string || "");
-      if (newRuntime && newRuntime !== oldRuntime) {
-        await api.patch(`/workspaces/${workspaceId}`, { runtime: newRuntime });
+      // DB-backed fields (name, tier, runtime, model) live on the
+      // workspace row, NOT in config.yaml. Fire separate PATCHes for
+      // the ones that actually changed — otherwise a Hermes user edits
+      // the form, hits Save, sees the request succeed, then watches the
+      // values snap back on the next reload because the workspace row
+      // never heard about the change.
+      //
+      // Diff against the RAW parsed YAML (or the form `config` in non-
+      // raw mode) rather than the DEFAULT_CONFIG-merged shape — if the
+      // user deleted a field in raw mode the merge would substitute the
+      // default (e.g. tier=1) and we'd silently PATCH that down from
+      // the stored value. Only fields the user actually typed get sent.
+      const oldParsed = parseYaml(originalYaml);
+      const nextSource = rawMode
+        ? (parseYaml(rawDraft) as Record<string, unknown>)
+        : (config as unknown as Record<string, unknown>);
+      const dbPatch: Record<string, unknown> = {};
+      if (typeof nextSource.name === "string" && nextSource.name && nextSource.name !== oldParsed.name) {
+        dbPatch.name = nextSource.name;
+      }
+      if (typeof nextSource.tier === "number" && nextSource.tier !== (oldParsed.tier ?? null)) {
+        dbPatch.tier = nextSource.tier;
+      }
+      const oldRuntime = (oldParsed.runtime as string) || "";
+      if (typeof nextSource.runtime === "string" && nextSource.runtime && nextSource.runtime !== oldRuntime) {
+        dbPatch.runtime = nextSource.runtime;
+      }
+      if (Object.keys(dbPatch).length > 0) {
+        await api.patch(`/workspaces/${workspaceId}`, dbPatch);
+      }
+
+      // Model has its own endpoint (separate from the general workspace
+      // PATCH) because the runtime may need to validate it against the
+      // template's supported models list. A model rejection is a
+      // partial-save state — we report it as a user-visible warning
+      // rather than lying "Saved" and letting the user discover the
+      // revert on next reload.
+      const oldModel = (oldParsed.model as string) || "";
+      let modelSaveError: string | null = null;
+      if (
+        typeof nextSource.model === "string" &&
+        nextSource.model &&
+        nextSource.model !== oldModel
+      ) {
+        try {
+          await api.put(`/workspaces/${workspaceId}/model`, { model: nextSource.model });
+        } catch (e) {
+          modelSaveError = e instanceof Error ? e.message : "Model update was rejected";
+        }
       }
 
       setOriginalYaml(content);
@@ -221,9 +314,16 @@ export function ConfigTab({ workspaceId }: Props) {
       } else {
         useCanvasStore.getState().updateNodeData(workspaceId, { needsRestart: true });
       }
-      setSuccess(true);
-      clearTimeout(successTimerRef.current);
-      successTimerRef.current = setTimeout(() => setSuccess(false), 2000);
+      if (modelSaveError) {
+        // Partial-save UX: surface the model rejection instead of
+        // showing "Saved" — the user would otherwise watch the model
+        // field revert on next reload with no explanation.
+        setError(`Other fields saved, but model update failed: ${modelSaveError}`);
+      } else {
+        setSuccess(true);
+        clearTimeout(successTimerRef.current);
+        successTimerRef.current = setTimeout(() => setSuccess(false), 2000);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
@@ -389,13 +489,19 @@ export function ConfigTab({ workspaceId }: Props) {
               label={
                 currentModelSpec?.required_env?.length &&
                 arraysEqual(config.runtime_config?.required_env ?? [], currentModelSpec.required_env)
-                  ? "Required Env Vars (from template)"
-                  : "Required Env Vars"
+                  ? "Required Env Var Names (from template)"
+                  : "Required Env Var Names"
               }
               values={config.runtime_config?.required_env ?? []}
               onChange={(v) => updateNested("runtime_config" as keyof ConfigData, "required_env", v)}
-              placeholder="e.g. CLAUDE_CODE_OAUTH_TOKEN"
+              placeholder="variable NAME (e.g. ANTHROPIC_API_KEY) — not the value"
             />
+            <p className="text-[10px] text-zinc-500 mt-1">
+              This declares which env var <em>names</em> the workspace needs.
+              Set the actual values in the <strong>Secrets</strong> section
+              below — those are encrypted and mounted into the container at
+              runtime.
+            </p>
             {currentModelSpec?.required_env?.length &&
               !arraysEqual(config.runtime_config?.required_env ?? [], currentModelSpec.required_env) && (
               <div className="text-[10px] text-zinc-500 mt-1 flex items-center gap-2">
@@ -502,7 +608,10 @@ export function ConfigTab({ workspaceId }: Props) {
             </div>
           </Section>
 
-          <SecretsSection workspaceId={workspaceId} />
+          <SecretsSection
+            workspaceId={workspaceId}
+            requiredEnv={config.runtime_config?.required_env}
+          />
 
           <AgentCardSection workspaceId={workspaceId} />
         </div>
@@ -510,6 +619,13 @@ export function ConfigTab({ workspaceId }: Props) {
 
       {error && (
         <div className="mx-3 mb-2 px-3 py-1.5 bg-red-900/30 border border-red-800 rounded text-xs text-red-400">{error}</div>
+      )}
+      {!error && RUNTIMES_WITH_OWN_CONFIG.has(config.runtime || "") && (
+        <div className="mx-3 mb-2 px-3 py-1.5 bg-zinc-900/50 border border-zinc-700 rounded text-xs text-zinc-400">
+          {config.runtime === "hermes"
+            ? "Hermes manages its own config at ~/.hermes/config.yaml on the workspace host. Edit it via the Terminal tab or the hermes CLI, not this form."
+            : "This runtime manages its own config outside the platform template."}
+        </div>
       )}
       {success && (
         <div className="mx-3 mb-2 px-3 py-1.5 bg-green-900/30 border border-green-800 rounded text-xs text-green-400">Saved</div>

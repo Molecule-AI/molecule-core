@@ -5,9 +5,17 @@ on:
     branches: [main, staging]
   pull_request:
     branches: [main, staging]
+  # GitHub merge queue fires `merge_group` for the queue's pre-merge CI run.
+  # Required so the queue gets a real check result instead of a false-green
+  # from the absence of a triggered workflow. Safe to add unconditionally —
+  # the event simply doesn't fire until the queue is enabled on the branch.
+  merge_group:
+    types: [checks_requested]
 
 # Cancel in-progress CI runs when a new commit arrives on the same ref.
-# This prevents stale runs from queuing behind each other.
+# This prevents stale runs from queuing behind each other. The merge_group
+# refs (refs/heads/gh-readonly-queue/...) get their own concurrency group
+# automatically because github.ref differs from the PR ref.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -142,7 +150,8 @@ jobs:
 
               # Strip the package-import prefix so we can match .coverage-allowlist.txt
               # entries written as paths relative to workspace-server/.
-              rel=$(echo "$file" | sed 's|^github.com/Molecule-AI/molecule-monorepo/platform/||')
+              # Handle both module paths: platform/workspace-server/... and platform/...
+              rel=$(echo "$file" | sed 's|^github.com/Molecule-AI/molecule-monorepo/platform/workspace-server/||; s|^github.com/Molecule-AI/molecule-monorepo/platform/||')
 
               if echo "$ALLOWLIST" | grep -qxF "$rel"; then
                 echo "::warning file=workspace-server/$rel::Critical file at ${pct}% coverage (allowlisted, #1823) — fix before expiry."

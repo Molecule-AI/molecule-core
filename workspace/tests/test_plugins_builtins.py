@@ -481,3 +481,234 @@ def test_deep_merge_hooks_top_level_keys_merged():
     # setdefault semantics: existing keys win, new keys are added
     assert result["someKey"] == "old"
     assert result["anotherKey"] == "value"
+
+
+def test_deep_merge_hooks_mcpServers_deep_merged():
+    """mcpServers dicts from two plugins must be merged, not replaced.
+
+    Plugin A ships firecrawl, plugin B ships github → both land in the
+    final settings.json (issue #847 motivation).
+    """
+    existing = {
+        "mcpServers": {
+            "firecrawl": {
+                "command": "npx",
+                "args": ["-y", "@org/firecrawl-mcp"],
+            }
+        }
+    }
+    fragment = {
+        "mcpServers": {
+            "github": {
+                "command": "npx",
+                "args": ["-y", "@github/github-mcp-server"],
+            }
+        },
+        "hooks": {},
+    }
+    result = _deep_merge_hooks(existing, fragment)
+    assert "firecrawl" in result["mcpServers"]
+    assert "github" in result["mcpServers"]
+    # existing entries must not be overwritten
+    assert result["mcpServers"]["firecrawl"]["command"] == "npx"
+
+
+def test_deep_merge_hooks_mcpServers_idempotent():
+    """Re-merging the same mcpServers fragment must not duplicate entries."""
+    fragment = {
+        "mcpServers": {
+            "firecrawl": {"command": "npx", "args": ["-y", "@org/firecrawl-mcp"]}
+        },
+        "hooks": {},
+    }
+    state = _deep_merge_hooks({}, fragment)
+    state = _deep_merge_hooks(state, fragment)
+    state = _deep_merge_hooks(state, fragment)
+    assert len(state["mcpServers"]) == 1
+
+
+def test_deep_merge_hooks_mcpServers_three_plugins():
+    """Three plugins each contributing one mcpServer all land in final output."""
+    state = {}
+    for name in ["firecrawl", "github", "browser-use"]:
+        fragment = {
+            "mcpServers": {name: {"command": "npx", "args": [f"-y @{name}"]}},
+            "hooks": {},
+        }
+        state = _deep_merge_hooks(state, fragment)
+
+    assert set(state["mcpServers"].keys()) == {"firecrawl", "github", "browser-use"}
+
+
+# ---------------------------------------------------------------------------
+# MCPServerAdaptor tests — issue #847
+# ---------------------------------------------------------------------------
+
+from plugins_registry.builtins import MCPServerAdaptor  # noqa: E402
+
+
+async def test_mcp_server_adaptor_install_writes_mcpServers(tmp_path: Path):
+    """install() must merge mcpServers from settings-fragment.json into settings.json."""
+    plugin = tmp_path / "my-mcp-plugin"
+    plugin.mkdir()
+    (plugin / "settings-fragment.json").write_text(
+        json.dumps({
+            "mcpServers": {
+                "my-server": {
+                    "command": "npx",
+                    "args": ["-y", "@org/my-mcp-server"],
+                }
+            }
+        })
+    )
+    # Also add a skill so we can verify AgentskillsAdaptor delegation.
+    (plugin / "skills" / "docs").mkdir(parents=True)
+    (plugin / "skills" / "docs" / "SKILL.md").write_text("# docs skill\n")
+
+    configs = tmp_path / "configs"
+    configs.mkdir()
+    result = await MCPServerAdaptor("my-mcp-plugin", "claude_code").install(
+        _make_ctx(configs, plugin)
+    )
+
+    settings = json.loads((configs / ".claude" / "settings.json").read_text())
+    assert "mcpServers" in settings
+    assert "my-server" in settings["mcpServers"]
+    assert settings["mcpServers"]["my-server"]["command"] == "npx"
+    # Skills were also installed (AgentskillsAdaptor delegation).
+    assert (configs / "skills" / "docs" / "SKILL.md").exists()
+    assert ".claude/settings.json" in result.files_written
+
+
+async def test_mcp_server_adaptor_install_no_fragment_no_warning(tmp_path: Path):
+    """Plugin without settings-fragment.json must install silently (no settings.json created)."""
+    plugin = tmp_path / "bare-mcp"
+    plugin.mkdir()
+    configs = tmp_path / "configs"
+    configs.mkdir()
+
+    result = await MCPServerAdaptor("bare-mcp", "claude_code").install(
+        _make_ctx(configs, plugin)
+    )
+    # _install_claude_layer creates .claude dir, but no settings.json when
+    # there's no settings-fragment.json.
+    assert not (configs / ".claude" / "settings.json").exists()
+    assert result.warnings == []
+
+
+async def test_mcp_server_adaptor_uninstall_does_not_remove_mcpServers(tmp_path: Path):
+    """uninstall() must remove skills/rules but leave mcpServers in settings.json.
+
+    Rationale: MCP server configs are often shared or manually curated;
+    removing them on plugin uninstall could break the user's environment.
+    """
+    plugin = tmp_path / "my-mcp-plugin"
+    plugin.mkdir()
+    (plugin / "settings-fragment.json").write_text(
+        json.dumps({
+            "mcpServers": {
+                "my-server": {
+                    "command": "npx",
+                    "args": ["-y", "@org/my-mcp-server"],
+                }
+            }
+        })
+    )
+    (plugin / "rules").mkdir(parents=True)
+    (plugin / "rules" / "r.md").write_text("- my rule\n")
+    (plugin / "skills" / "s").mkdir(parents=True)
+    (plugin / "skills" / "s" / "SKILL.md").write_text("# skill\n")
+
+    configs = tmp_path / "configs"
+    configs.mkdir()
+    adaptor = MCPServerAdaptor("my-mcp-plugin", "claude_code")
+
+    await adaptor.install(_make_ctx(configs, plugin))
+    assert (configs / "skills" / "s").exists()
+    assert "my-server" in json.loads((configs / ".claude" / "settings.json").read_text()).get("mcpServers", {})
+
+    await adaptor.uninstall(_make_ctx(configs, plugin))
+
+    # Skills and rules removed by AgentskillsAdaptor delegation.
+    assert not (configs / "skills" / "s").exists()
+    assert not (configs / "CLAUDE.md").exists() or "# Plugin: my-mcp-plugin" not in (configs / "CLAUDE.md").read_text()
+    # mcpServers intentionally kept.
+    settings = json.loads((configs / ".claude" / "settings.json").read_text())
+    assert "mcpServers" in settings
+    assert "my-server" in settings["mcpServers"]
+
+
+async def test_mcp_server_adaptor_install_merges_with_existing_settings(tmp_path: Path):
+    """install() must deep-merge mcpServers with an already-populated settings.json."""
+    plugin = tmp_path / "second-mcp"
+    plugin.mkdir()
+    (plugin / "settings-fragment.json").write_text(
+        json.dumps({
+            "mcpServers": {
+                "github": {
+                    "command": "npx",
+                    "args": ["-y", "@github/github-mcp-server"],
+                }
+            }
+        })
+    )
+
+    configs = tmp_path / "configs"
+    configs.mkdir()
+    # Pre-existing settings.json with an mcpServer already present.
+    claude_dir = configs / ".claude"
+    claude_dir.mkdir(parents=True)
+    (claude_dir / "settings.json").write_text(
+        json.dumps({
+            "mcpServers": {
+                "firecrawl": {
+                    "command": "npx",
+                    "args": ["-y", "@firecrawl/firecrawl-mcp"],
+                }
+            }
+        })
+    )
+
+    await MCPServerAdaptor("second-mcp", "claude_code").install(_make_ctx(configs, plugin))
+
+    settings = json.loads((claude_dir / "settings.json").read_text())
+    assert "firecrawl" in settings["mcpServers"]
+    assert "github" in settings["mcpServers"]
+
+
+async def test_mcp_server_adaptor_install_also_handles_hooks(tmp_path: Path):
+    """An MCPServer plugin can also ship PreToolUse/PostToolUse hooks via the
+    same settings-fragment.json; they must be merged without duplication."""
+    plugin = tmp_path / "mcp-with-hooks"
+    plugin.mkdir()
+    (plugin / "hooks").mkdir(parents=True)
+    (plugin / "hooks" / "lint.sh").write_text("#!/bin/bash\necho ok\n")
+    (plugin / "hooks" / "lint.sh").chmod(0o755)
+    (plugin / "settings-fragment.json").write_text(
+        json.dumps({
+            "mcpServers": {
+                "my-server": {"command": "npx", "args": ["-y", "@x/server"]}
+            },
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": "Bash",
+                        "hooks": [{"type": "command", "command": "${CLAUDE_DIR}/hooks/lint.sh"}],
+                    }
+                ]
+            },
+        })
+    )
+
+    configs = tmp_path / "configs"
+    configs.mkdir()
+    await MCPServerAdaptor("mcp-with-hooks", "claude_code").install(_make_ctx(configs, plugin))
+
+    settings = json.loads((configs / ".claude" / "settings.json").read_text())
+    assert "my-server" in settings["mcpServers"]
+    assert len(settings["hooks"]["PreToolUse"]) == 1
+    assert settings["hooks"]["PreToolUse"][0]["matcher"] == "Bash"
+
+
+import json  # noqa: E402 — also used in new tests above
+

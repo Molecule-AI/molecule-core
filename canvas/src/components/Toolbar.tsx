@@ -16,6 +16,17 @@ export function Toolbar() {
   const setShowA2AEdges = useCanvasStore((s) => s.setShowA2AEdges);
   const selectedNodeId = useCanvasStore((s) => s.selectedNodeId);
   const setPanelTab = useCanvasStore((s) => s.setPanelTab);
+  const sidePanelWidth = useCanvasStore((s) => s.sidePanelWidth);
+
+  // Toolbar is fixed + centred on the viewport. When a workspace is
+  // selected the SidePanel (z-50, fixed right-0) opens and covers the
+  // right edge of the viewport — without this adjustment, the right
+  // half of the Toolbar (Audit / Search / Help / Settings) hides
+  // behind the panel. Shifting the toolbar LEFT by half the panel
+  // width re-centres it on the remaining canvas area.
+  const toolbarOffsetStyle = selectedNodeId
+    ? { marginLeft: `-${sidePanelWidth / 2}px` }
+    : undefined;
 
   const [stopping, setStopping] = useState(false);
   const [restartingAll, setRestartingAll] = useState(false);
@@ -116,7 +127,10 @@ export function Toolbar() {
   }, []);
 
   return (
-    <div className="fixed top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 bg-zinc-900/80 backdrop-blur-md border border-zinc-800/60 rounded-xl px-4 py-2 shadow-xl shadow-black/20">
+    <div
+      className="fixed top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 bg-zinc-900/80 backdrop-blur-md border border-zinc-800/60 rounded-xl px-4 py-2 shadow-xl shadow-black/20 transition-[margin-left] duration-200"
+      style={toolbarOffsetStyle}
+    >
       {/* Logo / Title */}
       <div className="flex items-center gap-2 pr-3 border-r border-zinc-800/60">
         <img src="/molecule-icon.png" alt="Molecule AI" className="w-5 h-5" />

@@ -69,21 +69,18 @@ def _make_a2a_stubs() -> None:
     tasks_mod = ModuleType("a2a.server.tasks")
     types_mod = ModuleType("a2a.types")
 
-    class TextPart:
-        def __init__(self, text=""):
+    class Part:
+        # v1: Part takes text= directly; root= retained for compat during transition
+        def __init__(self, text=None, root=None, **kwargs):
             self.text = text
 
-    class Part:
-        def __init__(self, root=None):
-            self.root = root
-
-    types_mod.TextPart = TextPart
     types_mod.Part = Part
 
-    utils_mod = ModuleType("a2a.utils")
+    # a2a.helpers (v1: moved from a2a.utils)
+    helpers_mod = ModuleType("a2a.helpers")
     # Passthrough so tests can assert on the plain text string, matching the
     # hermes_executor test convention from conftest.py.
-    utils_mod.new_agent_text_message = lambda text, **kwargs: text
+    helpers_mod.new_agent_text_message = lambda text, **kwargs: text
 
     a2a_mod = ModuleType("a2a")
     a2a_server_mod = ModuleType("a2a.server")
@@ -94,7 +91,7 @@ def _make_a2a_stubs() -> None:
     sys.modules["a2a.server.events"] = events_mod
     sys.modules["a2a.server.tasks"] = tasks_mod
     sys.modules["a2a.types"] = types_mod
-    sys.modules["a2a.utils"] = utils_mod
+    sys.modules["a2a.helpers"] = helpers_mod
 
 
 def _make_google_adk_stubs() -> None:

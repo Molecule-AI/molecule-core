@@ -46,11 +46,15 @@ export function SidePanel() {
   const panelTab = useCanvasStore((s) => s.panelTab);
   const setPanelTab = useCanvasStore((s) => s.setPanelTab);
   const selectNode = useCanvasStore((s) => s.selectNode);
+  const setSidePanelWidth = useCanvasStore((s) => s.setSidePanelWidth);
   const node = useCanvasStore((s) =>
     s.nodes.find((n) => n.id === s.selectedNodeId)
   );
 
-  // Resizable panel width — persisted across node selections via localStorage
+  // Resizable panel width — persisted across node selections via localStorage.
+  // Also published to the canvas store on every change so the centered
+  // Toolbar can re-centre itself on the remaining canvas area (avoids the
+  // Audit / Search / Settings buttons hiding under the panel).
   const [width, setWidth] = useState<number>(() => {
     if (typeof window === "undefined") return SIDEPANEL_DEFAULT_WIDTH;
     const saved = localStorage.getItem(SIDEPANEL_WIDTH_KEY);
@@ -59,6 +63,9 @@ export function SidePanel() {
       ? parsed
       : SIDEPANEL_DEFAULT_WIDTH;
   });
+  useEffect(() => {
+    setSidePanelWidth(width);
+  }, [width, setSidePanelWidth]);
   const widthRef = useRef(width); // tracks live drag value for the mouseup handler
   const dragging = useRef(false);
   const startX = useRef(0);

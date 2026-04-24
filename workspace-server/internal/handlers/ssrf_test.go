@@ -235,3 +235,95 @@ func TestIsSafeURL(t *testing.T) {
 		})
 	}
 }
+
+// Dev-mode loopback relaxation — lock in the local-dev SSRF escape
+// hatch. The provisioner on a self-hosted Docker setup publishes
+// workspace A2A ports on 127.0.0.1:<ephemeral>, so the A2A proxy must
+// POST to loopback. Without this relaxation every Canvas chat send
+// returned 502 on the host-run platform.
+//
+// SaaS safety: the relaxation fires ONLY when MOLECULE_ENV is a dev
+// value. Production (MOLECULE_ENV=production) must continue to block
+// loopback. Every other blocked range (metadata 169.254/16, TEST-NET,
+// CGNAT, link-local) must stay blocked even in dev mode.
+
+func TestIsSafeURL_DevModeAllowsLoopback(t *testing.T) {
+	t.Setenv("MOLECULE_ENV", "development")
+	cases := []string{
+		"http://127.0.0.1:59806",
+		"http://127.0.0.1:8000/a2a",
+		"http://[::1]:8000",
+	}
+	for _, u := range cases {
+		t.Run(u, func(t *testing.T) {
+			if err := isSafeURL(u); err != nil {
+				t.Errorf("dev mode should allow %q, got %v", u, err)
+			}
+		})
+	}
+}
+
+func TestIsSafeURL_DevModeShortAlias(t *testing.T) {
+	t.Setenv("MOLECULE_ENV", "dev")
+	if err := isSafeURL("http://127.0.0.1:59806"); err != nil {
+		t.Errorf("MOLECULE_ENV=dev should allow loopback, got %v", err)
+	}
+}
+
+func TestIsSafeURL_Production_StillBlocksLoopback(t *testing.T) {
+	// SaaS-safety guarantee: production tenants must keep blocking
+	// loopback URLs. A workspace registering a loopback URL in prod
+	// is almost certainly an attack targeting co-located admin
+	// services — the SSRF defence MUST keep firing.
+	t.Setenv("MOLECULE_ENV", "production")
+	if err := isSafeURL("http://127.0.0.1:8080"); err == nil {
+		t.Error("production must block loopback, got nil error")
+	}
+}
+
+func TestIsSafeURL_DevMode_StillBlocksOtherRanges(t *testing.T) {
+	// The relaxation is narrow — only loopback. Metadata / CGNAT /
+	// TEST-NET / link-local must still fire in dev mode. A malicious
+	// workspace in a dev install must NOT reach cloud metadata.
+	t.Setenv("MOLECULE_ENV", "development")
+	stillBlocked := []string{
+		"http://169.254.169.254/latest/meta-data/", // AWS IMDS
+		"http://192.0.2.1:8080",                    // TEST-NET-1
+		"http://100.64.0.1:8080",                   // CGNAT
+		"http://0.0.0.0:8080",                      // unspecified
+		"http://224.0.0.1/",                        // link-local multicast
+	}
+	for _, u := range stillBlocked {
+		t.Run(u, func(t *testing.T) {
+			if err := isSafeURL(u); err == nil {
+				t.Errorf("dev mode must still block %q", u)
+			}
+		})
+	}
+}
+
+func TestDevModeAllowsLoopback_Predicate(t *testing.T) {
+	cases := []struct {
+		name, env string
+		want      bool
+	}{
+		{"development", "development", true},
+		{"dev", "dev", true},
+		{"Development (case)", "Development", true},
+		{"DEV (case)", "DEV", true},
+		{"  dev  (whitespace)", "  dev  ", true},
+		{"production", "production", false},
+		{"staging", "staging", false},
+		{"empty string", "", false},
+		{"typo devel", "devel", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("MOLECULE_ENV", tc.env)
+			got := devModeAllowsLoopback()
+			if got != tc.want {
+				t.Errorf("devModeAllowsLoopback() with MOLECULE_ENV=%q = %v, want %v", tc.env, got, tc.want)
+			}
+		})
+	}
+}

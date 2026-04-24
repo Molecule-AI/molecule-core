@@ -653,7 +653,7 @@ async def test_cancel_emits_canceled_event():
     import a2a.types as a2a_types
 
     class _TaskState:
-        canceled = "canceled"
+        TASK_STATE_CANCELED = "canceled"  # a2a-sdk v1 enum name
 
     class _TaskStatus:
         def __init__(self, state):
@@ -675,7 +675,7 @@ async def test_cancel_emits_canceled_event():
     eq.enqueue_event.assert_called_once()
     event = eq.enqueue_event.call_args[0][0]
     assert isinstance(event, _TaskStatusUpdateEvent)
-    assert event.status.state == "canceled"
+    assert event.status.state == _TaskState.TASK_STATE_CANCELED
     assert event.final is True
 
 
