@@ -72,10 +72,10 @@ Our own team lives in Discord. We wanted a lightweight way to have an AI agent r
 - Inbound: Discord delivers slash command payloads to a platform endpoint; platform fans out to the relevant workspace via A2A
 - No bot account required. No Gateway. Works behind NAT — the agent only initiates outbound connections.
 
-The adapter lives in the MCP server (`mcp-server/src/tools/channels/discord.go`) alongside Telegram and other channel adapters. Each workspace configures its own Discord channel with a webhook URL.
+The adapter lives in `workspace-server/internal/channels/discord.go` alongside other channel adapters. Each workspace configures its own Discord channel with a webhook URL.
 
 **Links**
 
-- Docs: https://moleculesai.app/blog/discord-adapter-launch
+- Docs: https://docs.molecule.ai/blog/discord-adapter
 - Code + examples: https://github.com/Molecule-AI/molecule-core/tree/main/docs/blog/2026-04-21-discord-adapter
 - PR: https://github.com/Molecule-AI/molecule-core/pull/656
