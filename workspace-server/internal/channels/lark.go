@@ -37,6 +37,33 @@ const (
 func (l *LarkAdapter) Type() string        { return "lark" }
 func (l *LarkAdapter) DisplayName() string { return "Lark / Feishu" }
 
+// ConfigSchema — Lark Custom Bot webhook URL + optional Event Subscription
+// verify token. The webhook URL already encodes the chat, so no separate
+// chat_id field is needed (and StartPolling is a no-op for Lark — inbound
+// is delivered by ParseWebhook from the Event Subscription callback).
+func (l *LarkAdapter) ConfigSchema() []ConfigField {
+	return []ConfigField{
+		{
+			Key:         "webhook_url",
+			Label:       "Custom Bot Webhook URL",
+			Type:        "password", // last path component is a secret
+			Required:    true,
+			Sensitive:   true,
+			Placeholder: "https://open.feishu.cn/open-apis/bot/v2/hook/XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX",
+			Help:        "From the Lark/Feishu bot page → Webhook settings. open.feishu.cn (China) and open.larksuite.com (international) both accepted.",
+		},
+		{
+			Key:         "verify_token",
+			Label:       "Event Subscription Verify Token",
+			Type:        "password",
+			Required:    false,
+			Sensitive:   true,
+			Placeholder: "optional — from Event Subscriptions page",
+			Help:        "Only needed if you want to receive messages from Lark. Paste the \"Verification Token\" from your app's Event Subscriptions configuration.",
+		},
+	}
+}
+
 // ValidateConfig requires webhook_url to point at a Lark or Feishu Custom
 // Bot endpoint. verify_token is optional — when set, inbound events with a
 // mismatching token are rejected (use Lark's "Verification Token" from the
