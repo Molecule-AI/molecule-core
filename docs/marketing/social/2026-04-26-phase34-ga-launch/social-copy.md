@@ -3,7 +3,7 @@
 **Publish day:** 2026-04-26 (Day 6 of Phase 30 social campaign)
 **Status:** DRAFT — PMM pre-write pending Marketing Lead approval
 **Source:** PRs #1686 + #1824 + blog posts `docs/blog/2026-04-23-tool-trace-*` and `docs/blog/2026-04-23-platform-instructions-governance`
-**Owner:** PMM → Social Media Brand | **Canonical:** `docs.molecule.ai/blog/tool-trace-platform-instructions`
+**Owner:** PMM → Social Media Brand | **Canonical:** `https://doc.moleculesai.app/docs/development/observability`
 
 ---
 
@@ -30,7 +30,7 @@ That's not a debugging failure. That's a product gap.
 
 Tool Trace: every tool call, every input, every output — in the response.
 
-→ [blog link]
+→ https://doc.moleculesai.app/docs/development/observability
 
 ---
 
@@ -44,7 +44,7 @@ Each A2A response from a Molecule AI agent now carries a structured tool trace:
 
 Same level of detail as a debugger trace. Embedded in the response. No extra API calls.
 
-→ [blog link]
+→ https://doc.moleculesai.app/docs/development/observability
 
 ---
 
@@ -58,7 +58,7 @@ If you're running agents in production — especially anything touching code, da
 
 Tool Trace is live on all Molecule AI plans.
 
-→ [docs link]
+→ https://doc.moleculesai.app/docs/development/observability
 
 ---
 
@@ -73,7 +73,7 @@ Two scopes: global (every workspace in your org) or workspace-scoped (one team, 
 
 Security teams notice this architecture.
 
-→ [blog link]
+→ https://doc.moleculesai.app/docs/development/observability
 
 ---
 
@@ -88,7 +88,7 @@ That's the observability + governance loop enterprise AI teams need.
 Tool Trace: all plans.
 Platform Instructions: Enterprise plans.
 
-→ [blog link]
+→ https://doc.moleculesai.app/docs/development/observability
 
 ---
 
@@ -101,7 +101,7 @@ Platform Instructions — org-wide and workspace-scoped governance at the system
 
 If you're running AI agents in production and don't know what they're doing inside a turn — fix that.
 
-→ [docs.molecule.ai/blog/tool-trace-platform-instructions]
+→ https://doc.moleculesai.app/docs/development/observability
 
 ---
 
@@ -125,7 +125,7 @@ Together: write the policy once, enforce it everywhere, trace every execution.
 
 If you're scaling AI agents in production and don't have this — it's the gap worth closing.
 
-→ [blog link]
+→ https://doc.moleculesai.app/docs/development/observability
 
 #MoleculeAI #AIAgents #AgentPlatform #EnterpriseAI #AIGovernance #DevOps
 
@@ -145,7 +145,7 @@ If you're scaling AI agents in production and don't have this — it's the gap w
 **Tone:** Concrete + practical — don't announce, show the output
 **Angle:** Lead with observability (Tool Trace) — accessible to all audiences. Platform Instructions as the enterprise pull-through.
 **Differentiation:** Tool Trace is embedded in every A2A response — no extra polling, no separate observability stack to integrate.
-**CTA:** `docs.molecule.ai/blog/tool-trace-platform-instructions`
+**CTA:** `https://doc.moleculesai.app/docs/development/observability`
 **Coordinate with:** Phase 30 social campaign Day 6. Tool Trace is the natural continuation of the observability story from EC2 Console Output (Day 4) → Org API Keys (Day 5) → Tool Trace + Platform Instructions (Day 6).
 
 ---
