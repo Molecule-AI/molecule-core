@@ -855,3 +855,100 @@ describe("TASK_UPDATED edge cases", () => {
     expect(ws2.data.currentTask).toBe("Task B"); // unchanged
   });
 });
+
+// ---------- setCollapsed round-trip ----------
+
+describe("setCollapsed", () => {
+  beforeEach(() => {
+    // Three-level chain so we can test that collapsing an ancestor
+    // hides all descendants AND that expanding it correctly preserves
+    // any intermediate collapsed state (otherwise setCollapsed and
+    // hydrate produce different hidden flags — the drift the review
+    // flagged as Critical).
+    useCanvasStore.getState().hydrate([
+      makeWS({ id: "a", name: "A" }),
+      makeWS({ id: "b", name: "B", parent_id: "a" }),
+      makeWS({ id: "c", name: "C", parent_id: "b" }),
+    ]);
+  });
+
+  it("hides the entire subtree when the root is collapsed", () => {
+    useCanvasStore.getState().setCollapsed("a", true);
+    const { nodes } = useCanvasStore.getState();
+    expect(nodes.find((n) => n.id === "a")!.hidden).toBeFalsy();
+    expect(nodes.find((n) => n.id === "b")!.hidden).toBe(true);
+    expect(nodes.find((n) => n.id === "c")!.hidden).toBe(true);
+    expect(nodes.find((n) => n.id === "a")!.data.collapsed).toBe(true);
+  });
+
+  it("keeps descendants hidden when an ancestor is un-collapsed but a middle parent is still collapsed", () => {
+    // Collapse both A and B, then expand A. C must stay hidden because
+    // B — its immediate parent — is still collapsed. Before the fix,
+    // setCollapsed naively unhid every descendant of A and drifted from
+    // what hydrate would produce.
+    useCanvasStore.getState().setCollapsed("a", true);
+    useCanvasStore.getState().setCollapsed("b", true);
+    useCanvasStore.getState().setCollapsed("a", false);
+    const { nodes } = useCanvasStore.getState();
+    expect(nodes.find((n) => n.id === "b")!.hidden).toBeFalsy();
+    expect(nodes.find((n) => n.id === "c")!.hidden).toBe(true);
+  });
+
+  it("matches hydrate's hidden flags (no drift on snapshot refresh)", () => {
+    // Run the same scenario through setCollapsed, then re-hydrate from
+    // an equivalent server snapshot and assert the hidden flags agree.
+    useCanvasStore.getState().setCollapsed("a", true);
+    const afterCollapse = useCanvasStore.getState().nodes.map((n) => ({
+      id: n.id,
+      hidden: !!n.hidden,
+    }));
+
+    useCanvasStore.getState().hydrate([
+      makeWS({ id: "a", name: "A", collapsed: true }),
+      makeWS({ id: "b", name: "B", parent_id: "a" }),
+      makeWS({ id: "c", name: "C", parent_id: "b" }),
+    ]);
+    const afterHydrate = useCanvasStore.getState().nodes.map((n) => ({
+      id: n.id,
+      hidden: !!n.hidden,
+    }));
+    expect(afterHydrate).toEqual(afterCollapse);
+  });
+});
+
+// ---------- bumpZOrder ----------
+
+describe("bumpZOrder", () => {
+  beforeEach(() => {
+    useCanvasStore.getState().hydrate([
+      makeWS({ id: "r1", name: "R1" }),
+      makeWS({ id: "r2", name: "R2" }),
+      makeWS({ id: "r3", name: "R3" }),
+    ]);
+  });
+
+  it("swaps with the neighbour in the bump direction (no drift on identical zIndex)", () => {
+    // Fresh topology: all three siblings start at zIndex=0 (depth=0).
+    // Bumping r2 forward must put it above exactly one sibling, not
+    // arbitrarily far ahead.
+    useCanvasStore.getState().bumpZOrder("r2", 1);
+    const nodes = useCanvasStore.getState().nodes;
+    const r1Z = nodes.find((n) => n.id === "r1")!.zIndex ?? 0;
+    const r2Z = nodes.find((n) => n.id === "r2")!.zIndex ?? 0;
+    const r3Z = nodes.find((n) => n.id === "r3")!.zIndex ?? 0;
+    // r2 now above at least one neighbour.
+    expect(r2Z).toBeGreaterThan(Math.min(r1Z, r3Z));
+    // Bumping once more swaps with the remaining one — not unbounded.
+    useCanvasStore.getState().bumpZOrder("r2", 1);
+    const r2ZAfter = useCanvasStore.getState().nodes.find((n) => n.id === "r2")!.zIndex ?? 0;
+    expect(r2ZAfter).toBeLessThanOrEqual(r2Z + 2);
+  });
+
+  it("no-ops at the edge of the sibling list", () => {
+    const beforeZ = useCanvasStore.getState().nodes.map((n) => n.zIndex ?? 0);
+    // First sibling bumped backward has no earlier neighbour.
+    useCanvasStore.getState().bumpZOrder("r1", -1);
+    const afterZ = useCanvasStore.getState().nodes.map((n) => n.zIndex ?? 0);
+    expect(afterZ).toEqual(beforeZ);
+  });
+});

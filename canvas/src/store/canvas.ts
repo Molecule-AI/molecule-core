@@ -342,20 +342,33 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const { nodes } = get();
     const target = nodes.find((n) => n.id === nodeId);
     if (!target) return;
-    // Siblings = nodes sharing the same parent (null for roots).
-    const siblings = nodes.filter(
-      (n) => n.data.parentId === target.data.parentId,
-    );
+    // Siblings share parentId; re-rank them by their current zIndex (then
+    // insertion order) so we can SWAP the target with its neighbour in
+    // the bump direction rather than drifting zIndex up/down unbounded.
+    // This keeps sibling zIndex values within `[baseDepth, baseDepth+N)`,
+    // which is what findDropTarget's tiebreakers assume.
+    const siblings = nodes
+      .filter((n) => n.data.parentId === target.data.parentId)
+      .slice()
+      .sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
     if (siblings.length < 2) return;
-    // React Flow uses a flat zIndex; we keep children above parents
-    // (+1 per depth) so any nudge here stays within the sibling tier.
-    // Reorder in zIndex space by adjusting the target +/- 1.
-    const current = target.zIndex ?? 0;
-    const newZ = current + direction;
+    const idx = siblings.findIndex((n) => n.id === nodeId);
+    const neighbourIdx = idx + direction;
+    if (neighbourIdx < 0 || neighbourIdx >= siblings.length) return;
+    const neighbour = siblings[neighbourIdx];
+    const targetZ = target.zIndex ?? 0;
+    const neighbourZ = neighbour.zIndex ?? 0;
+    // Ensure a visible swap even when both had identical zIndex (fresh
+    // topology: every sibling starts at zIndex=depth). Nudge the
+    // neighbour one step the other way so the pair stays adjacent.
+    const resolvedTargetZ = targetZ === neighbourZ ? targetZ + direction : neighbourZ;
+    const resolvedNeighbourZ = targetZ === neighbourZ ? targetZ : targetZ;
     set({
-      nodes: nodes.map((n) =>
-        n.id === nodeId ? { ...n, zIndex: newZ } : n,
-      ),
+      nodes: nodes.map((n) => {
+        if (n.id === nodeId) return { ...n, zIndex: resolvedTargetZ };
+        if (n.id === neighbour.id) return { ...n, zIndex: resolvedNeighbourZ };
+        return n;
+      }),
     });
   },
 
@@ -408,7 +421,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     );
 
     // Depth walk so zIndex gets bumped correctly on nest/unnest
-    // (children render above their new ancestor chain).
+    // (children render above their new ancestor chain). `depthOf(null)`
+    // returns 0; for any non-null cursor we count one hop per ancestor.
     const depthOf = (id: string | null | undefined): number => {
       let d = 0;
       let cursor: string | null | undefined = id;
@@ -420,20 +434,42 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       }
       return d;
     };
-    const newDepth = depthOf(targetId) + (targetId ? 1 : 0);
+    const newOwnDepth = targetId ? depthOf(targetId) + 1 : 0;
+    const oldOwnDepth = dragged.zIndex ?? depthOf(currentParentId) + (currentParentId ? 1 : 0);
+    const depthDelta = newOwnDepth - oldOwnDepth;
+
+    // Collect every descendant of the dragged node so we can shift their
+    // zIndex by the same depthDelta — otherwise grandchildren stay at
+    // their old depth zIndex after the move and render below ancestors
+    // they just joined. BFS to avoid stack surprises on deep hierarchies.
+    const movedIds = new Set<string>([draggedId]);
+    const bfsQueue = [draggedId];
+    while (bfsQueue.length) {
+      const head = bfsQueue.shift()!;
+      for (const n of nodes) {
+        if (n.data.parentId === head && !movedIds.has(n.id)) {
+          movedIds.add(n.id);
+          bfsQueue.push(n.id);
+        }
+      }
+    }
 
     set({
-      nodes: nodes.map((n) =>
-        n.id === draggedId
-          ? {
-              ...n,
-              position: newRelative,
-              parentId: targetId ?? undefined,
-              zIndex: newDepth,
-              data: { ...n.data, parentId: targetId },
-            }
-          : n,
-      ),
+      nodes: nodes.map((n) => {
+        if (n.id === draggedId) {
+          return {
+            ...n,
+            position: newRelative,
+            parentId: targetId ?? undefined,
+            zIndex: newOwnDepth,
+            data: { ...n.data, parentId: targetId },
+          };
+        }
+        if (movedIds.has(n.id) && depthDelta !== 0) {
+          return { ...n, zIndex: (n.zIndex ?? 0) + depthDelta };
+        }
+        return n;
+      }),
       edges: newEdges,
     });
 
@@ -539,27 +575,49 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   setCollapsed: (parentId, collapsed) => {
     const { nodes } = get();
-    // Find all descendant ids via BFS.
-    const descendantIds = new Set<string>();
-    const queue = [parentId];
-    while (queue.length) {
-      const id = queue.shift()!;
-      for (const n of nodes) {
-        if (n.data.parentId === id && !descendantIds.has(n.id)) {
-          descendantIds.add(n.id);
-          queue.push(n.id);
-        }
+    // Step 1 — apply the new collapsed flag on the target.
+    const updatedCollapsed = new Map<string, boolean>();
+    for (const n of nodes) {
+      updatedCollapsed.set(
+        n.id,
+        n.id === parentId ? collapsed : !!n.data.collapsed,
+      );
+    }
+    // Step 2 — index children once so the visibility pass is O(n), not
+    // O(n·d). Walk roots downward, inheriting `hiddenBecauseAncestor`
+    // so a node is hidden iff ANY ancestor in the chain is collapsed.
+    // This matches canvas-topology.buildNodesAndEdges so setCollapsed
+    // and hydrate produce identical node.hidden flags — no drift when
+    // the server pushes a fresh snapshot mid-session.
+    const childrenByParent = new Map<string | null, string[]>();
+    for (const n of nodes) {
+      const p = n.data.parentId ?? null;
+      const arr = childrenByParent.get(p) ?? [];
+      arr.push(n.id);
+      childrenByParent.set(p, arr);
+    }
+    const hiddenById = new Map<string, boolean>();
+    const stack: Array<{ id: string; hidden: boolean }> = (
+      childrenByParent.get(null) ?? []
+    ).map((id) => ({ id, hidden: false }));
+    while (stack.length) {
+      const { id, hidden } = stack.pop()!;
+      hiddenById.set(id, hidden);
+      const isCollapsed = updatedCollapsed.get(id) ?? false;
+      for (const childId of childrenByParent.get(id) ?? []) {
+        stack.push({ id: childId, hidden: hidden || isCollapsed });
       }
     }
     set({
       nodes: nodes.map((n) => {
-        if (n.id === parentId) {
-          return { ...n, data: { ...n.data, collapsed } };
-        }
-        if (descendantIds.has(n.id)) {
-          return { ...n, hidden: collapsed };
-        }
-        return n;
+        const isTarget = n.id === parentId;
+        const nextHidden = hiddenById.get(n.id) ?? false;
+        if (!isTarget && n.hidden === nextHidden) return n;
+        return {
+          ...n,
+          hidden: nextHidden,
+          data: isTarget ? { ...n.data, collapsed } : n.data,
+        };
       }),
     });
   },
@@ -572,20 +630,39 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     if (kids.length === 0) return;
     const slotByKid = new Map<string, { x: number; y: number }>();
     kids.forEach((k, i) => slotByKid.set(k.id, defaultChildSlot(i)));
+
+    // Absolute position of the parent, walking the full ancestor chain.
+    // Required for a correct PATCH payload when the parent itself is
+    // nested — `parent.position` is RELATIVE to its own parent, so a
+    // naive `slot + parent.position` would store parent-local coords
+    // as if they were absolute and corrupt the workspace on reload.
+    const absOf = (id: string | null | undefined): { x: number; y: number } => {
+      let sum = { x: 0, y: 0 };
+      let cursor: string | null | undefined = id;
+      while (cursor) {
+        const n = nodes.find((nn) => nn.id === cursor);
+        if (!n) break;
+        sum = { x: sum.x + n.position.x, y: sum.y + n.position.y };
+        cursor = n.data.parentId;
+      }
+      return sum;
+    };
+    const parentAbs = absOf(parentId);
+
     set({
       nodes: nodes.map((n) => {
         const slot = slotByKid.get(n.id);
         return slot ? { ...n, position: slot } : n;
       }),
     });
-    // Persist the new positions so they survive reload.
+
     for (const k of kids) {
       const slot = slotByKid.get(k.id)!;
-      const parent = nodes.find((nn) => nn.id === parentId);
-      if (!parent) continue;
-      const absX = slot.x + parent.position.x;
-      const absY = slot.y + parent.position.y;
-      api.patch(`/workspaces/${k.id}`, { x: absX, y: absY }).catch(() => {});
+      const absX = slot.x + parentAbs.x;
+      const absY = slot.y + parentAbs.y;
+      api.patch(`/workspaces/${k.id}`, { x: absX, y: absY }).catch((e) => {
+        console.warn(`arrangeChildren: failed to persist position for ${k.id}`, e);
+      });
     }
   },
 

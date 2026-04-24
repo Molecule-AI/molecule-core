@@ -227,30 +227,24 @@ function CanvasInner() {
 
   // Absolute-bounds hit test. Returns the **best** drop target among the
   // candidates whose measured bbox contains `point`. Tiebreakers, in
-  // order (matches Figma / tldraw / xyflow issue #2827 community fix):
+  // order — the user drops onto what's visually on top, so zIndex wins
+  // first (a user can Cmd+] bump a shallow card above a deep one):
   //
-  //   1. DEEPEST tree depth first — dropping onto a nested grandchild
-  //      lands on the grandchild, not its outermost ancestor.
-  //   2. Highest zIndex second — when nested parents overlap with equal
-  //      depth (siblings of each other), the one rendered above wins.
-  //   3. Smallest area last — visually-tightest match otherwise.
+  //   1. Highest zIndex first — matches what the user sees in front.
+  //   2. DEEPEST tree depth second — when zIndex ties, a more-nested
+  //      card is a more specific target than its ancestor.
+  //   3. Smallest area last — if depth also ties, the tighter bbox wins.
   //
   // Self + descendants are excluded (can't nest something under itself).
+  // Depths are pre-computed once per call so this stays O(n) overall —
+  // previously the per-candidate depth walk made it O(n²).
   const findDropTarget = useCallback(
     (draggedId: string, point: { x: number; y: number }): string | null => {
       const all = useCanvasStore.getState().nodes;
-      // Tree depth for each node — depth = ancestor count.
-      const depthOf = (id: string | null | undefined): number => {
-        let d = 0;
-        let cursor: string | null | undefined = id;
-        while (cursor) {
-          const n = all.find((nn) => nn.id === cursor);
-          if (!n) break;
-          cursor = n.data.parentId;
-          d += 1;
-        }
-        return d;
-      };
+      const depthById = new Map<string, number>();
+      for (const n of all) {
+        depthById.set(n.id, n.data.parentId ? (depthById.get(n.data.parentId) ?? 0) + 1 : 0);
+      }
       let best:
         | { id: string; depth: number; zIndex: number; area: number }
         | null = null;
@@ -263,14 +257,14 @@ function CanvasInner() {
         const h = internal.measured?.height ?? n.height ?? 120;
         if (point.x < abs.x || point.x > abs.x + w) continue;
         if (point.y < abs.y || point.y > abs.y + h) continue;
-        const depth = depthOf(n.id);
+        const depth = depthById.get(n.id) ?? 0;
         const z = n.zIndex ?? 0;
         const area = w * h;
         if (
           !best ||
-          depth > best.depth ||
-          (depth === best.depth && z > best.zIndex) ||
-          (depth === best.depth && z === best.zIndex && area < best.area)
+          z > best.zIndex ||
+          (z === best.zIndex && depth > best.depth) ||
+          (z === best.zIndex && depth === best.depth && area < best.area)
         ) {
           best = { id: n.id, depth, zIndex: z, area };
         }
@@ -320,12 +314,6 @@ function CanvasInner() {
       showToast(e instanceof Error ? e.message : "Delete failed", "error");
     }
   }, [pendingDelete, setPendingDelete, removeNode]);
-
-  // Cascade guard: include child count in the warning message when the workspace
-  // has children, so the user understands the blast radius before clicking Delete All.
-  const cascadeMessage = pendingDelete?.hasChildren
-    ? `⚠️ Deleting "${pendingDelete.name}" will permanently delete all child workspaces and their data. This cannot be undone.`
-    : null;
 
   const onNodeDragStop: OnNodeDrag<Node<WorkspaceNodeData>> = useCallback(
     (event, node) => {
@@ -451,8 +439,8 @@ function CanvasInner() {
       for (const n of allNodes) {
         minX = Math.min(minX, n.position.x);
         minY = Math.min(minY, n.position.y);
-        maxX = Math.max(maxX, n.position.x + 260);
-        maxY = Math.max(maxY, n.position.y + 120);
+        maxX = Math.max(maxX, n.position.x + CHILD_DEFAULT_WIDTH);
+        maxY = Math.max(maxY, n.position.y + CHILD_DEFAULT_HEIGHT);
       }
 
       fitBounds(
