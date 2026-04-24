@@ -166,23 +166,42 @@ class SecurityScanConfig:
 class ComplianceConfig:
     """OWASP Top 10 for Agentic Applications compliance settings.
 
-    Set ``mode: owasp_agentic`` to enable all checks.  When ``mode`` is
-    empty or absent the compliance layer is a complete no-op.
+    Default is ``mode: owasp_agentic`` + ``prompt_injection: detect``.
+    The detect mode logs injection attempts as audit events without
+    blocking the request — so there is no false-positive UX cost, only
+    a gain in visibility. Operators opt into stricter ``block`` mode per
+    workspace. To disable compliance entirely (not recommended), set
+    ``mode: ""`` in config.yaml.
 
-    Example config.yaml snippet::
+    Before 2026-04-24, the default was ``mode: ""`` (fully off). A
+    review of the A2A inbound path showed that no shipped template set
+    ``mode`` explicitly, so prompt-injection detection was silently
+    disabled for every live workspace despite the machinery existing.
+    Flipping the default to ``owasp_agentic`` with ``prompt_injection:
+    detect`` closes that gap with zero user-visible behavior change.
+
+    Example config.yaml snippet to opt OUT::
 
         compliance:
-          mode: owasp_agentic
-          prompt_injection: block        # detect | block  (default: detect)
+          mode: ""                       # disables all compliance checks
+
+    Example config.yaml snippet to tighten::
+
+        compliance:
+          mode: owasp_agentic            # (default)
+          prompt_injection: block        # (default: detect)
           max_tool_calls_per_task: 30
           max_task_duration_seconds: 180
     """
 
-    mode: str = ""
-    """Enable compliance mode.  Set to ``owasp_agentic`` to activate."""
+    mode: str = "owasp_agentic"
+    """Enable compliance mode. ``owasp_agentic`` (default) activates the
+    OA-01/OA-02/OA-03/OA-06 checks; ``""`` disables everything."""
 
     prompt_injection: str = "detect"
-    """``detect`` logs injection attempts; ``block`` raises PromptInjectionError."""
+    """``detect`` logs injection attempts (default, zero UX cost);
+    ``block`` raises PromptInjectionError before the agent sees the
+    text. Operators can tighten to ``block`` per workspace."""
 
     max_tool_calls_per_task: int = 50
     """Maximum number of tool invocations per task before ExcessiveAgencyError."""
@@ -353,7 +372,9 @@ def load_config(config_path: Optional[str] = None) -> WorkspaceConfig:
             fail_open_if_no_scanner=security_scan_raw.get("fail_open_if_no_scanner", True),
         ),
         compliance=ComplianceConfig(
-            mode=compliance_raw.get("mode", ""),
+            # Default must match ComplianceConfig.mode's dataclass default
+            # (see class docstring for rationale — 2026-04-24 flip).
+            mode=compliance_raw.get("mode", "owasp_agentic"),
             prompt_injection=compliance_raw.get("prompt_injection", "detect"),
             max_tool_calls_per_task=int(compliance_raw.get("max_tool_calls_per_task", 50)),
             max_task_duration_seconds=int(compliance_raw.get("max_task_duration_seconds", 300)),

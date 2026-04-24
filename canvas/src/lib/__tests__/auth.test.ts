@@ -55,8 +55,6 @@ describe("redirectToLogin", () => {
       },
     });
     redirectToLogin("sign-in");
-    // href now holds the redirect target. encodeURIComponent(href) must
-    // appear in the query.
     expect((window.location as unknown as { href: string }).href).toContain("/cp/auth/login");
     expect((window.location as unknown as { href: string }).href).toContain(
       encodeURIComponent(href),
@@ -75,5 +73,40 @@ describe("redirectToLogin", () => {
     });
     redirectToLogin("sign-up");
     expect((window.location as unknown as { href: string }).href).toContain("/cp/auth/signup");
+  });
+
+  // Regression: AuthGate + redirectToLogin mutual recursion on /cp/auth/login
+  // caused double-encoded return_to that grew until the URL exceeded 431.
+  // Guard: redirectToLogin must NOT set window.location when already on an
+  // auth path, otherwise each call adds another encoding layer.
+  it("does NOT set window.location when already on /cp/auth/login (redirect loop guard)", () => {
+    const loginHref = "https://app.moleculesai.app/cp/auth/login?return_to=https%3A%2F%2Facme.moleculesai.app%2Fdashboard";
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: {
+        href: loginHref,
+        pathname: "/cp/auth/login",
+        hostname: "app.moleculesai.app",
+        protocol: "https:",
+      },
+    });
+    redirectToLogin("sign-in");
+    // href must be unchanged — any mutation means the guard is missing
+    expect((window.location as unknown as { href: string }).href).toBe(loginHref);
+  });
+
+  it("does NOT set window.location when already on /cp/auth/signup (redirect loop guard)", () => {
+    const signupHref = "https://app.moleculesai.app/cp/auth/signup";
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: {
+        href: signupHref,
+        pathname: "/cp/auth/signup",
+        hostname: "app.moleculesai.app",
+        protocol: "https:",
+      },
+    });
+    redirectToLogin("sign-up");
+    expect((window.location as unknown as { href: string }).href).toBe(signupHref);
   });
 });

@@ -540,6 +540,21 @@ func TestValidateAgentURL(t *testing.T) {
 		{"blocked IPv6 loopback [::1]", "http://[::1]:8080", true},
 		{"blocked IPv6 link-local [fe80::1]", "http://[fe80::1]:8080", true},
 		{"blocked IPv6 ULA [fd00::1]", "http://[fd00::1]:8080", true},
+
+		// ── Must be rejected: RFC 5737 TEST-NET reserved ranges ─────────────
+		// These addresses are reserved for documentation and example code.
+		// No production agent has a legitimate reason to use them.
+		{"blocked TEST-NET-1 192.0.2.x", "http://192.0.2.1:8080", true},
+		{"blocked TEST-NET-1 192.0.2.254", "http://192.0.2.254:9000", true},
+		{"blocked TEST-NET-2 198.51.100.x", "http://198.51.100.1:8080", true},
+		{"blocked TEST-NET-2 198.51.100.99", "http://198.51.100.99:8000", true},
+		{"blocked TEST-NET-3 203.0.113.x", "http://203.0.113.1:8080", true},
+		{"blocked TEST-NET-3 203.0.113.254", "http://203.0.113.254:9000", true},
+
+		// ── Must be rejected: RFC 3849 IPv6 documentation prefix ────────────
+		{"blocked IPv6 documentation 2001:db8::1", "http://[2001:db8::1]:8080", true},
+		{"blocked IPv6 documentation 2001:db8::ffff", "http://[2001:db8::ffff]:8000", true},
+
 		// IPv4-mapped IPv6 for a blocked range must also be rejected.
 		// Go normalises ::ffff:169.254.x.x to IPv4 via To4(), so the existing
 		// 169.254.0.0/16 entry catches it without a dedicated rule.
@@ -567,6 +582,91 @@ func TestValidateAgentURL(t *testing.T) {
 				t.Errorf("validateAgentURL(%q) = %v, want nil", tc.url, err)
 			}
 		})
+	}
+}
+
+// TestValidateAgentURL_SaaSMode_AllowsRFC1918 is the integration-level wrapper test
+// for the SaaS-mode SSRF relaxation in validateAgentURL (used at registration).
+// It exercises validateAgentURL as called by the Register handler, not just the
+// inner blockedRanges slice.  Regression guard for the same class of bug as
+// isSafeURL (issue #1785).
+func TestValidateAgentURL_SaaSMode_AllowsRFC1918(t *testing.T) {
+	t.Setenv("MOLECULE_DEPLOY_MODE", "saas")
+	t.Setenv("MOLECULE_ORG_ID", "")
+	for _, url := range []string{
+		"http://10.1.2.3/agent",
+		"http://10.0.0.5:8000/a2a",
+		"http://172.16.0.1/agent",
+		"http://172.18.0.42:8000/a2a",
+		"http://172.31.44.78/agent",
+		"http://192.168.1.100/agent",
+		"http://192.168.255.254:9000/a2a",
+		"http://[fd00::1]/agent",
+		"http://[fd12:3456:789a::42]/a2a",
+	} {
+		if err := validateAgentURL(url); err != nil {
+			t.Errorf("validateAgentURL(%q) in saasMode: got %v, want nil", url, err)
+		}
+	}
+}
+
+// TestValidateAgentURL_SaaSMode_StillBlocksMetadataEtAl verifies that even in
+// SaaS mode the always-blocked ranges (metadata, loopback, TEST-NET, CGNAT,
+// non-fd00 ULA) stay blocked.
+func TestValidateAgentURL_SaaSMode_StillBlocksMetadataEtAl(t *testing.T) {
+	t.Setenv("MOLECULE_DEPLOY_MODE", "saas")
+	t.Setenv("MOLECULE_ORG_ID", "")
+	for _, url := range []string{
+		"http://169.254.169.254/latest/meta-data/",
+		"http://169.254.0.1/",
+		"http://127.0.0.1:8080",
+		"http://[::1]:8080",
+		"http://192.0.2.5/agent",
+		"http://198.51.100.5/a2a",
+		"http://203.0.113.42/agent",
+		"http://100.64.0.1/agent",
+		"http://100.127.255.254:8000/a2a",
+		"http://[fc00::1]/agent",
+		"http://224.0.0.1/",
+	} {
+		if err := validateAgentURL(url); err == nil {
+			t.Errorf("validateAgentURL(%q) in saasMode: got nil, want block", url)
+		}
+	}
+}
+
+// TestValidateAgentURL_StrictMode_BlocksRFC1918 is the strict-mode counterpart
+// to TestValidateAgentURL_SaaSMode_AllowsRFC1918.
+func TestValidateAgentURL_StrictMode_BlocksRFC1918(t *testing.T) {
+	t.Setenv("MOLECULE_DEPLOY_MODE", "self-hosted")
+	t.Setenv("MOLECULE_ORG_ID", "")
+	for _, url := range []string{
+		"http://10.1.2.3/agent",
+		"http://172.16.0.1:8000/a2a",
+		"http://172.31.44.78/agent",
+		"http://192.168.1.100/agent",
+		"http://[fd00::1]/agent",
+	} {
+		if err := validateAgentURL(url); err == nil {
+			t.Errorf("validateAgentURL(%q) in strict mode: got nil, want block", url)
+		}
+	}
+}
+
+// TestValidateAgentURL_SaaSMode_LegacyOrgID covers the legacy MOLECULE_ORG_ID
+// signal (no MOLECULE_DEPLOY_MODE set) for validateAgentURL.
+func TestValidateAgentURL_SaaSMode_LegacyOrgID(t *testing.T) {
+	t.Setenv("MOLECULE_DEPLOY_MODE", "")
+	t.Setenv("MOLECULE_ORG_ID", "7b2179dc-8cc6-4581-a3c6-c8bff4481086")
+	for _, url := range []string{
+		"http://10.1.2.3/agent",
+		"http://172.18.0.42:8000/a2a",
+		"http://192.168.1.100/agent",
+		"http://[fd00::1]/agent",
+	} {
+		if err := validateAgentURL(url); err != nil {
+			t.Errorf("validateAgentURL(%q) with legacy MOLECULE_ORG_ID: got %v, want nil", url, err)
+		}
 	}
 }
 

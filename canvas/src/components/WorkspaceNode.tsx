@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { Handle, NodeResizer, Position, type NodeProps, type Node } from "@xyflow/react";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { showToast } from "@/components/Toaster";
@@ -269,6 +269,7 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
         {/* Needs restart banner */}
         {data.needsRestart && !data.currentTask && (
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               useCanvasStore.getState().restartWorkspace(id).catch(() => showToast("Restart failed", "error"));
@@ -336,6 +337,172 @@ function countDescendants(nodeId: string, allNodes: Node<WorkspaceNodeData>[], v
   return count;
 }
 
+/** Maximum nesting depth for recursive TeamMemberChip rendering — prevents
+ *  infinite recursion on circular parentId references and keeps the UI readable. */
+const MAX_NESTING_DEPTH = 3;
+
+/** Recursive mini-card — mirrors parent card layout at smaller scale */
+function TeamMemberChip({
+  node,
+  allNodes,
+  depth,
+  onSelect,
+  onExtract,
+}: {
+  node: Node<WorkspaceNodeData>;
+  allNodes: Node<WorkspaceNodeData>[];
+  depth: number;
+  onSelect: (id: string) => void;
+  onExtract: (id: string) => void;
+}) {
+  const { data } = node;
+  const statusCfg = STATUS_CONFIG[data.status] || STATUS_CONFIG.offline;
+  const tierCfg = TIER_CONFIG[data.tier] || { label: `T${data.tier}`, color: "text-zinc-500 bg-zinc-800" };
+  const isOnline = data.status === "online";
+  const skills = getSkillNames(data.agentCard);
+
+  const subChildren = useMemo(
+    () => allNodes.filter((n) => n.data.parentId === node.id),
+    [allNodes, node.id]
+  );
+  const hasSubChildren = subChildren.length > 0;
+  const descendantCount = useMemo(
+    () => hasSubChildren ? countDescendants(node.id, allNodes) : 0,
+    [allNodes, node.id, hasSubChildren]
+  );
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={`Select ${data.name}`}
+      className="group/child relative rounded-lg bg-zinc-800/60 hover:bg-zinc-700/70 border border-zinc-700/30 hover:border-zinc-600/40 overflow-hidden transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect(node.id);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          onSelect(node.id);
+        }
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        useCanvasStore.getState().openContextMenu({ x: e.clientX, y: e.clientY, nodeId: node.id, nodeData: data });
+      }}
+    >
+      {/* Status gradient bar */}
+      <div className={`absolute inset-x-0 top-0 h-5 bg-gradient-to-b ${statusCfg.bar} pointer-events-none`} />
+
+      <div className="relative px-2 py-1.5">
+        {/* Header: name + badges + extract */}
+        <div className="flex items-center justify-between gap-1 mb-0.5">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusCfg.dot}`} />
+            <span className="text-[10px] font-semibold text-zinc-200 truncate leading-tight">
+              {data.name}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            {hasSubChildren && (
+              <span className="text-[7px] font-mono text-violet-300 bg-violet-900/40 border border-violet-700/30 px-1 py-0.5 rounded">
+                {descendantCount}
+              </span>
+            )}
+            <span className={`text-[7px] font-mono px-1 py-0.5 rounded ${tierCfg.color}`}>
+              {tierCfg.label}
+            </span>
+            <button
+              type="button"
+              aria-label={`Extract ${data.name} from team`}
+              title={`Extract ${data.name} from team`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onExtract(node.id);
+              }}
+              className="opacity-0 group-hover/child:opacity-100 text-zinc-500 hover:text-sky-400 transition-all focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:outline-none rounded"
+            >
+              <EjectIcon aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+
+        {/* Role */}
+        {data.role && (
+          <div className="text-[10px] text-zinc-500 mb-1 leading-tight truncate">{data.role}</div>
+        )}
+
+        {/* Skills */}
+        {skills.length > 0 && (
+          <div className="flex flex-wrap gap-0.5 mb-1">
+            {skills.slice(0, 3).map((skill) => (
+              <span
+                key={skill}
+                className={`text-[10px] px-1 py-0.5 rounded border ${
+                  isOnline
+                    ? "text-emerald-300/70 bg-emerald-950/20 border-emerald-800/20"
+                    : "text-zinc-500 bg-zinc-800/40 border-zinc-700/30"
+                }`}
+              >
+                {skill}
+              </span>
+            ))}
+            {skills.length > 3 && (
+              <span className="text-[10px] text-zinc-400 self-center">+{skills.length - 3}</span>
+            )}
+          </div>
+        )}
+
+        {/* Status + active tasks row */}
+        <div className="flex items-center justify-between">
+          {data.status !== "online" ? (
+            <span className={`text-[10px] uppercase tracking-widest font-medium ${
+              data.status === "failed" ? "text-red-400" :
+              data.status === "degraded" ? "text-amber-300" :
+              data.status === "provisioning" ? "text-sky-400" :
+              "text-zinc-500"
+            }`}>
+              {statusCfg.label}
+            </span>
+          ) : <div />}
+          {data.activeTasks > 0 && (
+            <div className="flex items-center gap-0.5">
+              <div className="w-1 h-1 rounded-full bg-amber-400 motion-safe:animate-pulse" />
+              <span className="text-[10px] text-amber-300 tabular-nums">
+                {data.activeTasks}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Current task banner for sub-agents */}
+        {data.currentTask && (
+          <Tooltip text={String(data.currentTask)}>
+            <div className="flex items-center gap-1 mt-0.5 px-1.5 py-0.5 bg-amber-950/20 rounded border border-amber-800/20 cursor-default">
+              <div className="w-1 h-1 rounded-full bg-amber-400 motion-safe:animate-pulse shrink-0" />
+              <span className="text-[10px] text-amber-300 truncate">{data.currentTask}</span>
+            </div>
+          </Tooltip>
+        )}
+
+        {/* Recursive sub-children rendered inside this card */}
+        {hasSubChildren && depth < MAX_NESTING_DEPTH && (
+          <div className="mt-1.5 pt-1.5 border-t border-zinc-700/20">
+            <div className="text-[10px] text-zinc-400 uppercase tracking-widest mb-1">Team</div>
+            <div className={subChildren.length >= 2 ? "grid grid-cols-2 gap-1" : "space-y-1"}>
+              {subChildren.map((sub) => (
+                <TeamMemberChip key={sub.id} node={sub} allNodes={allNodes} depth={depth + 1} onSelect={onSelect} onExtract={onExtract} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function getSkillNames(agentCard: Record<string, unknown> | null): string[] {
   if (!agentCard) return [];

@@ -159,6 +159,7 @@ export function DetailsTab({ workspaceId, data }: Props) {
             )}
             <div className="flex gap-2 pt-1">
               <button
+                type="button"
                 onClick={handleSave}
                 disabled={saving}
                 className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-xs rounded text-white disabled:opacity-50"
@@ -166,6 +167,7 @@ export function DetailsTab({ workspaceId, data }: Props) {
                 {saving ? "Saving..." : "Save"}
               </button>
               <button
+                type="button"
                 onClick={() => {
                   setEditing(false);
                   setSaveError(null);
@@ -199,6 +201,7 @@ export function DetailsTab({ workspaceId, data }: Props) {
                   </div>
                 )}
                 <button
+                  type="button"
                   onClick={handleRestart}
                   disabled={restarting}
                   className="px-3 py-1 bg-green-700 hover:bg-green-600 text-xs rounded text-white disabled:opacity-50"
@@ -208,6 +211,7 @@ export function DetailsTab({ workspaceId, data }: Props) {
               </div>
             )}
             <button
+              type="button"
               onClick={() => setEditing(true)}
               className="mt-2 px-3 py-1 bg-zinc-700 hover:bg-zinc-600 text-xs rounded text-zinc-300"
             >
@@ -234,6 +238,7 @@ export function DetailsTab({ workspaceId, data }: Props) {
             <p className="text-xs text-zinc-500">No error detail recorded.</p>
           )}
           <button
+            type="button"
             onClick={() => setConsoleOpen(true)}
             className="mt-2 px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-xs rounded text-zinc-300 border border-zinc-700"
           >
@@ -279,6 +284,7 @@ export function DetailsTab({ workspaceId, data }: Props) {
             {peers.map((p) => (
               <button
                 key={p.id}
+                type="button"
                 onClick={() => selectNode(p.id)}
                 className="w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-zinc-800 text-left"
               >
@@ -310,12 +316,14 @@ export function DetailsTab({ workspaceId, data }: Props) {
             </h3>
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={handleDelete}
                 className="px-3 py-1 bg-red-600 hover:bg-red-500 text-xs rounded text-white"
               >
                 Confirm Delete
               </button>
               <button
+                type="button"
                 onClick={() => {
                   setConfirmDelete(false);
                   setDeleteError(null);
@@ -330,6 +338,7 @@ export function DetailsTab({ workspaceId, data }: Props) {
           </div>
         ) : (
           <button
+            type="button"
             ref={deleteButtonRef}
             onClick={() => setConfirmDelete(true)}
             className="px-3 py-1 bg-zinc-800 hover:bg-red-900 border border-zinc-700 hover:border-red-700 text-xs rounded text-zinc-400 hover:text-red-400 transition-colors"

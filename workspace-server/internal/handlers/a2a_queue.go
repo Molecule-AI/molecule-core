@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 
@@ -208,6 +209,59 @@ func QueueDepth(ctx context.Context, workspaceID string) int {
 		workspaceID,
 	).Scan(&n)
 	return n
+}
+
+// DropStaleQueueItems marks queued items older than maxAge as 'dropped' with a
+// system-generated reason so PM agents stop processing stale post-incident noise.
+// Called with a workspaceID to scope cleanup to one workspace, or empty to sweep
+// all workspaces.
+//
+// Returns the number of items dropped for visibility/audit logging.
+func DropStaleQueueItems(ctx context.Context, workspaceID string, maxAgeMinutes int) (int, error) {
+	var rows int64
+	var err error
+	if workspaceID != "" {
+		err = db.DB.QueryRowContext(ctx, `
+			WITH dropped AS (
+				UPDATE a2a_queue
+				SET status = 'dropped',
+				    last_error = last_error ||
+				        E'\n[DropStaleQueueItems] auto-dropped: queue item age exceeded the post-incident TTL. '
+				        || 'Dropped at ' || now()::text
+				WHERE id IN (
+					SELECT id FROM a2a_queue
+					WHERE workspace_id = $1
+					  AND status = 'queued'
+					  AND enqueued_at < now() - interval '1 minute' * $2
+					FOR UPDATE SKIP LOCKED
+				)
+				RETURNING id
+			)
+			SELECT count(*) FROM dropped
+		`, workspaceID, maxAgeMinutes).Scan(&rows)
+	} else {
+		err = db.DB.QueryRowContext(ctx, `
+			WITH dropped AS (
+				UPDATE a2a_queue
+				SET status = 'dropped',
+				    last_error = last_error ||
+				        E'\n[DropStaleQueueItems] auto-dropped: queue item age exceeded the post-incident TTL. '
+				        || 'Dropped at ' || now()::text
+				WHERE id IN (
+					SELECT id FROM a2a_queue
+					WHERE status = 'queued'
+					  AND enqueued_at < now() - interval '1 minute' * $1
+					FOR UPDATE SKIP LOCKED
+				)
+				RETURNING id
+			)
+			SELECT count(*) FROM dropped
+		`, maxAgeMinutes).Scan(&rows)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("DropStaleQueueItems: %w", err)
+	}
+	return int(rows), nil
 }
 
 // DrainQueueForWorkspace pulls one queued item and dispatches it via the

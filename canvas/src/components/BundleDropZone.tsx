@@ -108,6 +108,7 @@ export function BundleDropZone() {
       {/* Keyboard-accessible import button — visible on focus or hover so
            keyboard / AT users can trigger bundle import without drag-and-drop (WCAG 2.1.1) */}
       <button
+        type="button"
         onClick={() => fileInputRef.current?.click()}
         aria-label="Import bundle file"
         aria-controls="bundle-file-input"

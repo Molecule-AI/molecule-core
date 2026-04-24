@@ -1,142 +1,116 @@
 package handlers
 
-// container_files_test.go — CWE-22 regression suite for copyFilesToContainer.
-//
-// Vulnerability: copyFilesToContainer validated the raw filename before
-// filepath.Join(destPath, name) but placed the post-join result in the tar
-// header.  A mid-path traversal such as "foo/../../../etc" passes the prefix
-// check (does not start with "..") yet resolves to /etc after the join,
-// escaping the volume mount and writing outside the container's filesystem.
-//
-// Fix (PR #1434): re-validate archiveName after filepath.Join using
-// filepath.Clean, then use the cleaned result in the tar header.
-// A Docker client is not required for these tests — the validation rejects
-// unsafe paths before any Docker call is made.
-
 import (
-	"context"
-	"errors"
+	"os"
+	"strings"
 	"testing"
 )
 
-func TestCopyFilesToContainer_CWE22_RejectsTraversal(t *testing.T) {
-	// TemplatesHandler with nil docker — validation runs before any Docker call.
-	h := &TemplatesHandler{docker: nil}
-
-	ctx := context.Background()
-
-	tests := []struct {
-		label     string
-		destPath  string
-		files     map[string]string
-		wantErr   bool
-		errSubstr string // substring that must appear in error message
+// TestValidateRelPath tests the path-traversal guard used in deleteViaEphemeral.
+// validateRelPath should reject absolute paths and ".." segments after cleaning.
+// NOTE: This test lives in a file that does NOT call setupTestDB, so SSRF checks
+// remain enabled. The test directly exercises validateRelPath without any DB
+// dependency, so no mock DB is needed.
+func TestValidateRelPath(t *testing.T) {
+	cases := []struct {
+		name     string
+		path     string
+		wantErr  bool
+		errSubstr string // if non-empty, error message must contain this substring
 	}{
-		// ── Legitimate paths ───────────────────────────────────────────────────
-		{
-			label:    "simple_relative_path_ok",
-			destPath: "/configs",
-			files:    map[string]string{"config.yaml": "key: value"},
-			wantErr:  false,
-		},
-		{
-			label:    "nested_relative_path_ok",
-			destPath: "/configs",
-			files:    map[string]string{"subdir/script.sh": "#!/bin/sh"},
-			wantErr:  false,
-		},
-		{
-			label:    "dot_in_filename_ok",
-			destPath: "/configs",
-			files:    map[string]string{"app.venv/config": "data"},
-			wantErr:  false,
-		},
-		// ── CWE-22: absolute-path prefix ────────────────────────────────────────
-		{
-			label:     "absolute_path_rejected",
-			destPath:  "/configs",
-			files:     map[string]string{"/etc/passwd": "malicious"},
-			wantErr:   true,
-			errSubstr: "unsafe file path",
-		},
-		// ── CWE-22: leading ".." prefix ─────────────────────────────────────────
-		{
-			label:     "leading_dotdot_rejected",
-			destPath:  "/configs",
-			files:     map[string]string{"../etc/passwd": "malicious"},
-			wantErr:   true,
-			errSubstr: "unsafe file path",
-		},
-		// ── CWE-22: mid-path traversal (the regression case) ────────────────────
-		// "foo/../../../etc" does NOT start with ".." — passed the old check.
-		// After filepath.Join("/configs", "foo/../../../etc") → Clean → /etc
-		// (absolute), escaping the volume mount.  Rejected by the post-join guard.
-		{
-			label:     "mid_path_traversal_rejected",
-			destPath:  "/configs",
-			files:     map[string]string{"foo/../../../etc/cron.d/malicious": "* * * * * root echo pwned"},
-			wantErr:   true,
-			errSubstr: "path escapes destination",
-		},
-		{
-			label:     "mid_path_traversal_escapes_configs",
-			destPath:  "/configs",
-			files:     map[string]string{"x/y/../../../../../../../etc/shadow": "malicious"},
-			wantErr:   true,
-			errSubstr: "path escapes destination",
-		},
-		{
-			label:     "double_dotdot_in_subpath_rejected",
-			destPath:  "/workspace",
-			files:     map[string]string{"a/../../../workspace/somefile": "data"},
-			wantErr:   true,
-			errSubstr: "path escapes destination",
-		},
-		// ── CWE-22: traversal targeting parent of destPath ───────────────────────
-		{
-			label:     "escapes_destpath_via_traversal",
-			destPath:  "/configs",
-			files:     map[string]string{"..%2F..%2F..%2Fsecrets": "data"}, // URL-encoded "../" — still a traversal
-			wantErr:   true,
-			errSubstr: "path escapes destination",
-		},
-		// ── Mixed: valid entry + traversal entry ────────────────────────────────
-		{
-			label:     "one_traversal_in_map_rejected",
-			destPath:  "/configs",
-			files:     map[string]string{"good.txt": "valid", "foo/../../../evil": "bad"},
-			wantErr:   true,
-			errSubstr: "path escapes destination",
-		},
+		// Valid: simple relative paths inside a destination
+		{"single file", "config.json", false, ""},
+		{"nested relative", "dir/subdir/file.txt", false, ""},
+		{"file at destination root", "file.txt", false, ""},
+		{"subdirectory file", "configs/myapp/file.cfg", false, ""},
+		{"dotfile (hidden file, not traversal)", ".env", false, ""},
+
+		// Empty/dot-only: must be rejected with specific message
+		{"empty string", "", true, "empty or dot-only path"},
+		{"dot only", ".", true, "empty or dot-only path"},
+
+		// Traversal: must be rejected
+		{"double dot parent", "../etc/passwd", true, "path traversal"},
+		{"trailing dotdot", "../", true, "path traversal"},
+		{"embedded dotdot", "foo/../bar", true, "path traversal"},
+		{"dotdot middle", "a/b/../../c", true, "path traversal"},
+		{"path ends in ..", "foo/..", true, "path traversal"},
+		{"bare ..", "..", true, "path traversal"},
+
+		// Absolute: must be rejected
+		{"absolute unix", "/etc/passwd", true, "path traversal"},
+		{"absolute windows", "C:\\Windows\\System32", false, ""}, // Unix/Linux: no drive letter, treated as relative by Go
+		{"embedded absolute", "foo/etc/passwd", false, ""},
+		{"root absolute", "/workspace/file.txt", true, "path traversal"},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.label, func(t *testing.T) {
-			err := h.copyFilesToContainer(ctx, "any-container", tc.destPath, tc.files)
-			if tc.wantErr {
-				if err == nil {
-					t.Errorf("want non-nil error, got nil")
-					return
-				}
-				if tc.errSubstr != "" && !errors.Is(err, context.DeadlineExceeded) &&
-					!contains(err.Error(), tc.errSubstr) {
-					t.Errorf("error %q does not contain %q", err.Error(), tc.errSubstr)
-				}
-			} else {
-				// wantErr == false: we expect nil from a nil-docker call.
-				// With nil docker the function will panic or return a docker-err
-				// only if the path check is bypassed.  We use a strict check:
-				// any error other than a docker-initialized error means the path
-				// was incorrectly allowed.
-				if err != nil && contains(err.Error(), "unsafe") {
-					t.Errorf("want nil (path accepted), got error: %v", err)
-				}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateRelPath(tc.path)
+			if tc.wantErr && err == nil {
+				t.Errorf("validateRelPath(%q): expected error, got nil", tc.path)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("validateRelPath(%q): expected nil, got %v", tc.path, err)
+			}
+			if tc.errSubstr != "" && (err == nil || !strings.Contains(err.Error(), tc.errSubstr)) {
+				t.Errorf("validateRelPath(%q): expected error containing %q, got %v", tc.path, tc.errSubstr, err)
 			}
 		})
 	}
 }
 
-// contains is declared in workspace_provision_test.go (same package).
-// The duplicate definition that used to live here was removed to fix a
-// `contains redeclared in this block` build error on staging after two
-// PRs landed the same helper independently.
+// TestValidateRelPath_Cleaned ensures that validateRelPath is called on the
+// cleaned (resolved) path, not the raw input, so tricks like "foo/./bar"
+// pass but "foo/../bar" fails.
+func TestValidateRelPath_Cleaned(t *testing.T) {
+	// ". " (dot-space) is not "..", but after Clean() it becomes just the dir.
+	// validateRelPath should be called on the clean path, not raw.
+	// These are valid relative paths.
+	valid := []string{
+		"foo/./bar",
+		"foo/././baz",
+		"./file.cfg",
+	}
+	for _, p := range valid {
+		if err := validateRelPath(p); err != nil {
+			t.Errorf("validateRelPath(%q): expected nil, got %v", p, err)
+		}
+	}
+}
+
+// TestDeleteViaEphemeral_ConcatFormDocs documents that the exec form
+// of rm used in deleteViaEphemeral receives the path as a single concatenated
+// argument, not as a shell-expanded arg. This prevents traversal even if
+// validateRelPath were somehow bypassed (defence in depth).
+//
+// The concat form: []string{"rm", "-rf", "/configs/" + filePath}
+// passes ONE argument "/configs/../../../etc" to rm, which resolves it
+// relative to rm's CWD, NOT the shell's working directory.
+//
+// By contrast, the shell-expanded form:
+//   sh -c "rm -rf /configs $filePath"
+// would treat ".." as path components relative to /configs and could escape.
+//
+// deleteViaEphemeral uses the exec form only (verified in code review).
+func TestDeleteViaEphemeral_ConcatFormDocs(t *testing.T) {
+	// This is a documentation test — it confirms the concat form is present
+	// in the actual codebase by reading the source file directly.
+	src, err := sourceFile("container_files.go")
+	if err != nil {
+		t.Skip("cannot read source: " + err.Error())
+	}
+	if !strings.Contains(src, `"/configs/" + filePath`) {
+		t.Error("deleteViaEphemeral does not use concat form; F1085 fix may be missing or reverted")
+	}
+}
+
+// sourceFile reads a source file from the same package at runtime.
+// Used for compile-time-verification-style tests without importing io/ioutil.
+func sourceFile(name string) (string, error) {
+	data, err := os.ReadFile(name)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}

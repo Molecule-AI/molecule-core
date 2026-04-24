@@ -44,7 +44,7 @@ export function FilesToolbar({
       <div className="flex gap-1.5">
         {root === "/configs" && (
           <>
-            <button onClick={onNewFile} aria-label="Create new file" className="text-[10px] text-blue-400 hover:text-blue-300" title="Create new file">
+            <button type="button" onClick={onNewFile} aria-label="Create new file" className="text-[10px] text-blue-400 hover:text-blue-300" title="Create new file">
               + New
             </button>
             <input
@@ -57,20 +57,20 @@ export function FilesToolbar({
               className="hidden"
               onChange={(e) => e.target.files && onUpload(e.target.files)}
             />
-            <button onClick={() => uploadRef.current?.click()} aria-label="Upload folder" className="text-[10px] text-blue-400 hover:text-blue-300" title="Upload folder">
+            <button type="button" onClick={() => uploadRef.current?.click()} aria-label="Upload folder" className="text-[10px] text-blue-400 hover:text-blue-300" title="Upload folder">
               Upload
             </button>
           </>
         )}
-        <button onClick={onDownloadAll} aria-label="Download all files" className="text-[10px] text-zinc-500 hover:text-zinc-300" title="Download all files">
+        <button type="button" onClick={onDownloadAll} aria-label="Download all files" className="text-[10px] text-zinc-500 hover:text-zinc-300" title="Download all files">
           Export
         </button>
         {root === "/configs" && (
-          <button onClick={onClearAll} aria-label="Delete all files" className="text-[10px] text-red-400/60 hover:text-red-400" title="Delete all files">
+          <button type="button" onClick={onClearAll} aria-label="Delete all files" className="text-[10px] text-red-400/60 hover:text-red-400" title="Delete all files">
             Clear
           </button>
         )}
-        <button onClick={onRefresh} aria-label="Refresh file list" className="text-[10px] text-zinc-500 hover:text-zinc-300" title="Refresh">
+        <button type="button" onClick={onRefresh} aria-label="Refresh file list" className="text-[10px] text-zinc-500 hover:text-zinc-300" title="Refresh">
           ↻
         </button>
       </div>

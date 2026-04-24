@@ -110,6 +110,7 @@ export function EmptyState() {
               const tierColor = TIER_CONFIG[t.tier]?.border || TIER_CONFIG[1].border;
               return (
                 <button
+                  type="button"
                   key={t.id}
                   onClick={() => deploy(t)}
                   disabled={!!deploying}
@@ -140,6 +141,7 @@ export function EmptyState() {
 
         {/* Create blank */}
         <button
+          type="button"
           onClick={createBlank}
           disabled={!!deploying}
           className="w-full rounded-xl border border-dashed border-zinc-700/60 bg-zinc-900/30 px-4 py-3 text-sm text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 hover:bg-zinc-900/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-zinc-400 disabled:hover:border-zinc-700/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"

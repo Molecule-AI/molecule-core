@@ -81,10 +81,23 @@ func resolveRestartTemplate(configsDir, wsName, dbRuntime string, body restartTe
 	// Use case: Canvas Config tab changed the runtime; we need the new
 	// runtime's base files (entry point, Dockerfile, skill scaffolding)
 	// because the existing volume was written by the old runtime.
+	//
+	// SECURITY (CWE-22 / F1502): dbRuntime comes from the workspaces DB
+	// column — set by the PATCH Update handler which only validates length
+	// and newlines, not path-traversal characters.  Without sanitisation an
+	// attacker who holds a workspace token could set runtime to
+	// "../../../etc" and, if a directory matching that path existed on the
+	// host, load an arbitrary host directory as the workspace template.
+	//
+	// sanitizeRuntime applies an allowlist of known runtimes; any unknown
+	// value (including traversal strings) is remapped to "langgraph".  The
+	// attacker cannot choose an arbitrary host path — they can at most
+	// trigger application of the langgraph-default template.
 	if body.ApplyTemplate && dbRuntime != "" {
-		runtimeTemplate := filepath.Join(configsDir, dbRuntime+"-default")
+		safeRuntime := sanitizeRuntime(dbRuntime)
+		runtimeTemplate := filepath.Join(configsDir, safeRuntime+"-default")
 		if _, err := os.Stat(runtimeTemplate); err == nil {
-			label := dbRuntime + "-default"
+			label := safeRuntime + "-default"
 			log.Printf("Restart: applying template %s (runtime change)", label)
 			return runtimeTemplate, label
 		}

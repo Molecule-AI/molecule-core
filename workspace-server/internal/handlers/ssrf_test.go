@@ -327,3 +327,100 @@ func TestDevModeAllowsLoopback_Predicate(t *testing.T) {
 		})
 	}
 }
+
+// TestIsSafeURL_SaaSMode_AllowsRFC1918 is the integration-level wrapper test
+// for the SaaS-mode SSRF relaxation.  It exercises isSafeURL (the public API),
+// not isPrivateOrMetadataIP (the inner helper), ensuring the wrapper correctly
+// propagates saasMode() to its helper.
+//
+// Regression guard: isSafeURL previously hardcoded RFC-1918 rejection and never
+// called saasMode(), causing 502 on every A2A call from Docker-networked or VPC
+// deployments (issue #1785 / PR #1785).  The inner helper's TestIsPrivateOrMetadataIP_SaaSMode
+// was green the whole time — classic "test the intent, not the integration" gap.
+func TestIsSafeURL_SaaSMode_AllowsRFC1918(t *testing.T) {
+	t.Setenv("MOLECULE_DEPLOY_MODE", "saas")
+	t.Setenv("MOLECULE_ORG_ID", "")
+	for _, url := range []string{
+		"http://10.1.2.3/agent",
+		"http://10.0.0.5:8000/a2a",
+		"http://172.16.0.1/agent",
+		"http://172.18.0.42:8000/a2a",
+		"http://172.31.44.78/agent",
+		"http://192.168.1.100/agent",
+		"http://192.168.255.254:9000/a2a",
+		"http://[fd00::1]/agent",
+		"http://[fd12:3456:789a::42]/a2a",
+	} {
+		if err := isSafeURL(url); err != nil {
+			t.Errorf("isSafeURL(%q) in saasMode: got %v, want nil", url, err)
+		}
+	}
+}
+
+// TestIsSafeURL_SaaSMode_StillBlocksMetadataEtAl verifies that even in SaaS
+// mode the always-blocked ranges (metadata, loopback, TEST-NET, CGNAT) stay blocked.
+func TestIsSafeURL_SaaSMode_StillBlocksMetadataEtAl(t *testing.T) {
+	t.Setenv("MOLECULE_DEPLOY_MODE", "saas")
+	t.Setenv("MOLECULE_ORG_ID", "")
+	for _, url := range []string{
+		// Cloud metadata — must stay blocked in every mode.
+		"http://169.254.169.254/latest/meta-data/",
+		"http://169.254.0.1/",
+		// Loopback — must stay blocked.
+		"http://127.0.0.1:8080",
+		"http://[::1]:8080",
+		// TEST-NET documentation ranges — must stay blocked.
+		"http://192.0.2.5/agent",
+		"http://198.51.100.5/a2a",
+		"http://203.0.113.42/agent",
+		// CGNAT — must stay blocked.
+		"http://100.64.0.1/agent",
+		"http://100.127.255.254:8000/a2a",
+		// ULA fc00::/8 (non-fd00 half) — must stay blocked in SaaS.
+		"http://[fc00::1]/agent",
+		// Non-RFC-1918 private ranges still blocked.
+		"http://224.0.0.1/",
+	} {
+		if err := isSafeURL(url); err == nil {
+			t.Errorf("isSafeURL(%q) in saasMode: got nil, want block", url)
+		}
+	}
+}
+
+// TestIsSafeURL_StrictMode_BlocksRFC1918 is the strict-mode counterpart to
+// TestIsSafeURL_SaaSMode_AllowsRFC1918.  In self-hosted / single-container
+// deployments there is no legitimate reason to reach RFC-1918 agents, so the
+// wrapper must block them.
+func TestIsSafeURL_StrictMode_BlocksRFC1918(t *testing.T) {
+	t.Setenv("MOLECULE_DEPLOY_MODE", "self-hosted")
+	t.Setenv("MOLECULE_ORG_ID", "")
+	for _, url := range []string{
+		"http://10.1.2.3/agent",
+		"http://172.16.0.1:8000/a2a",
+		"http://172.31.44.78/agent",
+		"http://192.168.1.100/agent",
+		"http://[fd00::1]/agent",
+	} {
+		if err := isSafeURL(url); err == nil {
+			t.Errorf("isSafeURL(%q) in strict mode: got nil, want block", url)
+		}
+	}
+}
+
+// TestIsSafeURL_SaasMode_LegacyOrgID covers the legacy MOLECULE_ORG_ID signal
+// (no MOLECULE_DEPLOY_MODE set).  An org ID alone is sufficient to activate SaaS
+// mode per the saasMode() resolution ladder.
+func TestIsSafeURL_SaasMode_LegacyOrgID(t *testing.T) {
+	t.Setenv("MOLECULE_DEPLOY_MODE", "")
+	t.Setenv("MOLECULE_ORG_ID", "7b2179dc-8cc6-4581-a3c6-c8bff4481086")
+	for _, url := range []string{
+		"http://10.1.2.3/agent",
+		"http://172.18.0.42:8000/a2a",
+		"http://192.168.1.100/agent",
+		"http://[fd00::1]/agent",
+	} {
+		if err := isSafeURL(url); err != nil {
+			t.Errorf("isSafeURL(%q) with legacy MOLECULE_ORG_ID: got %v, want nil", url, err)
+		}
+	}
+}

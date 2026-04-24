@@ -211,7 +211,7 @@ export function CreateWorkspaceButton() {
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
-        <button className="fixed bottom-6 right-6 z-40 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-sm font-medium rounded-xl text-white shadow-lg shadow-blue-600/20 hover:shadow-xl hover:shadow-blue-500/30 transition-all duration-200 flex items-center gap-2">
+        <button type="button" className="fixed bottom-6 right-6 z-40 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-sm font-medium rounded-xl text-white shadow-lg shadow-blue-600/20 hover:shadow-xl hover:shadow-blue-500/30 transition-all duration-200 flex items-center gap-2">
           <svg
             width="14"
             height="14"
@@ -284,6 +284,7 @@ export function CreateWorkspaceButton() {
                 </div>
                 {TIERS.map((t, idx) => (
                   <button
+                    type="button"
                     key={t.value}
                     ref={(el) => { radioRefs.current[idx] = el; }}
                     role="radio"
@@ -432,11 +433,12 @@ export function CreateWorkspaceButton() {
 
           <div className="flex justify-end gap-2.5 mt-6">
             <Dialog.Close asChild>
-              <button className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-sm rounded-lg text-zinc-300 transition-colors">
+              <button type="button" className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-sm rounded-lg text-zinc-300 transition-colors">
                 Cancel
               </button>
             </Dialog.Close>
             <button
+              type="button"
               onClick={handleCreate}
               disabled={creating}
               className="px-5 py-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-sm rounded-lg text-white disabled:opacity-50 transition-colors"

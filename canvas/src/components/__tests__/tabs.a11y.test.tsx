@@ -183,7 +183,31 @@ describe("ChannelsTab — htmlFor/id label associations (WCAG 1.3.1)", () => {
   beforeEach(() => {
     mockApiGet.mockImplementation((url: string) => {
       if (url.includes("/channels/adapters")) {
-        return Promise.resolve([{ type: "telegram", display_name: "Telegram" }]);
+        // Mirror the real GET /channels/adapters shape — schema-driven form
+        // relies on config_schema arriving from the adapter. A bare
+        // {type, display_name} mock renders an empty form and every
+        // getByLabelText below fails.
+        return Promise.resolve([
+          {
+            type: "telegram",
+            display_name: "Telegram",
+            config_schema: [
+              {
+                key: "bot_token",
+                label: "Bot Token",
+                type: "password",
+                required: true,
+                sensitive: true,
+              },
+              {
+                key: "chat_id",
+                label: "Chat IDs",
+                type: "text",
+                required: true,
+              },
+            ],
+          },
+        ]);
       }
       return Promise.resolve([]);
     });

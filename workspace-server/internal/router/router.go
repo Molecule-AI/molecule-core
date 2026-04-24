@@ -394,6 +394,15 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		r.GET("/admin/schedules/health", middleware.AdminAuth(db.DB), asHealth.Health)
 	}
 
+	// Admin — stale a2a_queue cleanup (issue #1947). Marks queued items older
+	// than max_age_minutes as 'dropped' so PM agents stop processing post-incident
+	// noise. POST to avoid accidental GET-triggered side-effects; scoped to one
+	// workspace_id or all workspaces if omitted.
+	{
+		qH := handlers.NewAdminQueueHandler()
+		r.POST("/admin/a2a-queue/drop-stale", middleware.AdminAuth(db.DB), qH.DropStale)
+	}
+
 	// Admin — test token minting (issue #6). Hidden in production via TestTokensEnabled().
 	// NOT behind AdminAuth — this is the bootstrap endpoint E2E tests and
 	// fresh installs use to obtain their first admin bearer. Adding AdminAuth

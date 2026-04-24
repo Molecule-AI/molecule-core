@@ -330,6 +330,35 @@ func (h *WorkspaceHandler) proxyA2ARequest(ctx context.Context, workspaceID stri
 	// to the critical A2A path.
 	go extractAndUpsertTokenUsage(context.WithoutCancel(ctx), workspaceID, respBody)
 
+	// Non-2xx agent response: the agent received the request but returned an
+	// error status. Return a proxyErr so the caller (DrainQueueForWorkspace)
+	// can call MarkQueueItemFailed rather than silently marking completed.
+	// 3xx is also treated as failure here (A2A does not follow redirects).
+	// Extract a meaningful error from the response body if present.
+	if resp.StatusCode >= 300 {
+		errMsg := ""
+		if len(respBody) > 0 {
+			var top map[string]json.RawMessage
+			if json.Unmarshal(respBody, &top) == nil {
+				if e, ok := top["error"]; ok {
+					// Prefer string errors from the agent's JSON body.
+					// e is json.RawMessage ([]byte); try to unmarshal as string.
+					var errStr string
+					if json.Unmarshal(e, &errStr) == nil {
+						errMsg = errStr
+					}
+				}
+			}
+		}
+		if errMsg == "" {
+			errMsg = http.StatusText(resp.StatusCode)
+		}
+		return resp.StatusCode, respBody, &proxyA2AError{
+			Status:   resp.StatusCode,
+			Response: gin.H{"error": errMsg},
+		}
+	}
+
 	return resp.StatusCode, respBody, nil
 }
 

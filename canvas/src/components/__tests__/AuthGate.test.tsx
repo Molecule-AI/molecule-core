@@ -105,10 +105,64 @@ describe("AuthGate — authenticated state", () => {
   });
 });
 
+describe("AuthGate — /cp/auth/* skip guard (redirect loop regression)", () => {
+  it("renders children without calling fetchSession or redirect when pathname starts with /cp/auth/", async () => {
+    mockGetTenantSlug.mockReturnValue("acme");
+    mockFetchSession.mockResolvedValue(null);
+
+    // Simulate being on the login page
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { ...window.location, pathname: "/cp/auth/login" },
+    });
+
+    let result: ReturnType<typeof render>;
+    await act(async () => {
+      result = render(
+        <AuthGate>
+          <div data-testid="child">Protected content</div>
+        </AuthGate>
+      );
+    });
+
+    // Children should render — AuthGate skips session fetch for auth paths
+    expect(result!.getByTestId("child")).toBeTruthy();
+    expect(mockFetchSession).not.toHaveBeenCalled();
+    expect(mockRedirectToLogin).not.toHaveBeenCalled();
+  });
+
+  it("renders children without calling redirect for /cp/auth/signup path", async () => {
+    mockGetTenantSlug.mockReturnValue("acme");
+    mockFetchSession.mockResolvedValue(null);
+
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { ...window.location, pathname: "/cp/auth/signup" },
+    });
+
+    let result: ReturnType<typeof render>;
+    await act(async () => {
+      result = render(
+        <AuthGate>
+          <div data-testid="child">Protected content</div>
+        </AuthGate>
+      );
+    });
+
+    expect(result!.getByTestId("child")).toBeTruthy();
+    expect(mockRedirectToLogin).not.toHaveBeenCalled();
+  });
+});
+
 describe("AuthGate — anonymous / redirect state", () => {
   it("calls redirectToLogin when session fetch returns null", async () => {
     mockGetTenantSlug.mockReturnValue("acme");
     mockFetchSession.mockResolvedValue(null);
+    // Ensure pathname is NOT on /cp/auth/* so the redirect guard fires
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { ...window.location, pathname: "/dashboard" },
+    });
 
     await act(async () => {
       render(

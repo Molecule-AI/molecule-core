@@ -99,6 +99,7 @@ export function CommunicationOverlay() {
   if (!visible || comms.length === 0) {
     return (
       <button
+        type="button"
         onClick={() => setVisible(true)}
         aria-label="Show communications panel"
         className="fixed top-16 right-4 z-30 px-3 py-1.5 bg-zinc-900/90 border border-zinc-700/50 rounded-lg text-[10px] text-zinc-400 hover:text-zinc-200 transition-colors"
@@ -115,6 +116,7 @@ export function CommunicationOverlay() {
           <span aria-hidden="true">↗↙ </span>Communications ({comms.length})
         </div>
         <button
+          type="button"
           onClick={() => setVisible(false)}
           aria-label="Close communications panel"
           className="text-zinc-500 hover:text-zinc-300 text-xs"

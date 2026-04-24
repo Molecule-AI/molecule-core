@@ -1158,13 +1158,18 @@ func TestDispatchA2A_ContextDeadline_NoCancelAdded(t *testing.T) {
 // --- handleA2ADispatchError ---
 
 func TestHandleA2ADispatchError_ContextDeadline(t *testing.T) {
-	setupTestDB(t)
+	mock := setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
 
-	// No workspace row expected — maybeMarkContainerDead with nil
-	// provisioner short-circuits, and activity-log insert is suppressed
-	// (logActivity=false).
+	// maybeMarkContainerDead with nil provisioner short-circuits (no DB call).
+	// activity-log insert is suppressed (logActivity=false).
+	// DeadlineExceeded → isUpstreamBusyError=true → EnqueueA2A attempted.
+	// Mock the INSERT INTO a2a_queue to fail so we fall through to 503.
+	mock.ExpectQuery(`INSERT INTO a2a_queue`).
+		WithArgs("ws-dl", nil, PriorityTask, "{}", "message/send", nil).
+		WillReturnError(fmt.Errorf("test: queue unavailable"))
+
 	_, _, perr := handler.handleA2ADispatchError(
 		context.Background(), "ws-dl", "", []byte("{}"), "message/send",
 		context.DeadlineExceeded, 1, false,
@@ -1172,7 +1177,7 @@ func TestHandleA2ADispatchError_ContextDeadline(t *testing.T) {
 	if perr == nil {
 		t.Fatal("expected error, got nil")
 	}
-	// DeadlineExceeded is classified as upstream-busy → 503 with Retry-After.
+	// EnqueueA2A failed → falls through to legacy 503 with Retry-After.
 	if perr.Status != http.StatusServiceUnavailable {
 		t.Errorf("got status %d, want 503", perr.Status)
 	}

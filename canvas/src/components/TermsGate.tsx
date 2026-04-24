@@ -102,6 +102,7 @@ export function TermsGate({ children }: { children: React.ReactNode }) {
             {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
             <div className="mt-5 flex justify-end gap-2">
               <button
+                type="button"
                 onClick={accept}
                 disabled={submitting}
                 className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"

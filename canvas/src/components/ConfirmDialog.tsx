@@ -121,6 +121,7 @@ export function ConfirmDialog({
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-zinc-800 bg-zinc-950/50">
           {!singleButton && (
             <button
+              type="button"
               onClick={onCancel}
               className="px-3.5 py-1.5 text-[13px] text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors"
             >
@@ -128,6 +129,7 @@ export function ConfirmDialog({
             </button>
           )}
           <button
+            type="button"
             onClick={onConfirm}
             className={`px-3.5 py-1.5 text-[13px] rounded-lg transition-colors ${confirmColors}`}
           >

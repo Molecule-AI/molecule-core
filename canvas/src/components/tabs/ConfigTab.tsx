@@ -51,17 +51,18 @@ function AgentCardSection({ workspaceId }: { workspaceId: string }) {
       ) : editing ? (
         <div className="space-y-2">
           <textarea
+            aria-label="Agent card JSON editor"
             value={draft} onChange={(e) => setDraft(e.target.value)}
             spellCheck={false} rows={12}
             className="w-full bg-zinc-800 border border-zinc-700 rounded p-2 text-[10px] font-mono text-zinc-200 focus:outline-none focus:border-blue-500 resize-none"
           />
           {error && <div className="px-2 py-1 bg-red-900/30 border border-red-800 rounded text-[10px] text-red-400">{error}</div>}
           <div className="flex gap-2">
-            <button onClick={handleSave} disabled={saving}
+            <button type="button" onClick={handleSave} disabled={saving}
               className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-white disabled:opacity-50">
               {saving ? "Saving..." : "Save"}
             </button>
-            <button onClick={() => setEditing(false)}
+            <button type="button" onClick={() => setEditing(false)}
               className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-[10px] rounded text-zinc-300">Cancel</button>
           </div>
         </div>
@@ -75,7 +76,7 @@ function AgentCardSection({ workspaceId }: { workspaceId: string }) {
             <div className="text-[10px] text-zinc-500">No agent card</div>
           )}
           {success && <div className="mt-2 px-2 py-1 bg-green-900/30 border border-green-800 rounded text-[10px] text-green-400">Updated</div>}
-          <button onClick={() => { setDraft(JSON.stringify(card || {}, null, 2)); setEditing(true); setError(null); setSuccess(false); }}
+          <button type="button" onClick={() => { setDraft(JSON.stringify(card || {}, null, 2)); setEditing(true); setError(null); setSuccess(false); }}
             className="mt-2 text-[10px] text-blue-400 hover:text-blue-300">Edit Agent Card</button>
         </div>
       )}
@@ -384,6 +385,7 @@ export function ConfigTab({ workspaceId }: Props) {
       {rawMode ? (
         <div className="flex-1 p-3">
           <textarea
+            aria-label="Raw YAML editor"
             value={rawDraft}
             onChange={(e) => setRawDraft(e.target.value)}
             spellCheck={false}
@@ -645,6 +647,7 @@ export function ConfigTab({ workspaceId }: Props) {
 
       <div className="p-3 border-t border-zinc-800 flex gap-2">
         <button
+          type="button"
           onClick={() => handleSave(true)}
           disabled={!isDirty || saving}
           className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs rounded text-white disabled:opacity-30 transition-colors"
@@ -652,6 +655,7 @@ export function ConfigTab({ workspaceId }: Props) {
           {saving ? "Restarting..." : "Save & Restart"}
         </button>
         <button
+          type="button"
           onClick={() => handleSave(false)}
           disabled={!isDirty || saving}
           className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-xs rounded text-zinc-300 disabled:opacity-30 transition-colors"
@@ -659,6 +663,7 @@ export function ConfigTab({ workspaceId }: Props) {
           Save
         </button>
         <button
+          type="button"
           onClick={loadConfig}
           className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-xs rounded text-zinc-300 ml-auto"
         >

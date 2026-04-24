@@ -135,12 +135,14 @@ export function MemoryTab({ workspaceId }: Props) {
           </div>
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={() => setShowAwareness((prev) => !prev)}
               className="shrink-0 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-[10px] rounded text-zinc-200"
             >
               {showAwareness ? "Collapse" : "Expand"}
             </button>
             <button
+              type="button"
               onClick={openAwareness}
               className="shrink-0 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-[10px] rounded text-zinc-200"
             >
@@ -173,6 +175,7 @@ export function MemoryTab({ workspaceId }: Props) {
               </p>
             </div>
             <button
+              type="button"
               onClick={() => setShowAwareness(true)}
               className="shrink-0 px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-white"
             >
@@ -207,18 +210,21 @@ export function MemoryTab({ workspaceId }: Props) {
           </div>
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={() => setShowAdvanced((prev) => !prev)}
               className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-[10px] rounded text-zinc-300"
             >
               {showAdvanced ? "Hide Advanced" : "Advanced"}
             </button>
             <button
+              type="button"
               onClick={loadMemory}
               className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-[10px] rounded text-zinc-300"
             >
               Refresh
             </button>
             <button
+              type="button"
               onClick={() => { setShowAdd(!showAdd); if (!showAdd) setShowAdvanced(true); }}
               className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-white"
             >
@@ -254,12 +260,14 @@ export function MemoryTab({ workspaceId }: Props) {
             {error && <div role="alert" className="text-xs text-red-400">{error}</div>}
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={handleAdd}
                 className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-xs rounded text-white"
               >
                 Save
               </button>
               <button
+                type="button"
                 onClick={() => {
                   setShowAdd(false);
                   setError(null);
@@ -280,6 +288,7 @@ export function MemoryTab({ workspaceId }: Props) {
               {entries.map((entry) => (
                 <div key={entry.key} className="bg-zinc-800 rounded border border-zinc-700">
                   <button
+                    type="button"
                     onClick={() => setExpanded(expanded === entry.key ? null : entry.key)}
                     className="w-full flex items-center justify-between px-3 py-2 text-left"
                     aria-expanded={expanded === entry.key}
@@ -307,6 +316,7 @@ export function MemoryTab({ workspaceId }: Props) {
                           Updated: {new Date(entry.updated_at).toLocaleString()}
                         </span>
                         <button
+                          type="button"
                           onClick={() => handleDelete(entry.key)}
                           className="text-[10px] text-red-400 hover:text-red-300"
                         >
@@ -328,6 +338,7 @@ export function MemoryTab({ workspaceId }: Props) {
               </p>
             </div>
             <button
+              type="button"
               onClick={() => setShowAdvanced(true)}
               className="shrink-0 px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-white"
             >

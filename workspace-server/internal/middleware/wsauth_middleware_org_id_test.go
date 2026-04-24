@@ -11,10 +11,10 @@ import (
 )
 
 // orgTokenValidateQuery is matched for orgtoken.Validate in both
-// WorkspaceAuth and AdminAuth middleware paths. Post-migration 036 the
-// query selects id, prefix, AND org_id in a single round-trip; the
-// secondary "SELECT org_id::text FROM org_api_tokens WHERE id" hop is
-// gone, so tests do not need to stub it.
+// WorkspaceAuth and AdminAuth middleware paths. The query selects
+// id, prefix, org_id from org_api_tokens where token_hash matches and
+// revoked_at IS NULL. The org_id is returned directly from the primary
+// query — no secondary lookup is needed.
 const orgTokenValidateQuery = "SELECT id, prefix, org_id FROM org_api_tokens WHERE token_hash"
 
 func TestWorkspaceAuth_ValidOrgToken_SetsOrgIDContext(t *testing.T) {
@@ -30,11 +30,16 @@ func TestWorkspaceAuth_ValidOrgToken_SetsOrgIDContext(t *testing.T) {
 	orgToken := "tok_test_org_token_abc123"
 	tokenHash := sha256.Sum256([]byte(orgToken))
 
-	// Single-round-trip Validate: id + prefix + org_id.
+	// orgtoken.Validate — returns id + prefix + org_id directly.
 	mock.ExpectQuery(orgTokenValidateQuery).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
 			AddRow("tok-org-abc", "tok_test", "00000000-0000-0000-0000-000000000001"))
+
+	// Best-effort last_used_at update after Validate succeeds.
+	mock.ExpectExec("UPDATE org_api_tokens SET last_used_at").
+		WithArgs("tok-org-abc").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	r := gin.New()
 	r.GET("/workspaces/:id/secrets", WorkspaceAuth(mockDB), func(c *gin.Context) {
@@ -78,12 +83,16 @@ func TestWorkspaceAuth_ValidOrgToken_OrgIDNULL_DoesNotSetContext(t *testing.T) {
 	orgToken := "tok_old_token_no_org"
 	tokenHash := sha256.Sum256([]byte(orgToken))
 
-	// Single-round-trip Validate; NULL org_id row mimics a pre-migration
-	// token. Middleware must NOT set the org_id context key in this case.
+	// orgtoken.Validate — org_id NULL, so no org_id context key is set.
 	mock.ExpectQuery(orgTokenValidateQuery).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
 			AddRow("tok-old-xyz", "tok_old_", nil))
+
+	// Best-effort last_used_at update after Validate succeeds (even for NULL org_id).
+	mock.ExpectExec("UPDATE org_api_tokens SET last_used_at").
+		WithArgs("tok-old-xyz").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	r := gin.New()
 	r.GET("/workspaces/:id/secrets", WorkspaceAuth(mockDB), func(c *gin.Context) {
@@ -125,7 +134,7 @@ func TestAdminAuth_ValidOrgToken_SetsOrgIDContext(t *testing.T) {
 	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	// Single-round-trip Validate via AdminAuth: id + prefix + org_id.
+	// orgtoken.Validate via AdminAuth — returns id + prefix + org_id directly.
 	mock.ExpectQuery(orgTokenValidateQuery).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
@@ -171,7 +180,6 @@ func TestAdminAuth_ValidOrgToken_OrgIDNULL_DoesNotSetContext(t *testing.T) {
 	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	// Single-round-trip Validate with NULL org_id — AdminAuth path.
 	mock.ExpectQuery(orgTokenValidateQuery).
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
@@ -200,9 +208,9 @@ func TestAdminAuth_ValidOrgToken_OrgIDNULL_DoesNotSetContext(t *testing.T) {
 }
 
 func TestWorkspaceAuth_OrgToken_DBRowScanError_DoesNotPanic(t *testing.T) {
-	// F1097: if the org_id SELECT returns an unexpected column count or type,
-	// the deferred suppress-pattern must not crash — the token is still valid,
-	// org_id is simply not set (token is denied by requireCallerOwnsOrg at use-time).
+	// F1097: org token validation must not panic if the org_id DB value is
+	// unexpected — org_id is simply not set on context. Validate scans org_id as
+	// sql.NullString and only sets it if .Valid is true.
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
@@ -217,6 +225,11 @@ func TestWorkspaceAuth_OrgToken_DBRowScanError_DoesNotPanic(t *testing.T) {
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
 			AddRow("tok-ok", "tok_tok_", "00000000-0000-0000-0000-000000000099"))
+
+	// Best-effort last_used_at update after Validate succeeds.
+	mock.ExpectExec("UPDATE org_api_tokens SET last_used_at").
+		WithArgs("tok-ok").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	r := gin.New()
 	r.GET("/workspaces/:id/secrets", WorkspaceAuth(mockDB), func(c *gin.Context) {
@@ -256,6 +269,11 @@ func TestWorkspaceAuth_OrgToken_SetsAllContextKeys(t *testing.T) {
 		WithArgs(tokenHash[:]).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "prefix", "org_id"}).
 			AddRow("tok-full", "tok_fu_", expectedOrgID))
+
+	// Best-effort last_used_at update after Validate succeeds.
+	mock.ExpectExec("UPDATE org_api_tokens SET last_used_at").
+		WithArgs("tok-full").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	r := gin.New()
 	r.GET("/workspaces/:id/secrets", WorkspaceAuth(mockDB), func(c *gin.Context) {

@@ -15,6 +15,11 @@ on:
     types: [opened, synchronize, reopened]
   push:
     branches: [main, staging]
+  # Required for GitHub merge queue: the queue's pre-merge CI run on
+  # `gh-readonly-queue/...` refs needs this check to fire so the queue
+  # gets a real result instead of stalling forever AWAITING_CHECKS.
+  merge_group:
+    types: [checks_requested]
 
 jobs:
   check:
@@ -24,6 +29,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2  # need previous commit to diff against on push events
+
+      # For pull_request events the diff base is github.event.pull_request.base.sha,
+      # which may be many commits behind HEAD and therefore absent from the
+      # shallow clone above.  Fetch it explicitly (depth=1 keeps it fast).
+      - name: Fetch PR base SHA (pull_request events only)
+        if: github.event_name == 'pull_request'
+        run: git fetch --depth=1 origin ${{ github.event.pull_request.base.sha }}
 
       - name: Refuse if forbidden paths appear
         run: |

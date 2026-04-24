@@ -168,6 +168,7 @@ export function Toolbar() {
       {/* Stop All — visible when agents have active tasks */}
       {counts.activeTasks > 0 && (
         <button
+          type="button"
           onClick={stopAll}
           disabled={stopping}
           className="flex items-center gap-1.5 px-2.5 py-1 bg-red-950/50 hover:bg-red-900/60 border border-red-800/40 rounded-lg transition-colors disabled:opacity-50"
@@ -186,6 +187,7 @@ export function Toolbar() {
       {/* Restart All — only shows when workspaces are flagged as needsRestart */}
       {needsRestartNodes.length > 0 && (
         <button
+          type="button"
           onClick={() => setRestartConfirmOpen(true)}
           disabled={restartingAll}
           className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-950/40 hover:bg-amber-900/50 border border-amber-800/40 rounded-lg transition-colors disabled:opacity-50"
@@ -208,6 +210,7 @@ export function Toolbar() {
 
       {/* A2A topology overlay toggle */}
       <button
+        type="button"
         onClick={() => setShowA2AEdges(!showA2AEdges)}
         aria-pressed={showA2AEdges}
         aria-label={showA2AEdges ? "Hide A2A edges" : "Show A2A edges"}
@@ -241,6 +244,7 @@ export function Toolbar() {
 
       {/* Audit trail shortcut — switches selected workspace's panel to the Audit tab */}
       <button
+        type="button"
         onClick={() => {
           if (selectedNodeId) {
             setPanelTab("audit");
@@ -268,6 +272,7 @@ export function Toolbar() {
 
       {/* Search shortcut */}
       <button
+        type="button"
         onClick={() => useCanvasStore.getState().setSearchOpen(true)}
         aria-label="Search workspaces"
         title="Search (⌘K)"
@@ -282,6 +287,7 @@ export function Toolbar() {
       {/* Quick help */}
       <div ref={helpRef} className="relative">
         <button
+          type="button"
           onClick={() => setHelpOpen((open) => !open)}
           className="flex items-center justify-center w-7 h-7 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-700/40 rounded-lg transition-colors text-zinc-500 hover:text-zinc-300"
           aria-expanded={helpOpen}
@@ -299,6 +305,7 @@ export function Toolbar() {
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-400">Quick start</span>
               <button
+                type="button"
                 onClick={() => setHelpOpen(false)}
                 className="text-[10px] text-zinc-600 hover:text-zinc-300 transition-colors"
               >

@@ -26,8 +26,13 @@ const CP_URL = process.env.MOLECULE_CP_URL || "https://staging-api.moleculesai.a
 const ADMIN_TOKEN = process.env.MOLECULE_ADMIN_TOKEN;
 const STAGING = process.env.CANVAS_E2E_STAGING === "1";
 
-const PROVISION_TIMEOUT_MS = 15 * 60 * 1000;
-const WORKSPACE_ONLINE_TIMEOUT_MS = 10 * 60 * 1000;
+// Tenant cold boot on staging regularly takes 12-15 min when the
+// workspace-server Docker image isn't already cached on the AMI. Raised
+// to 20 min to match tests/e2e/test_staging_full_saas.sh (PR #1930)
+// after repeated "tenant provision: timed out after 900s" flakes
+// were blocking staging→main syncs on 2026-04-24.
+const PROVISION_TIMEOUT_MS = 20 * 60 * 1000;
+const WORKSPACE_ONLINE_TIMEOUT_MS = 20 * 60 * 1000;
 const TLS_TIMEOUT_MS = 3 * 60 * 1000;
 
 async function jsonFetch(

@@ -125,6 +125,7 @@ export function OrgTokensTab() {
           onChange={(e) => setNameInput(e.target.value)}
           placeholder="Label (e.g. zapier, my-ci)"
           maxLength={100}
+          aria-label="Organization API key label"
           className="flex-1 text-[11px] bg-zinc-900/60 border border-zinc-700/50 rounded px-2 py-1.5 text-zinc-200 placeholder-zinc-600"
         />
         <button

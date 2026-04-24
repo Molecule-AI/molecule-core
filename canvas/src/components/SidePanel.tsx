@@ -178,6 +178,7 @@ export function SidePanel() {
           </div>
         </div>
         <button
+          type="button"
           onClick={() => selectNode(null)}
           aria-label="Close workspace panel"
           className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors"
@@ -221,6 +222,7 @@ export function SidePanel() {
       >
         {TABS.map((tab) => (
           <button
+            type="button"
             key={tab.id}
             id={`tab-${tab.id}`}
             role="tab"
@@ -246,6 +248,7 @@ export function SidePanel() {
         <div className="px-4 py-2 bg-sky-950/20 border-b border-sky-800/20 flex items-center justify-between">
           <span className="text-[10px] text-sky-300/90">Config changed — restart to apply</span>
           <button
+            type="button"
             onClick={() => {
               useCanvasStore.getState().restartWorkspace(selectedNodeId).catch(() => showToast("Restart failed", "error"));
             }}

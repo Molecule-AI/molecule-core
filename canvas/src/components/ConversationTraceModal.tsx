@@ -112,6 +112,7 @@ export function ConversationTraceModal({ open, workspaceId: _workspaceId, onClos
               </div>
               <Dialog.Close asChild>
                 <button
+                  type="button"
                   aria-label="Close conversation trace"
                   className="text-zinc-500 hover:text-zinc-300 text-lg px-2"
                 >
@@ -283,6 +284,7 @@ export function ConversationTraceModal({ open, workspaceId: _workspaceId, onClos
             <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/50 flex justify-end">
               <Dialog.Close asChild>
                 <button
+                  type="button"
                   className="px-4 py-1.5 text-[12px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors"
                 >
                   Close

@@ -63,6 +63,7 @@ export class ErrorBoundary extends React.Component<
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                aria-hidden="true"
               >
                 <circle cx="12" cy="12" r="10" />
                 <line x1="12" y1="8" x2="12" y2="12" />
@@ -80,6 +81,7 @@ export class ErrorBoundary extends React.Component<
             </p>
             <div className="flex items-center justify-center gap-3">
               <button
+                type="button"
                 onClick={this.handleReload}
                 className="rounded-lg bg-blue-600 hover:bg-blue-500 px-5 py-2 text-sm font-medium text-white transition-colors"
               >

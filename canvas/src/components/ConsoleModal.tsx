@@ -109,6 +109,7 @@ export function ConsoleModal({ workspaceId, workspaceName, open, onClose }: Prop
             )}
           </div>
           <button
+            type="button"
             ref={closeButtonRef}
             onClick={onClose}
             aria-label="Close"
@@ -146,6 +147,7 @@ export function ConsoleModal({ workspaceId, workspaceName, open, onClose }: Prop
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-zinc-800 bg-zinc-900/40">
           {output && (
             <button
+              type="button"
               onClick={() => {
                 if (navigator.clipboard) {
                   navigator.clipboard.writeText(output);
@@ -159,6 +161,7 @@ export function ConsoleModal({ workspaceId, workspaceName, open, onClose }: Prop
             </button>
           )}
           <button
+            type="button"
             onClick={onClose}
             className="px-3 py-1.5 text-[11px] text-zinc-300 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors"
           >

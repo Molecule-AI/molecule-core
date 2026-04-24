@@ -241,10 +241,10 @@ func TestListAdapters_IncludesDiscord(t *testing.T) {
 	list := ListAdapters()
 	found := false
 	for _, a := range list {
-		if a["type"] == "discord" {
+		if a.Type == "discord" {
 			found = true
-			if a["display_name"] != "Discord" {
-				t.Errorf("expected display_name 'Discord', got %q", a["display_name"])
+			if a.DisplayName != "Discord" {
+				t.Errorf("expected display_name 'Discord', got %q", a.DisplayName)
 			}
 		}
 	}

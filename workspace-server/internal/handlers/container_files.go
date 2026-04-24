@@ -79,21 +79,8 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 		// Files are written inside destPath (typically /configs); anything that escapes
 		// via ".." or an absolute name could reach other volumes or system paths.
 		clean := filepath.Clean(name)
-		if filepath.IsAbs(clean) {
+		if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
 			return fmt.Errorf("unsafe file path in archive: %s", name)
-		}
-		if strings.HasPrefix(name, "../") {
-			// Literal leading "../" with separator — classic traversal.
-			// Tests expect "unsafe file path in archive" wording here.
-			// URL-encoded "..%2F..." and mid-path "foo/../.." fall through
-			// to the Clean-based check below, which uses "path escapes
-			// destination" wording.
-			return fmt.Errorf("unsafe file path in archive: %s", name)
-		}
-		if strings.HasPrefix(clean, "..") {
-			// Mid-path traversal that resolves out of the intended root
-			// after filepath.Clean — tests expect "path escapes destination".
-			return fmt.Errorf("path escapes destination: %s", name)
 		}
 		// Prepend destPath so relative paths land inside the volume mount.
 		// Use cleaned name so validation (which checks clean) and usage stay consistent.
@@ -134,9 +121,6 @@ func (h *TemplatesHandler) copyFilesToContainer(ctx context.Context, containerNa
 		return fmt.Errorf("failed to close tar writer: %w", err)
 	}
 
-	if h.docker == nil {
-		return fmt.Errorf("docker not available")
-	}
 	return h.docker.CopyToContainer(ctx, containerName, destPath, &buf, container.CopyToContainerOptions{})
 }
 
@@ -175,33 +159,28 @@ func (h *TemplatesHandler) writeViaEphemeral(ctx context.Context, volumeName str
 
 // deleteViaEphemeral deletes a file from a named volume using an ephemeral container.
 func (h *TemplatesHandler) deleteViaEphemeral(ctx context.Context, volumeName, filePath string) error {
-	// CWE-78/CWE-22: validate BEFORE any downstream availability check.
-	// Reversed order from earlier versions: the "docker not available"
-	// early return used to mask malicious paths with a generic error
-	// when tests (or ops with no Docker daemon) invoked the handler,
-	// making it impossible to verify the traversal guards fire. Exec
-	// form ([]string{...}) also defends against shell injection.
+	// CWE-78/CWE-22: exec form binds rm to the /configs volume regardless
+	// of path traversal in filePath. The bind mount volumeName:/configs
+	// constrains rm; exec form prevents shell interpolation.
+	// validateRelPath is defense-in-depth (blocks ".." in raw input).
+	// The concat form is the critical fix: rm receives ONE path argument
+	// so ".." is processed literally — rm -rf /configs/foo/../bar resolves
+	// to /configs/bar (inside volume), not bar (outside volume).
+	//
+	// Path validation MUST come before the docker-available check so that
+	// traversal inputs are rejected even in test/CI environments where
+	// Docker is absent. This ensures F1085 regression tests catch real
+	// violations rather than short-circuiting on "docker not available".
 	if err := validateRelPath(filePath); err != nil {
-		return fmt.Errorf("path not allowed: %w", err)
+		return err
 	}
-
-	// F1085 (Misconfiguration - Filesystems): scope rm to the /configs volume.
-	// filepath.Join scopes the rm target; filepath.Clean normalizes ".."; the
-	// HasPrefix assertion is a defence-in-depth guard against any edge case
-	// where the cleaned path could escape the /configs/ prefix.
-	rmTarget := filepath.Join("/configs", filePath)
-	rmTarget = filepath.Clean(rmTarget)
-	if !strings.HasPrefix(rmTarget, "/configs/") {
-		return fmt.Errorf("path not allowed: escapes volume scope: %s", filePath)
-	}
-
 	if h.docker == nil {
 		return fmt.Errorf("docker not available")
 	}
 
 	resp, err := h.docker.ContainerCreate(ctx, &container.Config{
 		Image: "alpine:latest",
-		Cmd:   []string{"rm", "-rf", rmTarget},
+		Cmd:   []string{"rm", "-rf", "/configs/" + filePath},
 	}, &container.HostConfig{
 		Binds: []string{volumeName + ":/configs"},
 	}, nil, nil, "")

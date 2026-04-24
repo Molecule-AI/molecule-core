@@ -49,14 +49,17 @@ export const DEFAULT_CONFIG: ConfigData = {
 };
 
 export function TextInput({ label, value, onChange, placeholder, mono }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; mono?: boolean }) {
+  const id = `textinput-${label.toLowerCase().replace(/\s+/g, "-")}`;
   return (
     <div>
-      <label className="text-[10px] text-zinc-500 block mb-1">{label}</label>
+      <label htmlFor={id} className="text-[10px] text-zinc-500 block mb-1">{label}</label>
       <input
+        id={id}
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        aria-label={label}
         className={`w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-blue-500 ${mono ? "font-mono" : ""}`}
       />
     </div>
@@ -64,15 +67,18 @@ export function TextInput({ label, value, onChange, placeholder, mono }: { label
 }
 
 export function NumberInput({ label, value, onChange, min, max }: { label: string; value: number; onChange: (v: number) => void; min?: number; max?: number }) {
+  const id = `numberinput-${label.toLowerCase().replace(/\s+/g, "-")}`;
   return (
     <div>
-      <label className="text-[10px] text-zinc-500 block mb-1">{label}</label>
+      <label htmlFor={id} className="text-[10px] text-zinc-500 block mb-1">{label}</label>
       <input
+        id={id}
         type="number"
         value={value}
         onChange={(e) => onChange(parseInt(e.target.value, 10) || 0)}
         min={min}
         max={max}
+        aria-label={label}
         className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-blue-500 font-mono"
       />
     </div>
@@ -89,19 +95,21 @@ export function Toggle({ label, checked, onChange }: { label: string; checked: b
 }
 
 export function TagList({ label, values, onChange, placeholder }: { label: string; values: string[]; onChange: (v: string[]) => void; placeholder?: string }) {
+  const id = `taglist-${label.toLowerCase().replace(/\s+/g, "-")}`;
   const [input, setInput] = useState("");
   return (
     <div>
-      <label className="text-[10px] text-zinc-500 block mb-1">{label}</label>
+      <label htmlFor={id} className="text-[10px] text-zinc-500 block mb-1">{label}</label>
       <div className="flex flex-wrap gap-1 mb-1">
         {values.map((v, i) => (
           <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px] text-zinc-300 font-mono">
             {v}
-            <button aria-label={`Remove tag ${v}`} onClick={() => onChange(values.filter((_, j) => j !== i))} className="text-zinc-500 hover:text-red-400">×</button>
+            <button type="button" aria-label={`Remove tag ${v}`} onClick={() => onChange(values.filter((_, j) => j !== i))} className="text-zinc-500 hover:text-red-400">×</button>
           </span>
         ))}
       </div>
       <input
+        id={id}
         type="text"
         value={input}
         onChange={(e) => setInput(e.target.value)}
@@ -112,6 +120,7 @@ export function TagList({ label, values, onChange, placeholder }: { label: strin
           }
         }}
         placeholder={placeholder || "Type and press Enter"}
+        aria-label={label}
         className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-[10px] text-zinc-200 focus:outline-none focus:border-blue-500 font-mono"
       />
     </div>
@@ -122,7 +131,7 @@ export function Section({ title, children, defaultOpen = true }: { title: string
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="border border-zinc-800 rounded mb-2">
-      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] text-zinc-400 hover:text-zinc-200 bg-zinc-900/50">
+      <button type="button" onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] text-zinc-400 hover:text-zinc-200 bg-zinc-900/50">
         <span className="font-medium uppercase tracking-wider">{title}</span>
         <span>{open ? "▾" : "▸"}</span>
       </button>
