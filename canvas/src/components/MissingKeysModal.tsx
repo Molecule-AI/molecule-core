@@ -387,7 +387,6 @@ function AllKeysModal({
 }) {
   const [entries, setEntries] = useState<KeyEntry[]>([]);
   const [globalError, setGlobalError] = useState<string | null>(null);
-  const firstInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -402,12 +401,6 @@ function AllKeysModal({
     );
     setGlobalError(null);
   }, [open, missingKeys]);
-
-  useEffect(() => {
-    if (!open) return;
-    const raf = requestAnimationFrame(() => firstInputRef.current?.focus());
-    return () => cancelAnimationFrame(raf);
-  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -471,6 +464,15 @@ function AllKeysModal({
     onKeysAdded();
   }, [entries, onKeysAdded]);
 
+  // Focus trap: auto-focus first input when modal opens
+  useEffect(() => {
+    if (!open) return;
+    const timer = requestAnimationFrame(() => {
+      document.getElementById("missing-keys-title")?.focus();
+    });
+    return () => cancelAnimationFrame(timer);
+  }, [open]);
+
   if (!open) return null;
 
   const allSaved = entries.length > 0 && entries.every((e) => e.saved);
@@ -482,8 +484,8 @@ function AllKeysModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div
-        aria-hidden="true"
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        aria-hidden="true"
         onClick={onCancel}
       />
 
@@ -530,7 +532,7 @@ function AllKeysModal({
                 </div>
                 {entry.saved && (
                   <span className="text-[9px] text-emerald-400 bg-emerald-900/30 px-1.5 py-0.5 rounded flex items-center gap-1">
-                    <svg width="8" height="8" viewBox="0 0 8 8" fill="none" aria-hidden="true">
+                    <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
                       <path d="M1.5 4L3.5 6L6.5 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                     Saved
@@ -545,7 +547,7 @@ function AllKeysModal({
                     onChange={(e) => updateEntry(index, { value: e.target.value.trimStart() })}
                     placeholder={entry.key.includes("API_KEY") ? "sk-..." : "Enter value"}
                     type="password"
-                    ref={index === 0 ? firstInputRef : undefined}
+                    autoFocus={index === 0}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && entry.value.trim()) {
                         handleSaveKey(index);
