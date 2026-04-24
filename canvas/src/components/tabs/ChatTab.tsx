@@ -144,12 +144,30 @@ export function ChatTab({ workspaceId, data }: Props) {
         </button>
       </div>
       {/* Content — both panels are always in the DOM so aria-controls targets exist.
-           The inactive panel is hidden via the HTML `hidden` attribute (removed from
-           display and accessibility tree, but present in the DOM for WCAG 4.1.2). */}
-      <div id="chat-panel-my-chat" role="tabpanel" aria-labelledby="chat-tab-my-chat" hidden={subTab !== "my-chat"} className="flex-1 overflow-hidden flex flex-col">
+           Inactive panel is hidden via a conditional `hidden` Tailwind class
+           (display: none) because the native HTML `hidden` attribute is
+           overridden by the panel's own `flex` utility — that's why both
+           sections used to render stacked. */}
+      <div
+        id="chat-panel-my-chat"
+        role="tabpanel"
+        aria-labelledby="chat-tab-my-chat"
+        aria-hidden={subTab !== "my-chat"}
+        className={`flex-1 overflow-hidden flex-col ${
+          subTab === "my-chat" ? "flex" : "hidden"
+        }`}
+      >
         <MyChatPanel workspaceId={workspaceId} data={data} />
       </div>
-      <div id="chat-panel-agent-comms" role="tabpanel" aria-labelledby="chat-tab-agent-comms" hidden={subTab !== "agent-comms"} className="flex-1 overflow-hidden flex flex-col">
+      <div
+        id="chat-panel-agent-comms"
+        role="tabpanel"
+        aria-labelledby="chat-tab-agent-comms"
+        aria-hidden={subTab !== "agent-comms"}
+        className={`flex-1 overflow-hidden flex-col ${
+          subTab === "agent-comms" ? "flex" : "hidden"
+        }`}
+      >
         <AgentCommsPanel workspaceId={workspaceId} />
       </div>
     </div>

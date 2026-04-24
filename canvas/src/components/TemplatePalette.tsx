@@ -400,6 +400,11 @@ export function TemplatePalette() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {/* Org templates live INSIDE the scroll container so an
+             *  expanded list (15+ entries) is reachable instead of
+             *  overflowing the fixed footer below. */}
+            <OrgTemplatesSection />
+
             {loading && (
               <div role="status" aria-live="polite" className="flex items-center justify-center gap-2 text-xs text-zinc-500 text-center py-8">
                 <Spinner />
@@ -467,7 +472,6 @@ export function TemplatePalette() {
           </div>
 
           <div className="px-4 py-3 border-t border-zinc-800/60 space-y-3">
-            <OrgTemplatesSection />
             <ImportAgentButton onImported={loadTemplates} />
             <button
               onClick={loadTemplates}
