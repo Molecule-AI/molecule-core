@@ -96,6 +96,14 @@ function CanvasInner() {
       let nearest: { id: string; dist: number } | null = null;
       for (const candidate of getIntersectingNodes(node)) {
         if (candidate.id === node.id || isDescendant(node.id, candidate.id)) continue;
+        // Skip nodes already nested inside another workspace: they render
+        // as TEAM MEMBERS rows inside their parent card and share its
+        // bounding box, so getIntersectingNodes would otherwise pick the
+        // nested child (same "Hermes Agent" name) over the visible parent
+        // the user actually dropped onto. Hidden nodes + nodes with a
+        // parentId are never valid top-level drop targets.
+        const candData = candidate.data as WorkspaceNodeData | undefined;
+        if (candidate.hidden || candData?.parentId) continue;
         const dx = candidate.position.x - node.position.x;
         const dy = candidate.position.y - node.position.y;
         const dist2 = dx * dx + dy * dy;
