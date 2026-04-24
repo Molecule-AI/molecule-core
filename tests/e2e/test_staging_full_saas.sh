@@ -308,8 +308,8 @@ fi
 #     polling, only hard-fail at the deadline. Pre-bootstrap-watcher-fix
 #     (controlplane#245) this was a flake generator: workspace went
 #     failed→online inside our window but we bailed at the failed read.
-log "7/11 Waiting for workspace(s) to reach status=online (up to 20 min — hermes cold boot)..."
-WS_DEADLINE=$(( $(date +%s) + 1200 ))
+log "7/11 Waiting for workspace(s) to reach status=online (up to 30 min — hermes cold boot)..."
+WS_DEADLINE=$(( $(date +%s) + 1800 ))
 WS_TO_CHECK="$PARENT_ID"
 [ -n "$CHILD_ID" ] && WS_TO_CHECK="$WS_TO_CHECK $CHILD_ID"
 for wid in $WS_TO_CHECK; do
