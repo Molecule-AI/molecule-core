@@ -322,31 +322,6 @@ function countDescendants(nodeId: string, allNodes: Node<WorkspaceNodeData>[], v
  *  infinite recursion on circular parentId references and keeps the UI readable. */
 const MAX_NESTING_DEPTH = 3;
 
-/** Subscribes to allNodes only when children exist — isolates re-renders from parent */
-function EmbeddedTeam({ members, depth, onSelect, onExtract }: {
-  members: Node<WorkspaceNodeData>[];
-  depth: number;
-  onSelect: (id: string) => void;
-  onExtract: (id: string) => void;
-}) {
-  const allNodes = useCanvasStore((s) => s.nodes);
-  // Use grid layout at depth 0 when there are multiple members (departments side-by-side)
-  const useGrid = depth === 0 && members.length >= 2;
-  return (
-    <div className="mt-2 pt-2 border-t border-zinc-700/30">
-      <div className="text-[10px] text-zinc-500 uppercase tracking-widest mb-1.5">Team Members</div>
-      <div className={useGrid
-        ? "grid grid-cols-2 gap-1.5 lg:grid-cols-3"
-        : "space-y-1.5"
-      }>
-        {members.map((child) => (
-          <TeamMemberChip key={child.id} node={child} allNodes={allNodes} depth={depth} onSelect={onSelect} onExtract={onExtract} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /** Recursive mini-card — mirrors parent card layout at smaller scale */
 function TeamMemberChip({
   node,
