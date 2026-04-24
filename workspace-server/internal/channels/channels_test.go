@@ -127,10 +127,13 @@ func TestListAdapters(t *testing.T) {
 	}
 	found := false
 	for _, a := range list {
-		if a["type"] == "telegram" {
+		if a.Type == "telegram" {
 			found = true
-			if a["display_name"] != "Telegram" {
-				t.Errorf("expected display_name 'Telegram', got %q", a["display_name"])
+			if a.DisplayName != "Telegram" {
+				t.Errorf("expected display_name 'Telegram', got %q", a.DisplayName)
+			}
+			if len(a.ConfigSchema) == 0 {
+				t.Error("Telegram adapter must expose a non-empty ConfigSchema")
 			}
 		}
 	}
@@ -740,10 +743,10 @@ func TestListAdapters_IncludesSlack(t *testing.T) {
 	list := ListAdapters()
 	found := false
 	for _, a := range list {
-		if a["type"] == "slack" {
+		if a.Type == "slack" {
 			found = true
-			if a["display_name"] != "Slack" {
-				t.Errorf("expected display_name 'Slack', got %q", a["display_name"])
+			if a.DisplayName != "Slack" {
+				t.Errorf("expected display_name 'Slack', got %q", a.DisplayName)
 			}
 		}
 	}

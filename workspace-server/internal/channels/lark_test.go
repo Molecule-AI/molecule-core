@@ -401,3 +401,60 @@ func TestRegistry_HasLark(t *testing.T) {
 		t.Errorf("got %q want lark", a.Type())
 	}
 }
+
+// TestLark_ConfigSchema locks in the contract: Lark exposes a required +
+// sensitive webhook_url and an optional + sensitive verify_token, in that
+// order. Canvas renders the connect-form from this list so the order and
+// required/sensitive flags are observable surface.
+func TestLark_ConfigSchema(t *testing.T) {
+	schema := (&LarkAdapter{}).ConfigSchema()
+	if len(schema) != 2 {
+		t.Fatalf("expected 2 fields, got %d", len(schema))
+	}
+	want := []struct {
+		key       string
+		required  bool
+		sensitive bool
+	}{
+		{"webhook_url", true, true},
+		{"verify_token", false, true},
+	}
+	for i, w := range want {
+		got := schema[i]
+		if got.Key != w.key {
+			t.Errorf("field %d: key = %q, want %q", i, got.Key, w.key)
+		}
+		if got.Required != w.required {
+			t.Errorf("field %d (%s): required = %v, want %v", i, w.key, got.Required, w.required)
+		}
+		if got.Sensitive != w.sensitive {
+			t.Errorf("field %d (%s): sensitive = %v, want %v", i, w.key, got.Sensitive, w.sensitive)
+		}
+		if got.Label == "" {
+			t.Errorf("field %d (%s): label must not be empty", i, w.key)
+		}
+	}
+}
+
+// TestListAdapters_IncludesLark confirms the adapter is wired into the
+// registry and its schema reaches the API layer intact. Regression guard
+// against future registry.go refactors silently dropping Lark.
+func TestListAdapters_IncludesLark(t *testing.T) {
+	list := ListAdapters()
+	var found *AdapterInfo
+	for i := range list {
+		if list[i].Type == "lark" {
+			found = &list[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("lark adapter not in ListAdapters() output")
+	}
+	if found.DisplayName != "Lark / Feishu" {
+		t.Errorf("DisplayName = %q, want 'Lark / Feishu'", found.DisplayName)
+	}
+	if len(found.ConfigSchema) == 0 {
+		t.Error("ConfigSchema must not be empty in registry output")
+	}
+}

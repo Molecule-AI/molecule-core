@@ -4,9 +4,23 @@ import { useState, useEffect, useCallback, useId } from "react";
 import { api } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 
+// ConfigField mirrors the Go struct returned by GET /channels/adapters —
+// the UI renders one input per field in the order the adapter returns
+// them, so per-platform form shape stays server-owned.
+interface ConfigField {
+  key: string;
+  label: string;
+  type: "text" | "password" | "textarea";
+  required: boolean;
+  sensitive?: boolean;
+  placeholder?: string;
+  help?: string;
+}
+
 interface ChannelAdapter {
   type: string;
   display_name: string;
+  config_schema?: ConfigField[];
 }
 
 interface Channel {
@@ -25,6 +39,11 @@ interface Props {
   workspaceId: string;
 }
 
+// Telegram is the only platform that supports "Detect Chats" via
+// getUpdates. Every other platform uses a webhook URL that already
+// encodes the chat, so the button is only offered when useful.
+const SUPPORTS_DETECT_CHATS = new Set(["telegram"]);
+
 function relativeTime(iso: string | null | undefined): string {
   if (!iso) return "never";
   const diff = Date.now() - new Date(iso).getTime();
@@ -41,11 +60,12 @@ export function ChannelsTab({ workspaceId }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Channel | null>(null);
+  const [error, setError] = useState("");
 
-  // Form state
+  // Form state — schema-driven: formValues holds the typed-in config for
+  // whichever adapter is currently selected, keyed by ConfigField.key.
   const [formType, setFormType] = useState("telegram");
-  const [formBotToken, setFormBotToken] = useState("");
-  const [formChatId, setFormChatId] = useState("");
+  const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [formAllowedUsers, setFormAllowedUsers] = useState("");
   const [formError, setFormError] = useState("");
   const [discovering, setDiscovering] = useState(false);
@@ -53,18 +73,13 @@ export function ChannelsTab({ workspaceId }: Props) {
   const [selectedChats, setSelectedChats] = useState<Set<string>>(new Set());
   const [showManualInput, setShowManualInput] = useState(false);
 
-  // Stable IDs for label↔input associations (WCAG 1.3.1)
   const platformId = useId();
-  const botTokenId = useId();
-  const chatIdId = useId();
   const allowedUsersId = useId();
 
+  const currentAdapter = adapters.find((a) => a.type === formType);
+  const currentSchema: ConfigField[] = currentAdapter?.config_schema || [];
+
   const load = useCallback(async () => {
-    // Fetch channels and adapters independently so a failure in one
-    // doesn't blank the other. Previously a single Promise.all + silent
-    // catch meant ANY request failing left both `channels` and
-    // `adapters` empty — the user saw a "+ Connect" button with no
-    // platform options, with no clue why.
     const [chResult, adResult] = await Promise.allSettled([
       api.get<Channel[]>(`/workspaces/${workspaceId}/channels`),
       api.get<ChannelAdapter[]>(`/channels/adapters`),
@@ -82,8 +97,6 @@ export function ChannelsTab({ workspaceId }: Props) {
       console.warn("ChannelsTab: adapters load failed", adResult.reason);
       errors.push("platforms");
     }
-    // Surface BOTH failure modes so the user can distinguish
-    // "no channels configured" from "API unreachable".
     if (errors.length > 0) {
       setError(`Failed to load ${errors.join(" and ")} — try refreshing`);
     } else {
@@ -100,8 +113,24 @@ export function ChannelsTab({ workspaceId }: Props) {
     return () => clearInterval(interval);
   }, [load]);
 
+  // Reset form values when the selected platform changes — each platform
+  // has a different field set, so reusing old values would leak stale
+  // data across platforms.
+  useEffect(() => {
+    setFormValues({});
+    setDiscoveredChats([]);
+    setSelectedChats(new Set());
+    setShowManualInput(false);
+    setFormError("");
+  }, [formType]);
+
+  const setFieldValue = (key: string, value: string) => {
+    setFormValues((prev) => ({ ...prev, [key]: value }));
+  };
+
   const handleDiscover = async () => {
-    if (!formBotToken) {
+    const botToken = formValues["bot_token"] || "";
+    if (!botToken) {
       setFormError("Enter a bot token first");
       return;
     }
@@ -111,16 +140,15 @@ export function ChannelsTab({ workspaceId }: Props) {
     try {
       const res = await api.post<{ chats: { chat_id: string; name: string; type: string }[]; hint: string }>(
         `/channels/discover`,
-        { channel_type: formType, bot_token: formBotToken, workspace_id: workspaceId }
+        { channel_type: formType, bot_token: botToken, workspace_id: workspaceId }
       );
       const chats = res.chats || [];
       setDiscoveredChats(chats);
       if (chats.length === 0) {
         setFormError("No chats found. For groups: add the bot and send a message. For DMs: send /start to the bot first. Then retry.");
       } else {
-        // Auto-select all discovered chats
         setSelectedChats(new Set(chats.map((c) => c.chat_id)));
-        setFormChatId(chats.map((c) => c.chat_id).join(", "));
+        setFieldValue("chat_id", chats.map((c) => c.chat_id).join(", "));
       }
     } catch (e) {
       setFormError(String(e));
@@ -134,15 +162,22 @@ export function ChannelsTab({ workspaceId }: Props) {
       const next = new Set(prev);
       if (next.has(chatId)) next.delete(chatId);
       else next.add(chatId);
-      setFormChatId(Array.from(next).join(", "));
+      setFieldValue("chat_id", Array.from(next).join(", "));
       return next;
     });
   };
 
   const handleCreate = async () => {
     setFormError("");
-    if (!formBotToken || !formChatId) {
-      setFormError("Bot token and chat ID are required");
+    // Client-side required-field check so the user sees the gap before
+    // we round-trip to the server. ValidateConfig on the backend remains
+    // authoritative — adapter-specific rules like "bot_token OR webhook_url"
+    // for Slack aren't expressible in required-flag alone.
+    const missing = currentSchema
+      .filter((f) => f.required && !(formValues[f.key] || "").trim())
+      .map((f) => f.label);
+    if (missing.length > 0) {
+      setFormError(`Required: ${missing.join(", ")}`);
       return;
     }
     try {
@@ -150,22 +185,26 @@ export function ChannelsTab({ workspaceId }: Props) {
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
+      // Only send keys the schema knows about — avoids accidentally
+      // persisting stale values when the user switched platforms mid-edit.
+      const config: Record<string, string> = {};
+      for (const f of currentSchema) {
+        const v = (formValues[f.key] || "").trim();
+        if (v) config[f.key] = v;
+      }
       await api.post(`/workspaces/${workspaceId}/channels`, {
         channel_type: formType,
-        config: { bot_token: formBotToken, chat_id: formChatId },
+        config,
         allowed_users: allowed,
       });
       setShowForm(false);
-      setFormBotToken("");
-      setFormChatId("");
+      setFormValues({});
       setFormAllowedUsers("");
       load();
     } catch (e) {
       setFormError(String(e));
     }
   };
-
-  const [error, setError] = useState("");
 
   const handleToggle = async (ch: Channel) => {
     try {
@@ -228,7 +267,7 @@ export function ChannelsTab({ workspaceId }: Props) {
         </div>
       )}
 
-      {/* Create form */}
+      {/* Create form — schema-driven */}
       {showForm && (
         <div className="space-y-2 p-3 bg-zinc-800/40 rounded border border-zinc-700/50">
           <div>
@@ -244,73 +283,69 @@ export function ChannelsTab({ workspaceId }: Props) {
               ))}
             </select>
           </div>
-          <div>
-            <label htmlFor={botTokenId} className="text-[10px] text-zinc-500 block mb-1">Bot Token</label>
-            <input
-              id={botTokenId}
-              type="password"
-              value={formBotToken}
-              onChange={(e) => setFormBotToken(e.target.value)}
-              placeholder="123456:ABC-DEF..."
-              className="w-full text-xs bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-zinc-300 placeholder-zinc-600"
-            />
-          </div>
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label htmlFor={chatIdId} className="text-[10px] text-zinc-500">Chat IDs</label>
-              <button
-                onClick={handleDiscover}
-                disabled={discovering || !formBotToken}
-                className="text-[10px] px-2 py-0.5 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition disabled:opacity-40"
-              >
-                {discovering ? "Detecting..." : "Detect Chats"}
-              </button>
+
+          {/* Render one input per schema field. Fallback path: if the
+              backend didn't return a schema (older platform version) show
+              a single bot_token + chat_id pair to preserve the old UX. */}
+          {currentSchema.length === 0 ? (
+            <div className="text-[10px] text-yellow-500">
+              Platform exposes no config schema — upgrade the platform to pick up first-class support.
             </div>
-            {discoveredChats.length > 0 && (
-              <div className="space-y-1 mb-2">
-                {discoveredChats.map((chat) => (
-                  <label
-                    key={chat.chat_id}
-                    className="flex items-center gap-2 px-2 py-1.5 bg-zinc-900/50 rounded border border-zinc-700/50 cursor-pointer hover:bg-zinc-800/50"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedChats.has(chat.chat_id)}
-                      onChange={() => toggleChat(chat.chat_id)}
-                      className="rounded border-zinc-600"
-                    />
-                    <span className="text-xs text-zinc-300">{chat.name || "Unknown"}</span>
-                    <span className="text-[10px] text-zinc-500 ml-auto">{chat.type} {chat.chat_id}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-            {(discoveredChats.length === 0 || showManualInput) && (
-              <input
-                id={chatIdId}
-                value={formChatId}
-                onChange={(e) => setFormChatId(e.target.value)}
-                placeholder="-100123456789, -100987654321"
-                className="w-full text-xs bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-zinc-300 placeholder-zinc-600"
+          ) : (
+            currentSchema.map((field) => (
+              <SchemaField
+                key={field.key}
+                field={field}
+                value={formValues[field.key] || ""}
+                onChange={(v) => setFieldValue(field.key, v)}
+                // Detect Chats button lives next to the chat_id input on
+                // Telegram only (the only platform with getUpdates).
+                renderExtras={
+                  field.key === "chat_id" && SUPPORTS_DETECT_CHATS.has(formType)
+                    ? () => (
+                        <>
+                          <div className="flex items-center justify-end mb-1 -mt-1">
+                            <button
+                              onClick={handleDiscover}
+                              disabled={discovering || !formValues["bot_token"]}
+                              className="text-[10px] px-2 py-0.5 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition disabled:opacity-40"
+                            >
+                              {discovering ? "Detecting..." : "Detect Chats"}
+                            </button>
+                          </div>
+                          {discoveredChats.length > 0 && (
+                            <div className="space-y-1 mb-2">
+                              {discoveredChats.map((chat) => (
+                                <label
+                                  key={chat.chat_id}
+                                  className="flex items-center gap-2 px-2 py-1.5 bg-zinc-900/50 rounded border border-zinc-700/50 cursor-pointer hover:bg-zinc-800/50"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedChats.has(chat.chat_id)}
+                                    onChange={() => toggleChat(chat.chat_id)}
+                                    className="rounded border-zinc-600"
+                                  />
+                                  <span className="text-xs text-zinc-300">{chat.name || "Unknown"}</span>
+                                  <span className="text-[10px] text-zinc-500 ml-auto">{chat.type} {chat.chat_id}</span>
+                                </label>
+                              ))}
+                              <button
+                                onClick={() => setShowManualInput(!showManualInput)}
+                                className="text-[10px] text-blue-400 hover:underline"
+                              >
+                                {showManualInput ? "hide manual input" : "edit manually"}
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      )
+                    : undefined
+                }
               />
-            )}
-            <p className="text-[11px] text-zinc-500 mt-0.5">
-              {discoveredChats.length > 0 ? (
-                <>
-                  Chats: <span className="text-zinc-400">{formChatId || "(none selected)"}</span>
-                  {" · "}
-                  <button
-                    onClick={() => setShowManualInput(!showManualInput)}
-                    className="text-blue-400 hover:underline"
-                  >
-                    {showManualInput ? "hide manual input" : "edit manually"}
-                  </button>
-                </>
-              ) : (
-                "Click Detect Chats after adding the bot to groups or sending /start in DMs."
-              )}
-            </p>
-          </div>
+            ))
+          )}
+
           <div>
             <label htmlFor={allowedUsersId} className="text-[10px] text-zinc-500 block mb-1">
               Allowed Users <span className="text-zinc-600">(optional, comma-separated)</span>
@@ -323,7 +358,7 @@ export function ChannelsTab({ workspaceId }: Props) {
               className="w-full text-xs bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-zinc-300 placeholder-zinc-600"
             />
             <p className="text-[11px] text-zinc-500 mt-0.5">
-              Telegram user IDs. Leave empty to allow everyone.
+              Platform-specific user IDs. Leave empty to allow everyone.
             </p>
           </div>
           {formError && (
@@ -343,7 +378,7 @@ export function ChannelsTab({ workspaceId }: Props) {
         <div className="text-center py-8">
           <p className="text-zinc-500 text-xs">No channels connected</p>
           <p className="text-zinc-600 text-[10px] mt-1">
-            Connect Telegram, Slack, or Discord to chat with this agent from social platforms.
+            Connect Telegram, Slack, Discord, or Lark / Feishu to chat with this agent from social platforms.
           </p>
         </div>
       )}
@@ -364,7 +399,7 @@ export function ChannelsTab({ workspaceId }: Props) {
                 {ch.channel_type.charAt(0).toUpperCase() + ch.channel_type.slice(1)}
               </span>
               <span className="text-[10px] text-zinc-500">
-                {ch.config.chat_id}
+                {ch.config.chat_id || ch.config.channel_id || ""}
               </span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -412,6 +447,56 @@ export function ChannelsTab({ workspaceId }: Props) {
         onConfirm={confirmDelete}
         onCancel={() => setPendingDelete(null)}
       />
+    </div>
+  );
+}
+
+// SchemaField renders one ConfigField as a label + input. Kept inline in
+// this file so the ChannelsTab stays self-contained; promote to its own
+// module if another tab ever needs it.
+function SchemaField({
+  field,
+  value,
+  onChange,
+  renderExtras,
+}: {
+  field: ConfigField;
+  value: string;
+  onChange: (v: string) => void;
+  renderExtras?: () => React.ReactNode;
+}) {
+  const inputId = useId();
+  const common =
+    "w-full text-xs bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-zinc-300 placeholder-zinc-600";
+  return (
+    <div>
+      <label htmlFor={inputId} className="text-[10px] text-zinc-500 block mb-1">
+        {field.label}
+        {!field.required && <span className="text-zinc-600"> (optional)</span>}
+      </label>
+      {field.type === "textarea" ? (
+        <textarea
+          id={inputId}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={field.placeholder}
+          rows={3}
+          className={common}
+        />
+      ) : (
+        <input
+          id={inputId}
+          type={field.type === "password" ? "password" : "text"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={field.placeholder}
+          className={common}
+        />
+      )}
+      {renderExtras?.()}
+      {field.help && (
+        <p className="text-[11px] text-zinc-500 mt-0.5">{field.help}</p>
+      )}
     </div>
   );
 }
