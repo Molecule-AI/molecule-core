@@ -10,10 +10,12 @@ import socket
 
 import httpx
 import uvicorn
-from a2a.server.apps import A2AStarletteApplication
+# KI-009 a2a-sdk v1 migration: A2AStarletteApplication removed; use Starlette route factory
+from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
-from a2a.types import AgentCard, AgentCapabilities, AgentSkill
+from a2a.types import AgentCard, AgentCapabilities, AgentSkill, AgentInterface
+from starlette.applications import Starlette
 
 from adapters import get_adapter, AdapterConfig
 from agents_md import generate_agents_md
@@ -164,15 +166,20 @@ async def main():  # pragma: no cover
     machine_ip = os.environ.get("HOSTNAME", get_machine_ip())
     workspace_url = f"http://{machine_ip}:{port}"
 
+    # v1: AgentCard.url removed; put url+protocol in supported_protocols instead.
+    # v1: AgentCapabilities.inputModes/outputModes removed; move to AgentCard.default_*.
+    # v1: pushNotifications → push_notifications (Pydantic field name)
     agent_card = AgentCard(
         name=config.name,
         description=config.description or config.name,
         version=config.version,
-        url=workspace_url,
+        supported_protocols=[
+            AgentInterface(protocol_binding="https://a2a.g/v1", url=workspace_url)
+        ],
         capabilities=AgentCapabilities(
             streaming=config.a2a.streaming,
-            pushNotifications=config.a2a.push_notifications,
-            stateTransitionHistory=True,
+            push_notifications=config.a2a.push_notifications,
+            state_transition_history=True,
         ),
         skills=[
             AgentSkill(
@@ -184,8 +191,8 @@ async def main():  # pragma: no cover
             )
             for skill in loaded_skills
         ],
-        defaultInputModes=["text/plain", "application/json"],
-        defaultOutputModes=["text/plain", "application/json"],
+        default_input_modes=["text/plain", "application/json"],
+        default_output_modes=["text/plain", "application/json"],
     )
 
     # 7. Wrap in A2A.
@@ -204,10 +211,11 @@ async def main():  # pragma: no cover
         task_store=InMemoryTaskStore(),
     )
 
-    app = A2AStarletteApplication(
-        agent_card=agent_card,
-        http_handler=handler,
-    )
+    # v1: replace A2AStarletteApplication with Starlette route factory
+    routes = []
+    routes.extend(create_agent_card_routes(agent_card))
+    routes.extend(create_jsonrpc_routes(request_handler=handler))
+    app = Starlette(routes=routes)
 
     # 8. Register with platform
     agent_card_dict = {
@@ -316,7 +324,8 @@ async def main():  # pragma: no cover
     print(f"Workspace {workspace_id} starting on port {port}")
     # Wrap the ASGI app with W3C TraceContext extraction middleware so incoming
     # A2A HTTP requests propagate their trace context into _incoming_trace_context.
-    starlette_app = app.build()
+    # v1: Starlette app is constructed directly; no build() step needed
+    starlette_app = app
 
     # Add /transcript route — exposes the most-recent agent session log
     # (claude-code reads ~/.claude/projects/<cwd>/<session>.jsonl). Other

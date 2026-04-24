@@ -3,7 +3,10 @@
 # and installed at container startup via entrypoint.sh
 
 # A2A protocol
-a2a-sdk[http-server]==0.3.25
+# KI-009 a2a-sdk v1 migration (2026-04-24): bumped from ==0.3.25.
+# v1.0 removes A2AStarletteApplication → Starlette route factory pattern.
+# Rollback: pin ==0.3.25 and revert main.py + executor changes.
+a2a-sdk[http-server]>=1.0.0,<2.0
 
 # HTTP / server
 httpx>=0.27.0
