@@ -8,7 +8,58 @@ import {
 import { api } from "@/lib/api";
 import type { WorkspaceData, WSMessage } from "./socket";
 import { handleCanvasEvent } from "./canvas-events";
-import { buildNodesAndEdges, computeAutoLayout } from "./canvas-topology";
+import {
+  buildNodesAndEdges,
+  computeAutoLayout,
+  CHILD_DEFAULT_HEIGHT,
+  CHILD_DEFAULT_WIDTH,
+  PARENT_BOTTOM_PADDING,
+  PARENT_SIDE_PADDING,
+} from "./canvas-topology";
+
+/**
+ * Walk every parent node and bump its width/height (if explicitly set)
+ * so the union of its children's relative bboxes plus padding fits. A
+ * parent's size never shrinks via this path — only grows — because
+ * shrinking on resize would fight the user's own NodeResizer drag.
+ */
+function growParentsToFitChildren<T extends Record<string, unknown>>(
+  nodes: Node<T>[],
+): Node<T>[] {
+  // Index children by parentId so the scan is O(n).
+  const childrenByParent = new Map<string, Node<T>[]>();
+  for (const n of nodes) {
+    if (!n.parentId) continue;
+    const arr = childrenByParent.get(n.parentId) ?? [];
+    arr.push(n);
+    childrenByParent.set(n.parentId, arr);
+  }
+  let changed = false;
+  const out = nodes.map((n) => {
+    const kids = childrenByParent.get(n.id);
+    if (!kids || kids.length === 0) return n;
+    let maxRight = 0;
+    let maxBottom = 0;
+    for (const k of kids) {
+      const w = (k.measured?.width ?? k.width ?? CHILD_DEFAULT_WIDTH) as number;
+      const h = (k.measured?.height ?? k.height ?? CHILD_DEFAULT_HEIGHT) as number;
+      maxRight = Math.max(maxRight, k.position.x + w);
+      maxBottom = Math.max(maxBottom, k.position.y + h);
+    }
+    const requiredW = maxRight + PARENT_SIDE_PADDING;
+    const requiredH = maxBottom + PARENT_BOTTOM_PADDING;
+    const currentW = (n.measured?.width ?? n.width ?? 0) as number;
+    const currentH = (n.measured?.height ?? n.height ?? 0) as number;
+    if (requiredW <= currentW && requiredH <= currentH) return n;
+    changed = true;
+    return {
+      ...n,
+      width: Math.max(currentW, requiredW),
+      height: Math.max(currentH, requiredH),
+    };
+  });
+  return changed ? out : nodes;
+}
 
 // Re-export extracted types and functions so existing imports from "@/store/canvas" keep working
 export { summarizeWorkspaceCapabilities } from "./canvas-capabilities";
@@ -389,9 +440,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   onNodesChange: (changes) => {
-    set({
-      nodes: applyNodeChanges(changes, get().nodes),
-    });
+    const next = applyNodeChanges(changes, get().nodes);
+    // Auto-grow parents to fit their children: if any child's
+    // (position + size) extends beyond the parent's current dimensions,
+    // the parent's explicit width/height is bumped so it stays the
+    // visual container (Miro/FigJam-style frame auto-fit).
+    const grown = growParentsToFitChildren(next);
+    set({ nodes: grown });
   },
 
   savePosition: async (nodeId: string, x: number, y: number) => {
