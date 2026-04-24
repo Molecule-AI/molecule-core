@@ -30,6 +30,13 @@ jobs:
         with:
           fetch-depth: 2  # need previous commit to diff against on push events
 
+      # For pull_request events the diff base is github.event.pull_request.base.sha,
+      # which may be many commits behind HEAD and therefore absent from the
+      # shallow clone above.  Fetch it explicitly (depth=1 keeps it fast).
+      - name: Fetch PR base SHA (pull_request events only)
+        if: github.event_name == 'pull_request'
+        run: git fetch --depth=1 origin ${{ github.event.pull_request.base.sha }}
+
       - name: Refuse if forbidden paths appear
         run: |
           # Paths that must NEVER live in the public monorepo. Add to this
