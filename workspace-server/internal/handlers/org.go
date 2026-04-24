@@ -5,6 +5,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -180,6 +181,108 @@ func NewOrgHandler(wh *WorkspaceHandler, b *events.Broadcaster, p *provisioner.P
 	}
 }
 
+// EnvRequirement is either a single env var name (strict: that exact
+// var must be configured) or an any-of group (any one of the listed
+// names satisfies the requirement).
+//
+// YAML shapes accepted:
+//
+//	required_env:
+//	  - GITHUB_TOKEN                              # single
+//	  - any_of: [ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN]   # OR group
+//
+// The any-of form exists because some runtimes accept either of two
+// credential shapes — Claude Code takes ANTHROPIC_API_KEY or an OAuth
+// token interchangeably, and forcing an org template to pick one
+// would falsely block the other. For JSON (GET /org/templates),
+// the same shapes round-trip: strings stay strings, groups stay
+// {any_of: [...]}.
+type EnvRequirement struct {
+	// Name is non-empty for a single required env var.
+	Name string
+	// AnyOf is non-empty for an OR group; any one member satisfies.
+	AnyOf []string
+}
+
+// Members returns every env name this requirement considers —
+// [Name] for single, AnyOf for groups. Used by preflight, collect,
+// and the name-validation regex gate.
+func (e EnvRequirement) Members() []string {
+	if e.Name != "" {
+		return []string{e.Name}
+	}
+	return e.AnyOf
+}
+
+// IsSatisfied reports whether any member of the requirement is
+// present in `configured`. Single: exact-match. AnyOf: at least
+// one hit.
+func (e EnvRequirement) IsSatisfied(configured map[string]struct{}) bool {
+	for _, m := range e.Members() {
+		if _, ok := configured[m]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// UnmarshalYAML accepts either a scalar (string → single) or a map
+// with an `any_of` list (→ group).
+func (e *EnvRequirement) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		var s string
+		if err := value.Decode(&s); err != nil {
+			return err
+		}
+		e.Name = s
+		return nil
+	}
+	var alt struct {
+		AnyOf []string `yaml:"any_of"`
+	}
+	if err := value.Decode(&alt); err != nil {
+		return fmt.Errorf("env requirement must be a string or {any_of: [...]}: %w", err)
+	}
+	if len(alt.AnyOf) == 0 {
+		return fmt.Errorf("env requirement any_of must contain at least one env var")
+	}
+	e.AnyOf = alt.AnyOf
+	return nil
+}
+
+// MarshalJSON emits the dual shape so GET /org/templates callers get
+// {"required_env": ["GITHUB_TOKEN", {"any_of": [...]}]}, matching
+// the YAML syntax.
+func (e EnvRequirement) MarshalJSON() ([]byte, error) {
+	if e.Name != "" {
+		return json.Marshal(e.Name)
+	}
+	return json.Marshal(struct {
+		AnyOf []string `json:"any_of"`
+	}{AnyOf: e.AnyOf})
+}
+
+// UnmarshalJSON is the inverse — accepts the same dual shape so
+// POST /org/import with an inline `template` body works too.
+func (e *EnvRequirement) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		e.Name = s
+		return nil
+	}
+	var alt struct {
+		AnyOf []string `json:"any_of"`
+	}
+	if err := json.Unmarshal(data, &alt); err != nil {
+		return fmt.Errorf("env requirement must be a string or {any_of: [...]}: %w", err)
+	}
+	if len(alt.AnyOf) == 0 {
+		return fmt.Errorf("env requirement any_of must contain at least one env var")
+	}
+	e.AnyOf = alt.AnyOf
+	return nil
+}
+
 // OrgTemplate is the YAML structure for an org hierarchy.
 type OrgTemplate struct {
 	Name           string              `yaml:"name" json:"name"`
@@ -189,20 +292,18 @@ type OrgTemplate struct {
 	// GlobalMemories is a list of org-wide memories seeded as GLOBAL scope
 	// on the first root workspace (PM) during org import. Issue #1050.
 	GlobalMemories []models.MemorySeed `yaml:"global_memories" json:"global_memories"`
-	// RequiredEnv is the union of env vars WHICH MUST be set globally (or
+	// RequiredEnv lists env vars that MUST be configured globally (or
 	// on every workspace in the subtree that needs them) before import
-	// will succeed. Declared at the org level for shared creds, also
-	// extensible per-workspace via OrgWorkspace.RequiredEnv for team-
-	// scoped credentials (e.g. LEGAL_VAULT_TOKEN only matters if the Legal
-	// subtree is part of this template). The canvas preflights both.
-	RequiredEnv []string `yaml:"required_env" json:"required_env"`
+	// succeeds. Each entry is either a plain string (strict) or an
+	// {any_of: [...]} group (at least one member must be set). Declared
+	// at the org level for shared creds; also extensible per-workspace
+	// via OrgWorkspace.RequiredEnv for team-scoped credentials.
+	RequiredEnv []EnvRequirement `yaml:"required_env" json:"required_env"`
 	// RecommendedEnv is the "nice-to-have" tier — import still succeeds
-	// without them, but features degrade. The canvas shows them as a
-	// yellow warning ("add now for best experience") rather than a
-	// blocking red. Example: SLACK_WEBHOOK_URL for a team whose agents
-	// occasionally post status updates, or ANTHROPIC_API_KEY when an
-	// agent might fall back to claude from its primary provider.
-	RecommendedEnv []string `yaml:"recommended_env" json:"recommended_env"`
+	// without them, but features degrade. Same single|any_of shape as
+	// RequiredEnv so a recommended OR group reads "set any one of these
+	// to unlock the feature; all missing = warning".
+	RecommendedEnv []EnvRequirement `yaml:"recommended_env" json:"recommended_env"`
 }
 
 type OrgDefaults struct {
@@ -315,10 +416,11 @@ type OrgWorkspace struct {
 	// OrgTemplate.RequiredEnv / RecommendedEnv. A workspace's subtree
 	// inherits: a parent declaring ANTHROPIC_API_KEY as required
 	// means every descendant considers it required too (no override
-	// needed at each leaf).
-	RequiredEnv    []string       `yaml:"required_env" json:"required_env"`
-	RecommendedEnv []string       `yaml:"recommended_env" json:"recommended_env"`
-	Children       []OrgWorkspace `yaml:"children" json:"children"`
+	// needed at each leaf). Same single|any_of shape as the org-level
+	// lists.
+	RequiredEnv    []EnvRequirement `yaml:"required_env" json:"required_env"`
+	RecommendedEnv []EnvRequirement `yaml:"recommended_env" json:"recommended_env"`
+	Children       []OrgWorkspace   `yaml:"children" json:"children"`
 }
 
 // ListTemplates handles GET /org/templates — lists available org templates.
@@ -483,10 +585,14 @@ func (h *OrgHandler) Import(c *gin.Context) {
 			})
 			return
 		}
-		var missing []string
-		for _, k := range required {
-			if _, ok := configured[k]; !ok {
-				missing = append(missing, k)
+		var missing []EnvRequirement
+		for _, req := range required {
+			// For a single requirement this is exact-match; for an
+			// any-of group, any one member satisfies. Groups whose
+			// alternative is already configured drop out here — the
+			// user doesn't need to re-configure them.
+			if !req.IsSatisfied(configured) {
+				missing = append(missing, req)
 			}
 		}
 		if len(missing) > 0 {

@@ -3,6 +3,40 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createSecret } from "@/lib/api/secrets";
 
+/**
+ * One entry from the server's preflight `required_env` / `recommended_env`.
+ *
+ *   - A plain string is a STRICT requirement: that exact env var must be
+ *     configured.
+ *   - A `{any_of: [...]}` object is an OR group: at least one member
+ *     must be configured to satisfy it. Lets a template say "either
+ *     ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN" without forcing
+ *     both.
+ *
+ * Matches the Go `EnvRequirement` type's JSON shape (MarshalJSON in
+ * workspace-server/internal/handlers/org.go). The union is written so
+ * that a narrow check — `typeof e === "string"` — distinguishes cleanly.
+ */
+export type EnvRequirement = string | { any_of: string[] };
+
+/** Flat member list for a requirement. */
+export function envReqMembers(r: EnvRequirement): string[] {
+  return typeof r === "string" ? [r] : r.any_of;
+}
+
+/** True if any member is present in `configured`. */
+export function envReqSatisfied(r: EnvRequirement, configured: Set<string>): boolean {
+  if (typeof r === "string") return configured.has(r);
+  return r.any_of.some((m) => configured.has(m));
+}
+
+/** Stable react-key / dedup key for a requirement. Sorted for groups so
+ *  reordered-member variants still collapse to one entry. */
+export function envReqKey(r: EnvRequirement): string {
+  if (typeof r === "string") return r;
+  return [...r.any_of].sort().join("|");
+}
+
 interface Props {
   open: boolean;
   /** Display name of the org template — headline only. */
@@ -10,11 +44,13 @@ interface Props {
   /** Total workspace count so the header can read "12 workspaces". */
   workspaceCount: number;
   /** Env vars the server has declared MUST be set as global secrets.
-   *  Import is disabled until every entry here is configured. */
-  requiredEnv: string[];
+   *  Import is disabled until every entry here is configured. Entries
+   *  are either a single key name or an any-of group. */
+  requiredEnv: EnvRequirement[];
   /** Env vars the server suggests — import can proceed without them,
-   *  but the user sees them listed so they can decide. */
-  recommendedEnv: string[];
+   *  but the user sees them listed so they can decide. Same union
+   *  shape as `requiredEnv`. */
+  recommendedEnv: EnvRequirement[];
   /** Names of env vars already configured globally. Used to strike
    *  through entries the user has already set up in another
    *  session. Passed in rather than queried inside the modal so the
@@ -69,11 +105,23 @@ export function OrgImportPreflightModal({
 }: Props) {
   const [drafts, setDrafts] = useState<Record<string, DraftEntry>>({});
 
+  // Flatten the union-shaped requirement lists to the set of every key
+  // that could ever appear as an input row. Used purely to seed the
+  // drafts map — satisfaction semantics still read from the grouped
+  // EnvRequirement entries (a group can be satisfied by any one
+  // member).
+  const allMemberKeys = useMemo(() => {
+    const keys: string[] = [];
+    for (const r of requiredEnv) keys.push(...envReqMembers(r));
+    for (const r of recommendedEnv) keys.push(...envReqMembers(r));
+    return keys;
+  }, [requiredEnv, recommendedEnv]);
+
   // Seed a draft entry per declared key the first time the modal
   // opens. Entries persist across `configuredKeys` changes so a mid-
   // save recheck doesn't wipe what the user typed.
   //
-  // Dep: dervie a STABLE string from the env-name lists rather than
+  // Dep: derive a STABLE string from the env-name lists rather than
   // the array refs themselves. The parent computes
   // `preflight.org.required_env ?? []`, which produces a fresh []
   // identity on every re-render (e.g. when refreshConfiguredKeys
@@ -81,14 +129,14 @@ export function OrgImportPreflightModal({
   // effect on every parent render and mask any future edit that
   // drops the `if (!next[k])` guard as a silent input-reset bug.
   const envKeysSignature = useMemo(
-    () => [...requiredEnv, ...recommendedEnv].sort().join("|"),
-    [requiredEnv, recommendedEnv],
+    () => [...allMemberKeys].sort().join("|"),
+    [allMemberKeys],
   );
   useEffect(() => {
     if (!open) return;
     setDrafts((prev) => {
       const next = { ...prev };
-      for (const k of [...requiredEnv, ...recommendedEnv]) {
+      for (const k of allMemberKeys) {
         if (!next[k]) {
           next[k] = { key: k, value: "", saving: false, error: null };
         }
@@ -99,11 +147,11 @@ export function OrgImportPreflightModal({
   }, [open, envKeysSignature]);
 
   const missingRequired = useMemo(
-    () => requiredEnv.filter((k) => !configuredKeys.has(k)),
+    () => requiredEnv.filter((r) => !envReqSatisfied(r, configuredKeys)),
     [requiredEnv, configuredKeys],
   );
   const missingRecommended = useMemo(
-    () => recommendedEnv.filter((k) => !configuredKeys.has(k)),
+    () => recommendedEnv.filter((r) => !envReqSatisfied(r, configuredKeys)),
     [recommendedEnv, configuredKeys],
   );
   const canProceed = missingRequired.length === 0;
@@ -240,7 +288,7 @@ interface EnvListProps {
   tone: "required" | "recommended";
   title: string;
   subtitle: string;
-  entries: string[];
+  entries: EnvRequirement[];
   configuredKeys: Set<string>;
   drafts: Record<string, DraftEntry>;
   onChange: (key: string, value: string) => void;
@@ -271,35 +319,162 @@ function EnvList({
       </h3>
       <p className="mt-0.5 mb-2 text-[10px] text-zinc-400">{subtitle}</p>
       <ul className="space-y-2">
-        {entries.map((k) => {
-          const configured = configuredKeys.has(k);
-          const d = drafts[k];
+        {entries.map((entry) =>
+          typeof entry === "string" ? (
+            <StrictEnvRow
+              key={envReqKey(entry)}
+              envKey={entry}
+              configured={configuredKeys.has(entry)}
+              draft={drafts[entry]}
+              onChange={onChange}
+              onSave={onSave}
+            />
+          ) : (
+            <AnyOfEnvGroup
+              key={envReqKey(entry)}
+              members={entry.any_of}
+              configuredKeys={configuredKeys}
+              drafts={drafts}
+              onChange={onChange}
+              onSave={onSave}
+            />
+          ),
+        )}
+      </ul>
+    </div>
+  );
+}
+
+interface StrictEnvRowProps {
+  envKey: string;
+  configured: boolean;
+  draft: DraftEntry | undefined;
+  onChange: (key: string, value: string) => void;
+  onSave: (key: string) => void;
+}
+
+function StrictEnvRow({
+  envKey,
+  configured,
+  draft: d,
+  onChange,
+  onSave,
+}: StrictEnvRowProps) {
+  return (
+    <li className="flex items-center gap-2 rounded bg-zinc-900/70 border border-zinc-800 px-2 py-1.5">
+      <code
+        className={`text-[11px] font-mono flex-1 ${
+          configured ? "text-zinc-500 line-through" : "text-zinc-200"
+        }`}
+      >
+        {envKey}
+      </code>
+      {configured ? (
+        <span className="text-[10px] text-emerald-400">✓ set</span>
+      ) : (
+        <>
+          <input
+            type="password"
+            aria-label={`Value for ${envKey}`}
+            placeholder="paste value"
+            value={d?.value ?? ""}
+            onChange={(e) => onChange(envKey, e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                onSave(envKey);
+              }
+            }}
+            disabled={d?.saving}
+            className="flex-1 px-2 py-1 rounded bg-zinc-800 border border-zinc-700 text-[11px] text-zinc-200 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+          />
+          <button
+            type="button"
+            onClick={() => onSave(envKey)}
+            disabled={d?.saving || !d?.value.trim()}
+            className="px-2 py-1 text-[10px] rounded bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {d?.saving ? "…" : "Save"}
+          </button>
+        </>
+      )}
+      {d?.error && (
+        <span className="text-[9px] text-red-400 basis-full pl-1">
+          {d.error}
+        </span>
+      )}
+    </li>
+  );
+}
+
+interface AnyOfEnvGroupProps {
+  members: string[];
+  configuredKeys: Set<string>;
+  drafts: Record<string, DraftEntry>;
+  onChange: (key: string, value: string) => void;
+  onSave: (key: string) => void;
+}
+
+/**
+ * Renders an OR group: the user only needs to configure ONE of the
+ * members to satisfy the requirement. Once any member is configured
+ * the group shows a green banner identifying the satisfying key; the
+ * other inputs remain visible but muted so the user can still switch
+ * providers if they want (uncommon but cheap to support).
+ */
+function AnyOfEnvGroup({
+  members,
+  configuredKeys,
+  drafts,
+  onChange,
+  onSave,
+}: AnyOfEnvGroupProps) {
+  const satisfiedBy = members.find((m) => configuredKeys.has(m));
+  return (
+    <li className="rounded border border-zinc-800 bg-zinc-900/50 px-2.5 py-2">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[10px] uppercase tracking-wide text-zinc-400">
+          Configure any one
+        </span>
+        {satisfiedBy && (
+          <span className="text-[10px] text-emerald-400">
+            ✓ using <code className="font-mono">{satisfiedBy}</code>
+          </span>
+        )}
+      </div>
+      <ul className="space-y-1.5">
+        {members.map((m) => {
+          const isConfigured = configuredKeys.has(m);
+          const d = drafts[m];
+          const dimmed = !!satisfiedBy && !isConfigured;
           return (
             <li
-              key={k}
-              className="flex items-center gap-2 rounded bg-zinc-900/70 border border-zinc-800 px-2 py-1.5"
+              key={m}
+              className={`flex items-center gap-2 rounded bg-zinc-900/70 border border-zinc-800 px-2 py-1 ${
+                dimmed ? "opacity-50" : ""
+              }`}
             >
               <code
                 className={`text-[11px] font-mono flex-1 ${
-                  configured ? "text-zinc-500 line-through" : "text-zinc-200"
+                  isConfigured ? "text-zinc-500 line-through" : "text-zinc-200"
                 }`}
               >
-                {k}
+                {m}
               </code>
-              {configured ? (
+              {isConfigured ? (
                 <span className="text-[10px] text-emerald-400">✓ set</span>
               ) : (
                 <>
                   <input
                     type="password"
-                    aria-label={`Value for ${k}`}
+                    aria-label={`Value for ${m}`}
                     placeholder="paste value"
                     value={d?.value ?? ""}
-                    onChange={(e) => onChange(k, e.target.value)}
+                    onChange={(e) => onChange(m, e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        onSave(k);
+                        onSave(m);
                       }
                     }}
                     disabled={d?.saving}
@@ -307,7 +482,7 @@ function EnvList({
                   />
                   <button
                     type="button"
-                    onClick={() => onSave(k)}
+                    onClick={() => onSave(m)}
                     disabled={d?.saving || !d?.value.trim()}
                     className="px-2 py-1 text-[10px] rounded bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40 disabled:cursor-not-allowed"
                   >
@@ -324,6 +499,6 @@ function EnvList({
           );
         })}
       </ul>
-    </div>
+    </li>
   );
 }

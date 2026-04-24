@@ -6,7 +6,10 @@ import { useCanvasStore } from "@/store/canvas";
 import type { WorkspaceData } from "@/store/socket";
 import { type Template } from "@/lib/deploy-preflight";
 import { useTemplateDeploy } from "@/hooks/useTemplateDeploy";
-import { OrgImportPreflightModal } from "./OrgImportPreflightModal";
+import {
+  OrgImportPreflightModal,
+  type EnvRequirement,
+} from "./OrgImportPreflightModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Spinner } from "./Spinner";
 import { showToast } from "./Toaster";
@@ -27,13 +30,18 @@ export interface OrgTemplate {
   /** Env vars that MUST be set as global secrets before the org can
    *  import. Server refuses the import with 412 if any are missing;
    *  the canvas preflights against /secrets/list to avoid the round
-   *  trip. Aggregated from org-level + every workspace in the tree. */
-  required_env?: string[];
+   *  trip. Aggregated from org-level + every workspace in the tree.
+   *
+   *  Each entry is either a key name (strict) or an `{any_of: [...]}`
+   *  group (any one of the listed members satisfies the requirement —
+   *  e.g. `ANTHROPIC_API_KEY` OR `CLAUDE_CODE_OAUTH_TOKEN`). */
+  required_env?: EnvRequirement[];
   /** "Nice-to-have" tier. Import proceeds without them but features
    *  may degrade — a channel's webhook posts get dropped, a fallback
    *  LLM isn't available, etc. Surfaced to the user as a non-blocking
-   *  warning with an "add now" affordance. */
-  recommended_env?: string[];
+   *  warning with an "add now" affordance. Same union shape as
+   *  `required_env`. */
+  recommended_env?: EnvRequirement[];
 }
 
 /** Fetch the list of org templates from the platform. Returns [] on error
