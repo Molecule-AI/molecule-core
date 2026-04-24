@@ -318,6 +318,10 @@ function countDescendants(nodeId: string, allNodes: Node<WorkspaceNodeData>[], v
   return count;
 }
 
+/** Maximum nesting depth for recursive TeamMemberChip rendering — prevents
+ *  infinite recursion on circular parentId references and keeps the UI readable. */
+const MAX_NESTING_DEPTH = 3;
+
 /** Subscribes to allNodes only when children exist — isolates re-renders from parent */
 function EmbeddedTeam({ members, depth, onSelect, onExtract }: {
   members: Node<WorkspaceNodeData>[];
