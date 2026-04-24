@@ -50,7 +50,7 @@ export function SecretsTab({ workspaceId }: SecretsTabProps) {
   // Panel load error
   if (error) {
     return (
-      <div className="secrets-tab__error" role="alert">
+      <div className="secrets-tab__error" role="alert" aria-live="assertive">
         <p>{error}</p>
         <button
           onClick={() => fetchSecrets(workspaceId)}

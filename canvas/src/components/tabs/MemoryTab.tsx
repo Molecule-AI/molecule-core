@@ -120,7 +120,7 @@ export function MemoryTab({ workspaceId }: Props) {
   return (
     <div className="p-4 space-y-4">
       {error && !showAdd && (
-        <div role="alert" className="px-3 py-1.5 bg-red-900/30 border border-red-800 rounded text-xs text-red-400">
+        <div role="alert" aria-live="assertive" className="px-3 py-1.5 bg-red-900/30 border border-red-800 rounded text-xs text-red-400">
           {error}
         </div>
       )}
@@ -257,7 +257,7 @@ export function MemoryTab({ workspaceId }: Props) {
               aria-label="TTL in seconds (optional)"
               className="w-full bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-xs text-zinc-100 focus:outline-none focus:border-blue-500"
             />
-            {error && <div role="alert" className="text-xs text-red-400">{error}</div>}
+            {error && <div role="alert" aria-live="assertive" className="text-xs text-red-400">{error}</div>}
             <div className="flex gap-2">
               <button
                 type="button"

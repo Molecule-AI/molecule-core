@@ -99,7 +99,7 @@ export function TermsGate({ children }: { children: React.ReactNode }) {
             <p className="mt-3 text-xs text-zinc-500">
               By agreeing you acknowledge that workspace data is stored in AWS us-east-2 (Ohio, United States).
             </p>
-            {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
+            {error && <p role="alert" aria-live="assertive" className="mt-3 text-sm text-red-400">{error}</p>}
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
@@ -114,7 +114,7 @@ export function TermsGate({ children }: { children: React.ReactNode }) {
         </div>
       )}
       {status === "error" && (
-        <div role="alert" className="fixed bottom-4 left-4 right-4 mx-auto max-w-md rounded border border-red-800 bg-red-950 p-3 text-sm text-red-200">
+        <div role="alert" aria-live="assertive" className="fixed bottom-4 left-4 right-4 mx-auto max-w-md rounded border border-red-800 bg-red-950 p-3 text-sm text-red-200">
           Couldn&apos;t check terms status: {error ?? "unknown error"}
         </div>
       )}

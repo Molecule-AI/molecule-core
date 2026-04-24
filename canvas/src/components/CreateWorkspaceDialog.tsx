@@ -425,6 +425,7 @@ export function CreateWorkspaceButton() {
           {error && (
             <div
               role="alert"
+              aria-live="assertive"
               className="mt-4 px-3 py-2 bg-red-950/40 border border-red-800/50 rounded-lg text-xs text-red-400"
             >
               {error}

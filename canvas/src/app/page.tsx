@@ -61,6 +61,7 @@ export default function Home() {
       {hydrationError && (
         <div
           role="alert"
+          aria-live="assertive"
           className="fixed inset-0 flex flex-col items-center justify-center bg-zinc-950 text-zinc-300 gap-4 z-[9999]"
         >
           <p className="text-zinc-400 text-sm">{hydrationError}</p>

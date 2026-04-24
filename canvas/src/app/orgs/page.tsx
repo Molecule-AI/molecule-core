@@ -115,7 +115,7 @@ export default function OrgsPage() {
   if (error) {
     return (
       <Shell>
-        <p role="alert" className="text-red-400">Error: {error}</p>
+        <p role="alert" aria-live="assertive" className="text-red-400">Error: {error}</p>
         <button
           onClick={() => window.location.reload()}
           className="mt-4 rounded bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
@@ -391,7 +391,7 @@ function CreateOrgForm({ onCreated }: { onCreated: (slug: string) => void }) {
           className="mt-1 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100"
         />
       </div>
-      {err && <p role="alert" className="text-sm text-red-400">{err}</p>}
+      {err && <p role="alert" aria-live="assertive" className="text-sm text-red-400">{err}</p>}
       <button
         type="submit"
         disabled={submitting}

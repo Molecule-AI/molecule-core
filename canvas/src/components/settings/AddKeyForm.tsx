@@ -188,7 +188,7 @@ export function AddKeyForm({
       )}
 
       {saveError && (
-        <div className="add-key-form__error" role="alert">
+        <div className="add-key-form__error" role="alert" aria-live="assertive">
           {saveError}
         </div>
       )}

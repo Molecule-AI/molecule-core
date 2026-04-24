@@ -75,7 +75,7 @@ export function TestConnectionButton({
         {LABELS[state]}
       </button>
       {errorDetail && state === 'failure' && (
-        <p className="test-connection__error" role="alert">
+        <p className="test-connection__error" role="alert" aria-live="assertive">
           {errorDetail}
         </p>
       )}

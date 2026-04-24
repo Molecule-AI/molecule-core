@@ -196,7 +196,7 @@ export function SecretRow({ secret, workspaceId }: SecretRowProps) {
             />
           )}
           {saveError && (
-            <p className="secret-row__save-error" role="alert">
+            <p className="secret-row__save-error" role="alert" aria-live="assertive">
               {saveError}
             </p>
           )}

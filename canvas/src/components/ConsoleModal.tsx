@@ -128,6 +128,7 @@ export function ConsoleModal({ workspaceId, workspaceName, open, onClose }: Prop
           {!loading && error && (
             <div
               role="alert"
+              aria-live="assertive"
               className="text-[12px] text-amber-300 bg-amber-950/30 border border-amber-900/40 rounded px-3 py-2"
               data-testid="console-error"
             >

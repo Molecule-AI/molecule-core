@@ -149,7 +149,7 @@ export function TerminalTab({ workspaceId }: Props) {
 
       {/* Error message — role="alert" announces immediately via assertive live region */}
       {errorMsg && (
-        <div role="alert" className="mx-3 mt-2 px-3 py-1.5 bg-red-900/30 border border-red-800 rounded text-xs text-red-400">
+        <div role="alert" aria-live="assertive" className="mx-3 mt-2 px-3 py-1.5 bg-red-900/30 border border-red-800 rounded text-xs text-red-400">
           {errorMsg}
         </div>
       )}

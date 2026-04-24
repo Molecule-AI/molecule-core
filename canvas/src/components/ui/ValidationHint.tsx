@@ -16,7 +16,7 @@ interface ValidationHintProps {
 export function ValidationHint({ error, showValid = false }: ValidationHintProps) {
   if (error) {
     return (
-      <p className="validation-hint validation-hint--error" role="alert">
+      <p className="validation-hint validation-hint--error" role="alert" aria-live="assertive">
         <span aria-hidden="true">⚠</span> {error}
       </p>
     );
