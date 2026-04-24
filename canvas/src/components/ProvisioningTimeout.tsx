@@ -284,6 +284,7 @@ export function ProvisioningTimeout({
                 {/* Action buttons */}
                 <div className="flex items-center gap-2 mt-2.5">
                   <button
+                    type="button"
                     onClick={() => handleRetry(entry.workspaceId)}
                     disabled={isRetrying || isCancelling || retryCooldown.has(entry.workspaceId)}
                     className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-[11px] font-medium rounded-lg text-white disabled:opacity-40 transition-colors"
@@ -291,6 +292,7 @@ export function ProvisioningTimeout({
                     {isRetrying ? "Retrying..." : retryCooldown.has(entry.workspaceId) ? "Wait..." : "Retry"}
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleCancelRequest(entry.workspaceId)}
                     disabled={isRetrying || isCancelling}
                     className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-[11px] text-zinc-300 rounded-lg border border-zinc-600 disabled:opacity-40 transition-colors"
@@ -298,6 +300,7 @@ export function ProvisioningTimeout({
                     {isCancelling ? "Cancelling..." : "Cancel"}
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleViewLogs(entry.workspaceId)}
                     className="px-3 py-1.5 text-[11px] text-amber-400 hover:text-amber-300 transition-colors"
                   >
@@ -323,12 +326,14 @@ export function ProvisioningTimeout({
             </p>
             <div className="flex justify-end gap-2">
               <button
+                type="button"
                 onClick={() => setConfirmingCancel(null)}
                 className="px-3.5 py-1.5 text-[12px] text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors"
               >
                 Keep
               </button>
               <button
+                type="button"
                 onClick={handleCancelConfirm}
                 className="px-3.5 py-1.5 text-[12px] bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
               >

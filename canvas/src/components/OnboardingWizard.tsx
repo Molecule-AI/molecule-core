@@ -159,6 +159,7 @@ export function OnboardingWizard() {
             Step {currentStepIdx + 1} of {STEPS.length}
           </span>
           <button
+            type="button"
             onClick={dismiss}
             aria-label="Skip onboarding guide"
             className="text-[10px] text-zinc-400 hover:text-zinc-200 transition-colors"
@@ -178,6 +179,7 @@ export function OnboardingWizard() {
         {/* Action button */}
         <div className="flex gap-2">
           <button
+            type="button"
             onClick={handleAction}
             className="flex-1 px-3 py-1.5 bg-blue-600/90 hover:bg-blue-500 rounded-lg text-[11px] font-medium text-white transition-colors"
           >
@@ -191,6 +193,7 @@ export function OnboardingWizard() {
           </button>
           {step !== "done" && (
             <button
+              type="button"
               onClick={() => {
                 const next = STEPS[currentStepIdx + 1];
                 if (next) setStep(next.id);

@@ -556,6 +556,7 @@ function AllKeysModal({
                     className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1.5 text-[11px] text-zinc-100 font-mono focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 transition-colors"
                   />
                   <button
+                    type="button"
                     onClick={() => handleSaveKey(index)}
                     disabled={!entry.value.trim() || entry.saving}
                     className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-[11px] rounded text-white disabled:opacity-30 transition-colors shrink-0"
@@ -580,6 +581,7 @@ function AllKeysModal({
           <div>
             {onOpenSettings && (
               <button
+                type="button"
                 onClick={onOpenSettings}
                 className="text-[11px] text-blue-400 hover:text-blue-300 transition-colors"
               >
@@ -589,12 +591,14 @@ function AllKeysModal({
           </div>
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={onCancel}
               className="px-3.5 py-1.5 text-[12px] text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors"
             >
               Cancel Deploy
             </button>
             <button
+              type="button"
               onClick={handleAddKeysAndDeploy}
               disabled={!allSaved || anySaving}
               className="px-3.5 py-1.5 text-[12px] bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-40"

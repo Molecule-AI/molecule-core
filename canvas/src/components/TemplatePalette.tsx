@@ -159,6 +159,7 @@ export function OrgTemplatesSection() {
           )}
         </button>
         <button
+          type="button"
           onClick={loadOrgs}
           aria-label="Refresh org templates"
           className="text-[10px] text-zinc-500 hover:text-zinc-300"
@@ -209,6 +210,7 @@ export function OrgTemplatesSection() {
               </p>
             )}
             <button
+              type="button"
               onClick={() => handleImport(o)}
               disabled={isImporting}
               className="w-full px-2 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 rounded-lg text-[10px] text-blue-300 font-medium transition-colors disabled:opacity-50"
@@ -284,6 +286,7 @@ function ImportAgentButton({ onImported }: { onImported: () => void }) {
         onChange={(e) => e.target.files && handleFiles(e.target.files)}
       />
       <button
+        type="button"
         onClick={() => fileInputRef.current?.click()}
         disabled={importing}
         className="w-full px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 rounded-lg text-[11px] text-blue-300 font-medium transition-colors disabled:opacity-50"
@@ -405,6 +408,7 @@ export function TemplatePalette() {
     <>
       {/* Toggle button */}
       <button
+        type="button"
         onClick={() => setOpen(!open)}
         className={`fixed top-4 left-4 z-40 w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${
           open
@@ -477,6 +481,7 @@ export function TemplatePalette() {
 
               return (
                 <button
+                  type="button"
                   key={t.id}
                   onClick={() => handleDeploy(t)}
                   disabled={isDeploying}
@@ -521,6 +526,7 @@ export function TemplatePalette() {
           <div className="px-4 py-3 border-t border-zinc-800/60 space-y-3">
             <ImportAgentButton onImported={loadTemplates} />
             <button
+              type="button"
               onClick={loadTemplates}
               className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors block"
             >

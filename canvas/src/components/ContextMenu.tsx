@@ -308,6 +308,7 @@ export function ContextMenu() {
         }
         return (
           <button
+            type="button"
             key={i}
             role="menuitem"
             onClick={item.action}
