@@ -1143,7 +1143,7 @@ func TestAdminAuth_RemovedWorkspaceToken_Returns401(t *testing.T) {
 	}
 }
 
-func TestCanvasOrBearer_TokensExist_WrongOrigin_Returns401(t *testing.T) {
+func TestCanvasOrBearer_WrongOrigin_Blocked(t *testing.T) {
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
