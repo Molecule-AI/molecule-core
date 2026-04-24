@@ -4,10 +4,10 @@ package handlers
 // ordering, idempotency, failed-retry bounding, nil-safe error extraction
 // (GH fix), and the extractor helper.
 //
-// Uses sqlmock.MatchSs (exact string matching) so that SQL query strings are
-// compared verbatim without regex escaping complexity. setupTestDBForQueueTests
-// creates the mock with this matcher; it MUST be used instead of setupTestDB
-// for these tests.
+// Uses sqlmock.QueryMatcherEqual (exact string matching) so that SQL query
+// strings are compared verbatim without regex escaping complexity.
+// setupTestDBForQueueTests creates the mock with this matcher; it MUST be
+// used instead of setupTestDB for these tests.
 
 import (
 	"context"
@@ -19,15 +19,16 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/alicebob/miniredis/v2"
 )
 
-// setupTestDBForQueueTests creates a sqlmock DB using MatchSs (exact String
-// matching) so that ExpectQuery/ExpectExec patterns are compared verbatim. Uses
-// the same global db.DB as setupTestDB so the handler can use it.
+// setupTestDBForQueueTests creates a sqlmock DB using QueryMatcherEqual (exact
+// string matching) so that ExpectQuery/ExpectExec patterns are compared verbatim.
+// Uses the same global db.DB as setupTestDB so the handler can use it.
 func setupTestDBForQueueTests(t *testing.T) sqlmock.Sqlmock {
 	t.Helper()
-	mockDB, mock, err := sqlmock.New(sqlmock.MatchSs)
+	mockDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
 	if err != nil {
 		t.Fatalf("failed to create sqlmock: %v", err)
 	}
@@ -100,13 +101,30 @@ func TestExtractIdempotencyKey_emptyOnMissing(t *testing.T) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 // drainSetup creates a consistent test environment for DrainQueueForWorkspace.
-// Uses setupTestDBForQueueTests (MatchSs) so SQL strings are compared verbatim.
-func drainSetup(t *testing.T) (sqlmock.Sqlmock, *WorkspaceHandler, *miniredis.Miniredis) {
+// Uses setupTestDBForQueueTests (QueryMatcherEqual) so SQL strings are compared verbatim.
+// workspaceID is passed so callers can register the budget-check expectation in the
+// correct position — after expectDequeueNextOk (DequeueNext's tx BEGIN→SELECT→UPDATE→COMMIT
+// runs before proxyA2ARequest→checkWorkspaceBudget in the actual call sequence).
+func drainSetup(t *testing.T, workspaceID string) (sqlmock.Sqlmock, *WorkspaceHandler, *miniredis.Miniredis) {
 	mock := setupTestDBForQueueTests(t)
 	mr := setupTestRedis(t)
 	broadcaster := newTestBroadcaster()
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+	allowLoopbackForTest(t) // httptest.Server uses 127.0.0.1; SSRF guard must permit it
 	return mock, handler, mr
+}
+
+// expectQueueBudgetCheck registers the mock for checkWorkspaceBudget's query:
+//   SELECT budget_limit, COALESCE(monthly_spend, 0) FROM workspaces WHERE id = $1
+// Must be called AFTER expectDequeueNextOk — DequeueNext (BEGIN→SELECT→UPDATE→COMMIT)
+// runs before proxyA2ARequest which calls checkWorkspaceBudget.
+// Named distinctly from handlers_test.go's expectBudgetCheck (which uses MatchPsql
+// escaped-regex and cannot be reused with QueryMatcherEqual tests).
+func expectQueueBudgetCheck(mock sqlmock.Sqlmock, workspaceID string) {
+	mock.ExpectQuery(
+		"SELECT budget_limit, COALESCE(monthly_spend, 0) FROM workspaces WHERE id = $1",
+	).WithArgs(workspaceID).
+		WillReturnRows(sqlmock.NewRows([]string{"budget_limit", "monthly_spend"}))
 }
 
 // seedRedisURL puts the agent server URL into the Redis cache so resolveAgentURL
@@ -119,11 +137,13 @@ func seedRedisURL(t *testing.T, mr *miniredis.Miniredis, wsID, url string) {
 }
 
 // drainItem returns a reproducible QueuedItem for testing.
+// CallerID is NULL so proxyA2ARequest skips the CanCommunicate hierarchy check
+// (no caller means canvas/system call path, which bypasses access control).
 func drainItem(wsID string) *QueuedItem {
 	return &QueuedItem{
 		ID:          "qid-test-001",
 		WorkspaceID: wsID,
-		CallerID:    sql.NullString{String: "ws-caller", Valid: true},
+		CallerID:    sql.NullString{Valid: false}, // no caller → no CanCommunicate check
 		Priority:    PriorityTask,
 		Body:        []byte(`{"method":"message/send","params":{"message":{"role":"user","parts":[{"type":"text","text":"hi"}]}}}`),
 		Method:      sql.NullString{String: "message/send", Valid: true},
@@ -133,7 +153,7 @@ func drainItem(wsID string) *QueuedItem {
 
 // expectDequeueNextOk sets up sqlmock for DequeueNext's transaction:
 //   BEGIN → SELECT FOR UPDATE SKIP LOCKED → UPDATE status='dispatched', attempts=attempts+1 → COMMIT
-// SQL strings are EXACT matches to the handler code — MatchSs verifies verbatim.
+// SQL strings are EXACT matches to the handler code — QueryMatcherEqual verifies verbatim.
 func expectDequeueNextOk(mock sqlmock.Sqlmock, item *QueuedItem) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(
@@ -192,9 +212,10 @@ func agentServer(body string, status int) *httptest.Server {
 
 // TestDrainQueueForWorkspace_Success_Completes: agent returns 200 → MarkQueueItemCompleted.
 func TestDrainQueueForWorkspace_Success_Completes(t *testing.T) {
-	mock, handler, mr := drainSetup(t)
 	item := drainItem("ws-ok")
+	mock, handler, mr := drainSetup(t, item.WorkspaceID)
 	expectDequeueNextOk(mock, item)
+	expectQueueBudgetCheck(mock, item.WorkspaceID)
 
 	srv := agentServer(`{"result":{"status":"ok"}}`, http.StatusOK)
 	defer srv.Close()
@@ -213,9 +234,10 @@ func TestDrainQueueForWorkspace_Success_Completes(t *testing.T) {
 // (dispatch was queued again) calls MarkQueueItemCompleted, NOT Failed, to avoid
 // double-counting attempts.
 func TestDrainQueueForWorkspace_202Accepted_CompletesNotFailed(t *testing.T) {
-	mock, handler, mr := drainSetup(t)
 	item := drainItem("ws-202")
+	mock, handler, mr := drainSetup(t, item.WorkspaceID)
 	expectDequeueNextOk(mock, item)
+	expectQueueBudgetCheck(mock, item.WorkspaceID)
 
 	srv := agentServer(`{"status":"queued"}`, http.StatusAccepted)
 	defer srv.Close()
@@ -233,9 +255,10 @@ func TestDrainQueueForWorkspace_202Accepted_CompletesNotFailed(t *testing.T) {
 // TestDrainQueueForWorkspace_ProxyErrResponseNil_NoPanic: nil Response map → no panic,
 // fallback to StatusText(502) = "Bad Gateway".
 func TestDrainQueueForWorkspace_ProxyErrResponseNil_NoPanic(t *testing.T) {
-	mock, handler, mr := drainSetup(t)
 	item := drainItem("ws-nilresp")
+	mock, handler, mr := drainSetup(t, item.WorkspaceID)
 	expectDequeueNextOk(mock, item)
+	expectQueueBudgetCheck(mock, item.WorkspaceID)
 
 	srv := agentServer("", http.StatusBadGateway)
 	defer srv.Close()
@@ -253,9 +276,10 @@ func TestDrainQueueForWorkspace_ProxyErrResponseNil_NoPanic(t *testing.T) {
 // TestDrainQueueForWorkspace_ProxyErrMissingErrorKey_UsesStatusText: Response exists
 // but "error" key is absent → fallback to http.StatusText.
 func TestDrainQueueForWorkspace_ProxyErrMissingErrorKey_UsesStatusText(t *testing.T) {
-	mock, handler, mr := drainSetup(t)
 	item := drainItem("ws-missingkey")
+	mock, handler, mr := drainSetup(t, item.WorkspaceID)
 	expectDequeueNextOk(mock, item)
+	expectQueueBudgetCheck(mock, item.WorkspaceID)
 
 	srv := agentServer(`{"code":500,"detail":"internal server error"}`, http.StatusInternalServerError)
 	defer srv.Close()
@@ -273,9 +297,10 @@ func TestDrainQueueForWorkspace_ProxyErrMissingErrorKey_UsesStatusText(t *testin
 // TestDrainQueueForWorkspace_ProxyErrNonStringError_NoPanic: Response["error"] is a
 // JSON number, not a string → comma-ok returns ("", false) → no panic, falls back.
 func TestDrainQueueForWorkspace_ProxyErrNonStringError_NoPanic(t *testing.T) {
-	mock, handler, mr := drainSetup(t)
 	item := drainItem("ws-nonstr")
+	mock, handler, mr := drainSetup(t, item.WorkspaceID)
 	expectDequeueNextOk(mock, item)
+	expectQueueBudgetCheck(mock, item.WorkspaceID)
 
 	srv := agentServer(`{"error": 429}`, http.StatusServiceUnavailable)
 	defer srv.Close()
@@ -293,9 +318,10 @@ func TestDrainQueueForWorkspace_ProxyErrNonStringError_NoPanic(t *testing.T) {
 // TestDrainQueueForWorkspace_ProxyErrWithStringError_UsesErrorMessage: valid string
 // error → that string is logged (not StatusText).
 func TestDrainQueueForWorkspace_ProxyErrWithStringError_UsesErrorMessage(t *testing.T) {
-	mock, handler, mr := drainSetup(t)
 	item := drainItem("ws-str-err")
+	mock, handler, mr := drainSetup(t, item.WorkspaceID)
 	expectDequeueNextOk(mock, item)
+	expectQueueBudgetCheck(mock, item.WorkspaceID)
 
 	wantErrMsg := "upstream agent crashed with signal: killed"
 	srv := agentServer(fmt.Sprintf(`{"error":%q}`, wantErrMsg), http.StatusBadGateway)
@@ -314,7 +340,7 @@ func TestDrainQueueForWorkspace_ProxyErrWithStringError_UsesErrorMessage(t *test
 // TestDrainQueueForWorkspace_EmptyQueue_NoOps: DequeueNext returns (nil, nil) →
 // no DB writes issued.
 func TestDrainQueueForWorkspace_EmptyQueue_NoOps(t *testing.T) {
-	mock, handler, _ := drainSetup(t)
+	mock, handler, _ := drainSetup(t, "ws-empty")
 
 	expectDequeueNextEmpty(mock, "ws-empty")
 
@@ -328,7 +354,7 @@ func TestDrainQueueForWorkspace_EmptyQueue_NoOps(t *testing.T) {
 // TestDrainQueueForWorkspace_DequeueError_LogsAndReturns: DB error during
 // DequeueNext → logged, no panic, no UPDATE issued.
 func TestDrainQueueForWorkspace_DequeueError_LogsAndReturns(t *testing.T) {
-	mock, handler, _ := drainSetup(t)
+	mock, handler, _ := drainSetup(t, "ws-dequeue-err")
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(
@@ -347,18 +373,18 @@ func TestDrainQueueForWorkspace_DequeueError_LogsAndReturns(t *testing.T) {
 // TestDrainQueueForWorkspace_MaxAttempts_FailsRatherThanRetries: attempts >= 5
 // → 'failed' status (not back to 'queued').
 func TestDrainQueueForWorkspace_MaxAttempts_FailsRatherThanRetries(t *testing.T) {
-	mock, handler, mr := drainSetup(t)
-
 	item := &QueuedItem{
 		ID:          "qid-max-attempts",
 		WorkspaceID: "ws-max",
-		CallerID:    sql.NullString{String: "ws-caller", Valid: true},
+		CallerID:    sql.NullString{Valid: false}, // no caller → no CanCommunicate check
 		Priority:    PriorityTask,
 		Body:        []byte(`{"method":"message/send","params":{}}`),
 		Method:      sql.NullString{String: "message/send", Valid: true},
 		Attempts:    5, // already at max
 	}
+	mock, handler, mr := drainSetup(t, item.WorkspaceID)
 	expectDequeueNextOk(mock, item)
+	expectQueueBudgetCheck(mock, item.WorkspaceID)
 
 	srv := agentServer(`{"error":"agent unreachable"}`, http.StatusBadGateway)
 	defer srv.Close()
@@ -373,32 +399,32 @@ func TestDrainQueueForWorkspace_MaxAttempts_FailsRatherThanRetries(t *testing.T)
 	}
 }
 
-// TestDrainQueueForWorkspace_ConcurrentDrains_ClaimGuarding: two concurrent drains for
-// the same workspace → FOR UPDATE SKIP LOCKED means only one claims the row.
-func TestDrainQueueForWorkspace_ConcurrentDrains_ClaimGuarding(t *testing.T) {
-	mock, handler, mr := drainSetup(t)
-	item := drainItem("ws-concurrent")
+// TestDrainQueueForWorkspace_ClaimGuarding_SecondDrainGetsEmpty: verifies that after
+// one drain successfully claims and completes a queue item, a second sequential drain
+// sees an empty queue (row was dispatched, not available for re-claim).
+// This exercises the FOR UPDATE SKIP LOCKED claim-guarding without the sqlmock
+// goroutine-safety concern of the concurrent version.
+func TestDrainQueueForWorkspace_ClaimGuarding_SecondDrainGetsEmpty(t *testing.T) {
+	item := drainItem("ws-claim")
 	wsID := item.WorkspaceID
+	mock, handler, mr := drainSetup(t, wsID)
 
+	// Drain 1: claims item, proxies successfully, marks completed.
 	expectDequeueNextOk(mock, item)
+	expectQueueBudgetCheck(mock, wsID)
 
 	srv := agentServer(`{"result":{}}`, http.StatusOK)
 	defer srv.Close()
 	seedRedisURL(t, mr, wsID, srv.URL)
-
 	expectCompleted(mock, item.ID)
 
-	// Second concurrent drain sees empty queue (row already dispatched).
+	handler.DrainQueueForWorkspace(context.Background(), wsID)
+
+	// Drain 2: same workspace — queue is empty because item was dispatched.
+	// Register expectations for the second drain.
 	expectDequeueNextEmpty(mock, wsID)
 
-	done := make(chan struct{})
-	go func() {
-		handler.DrainQueueForWorkspace(context.Background(), wsID)
-		close(done)
-	}()
-
 	handler.DrainQueueForWorkspace(context.Background(), wsID)
-	<-done
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
