@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { Handle, NodeResizer, Position, type NodeProps, type Node } from "@xyflow/react";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { showToast } from "@/components/Toaster";
