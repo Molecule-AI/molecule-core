@@ -4,9 +4,31 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 )
+
+// devModeAllowsLoopback reports whether the SSRF defence should permit
+// http://127.0.0.1:<port> workspace URLs. True only when MOLECULE_ENV is
+// a dev value — this is the same convention the middleware dev-mode
+// escape hatch uses (handlers/admin_test_token.go, middleware/devmode.go).
+//
+// Why: on a self-hosted Docker setup the provisioner publishes each
+// container's A2A port on 127.0.0.1:<ephemeral> and writes that URL
+// to workspaces.url. The A2A proxy on the host platform needs to POST
+// to that same 127.0.0.1:<port> to reach the container — there's no
+// other reachable address. SaaS never hits this branch because hosted
+// tenants run MOLECULE_ENV=production (enforced by the crypto strict-
+// init path) and the workspace URL is the tenant EC2's VPC-private IP.
+//
+// The relaxation is narrowly scoped to loopback IPv4 + ::1 — the
+// metadata, CGNAT, TEST-NET, and link-local guards stay blocked even
+// in dev mode.
+func devModeAllowsLoopback() bool {
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("MOLECULE_ENV")))
+	return env == "development" || env == "dev"
+}
 
 // ssrfCheckEnabled controls whether isSafeURL performs real validation.
 // Tests disable it via setSSRFCheckForTest so that httptest.NewServer
@@ -47,7 +69,7 @@ func isSafeURL(rawURL string) error {
 		return fmt.Errorf("empty hostname")
 	}
 	if ip := net.ParseIP(host); ip != nil {
-		if (ip.IsLoopback() && !testAllowLoopback) || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
+		if (ip.IsLoopback() && !testAllowLoopback && !devModeAllowsLoopback()) || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
 			return fmt.Errorf("forbidden loopback/unspecified/link-local IP: %s", ip)
 		}
 		if isPrivateOrMetadataIP(ip) {
@@ -67,7 +89,7 @@ func isSafeURL(rawURL string) error {
 		if ip == nil {
 			continue
 		}
-		if (ip.IsLoopback() && !testAllowLoopback) || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
+		if (ip.IsLoopback() && !testAllowLoopback && !devModeAllowsLoopback()) || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
 			return fmt.Errorf("hostname %s resolves to forbidden link-local/loopback IP: %s", host, ip)
 		}
 		if isPrivateOrMetadataIP(ip) {
@@ -134,8 +156,9 @@ func isPrivateOrMetadataIP(ip net.IP) bool {
 
 	// IPv6 path — .To4() was nil so this is a real v6 address.
 	// ::1 (loopback) — treat as blocked here too for defense-in-depth,
-	// unless tests have opted into loopback via testAllowLoopback.
-	if ip.IsLoopback() && !testAllowLoopback {
+	// unless tests have opted into loopback via testAllowLoopback OR
+	// MOLECULE_ENV is a dev value (mirrors the v4 relaxation above).
+	if ip.IsLoopback() && !testAllowLoopback && !devModeAllowsLoopback() {
 		return true
 	}
 	// Link-local fe80::/10 — always blocked.

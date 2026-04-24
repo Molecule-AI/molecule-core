@@ -61,8 +61,8 @@ func TestGenerateDefaultConfig_WithFiles(t *testing.T) {
 	if !strings.Contains(cfg, `name: "Test Agent"`) {
 		t.Errorf("config should contain quoted agent name, got:\n%s", cfg)
 	}
-	if !strings.Contains(cfg, "tier: 1") {
-		t.Error("config should default to tier 1")
+	if !strings.Contains(cfg, "tier: 3") {
+		t.Error("config should default to tier 3 (Privileged) — matches workspace.go create handler default")
 	}
 	// Should detect prompt files
 	if !strings.Contains(cfg, "system-prompt.md") {

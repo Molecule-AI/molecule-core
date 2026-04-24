@@ -29,8 +29,9 @@ func TestWorkspaceCreate_WithParentID(t *testing.T) {
 
 	parentID := "parent-ws-123"
 	mock.ExpectBegin()
+	// Default tier is 3 (Privileged) — see workspace.go create-handler comment.
 	mock.ExpectExec("INSERT INTO workspaces").
-		WithArgs(sqlmock.AnyArg(), "Child Agent", nil, 1, "langgraph", sqlmock.AnyArg(), &parentID, nil, "none", (*int64)(nil)).
+		WithArgs(sqlmock.AnyArg(), "Child Agent", nil, 3, "langgraph", sqlmock.AnyArg(), &parentID, nil, "none", (*int64)(nil)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectExec("INSERT INTO canvas_layouts").

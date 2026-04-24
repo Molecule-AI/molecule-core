@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { isSaaSTenant } from "@/lib/tenant";
 
 const STORAGE_KEY = "molecule_cookie_consent";
 
@@ -74,7 +75,18 @@ export function CookieConsent() {
   // Read persisted decision on mount. useState's initialState can't run
   // on first render because localStorage is SSR-unsafe — defer to
   // useEffect so the initial HTML is identical to the server snapshot.
+  //
+  // The banner is SaaS-only: it carries a link to the hosted
+  // privacy policy (moleculesai.app/legal/privacy) and presumes
+  // GDPR/ePrivacy obligations that only apply to the hosted offering.
+  // Self-hosted / local-dev / Vercel-preview hosts get no banner —
+  // matches the `isSaaSTenant()` convention used by AuthGate and
+  // the tier picker.
   useEffect(() => {
+    if (!isSaaSTenant()) {
+      setVisible(false);
+      return;
+    }
     setVisible(getStoredConsent() === null);
   }, []);
 

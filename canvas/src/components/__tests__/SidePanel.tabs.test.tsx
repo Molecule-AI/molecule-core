@@ -36,6 +36,10 @@ const mockStoreState = {
   panelTab: "chat",
   setPanelTab: mockSetPanelTab,
   selectNode: vi.fn(),
+  // Consumed by SidePanel's useEffect — publishes the drag-resized
+  // width to the store so Toolbar can re-centre itself on the
+  // remaining canvas area when the panel is open.
+  setSidePanelWidth: vi.fn(),
   nodes: [
     {
       id: "ws-1",

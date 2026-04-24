@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // RuntimeImages maps runtime names to their Docker image refs on GHCR.
@@ -236,6 +238,18 @@ func (p *Provisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string, e
 	// Ensure no stale container exists with the same name (race with restart policy)
 	_ = p.cli.ContainerRemove(ctx, name, container.RemoveOptions{Force: true})
 
+	// Resolve the target image platform once so the pull and the
+	// container-create use the same value. On an Apple Silicon dev
+	// laptop the GHCR workspace-template-* images only ship a
+	// linux/amd64 manifest today; without an explicit platform the
+	// daemon asks for linux/arm64/v8 and ImagePull returns
+	// "no matching manifest for linux/arm64/v8 in the manifest list
+	// entries". Forcing linux/amd64 lets Docker Desktop run them
+	// under QEMU emulation (slow but functional — unblocks local
+	// dev + Canvas smoke-testing on M-series Macs). See issue #1875.
+	imgPlatformStr := defaultImagePlatform()
+	imgPlatform := parseOCIPlatform(imgPlatformStr)
+
 	// Log image resolution for debugging stale-image issues, and pull from
 	// GHCR on miss so tenant hosts don't need a pre-build step anymore.
 	// The pull is best-effort: if it fails (network, auth, rate limit) the
@@ -245,8 +259,12 @@ func (p *Provisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string, e
 		log.Printf("Provisioner: creating %s from image %s (ID: %s, created: %s)",
 			name, image, imgInspect.ID[:19], imgInspect.Created[:19])
 	} else {
-		log.Printf("Provisioner: image %s not present locally (%v) — attempting pull", image, imgErr)
-		if perr := pullImageAndDrain(ctx, p.cli, image); perr != nil {
+		if imgPlatformStr != "" {
+			log.Printf("Provisioner: image %s not present locally (%v) — attempting pull (platform=%s)", image, imgErr, imgPlatformStr)
+		} else {
+			log.Printf("Provisioner: image %s not present locally (%v) — attempting pull", image, imgErr)
+		}
+		if perr := pullImageAndDrain(ctx, p.cli, image, imgPlatformStr); perr != nil {
 			log.Printf("Provisioner: image pull for %s failed: %v (falling through to create)", image, perr)
 		} else {
 			log.Printf("Provisioner: pulled %s", image)
@@ -257,7 +275,7 @@ func (p *Provisioner) Start(ctx context.Context, cfg WorkspaceConfig) (string, e
 	// Docker returns a generic "No such image" error that's opaque to
 	// operators — wrap it with the resolved tag and the exact pull
 	// command so last_sample_error surfaces something actionable. Issue #117.
-	resp, err := p.cli.ContainerCreate(ctx, containerCfg, hostCfg, networkCfg, nil, name)
+	resp, err := p.cli.ContainerCreate(ctx, containerCfg, hostCfg, networkCfg, imgPlatform, name)
 	if err != nil {
 		if isImageNotFoundErr(err) {
 			return "", fmt.Errorf(
@@ -980,8 +998,12 @@ type dockerImageClient interface {
 // pull to finish; returning early leaves the daemon mid-pull. We
 // discard the progress payload because operators read container logs
 // for boot diagnostics, not pull chatter.
-func pullImageAndDrain(ctx context.Context, cli dockerImageClient, ref string) error {
-	rc, err := cli.ImagePull(ctx, ref, dockerimage.PullOptions{})
+//
+// `platform` is "os/arch" (e.g. "linux/amd64") when the host needs to
+// pull a non-native manifest, or "" to let the daemon pick the default
+// for its arch. See defaultImagePlatform for when that matters.
+func pullImageAndDrain(ctx context.Context, cli dockerImageClient, ref, platform string) error {
+	rc, err := cli.ImagePull(ctx, ref, dockerimage.PullOptions{Platform: platform})
 	if err != nil {
 		return fmt.Errorf("ImagePull: %w", err)
 	}
@@ -990,4 +1012,45 @@ func pullImageAndDrain(ctx context.Context, cli dockerImageClient, ref string) e
 		return fmt.Errorf("drain pull stream: %w", err)
 	}
 	return nil
+}
+
+// defaultImagePlatform picks the Docker image platform string used for
+// `ImagePull` + `ContainerCreate` on the workspace-template-* images.
+//
+// Empty result means "use the daemon default" — the common case on
+// linux/amd64 hosts (CI, SaaS EC2, Linux dev machines). On Apple Silicon
+// the GHCR workspace-template-* images ship a single linux/amd64
+// manifest today, so the daemon's native linux/arm64/v8 request misses
+// with "no matching manifest". Forcing linux/amd64 pulls the amd64
+// manifest and lets Docker Desktop run it under QEMU emulation. Slow
+// (2–5× native) but functional — unblocks local dev on M-series Macs.
+//
+// Override via MOLECULE_IMAGE_PLATFORM — set to the empty string to
+// disable the auto-force, or to a specific value ("linux/amd64",
+// "linux/arm64") to pin. SaaS production should leave this unset.
+//
+// Tracked in issue #1875; remove this fallback once the template repos
+// publish multi-arch manifests.
+func defaultImagePlatform() string {
+	if v, ok := os.LookupEnv("MOLECULE_IMAGE_PLATFORM"); ok {
+		return v
+	}
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+		return "linux/amd64"
+	}
+	return ""
+}
+
+// parseOCIPlatform turns "linux/amd64" into the *ocispec.Platform shape
+// `ContainerCreate`'s platform argument expects. "" returns nil, which
+// is exactly how the Docker SDK signals "no preference".
+func parseOCIPlatform(s string) *ocispec.Platform {
+	if s == "" {
+		return nil
+	}
+	parts := strings.SplitN(s, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return nil
+	}
+	return &ocispec.Platform{OS: parts[0], Architecture: parts[1]}
 }

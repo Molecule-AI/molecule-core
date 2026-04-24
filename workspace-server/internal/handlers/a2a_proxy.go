@@ -89,11 +89,13 @@ func isSystemCaller(callerID string) bool {
 const maxProxyResponseBody = 10 << 20
 
 // a2aClient is a shared HTTP client for proxying A2A requests to workspace agents.
-// No client-level timeout — timeouts are enforced per-request via context deadlines:
-// canvas = 5 min (Rule 3), agent-to-agent = 30 min (DoS cap).
-var a2aClient = &http.Client{
-	Timeout: 60 * time.Second, // Safety net for when context deadlines are missing
-}
+// No client-level timeout — timeouts are enforced per-request via context
+// deadlines: canvas = 5 min (Rule 3), agent-to-agent = 30 min (DoS cap). Do NOT
+// set a Client.Timeout here: it is enforced independently of ctx deadlines and
+// would pre-empt legitimate slow cold-start flows (e.g. Claude Code first-token
+// over OAuth can take 30-60s on boot). Callers that want a safety net should
+// build a context.WithTimeout themselves.
+var a2aClient = &http.Client{}
 
 type proxyA2AError struct {
 	Status   int
