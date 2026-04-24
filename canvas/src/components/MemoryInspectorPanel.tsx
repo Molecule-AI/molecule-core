@@ -160,6 +160,7 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
         <div className="flex items-center gap-1">
           {SCOPES.map((scope) => (
             <button
+              type="button"
               key={scope}
               onClick={() => setActiveScope(scope)}
               aria-pressed={activeScope === scope}
@@ -201,6 +202,7 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
           />
           {searchQuery && (
             <button
+              type="button"
               onClick={() => {
                 setSearchQuery("");
                 setDebouncedQuery("");
@@ -240,6 +242,7 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
             : `${entries.length} memories`}
         </span>
         <button
+          type="button"
           onClick={loadEntries}
           className="px-2 py-1 text-[11px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded transition-colors"
           aria-label="Refresh memories"
@@ -273,6 +276,7 @@ export function MemoryInspectorPanel({ workspaceId }: Props) {
               <p className="text-[11px] text-zinc-600 max-w-[200px] leading-relaxed">
                 Try a different query or{" "}
                 <button
+                  type="button"
                   onClick={() => {
                     setSearchQuery("");
                     setDebouncedQuery("");
@@ -339,6 +343,7 @@ function MemoryEntryRow({ entry, onDelete }: MemoryEntryRowProps) {
     <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/50 overflow-hidden">
       {/* Header row */}
       <button
+        type="button"
         className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-zinc-800/30 transition-colors"
         onClick={() => setExpanded((prev) => !prev)}
         aria-expanded={expanded}
@@ -409,6 +414,7 @@ function MemoryEntryRow({ entry, onDelete }: MemoryEntryRowProps) {
               Created: {new Date(entry.created_at).toLocaleString()}
             </span>
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onDelete();
