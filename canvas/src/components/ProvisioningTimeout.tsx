@@ -6,10 +6,38 @@ import { api } from "@/lib/api";
 import { showToast } from "./Toaster";
 import { ConsoleModal } from "./ConsoleModal";
 
-/** Base provisioning timeout in milliseconds (2 minutes). Used as the
- *  floor; the effective threshold scales with the number of workspaces
- *  concurrently provisioning (see effectiveTimeoutMs below). */
+/** Base provisioning timeout in milliseconds (2 minutes). Floor for fast
+ *  runtimes (claude-code, langgraph, crewai) on Docker where cold boot
+ *  is 30-90s. Slow runtimes override via RUNTIME_TIMEOUT_OVERRIDES_MS.
+ *  The effective threshold also scales with concurrent-provisioning
+ *  count (see effectiveTimeoutMs below). */
 export const DEFAULT_PROVISION_TIMEOUT_MS = 120_000;
+
+/** Per-runtime timeout floors for cold-boot sequences that legitimately
+ *  exceed the 2-minute default. A too-low threshold creates false-alarm
+ *  banners telling users "your workspace is stuck" while it's actually
+ *  mid-install — confusing, and it makes users retry workspaces that
+ *  would have come online on their own.
+ *
+ *  Hermes at 12min: installs ripgrep + ffmpeg + node22 + builds
+ *  hermes-agent from source + Playwright + Chromium (~300MB). Measured
+ *  boots on staging EC2 routinely land at 8-13 min. Aligns with the
+ *  SaaS E2E PROVISION_TIMEOUT_SECS=900 (15 min) so the UI warning lands
+ *  shortly before the backend itself gives up.
+ *
+ *  Add entries here as new runtimes surface false-alarm complaints.
+ *  Runtimes absent from the map get DEFAULT_PROVISION_TIMEOUT_MS. */
+export const RUNTIME_TIMEOUT_OVERRIDES_MS: Record<string, number> = {
+  hermes: 720_000, // 12 min — see comment above
+};
+
+/** Resolve the base timeout for a workspace given its runtime. */
+export function timeoutForRuntime(runtime: string | undefined): number {
+  if (runtime && runtime in RUNTIME_TIMEOUT_OVERRIDES_MS) {
+    return RUNTIME_TIMEOUT_OVERRIDES_MS[runtime];
+  }
+  return DEFAULT_PROVISION_TIMEOUT_MS;
+}
 
 /** The server provisions up to `PROVISION_CONCURRENCY` containers at
  *  once and paces the rest in a queue (`workspaceCreatePacingMs` =
@@ -43,8 +71,12 @@ interface TimeoutEntry {
  * time per node.
  */
 export function ProvisioningTimeout({
-  timeoutMs = DEFAULT_PROVISION_TIMEOUT_MS,
+  timeoutMs,
 }: {
+  // If undefined (the default when mounted without a prop), each workspace's
+  // threshold is resolved from its runtime via timeoutForRuntime().
+  // Pass an explicit number to force a single threshold for every workspace
+  // (used by tests that want deterministic behavior regardless of runtime).
   timeoutMs?: number;
 }) {
   const [timedOut, setTimedOut] = useState<TimeoutEntry[]>([]);
@@ -57,19 +89,28 @@ export function ProvisioningTimeout({
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
   // Subscribe to provisioning nodes — use shallow compare to avoid infinite re-render
-  // (filter+map creates new array reference on every store update)
+  // (filter+map creates new array reference on every store update).
+  // Runtime included so the timeout threshold can be resolved per-node
+  // (hermes cold-boot legitimately takes 8-13 min vs 30-90s for docker
+  //  runtimes — a single threshold would false-alarm on one or the other).
+  // Separator: `|` between fields, `,` between nodes. Names may contain
+  // anything the user typed; strip `|` and `,` so serialization round-trips.
   const provisioningNodes = useCanvasStore((s) => {
     const result = s.nodes
       .filter((n) => n.data.status === "provisioning")
-      .map((n) => `${n.id}:${n.data.name}`);
+      .map((n) => {
+        const safeName = (n.data.name ?? "").replace(/[|,]/g, " ");
+        const runtime = n.data.runtime ?? "";
+        return `${n.id}|${safeName}|${runtime}`;
+      });
     return result.join(",");
   });
   const parsedProvisioningNodes = useMemo(
     () =>
       provisioningNodes
         ? provisioningNodes.split(",").map((entry) => {
-            const [id, name] = entry.split(":");
-            return { id, name };
+            const [id, name, runtime] = entry.split("|");
+            return { id, name, runtime };
           })
         : [],
     [provisioningNodes],
@@ -113,14 +154,20 @@ export function ProvisioningTimeout({
     const interval = setInterval(() => {
       const now = Date.now();
       const newTimedOut: TimeoutEntry[] = [];
-      const effective = effectiveTimeoutMs(
-        timeoutMs,
-        parsedProvisioningNodes.length,
-      );
 
+      // Per-node timeout: each workspace has its own base (runtime-aware)
+      // scaled by the total concurrent-provisioning count. A hermes
+      // workspace in a batch alongside two langgraph workspaces gets
+      // hermes's 12-min base, not langgraph's 2-min base.
       for (const node of parsedProvisioningNodes) {
         const startedAt = tracking.get(node.id);
-        if (startedAt && now - startedAt >= effective) {
+        if (!startedAt) continue;
+        const base = timeoutMs ?? timeoutForRuntime(node.runtime);
+        const effective = effectiveTimeoutMs(
+          base,
+          parsedProvisioningNodes.length,
+        );
+        if (now - startedAt >= effective) {
           newTimedOut.push({
             workspaceId: node.id,
             workspaceName: node.name,

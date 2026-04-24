@@ -7,7 +7,11 @@ global.fetch = vi.fn(() =>
 
 import { useCanvasStore } from "../../store/canvas";
 import type { WorkspaceData } from "../../store/socket";
-import { DEFAULT_PROVISION_TIMEOUT_MS } from "../ProvisioningTimeout";
+import {
+  DEFAULT_PROVISION_TIMEOUT_MS,
+  RUNTIME_TIMEOUT_OVERRIDES_MS,
+  timeoutForRuntime,
+} from "../ProvisioningTimeout";
 
 // Helper to build a WorkspaceData object
 function makeWS(overrides: Partial<WorkspaceData> & { id: string }): WorkspaceData {
@@ -183,5 +187,46 @@ describe("ProvisioningTimeout", () => {
       .getState()
       .nodes.filter((n) => n.data.status === "provisioning");
     expect(stillProvisioning).toHaveLength(2);
+  });
+
+  // ── Runtime-aware timeout regression tests (2026-04-24 outage) ────────────
+  // Prior to this, a hermes workspace consistently false-alarmed at 2 min
+  // into its 8-13 min cold boot, pushing users to retry something that
+  // would have come online on its own. The runtime-aware override keeps
+  // the 2-min floor for fast docker runtimes while giving hermes its
+  // honest 12-min budget.
+
+  describe("timeoutForRuntime", () => {
+    it("returns the 2-min default for unknown/missing runtimes", () => {
+      expect(timeoutForRuntime(undefined)).toBe(DEFAULT_PROVISION_TIMEOUT_MS);
+      expect(timeoutForRuntime("")).toBe(DEFAULT_PROVISION_TIMEOUT_MS);
+      expect(timeoutForRuntime("some-future-runtime")).toBe(
+        DEFAULT_PROVISION_TIMEOUT_MS,
+      );
+    });
+
+    it("returns the docker-fast 2-min default for known-fast runtimes", () => {
+      // These aren't in the override map so they get the default.
+      // If someone ever adds one of them to RUNTIME_TIMEOUT_OVERRIDES_MS,
+      // this test catches the accidental regression.
+      expect(timeoutForRuntime("claude-code")).toBe(DEFAULT_PROVISION_TIMEOUT_MS);
+      expect(timeoutForRuntime("langgraph")).toBe(DEFAULT_PROVISION_TIMEOUT_MS);
+      expect(timeoutForRuntime("crewai")).toBe(DEFAULT_PROVISION_TIMEOUT_MS);
+    });
+
+    it("returns 12 min for hermes — covers cold-boot install tail", () => {
+      expect(timeoutForRuntime("hermes")).toBe(720_000);
+      expect(timeoutForRuntime("hermes")).toBe(
+        RUNTIME_TIMEOUT_OVERRIDES_MS.hermes,
+      );
+    });
+
+    it("hermes override is materially longer than the default", () => {
+      // Guard against future refactors that accidentally weaken the
+      // override (e.g. typo lowering hermes to 72_000 = 72s).
+      expect(RUNTIME_TIMEOUT_OVERRIDES_MS.hermes).toBeGreaterThanOrEqual(
+        DEFAULT_PROVISION_TIMEOUT_MS * 5,
+      );
+    });
   });
 });
