@@ -25,13 +25,58 @@ export function useCanvasViewport() {
   const saveViewport = useCanvasStore((s) => s.saveViewport);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const panTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const autoFitTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Tracks whether any workspace was provisioning on the previous
+  // render so we can detect the boundary when the last one finishes
+  // and auto-fit the viewport around the whole tree.
+  const hadProvisioningRef = useRef(false);
 
   useEffect(() => {
     return () => {
       clearTimeout(saveTimerRef.current);
       clearTimeout(panTimerRef.current);
+      clearTimeout(autoFitTimerRef.current);
     };
   }, []);
+
+  // Auto-fit the viewport once all workspaces finish provisioning. Org
+  // imports land dozens of new nodes off-screen; without a follow-up
+  // fit, the user has to manually pan + zoom to find what they just
+  // created. Only fires when TRANSITIONING from some-provisioning to
+  // zero-provisioning — not on every re-render.
+  const provisioningCount = useCanvasStore(
+    (s) => s.nodes.filter((n) => n.data.status === "provisioning").length,
+  );
+  const nodeCount = useCanvasStore((s) => s.nodes.length);
+
+  useEffect(() => {
+    const hasProvisioning = provisioningCount > 0;
+    const wasProvisioning = hadProvisioningRef.current;
+    hadProvisioningRef.current = hasProvisioning;
+
+    if (wasProvisioning && !hasProvisioning && nodeCount > 0) {
+      clearTimeout(autoFitTimerRef.current);
+      // 1200ms settle delay: lets React Flow's DOM measurement pass
+      // resize newly-online parents before we compute bounds.
+      // Measuring too early gives us the pre-render skeleton bbox and
+      // fitView zooms to that smaller-than-real rectangle.
+      autoFitTimerRef.current = setTimeout(() => {
+        fitView({
+          duration: 1200,
+          padding: 0.25,
+          // Cap zoom-in: a small tree (2-3 nodes) would otherwise end
+          // up at the 2x maxZoom, visually implying "something is
+          // wrong". 0.8 reads like "here's your whole org" even when
+          // the tree is small.
+          maxZoom: 0.8,
+          // Cap zoom-out: fitView would fall back to the component's
+          // minZoom=0.1 on a sparse/outlier layout, leaving the user
+          // staring at a postage-stamp canvas. 0.25 is the floor.
+          minZoom: 0.25,
+        });
+      }, 1200);
+    }
+  }, [provisioningCount, nodeCount, fitView]);
 
   // Pan to a newly deployed / targeted workspace. 100ms delay so React
   // Flow has time to measure a just-rendered node.

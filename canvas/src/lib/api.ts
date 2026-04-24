@@ -11,14 +11,22 @@ export const PLATFORM_URL =
 // 15s is long enough for slow CP queries but short enough that a
 // hung backend doesn't leave the UI spinning forever. The abort
 // propagates through AbortController so React components can observe
-// the error and render a retry affordance.
+// the error and render a retry affordance. Callers that know the
+// endpoint is intentionally slow (org import walks a tree of
+// workspaces with server-side pacing) can pass `timeoutMs` to
+// override.
 const DEFAULT_TIMEOUT_MS = 15_000;
+
+export interface RequestOptions {
+  timeoutMs?: number;
+}
 
 async function request<T>(
   method: string,
   path: string,
   body?: unknown,
   retryCount = 0,
+  options?: RequestOptions,
 ): Promise<T> {
   // SaaS cross-origin shape:
   //  - X-Molecule-Org-Slug: derived from window.location.hostname by
@@ -37,7 +45,7 @@ async function request<T>(
     headers,
     body: body ? JSON.stringify(body) : undefined,
     credentials: "include",
-    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+    signal: AbortSignal.timeout(options?.timeoutMs ?? DEFAULT_TIMEOUT_MS),
   });
   // Transient rate-limit recovery. A single IP bucket can momentarily
   // spike on page load (several panels hydrate simultaneously). Instead
@@ -49,7 +57,7 @@ async function request<T>(
     const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) : NaN;
     const delayMs = Number.isFinite(retryAfter) ? Math.min(retryAfter, 20) * 1000 : 2000;
     await new Promise((resolve) => setTimeout(resolve, delayMs));
-    return request<T>(method, path, body, retryCount + 1);
+    return request<T>(method, path, body, retryCount + 1, options);
   }
   if (res.status === 401) {
     // Session expired or credentials lost. On SaaS (tenant subdomain)
@@ -75,9 +83,9 @@ async function request<T>(
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>("GET", path),
-  post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
-  patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
-  put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body),
-  del: <T>(path: string) => request<T>("DELETE", path),
+  get: <T>(path: string, options?: RequestOptions) => request<T>("GET", path, undefined, 0, options),
+  post: <T>(path: string, body?: unknown, options?: RequestOptions) => request<T>("POST", path, body, 0, options),
+  patch: <T>(path: string, body?: unknown, options?: RequestOptions) => request<T>("PATCH", path, body, 0, options),
+  put: <T>(path: string, body?: unknown, options?: RequestOptions) => request<T>("PUT", path, body, 0, options),
+  del: <T>(path: string, options?: RequestOptions) => request<T>("DELETE", path, undefined, 0, options),
 };

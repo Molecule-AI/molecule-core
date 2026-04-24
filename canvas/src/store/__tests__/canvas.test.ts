@@ -914,6 +914,39 @@ describe("setCollapsed", () => {
     }));
     expect(afterHydrate).toEqual(afterCollapse);
   });
+
+  it("sizes the expanded parent to fit nested-parent children, not leaf-count", () => {
+    // Regression: when a collapsed parent contains a child that is
+    // itself a parent (CTO → Dev Lead → 6 engineers), expanding must
+    // use each direct child's actual rendered size — not the
+    // leaf-count formula. Otherwise the container is too small and
+    // Dev Lead (wide enough for 6 engineers in a grid) overflows.
+    useCanvasStore.getState().hydrate([
+      makeWS({ id: "cto", name: "CTO", collapsed: true }),
+      makeWS({ id: "devLead", name: "Dev Lead", parent_id: "cto" }),
+      makeWS({ id: "fe", name: "Frontend", parent_id: "devLead" }),
+      makeWS({ id: "be", name: "Backend", parent_id: "devLead" }),
+      makeWS({ id: "mo", name: "Mobile", parent_id: "devLead" }),
+      makeWS({ id: "do", name: "DevOps", parent_id: "devLead" }),
+      makeWS({ id: "se", name: "Security", parent_id: "devLead" }),
+      makeWS({ id: "qa", name: "QA", parent_id: "devLead" }),
+    ]);
+    const devLeadNode = useCanvasStore
+      .getState()
+      .nodes.find((n) => n.id === "devLead")!;
+    const devLeadW = devLeadNode.width as number;
+
+    useCanvasStore.getState().setCollapsed("cto", false);
+
+    const ctoAfter = useCanvasStore
+      .getState()
+      .nodes.find((n) => n.id === "cto")!;
+    // CTO's new width must be wide enough to host its Dev Lead child
+    // plus the parent's own padding. Leaf-count formula would yield
+    // ~272 (one 240px leaf slot); subtree-aware should be ≥ Dev Lead
+    // plus side padding.
+    expect(ctoAfter.width).toBeGreaterThanOrEqual(devLeadW);
+  });
 });
 
 // ---------- bumpZOrder ----------

@@ -3,10 +3,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import { useCanvasStore } from "@/store/canvas";
+import type { WorkspaceData } from "@/store/socket";
 import { checkDeploySecrets, type PreflightResult, type ModelSpec } from "@/lib/deploy-preflight";
 import { MissingKeysModal } from "./MissingKeysModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Spinner } from "./Spinner";
+import { showToast } from "./Toaster";
 import { TIER_CONFIG } from "@/lib/design-tokens";
 
 interface Template {
@@ -40,10 +42,41 @@ export async function fetchOrgTemplates(): Promise<OrgTemplate[]> {
   }
 }
 
-/** Import an org template by directory name. Throws on platform error so the
- * caller can surface the message in its error state. */
-export async function importOrgTemplate(dir: string): Promise<void> {
-  await api.post("/org/import", { dir });
+/** Server response from POST /org/import. The handler returns 207
+ * (StatusMultiStatus) with a populated `error` field when only some of
+ * the workspaces in the tree could be created — the HTTP status alone
+ * isn't enough to detect a partial failure. */
+interface OrgImportResponse {
+  org: string;
+  workspaces: Array<{ id: string; name: string }>;
+  count: number;
+  error?: string;
+}
+
+/** Import an org template by directory name. Throws on platform error
+ * so the caller can surface the message in its error state. Also throws
+ * on 2xx-with-error-body (StatusMultiStatus) — without this check a
+ * partial failure (e.g. first workspace INSERT fails, 0 created)
+ * appears as a green success toast and the user sees no canvas update.
+ *
+ * Uses a long timeout because createWorkspaceTree paces sibling DB
+ * inserts by `workspaceCreatePacingMs` (2s) to avoid overwhelming
+ * Docker — a 15-workspace tree sleeps ~28s in the handler alone,
+ * which blows past the default 15s and makes the client report a
+ * spurious "signal timed out" error even though the server finished
+ * successfully. 2min covers trees up to ~60 workspaces. */
+const ORG_IMPORT_TIMEOUT_MS = 120_000;
+
+export async function importOrgTemplate(dir: string): Promise<OrgImportResponse> {
+  const resp = await api.post<OrgImportResponse>(
+    "/org/import",
+    { dir },
+    { timeoutMs: ORG_IMPORT_TIMEOUT_MS },
+  );
+  if (resp && resp.error) {
+    throw new Error(`${resp.error} (created ${resp.count ?? 0} workspaces)`);
+  }
+  return resp;
 }
 
 /**
@@ -81,8 +114,22 @@ export function OrgTemplatesSection() {
     setError(null);
     try {
       await importOrgTemplate(org.dir);
+      // Refresh canvas inline — the WebSocket may be offline, in which case
+      // WORKSPACE_PROVISIONING broadcasts never arrive and the user sees
+      // no change from clicking "Import org". A direct fetch guarantees
+      // the new workspaces land on canvas regardless of WS state.
+      try {
+        const workspaces = await api.get<WorkspaceData[]>("/workspaces");
+        useCanvasStore.getState().hydrate(workspaces);
+      } catch {
+        // Rehydrate failure is non-fatal; WS (if alive) or the next
+        // health-check cycle will eventually pick the new workspaces up.
+      }
+      showToast(`Imported "${org.name || org.dir}" (${org.workspaces} workspaces)`, "success");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Import failed");
+      const msg = e instanceof Error ? e.message : "Import failed";
+      setError(msg);
+      showToast(`Import failed: ${msg}`, "error");
     } finally {
       setImporting(null);
     }

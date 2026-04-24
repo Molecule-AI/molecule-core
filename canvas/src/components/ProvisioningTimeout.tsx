@@ -6,8 +6,26 @@ import { api } from "@/lib/api";
 import { showToast } from "./Toaster";
 import { ConsoleModal } from "./ConsoleModal";
 
-/** Default provisioning timeout in milliseconds (2 minutes). */
+/** Base provisioning timeout in milliseconds (2 minutes). Used as the
+ *  floor; the effective threshold scales with the number of workspaces
+ *  concurrently provisioning (see effectiveTimeoutMs below). */
 export const DEFAULT_PROVISION_TIMEOUT_MS = 120_000;
+
+/** The server provisions up to `PROVISION_CONCURRENCY` containers at
+ *  once and paces the rest in a queue (`workspaceCreatePacingMs` =
+ *  2s). Mirrors the Go constants — if those change, bump these. */
+const PROVISION_CONCURRENCY = 3;
+const PER_QUEUE_SLOT_EXTRA_MS = 45_000; // ~45s head-room per queued workspace
+
+/** Scale the base timeout by how many workspaces are provisioning at
+ *  once. A 30-workspace org import has tail items that legitimately
+ *  wait minutes before Docker even starts on them — flagging each as
+ *  "stuck" after 2m creates a wall of 27 yellow banners that buries
+ *  the canvas. */
+function effectiveTimeoutMs(base: number, concurrentCount: number): number {
+  const overflow = Math.max(0, concurrentCount - PROVISION_CONCURRENCY);
+  return base + overflow * PER_QUEUE_SLOT_EXTRA_MS;
+}
 
 interface TimeoutEntry {
   workspaceId: string;
@@ -33,6 +51,10 @@ export function ProvisioningTimeout({
   const [retrying, setRetrying] = useState<Set<string>>(new Set());
   const [cancelling, setCancelling] = useState<Set<string>>(new Set());
   const trackingRef = useRef<Map<string, number>>(new Map());
+  // Workspaces the user explicitly dismissed — don't re-show their
+  // banner even if they stay in provisioning. Cleared when the
+  // workspace leaves provisioning (status changes).
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
   // Subscribe to provisioning nodes — use shallow compare to avoid infinite re-render
   // (filter+map creates new array reference on every store update)
@@ -71,17 +93,34 @@ export function ProvisioningTimeout({
       }
     }
 
-    // Also remove from timedOut list if no longer provisioning
+    // Also remove from timedOut list if no longer provisioning, and
+    // clear `dismissed` entries for workspaces that finished so a
+    // re-provision (e.g. retry) can surface a fresh banner.
     setTimedOut((prev) => prev.filter((e) => activeIds.has(e.workspaceId)));
+    setDismissed((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of prev) {
+        if (!activeIds.has(id)) {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
 
     // Interval to check for timeouts
     const interval = setInterval(() => {
       const now = Date.now();
       const newTimedOut: TimeoutEntry[] = [];
+      const effective = effectiveTimeoutMs(
+        timeoutMs,
+        parsedProvisioningNodes.length,
+      );
 
       for (const node of parsedProvisioningNodes) {
         const startedAt = tracking.get(node.id);
-        if (startedAt && now - startedAt >= timeoutMs) {
+        if (startedAt && now - startedAt >= effective) {
           newTimedOut.push({
             workspaceId: node.id,
             workspaceName: node.name,
@@ -103,6 +142,11 @@ export function ProvisioningTimeout({
 
     return () => clearInterval(interval);
   }, [parsedProvisioningNodes, timeoutMs]);
+
+  const handleDismiss = useCallback((workspaceId: string) => {
+    setDismissed((prev) => new Set(prev).add(workspaceId));
+    setTimedOut((prev) => prev.filter((e) => e.workspaceId !== workspaceId));
+  }, []);
 
   const RETRY_COOLDOWN_MS = 5_000;
   const [retryCooldown, setRetryCooldown] = useState<Set<string>>(new Set());
@@ -180,11 +224,16 @@ export function ProvisioningTimeout({
     setConsoleFor(workspaceId);
   }, []);
 
-  if (timedOut.length === 0) return null;
+  const visibleTimedOut = useMemo(
+    () => timedOut.filter((e) => !dismissed.has(e.workspaceId)),
+    [timedOut, dismissed],
+  );
+
+  if (visibleTimedOut.length === 0) return null;
 
   return (
     <div role="alert" aria-live="assertive" className="fixed top-14 left-1/2 -translate-x-1/2 z-40 flex flex-col gap-2 max-w-[480px] w-full px-4">
-      {timedOut.map((entry) => {
+      {visibleTimedOut.map((entry) => {
         const elapsed = Math.round((Date.now() - entry.startedAt) / 1000);
         const isRetrying = retrying.has(entry.workspaceId);
         const isCancelling = cancelling.has(entry.workspaceId);
@@ -210,8 +259,20 @@ export function ProvisioningTimeout({
               </div>
 
               <div className="flex-1 min-w-0">
-                <div className="text-[12px] font-semibold text-amber-200 mb-0.5">
-                  Provisioning Timeout
+                <div className="flex items-center justify-between mb-0.5 gap-2">
+                  <div className="text-[12px] font-semibold text-amber-200">
+                    Provisioning Timeout
+                  </div>
+                  <button
+                    onClick={() => handleDismiss(entry.workspaceId)}
+                    aria-label="Dismiss provisioning timeout warning"
+                    title="Dismiss — keep this workspace running without the warning"
+                    className="shrink-0 text-amber-400/60 hover:text-amber-200 transition-colors -mr-1"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                    </svg>
+                  </button>
                 </div>
                 <div className="text-[11px] text-amber-300/80 leading-relaxed">
                   <span className="font-medium text-amber-200">{entry.workspaceName}</span>{" "}
