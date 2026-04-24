@@ -1011,8 +1011,10 @@ func TestCanvasOrBearer_TokensExist_NoCreds_Returns401(t *testing.T) {
 	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
+	handlerCalled := false
 	r := gin.New()
 	r.PUT("/canvas/viewport", CanvasOrBearer(mockDB), func(c *gin.Context) {
+		handlerCalled = true
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 
@@ -1022,6 +1024,47 @@ func TestCanvasOrBearer_TokensExist_NoCreds_Returns401(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("no creds: got %d, want 401", w.Code)
+	}
+	if handlerCalled {
+		t.Error("handler was called after AbortWithStatusJSON — missing return allows fall-through")
+	}
+	if body := w.Body.String(); body == `{"ok":true}` {
+		t.Error("handler body written after AbortWithStatusJSON")
+	}
+}
+
+func TestCanvasOrBearer_TokensExist_WrongOrigin_Returns401(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer mockDB.Close()
+
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	t.Setenv("CORS_ORIGINS", "https://acme.moleculesai.app")
+
+	handlerCalled := false
+	r := gin.New()
+	r.PUT("/canvas/viewport", CanvasOrBearer(mockDB), func(c *gin.Context) {
+		handlerCalled = true
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/canvas/viewport", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("wrong origin: got %d, want 401", w.Code)
+	}
+	if handlerCalled {
+		t.Error("handler was called after AbortWithStatusJSON — missing return allows fall-through")
+	}
+	if body := w.Body.String(); body == `{"ok":true}` {
+		t.Error("handler body written after AbortWithStatusJSON")
 	}
 }
 
@@ -1100,7 +1143,7 @@ func TestAdminAuth_RemovedWorkspaceToken_Returns401(t *testing.T) {
 	}
 }
 
-func TestCanvasOrBearer_TokensExist_WrongOrigin_Returns401(t *testing.T) {
+func TestCanvasOrBearer_WrongOrigin_Blocked(t *testing.T) {
 	mockDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
