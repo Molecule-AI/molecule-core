@@ -6,6 +6,7 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import { api } from "@/lib/api";
+import { showToast } from "@/components/Toaster";
 import type { WorkspaceData, WSMessage } from "./socket";
 import { handleCanvasEvent } from "./canvas-events";
 import {
@@ -326,8 +327,31 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   batchNest: async (nodeIds, targetId) => {
     if (nodeIds.length === 0) return;
-    if (nodeIds.length === 1) {
-      await get().nestNode(nodeIds[0], targetId);
+    // Selection-roots filter: if the user selected both A and A's
+    // descendant B and dragged the pair into T, the intent is "move
+    // the subtree" — B should stay under A, not become a sibling of
+    // A under T. Drop every selected node whose ancestor is also
+    // selected; those will follow their ancestor via React Flow's
+    // parent-of binding automatically.
+    const selectedSet = new Set(nodeIds);
+    const { nodes: before, edges: beforeEdges } = get();
+    const byId = new Map(before.map((n) => [n.id, n]));
+    const rootsOnly: string[] = [];
+    for (const id of nodeIds) {
+      let cursor = byId.get(id)?.data.parentId ?? null;
+      let hasSelectedAncestor = false;
+      while (cursor) {
+        if (selectedSet.has(cursor)) {
+          hasSelectedAncestor = true;
+          break;
+        }
+        cursor = byId.get(cursor)?.data.parentId ?? null;
+      }
+      if (!hasSelectedAncestor) rootsOnly.push(id);
+    }
+    if (rootsOnly.length === 0) return;
+    if (rootsOnly.length === 1) {
+      await get().nestNode(rootsOnly[0], targetId);
       return;
     }
     // Batch path: do all state math against one snapshot so every
@@ -338,8 +362,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     // in flight at once. For a typical 3-5 node selection on a
     // ~200ms link this drops the perceived re-parent latency from
     // ~2s to ~200ms.
-    const { nodes: before, edges: beforeEdges } = get();
-    const byId = new Map(before.map((n) => [n.id, n]));
 
     const absOf = (id: string | null | undefined): { x: number; y: number } => {
       let sum = { x: 0, y: 0 };
@@ -376,7 +398,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const plan: Plan[] = [];
     const movedIds = new Set<string>();
     // Filter out nodes that would be invalid targets / no-ops.
-    for (const id of nodeIds) {
+    for (const id of rootsOnly) {
       const dragged = byId.get(id);
       if (!dragged) continue;
       const currentParentId = dragged.data.parentId;
@@ -487,6 +509,17 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           };
         }),
       });
+      // Surface the partial failure — silent rollback would otherwise
+      // leave the canvas in a state the user can't explain ("I dragged
+      // 5 cards, 3 moved and 2 snapped back?").
+      const failedNames = rolledBack
+        .map((id) => byId.get(id)?.data.name)
+        .filter(Boolean)
+        .join(", ");
+      showToast(
+        `Could not re-parent ${rolledBack.length} of ${plan.length} workspace${plan.length === 1 ? "" : "s"}${failedNames ? `: ${failedNames}` : ""}`,
+        "error",
+      );
     }
   },
 

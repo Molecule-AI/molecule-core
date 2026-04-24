@@ -195,9 +195,9 @@ function CanvasInner() {
 
         {/* Screen-reader live region: announces workspace count on canvas load or change */}
         <div role="status" aria-live="polite" className="sr-only">
-          {nodes.filter((n) => !n.data.parentId).length === 0
+          {nodes.filter((n) => !n.parentId).length === 0
             ? "No workspaces on canvas"
-            : `${nodes.filter((n) => !n.data.parentId).length} workspace${nodes.filter((n) => !n.data.parentId).length !== 1 ? "s" : ""} on canvas`}
+            : `${nodes.filter((n) => !n.parentId).length} workspace${nodes.filter((n) => !n.parentId).length !== 1 ? "s" : ""} on canvas`}
         </div>
 
         {nodes.length === 0 && <EmptyState />}
