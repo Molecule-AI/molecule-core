@@ -22,7 +22,7 @@ Key properties:
 - **Versioned** — every snapshot is a Git commit, accessible and diffable
 - **Branching** — agents can fork an isolated copy before experimental changes
 - **Short-lived credentials** — Git tokens minted on demand, revoked automatically
-- **Edge-hosted** — CF's network means sub-50ms access from anywhere an agent runs
+- **Edge-hosted** — hosted on Cloudflare's global network; low-latency access from wherever your agents run
 
 This is a first-mover integration. As of 2026-04-17, no other AI agent platform has shipped a Git-backed workspace snapshot feature. The [Cloudflare blog post](https://blog.cloudflare.com/artifacts-git-for-agents-beta/) has the full context.
 
