@@ -260,6 +260,11 @@ cp .env.example .env
 # 以及 Temporal (:7233 gRPC, :8233 UI)，全部挂在共享的
 # `molecule-monorepo-net` Docker 网络上。Temporal 默认无鉴权，
 # 仅用于本地开发；生产环境必须加 mTLS / API Key。
+#
+# 同时会根据 manifest.json 拉取所有模板/插件仓库到
+# workspace-configs-templates/、org-templates/、plugins/ 三个目录。
+# 需要安装 jq：`brew install jq`（macOS）或 `apt install jq`（Debian）。
+# 脚本幂等：已经存在内容的目录会被跳过，可以安全重跑。
 
 cd workspace-server
 go run ./cmd/server   # 首次启动会自动跑 schema_migrations 里未应用的迁移

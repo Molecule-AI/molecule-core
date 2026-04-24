@@ -63,6 +63,7 @@ export function Toaster() {
             <div key={toast.id} className={toastCls(toast.type)}>
               <span>{toast.message}</span>
               <button
+                type="button"
                 onClick={() => dismiss(toast.id)}
                 aria-label="Dismiss notification"
                 className="ml-1 p-1 rounded hover:bg-zinc-700/50 transition-colors opacity-70 hover:opacity-100 shrink-0"
@@ -90,6 +91,7 @@ export function Toaster() {
             <div key={toast.id} className={toastCls(toast.type)}>
               <span>{toast.message}</span>
               <button
+                type="button"
                 onClick={() => dismiss(toast.id)}
                 aria-label="Dismiss notification"
                 className="ml-1 p-1 rounded hover:bg-zinc-700/50 transition-colors opacity-70 hover:opacity-100 shrink-0"

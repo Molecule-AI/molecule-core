@@ -523,11 +523,9 @@ func TestAdminAuth_OrgToken_SetsOrgID(t *testing.T) {
 			mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
 				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-			// Single-round-trip Validate: id + prefix + org_id. The
-			// secondary org_id SELECT has been consolidated into this
-			// query, so tt.orgIDFromDB goes into the same row instead of
-			// being returned by a second ExpectQuery. Note: org tokens
-			// are checked BEFORE the workspace token path
+			// orgtoken.Validate: org token hash matches, returns id + prefix + org_id.
+			// The org_id is returned directly from the primary query.
+			// Note: org tokens are checked BEFORE the workspace token path
 			// (ValidateAnyToken), so ValidateAnyToken is NOT called here.
 			mock.ExpectQuery(orgTokenValidateQueryV1).
 				WithArgs(orgTokenHash[:]).
@@ -732,6 +730,208 @@ func TestAdminAuth_Issue180_ApprovalsListing_FailOpen_NoTokens(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("#180 fail-open (no tokens): expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestWorkspaceAuth_DevModeEscapeHatch_NoBearer_FailsOpen documents the
+// local-dev escape hatch on WorkspaceAuth. On `go run ./cmd/server` +
+// `npm run dev`, Canvas at localhost:3000 calls the platform at
+// localhost:8080 cross-port, so isSameOriginCanvas's Host==Referer
+// check fails. Without this hatch the Canvas can't show per-workspace
+// activity/delegations.
+//
+// SaaS never fires this branch because tenant provisioning sets both
+// MOLECULE_ENV=production and ADMIN_TOKEN.
+func TestWorkspaceAuth_DevModeEscapeHatch_NoBearer_FailsOpen(t *testing.T) {
+	t.Setenv("MOLECULE_ENV", "development")
+	t.Setenv("ADMIN_TOKEN", "")
+
+	mockDB, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	// No DB queries expected — the hatch short-circuits before any lookup.
+
+	r := gin.New()
+	r.GET("/workspaces/:id/activity", WorkspaceAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"activity": []interface{}{}})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet,
+		"/workspaces/00000000-0000-0000-0000-000000000000/activity", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("WorkspaceAuth dev-mode hatch: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestWorkspaceAuth_DevModeEscapeHatch_IgnoredInProduction verifies
+// the hatch never fires in production mode. This is the SaaS-safety
+// guarantee — no one should get a bearer-free 200 in prod just because
+// MOLECULE_ENV leaks an unexpected value.
+func TestWorkspaceAuth_DevModeEscapeHatch_IgnoredInProduction(t *testing.T) {
+	t.Setenv("MOLECULE_ENV", "production")
+	t.Setenv("ADMIN_TOKEN", "")
+
+	mockDB, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	r := gin.New()
+	r.GET("/workspaces/:id/activity", WorkspaceAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"activity": []interface{}{}})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet,
+		"/workspaces/00000000-0000-0000-0000-000000000000/activity", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("production mode: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestWorkspaceAuth_DevModeEscapeHatch_IgnoredWhenAdminTokenSet verifies
+// setting ADMIN_TOKEN on the server (the #684 opt-in) disables the
+// dev-mode hatch — callers MUST present a valid bearer. Setting
+// ADMIN_TOKEN is the explicit SaaS-mode opt-in.
+func TestWorkspaceAuth_DevModeEscapeHatch_IgnoredWhenAdminTokenSet(t *testing.T) {
+	t.Setenv("MOLECULE_ENV", "development")
+	t.Setenv("ADMIN_TOKEN", "operator-set-this")
+
+	mockDB, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	r := gin.New()
+	r.GET("/workspaces/:id/activity", WorkspaceAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"activity": []interface{}{}})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet,
+		"/workspaces/00000000-0000-0000-0000-000000000000/activity", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("dev-mode + ADMIN_TOKEN: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestAdminAuth_DevModeEscapeHatch_FailsOpenWithHasLiveTokens documents the
+// Tier-1b dev-mode escape hatch. When the platform runs with MOLECULE_ENV=development
+// and ADMIN_TOKEN is unset, AdminAuth must stay fail-open even after workspace
+// tokens land in the DB. This keeps the Canvas dashboard usable in local dev
+// after the first workspace is created (PR #1871 — quickstart bugless).
+//
+// SaaS never hits this path because tenant provisioning sets both
+// ADMIN_TOKEN and MOLECULE_ENV=production.
+func TestAdminAuth_DevModeEscapeHatch_FailsOpenWithHasLiveTokens(t *testing.T) {
+	t.Setenv("MOLECULE_ENV", "development")
+	t.Setenv("ADMIN_TOKEN", "")
+
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	// HasAnyLiveTokenGlobal returns 1 — tokens exist (post first-workspace).
+	// The Tier-1 fail-open branch WOULD close here. Tier-1b must still open.
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	r := gin.New()
+	r.GET("/workspaces", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"workspaces": []interface{}{}})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/workspaces", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("dev-mode escape hatch: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestAdminAuth_DevModeEscapeHatch_IgnoredWhenAdminTokenSet verifies that the
+// dev-mode escape hatch does NOT override an operator who has set ADMIN_TOKEN.
+// Setting ADMIN_TOKEN is the explicit opt-in to #684 closure; dev-mode must not
+// silently reopen the gate.
+func TestAdminAuth_DevModeEscapeHatch_IgnoredWhenAdminTokenSet(t *testing.T) {
+	t.Setenv("MOLECULE_ENV", "development")
+	t.Setenv("ADMIN_TOKEN", "operator-explicitly-set-this")
+
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	// Tokens exist — Tier 1 closes.
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	r := gin.New()
+	r.GET("/workspaces", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"workspaces": []interface{}{}})
+	})
+
+	w := httptest.NewRecorder()
+	// No bearer token — must 401 even in dev mode because ADMIN_TOKEN is set.
+	req, _ := http.NewRequest(http.MethodGet, "/workspaces", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("dev-mode + ADMIN_TOKEN set: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestAdminAuth_DevModeEscapeHatch_IgnoredInProduction verifies the hatch never
+// fires when MOLECULE_ENV=production. This is the SaaS-safety guarantee.
+func TestAdminAuth_DevModeEscapeHatch_IgnoredInProduction(t *testing.T) {
+	t.Setenv("MOLECULE_ENV", "production")
+	t.Setenv("ADMIN_TOKEN", "")
+
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	r := gin.New()
+	r.GET("/workspaces", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"workspaces": []interface{}{}})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/workspaces", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("production mode: expected 401, got %d: %s", w.Code, w.Body.String())
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)

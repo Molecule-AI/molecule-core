@@ -29,6 +29,115 @@ const workspaceCreatePacingMs = 2000
 // fires 39 goroutines that all hit Docker at once, causing timeouts (#1084).
 const provisionConcurrency = 3
 
+// Child grid layout constants — kept in sync with canvas-topology.ts on
+// the client. Children laid on import use the same 2-column grid so the
+// nested view is clean out of the box. Before this, YAML-declared
+// canvas coords (absolute, horizontally fanned at y=180) produced an
+// overlapping mess under the nested render (see screenshot in PR
+// #1981 thread).
+const (
+	childDefaultWidth    = 240.0
+	childDefaultHeight   = 130.0
+	childGutter          = 14.0
+	parentHeaderPadding  = 130.0
+	parentSidePadding    = 16.0
+	childGridColumnCount = 2
+)
+
+// childSlot computes the child-relative position for the N-th sibling in
+// a parent's 2-column grid. Matches defaultChildSlot in
+// canvas-topology.ts exactly — change them together. Leaf-sized slots
+// only; for variable-size siblings use childSlotInGrid below.
+func childSlot(index int) (x, y float64) {
+	col := index % childGridColumnCount
+	row := index / childGridColumnCount
+	x = parentSidePadding + float64(col)*(childDefaultWidth+childGutter)
+	y = parentHeaderPadding + float64(row)*(childDefaultHeight+childGutter)
+	return
+}
+
+type nodeSize struct {
+	width, height float64
+}
+
+// sizeOfSubtree computes the bounding-box size for a workspace and its
+// entire descendant tree as rendered by the canvas grid layout.
+// Post-order: leaves return the CHILD_DEFAULT footprint; parents return
+// the size that fits all direct children (which may themselves be
+// parents with grandchildren). Matches the client's
+// `subtreeSize` pass in canvas-topology.ts so the server can lay out
+// org imports the same way the canvas will render them.
+func sizeOfSubtree(ws OrgWorkspace) nodeSize {
+	if len(ws.Children) == 0 {
+		return nodeSize{childDefaultWidth, childDefaultHeight}
+	}
+	cols := childGridColumnCount
+	if len(ws.Children) < cols {
+		cols = len(ws.Children)
+	}
+	rows := (len(ws.Children) + cols - 1) / cols
+	childSizes := make([]nodeSize, len(ws.Children))
+	maxColW := 0.0
+	for i, c := range ws.Children {
+		childSizes[i] = sizeOfSubtree(c)
+		if childSizes[i].width > maxColW {
+			maxColW = childSizes[i].width
+		}
+	}
+	rowHeights := make([]float64, rows)
+	for i, cs := range childSizes {
+		row := i / cols
+		if cs.height > rowHeights[row] {
+			rowHeights[row] = cs.height
+		}
+	}
+	totalRowH := 0.0
+	for _, h := range rowHeights {
+		totalRowH += h
+	}
+	return nodeSize{
+		width:  parentSidePadding*2 + maxColW*float64(cols) + childGutter*float64(cols-1),
+		height: parentHeaderPadding + totalRowH + childGutter*float64(rows-1) + parentSidePadding,
+	}
+}
+
+// childSlotInGrid computes the relative position of sibling `index`
+// given all siblings' subtree sizes. Uniform column width (= max width
+// across siblings), per-row max height, so a nested parent sibling
+// pushes its row down without displacing the column grid. Matches the
+// TS mirror in canvas-topology.ts.
+func childSlotInGrid(index int, siblingSizes []nodeSize) (x, y float64) {
+	if len(siblingSizes) == 0 {
+		return parentSidePadding, parentHeaderPadding
+	}
+	cols := childGridColumnCount
+	if len(siblingSizes) < cols {
+		cols = len(siblingSizes)
+	}
+	rows := (len(siblingSizes) + cols - 1) / cols
+	maxColW := 0.0
+	for _, s := range siblingSizes {
+		if s.width > maxColW {
+			maxColW = s.width
+		}
+	}
+	rowHeights := make([]float64, rows)
+	for i, s := range siblingSizes {
+		row := i / cols
+		if s.height > rowHeights[row] {
+			rowHeights[row] = s.height
+		}
+	}
+	col := index % cols
+	row := index / cols
+	x = parentSidePadding + float64(col)*(maxColW+childGutter)
+	y = parentHeaderPadding
+	for r := 0; r < row; r++ {
+		y += rowHeights[r] + childGutter
+	}
+	return
+}
+
 // orgImportScheduleSQL is the upsert executed for every schedule during
 // org/import. Extracted to a const so TestImport_OrgScheduleSQLShape can
 // assert its shape without regex-scanning org.go (issue #24 follow-up).
@@ -212,17 +321,36 @@ func (h *OrgHandler) ListTemplates(c *gin.Context) {
 			orgFile = filepath.Join(templateDir, "org.yml")
 			data, err = os.ReadFile(orgFile)
 			if err != nil {
+				// Half-clone detection: a directory that contains a `.git/`
+				// but no `org.yaml`/`org.yml` is almost always a manifest
+				// clone that got truncated mid-checkout. Surfacing this as
+				// a warning instead of a silent skip prevents the
+				// "template missing from registry" failure mode (audit
+				// 2026-04-24: org-templates/molecule-dev/ had only `.git/`
+				// and silently dropped from the Canvas palette for hours
+				// before anyone noticed).
+				gitDir := filepath.Join(templateDir, ".git")
+				if _, gitErr := os.Stat(gitDir); gitErr == nil {
+					log.Printf("ListTemplates: WARNING %q has .git but no org.yaml/.yml — likely a half-checkout. Try 'cd %s && git checkout main -- .' to restore the working tree.", e.Name(), templateDir)
+				}
 				continue
 			}
 		}
 		// Expand !include directives before unmarshal so templates that
 		// split across team/role files still report an accurate workspace
-		// count on the /org/templates listing.
+		// count on the /org/templates listing. Fail loudly on expansion
+		// errors — the previous silent-continue made a broken template
+		// show up as "no templates" in the Canvas palette with no log
+		// trail, which is how a fresh-clone user first discovers the gap.
 		if expanded, err := resolveYAMLIncludes(data, templateDir); err == nil {
 			data = expanded
+		} else {
+			log.Printf("ListTemplates: skipping %s — !include expansion failed: %v", e.Name(), err)
+			continue
 		}
 		var tmpl OrgTemplate
 		if err := yaml.Unmarshal(data, &tmpl); err != nil {
+			log.Printf("ListTemplates: skipping %s — yaml unmarshal failed: %v", e.Name(), err)
 			continue
 		}
 		count := countWorkspaces(tmpl.Workspaces)
@@ -293,9 +421,12 @@ func (h *OrgHandler) Import(c *gin.Context) {
 	// Semaphore limits concurrent Docker provisioning (#1084).
 	provisionSem := make(chan struct{}, provisionConcurrency)
 
-	// Recursively create workspaces
+	// Recursively create workspaces. Root workspaces keep their YAML
+	// canvas coords; children are positioned by createWorkspaceTree
+	// using subtree-aware grid slots (children that are themselves
+	// parents get a bigger slot so they don't overflow into siblings).
 	for _, ws := range tmpl.Workspaces {
-		if err := h.createWorkspaceTree(ws, nil, tmpl.Defaults, orgBaseDir, &results, provisionSem); err != nil {
+		if err := h.createWorkspaceTree(ws, nil, ws.Canvas.X, ws.Canvas.Y, tmpl.Defaults, orgBaseDir, &results, provisionSem); err != nil {
 			createErr = err
 			break
 		}

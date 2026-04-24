@@ -37,6 +37,9 @@ vi.mock("@/lib/deploy-preflight", () => ({
     return labels[key] ?? key;
   },
 }));
+// Tests render the modal without a `providers` prop — the component
+// falls back to the all-keys mode using the `missingKeys` array, which
+// matches the contract these tests were written for.
 
 // ── Suite 1: Visibility and ARIA ────────────────────────────────────────────
 
@@ -265,7 +268,7 @@ describe("MissingKeysModal — save flow", () => {
         onCancel={vi.fn()}
       />
     );
-    const saveBtn = screen.getAllByRole("button").find(b => /save/i.test(b.textContent ?? ""))!;
+    const saveBtn = screen.getAllByRole("button").find(b => /save/i.test(b.textContent ?? "")) as HTMLButtonElement;
     expect(saveBtn.disabled).toBe(true);
   });
 
@@ -284,7 +287,7 @@ describe("MissingKeysModal — save flow", () => {
     act(() => {
       fireEvent.change(input, { target: { value: "sk-123" } });
     });
-    const saveBtn = screen.getAllByRole("button").find(b => /save/i.test(b.textContent ?? ""))!;
+    const saveBtn = screen.getAllByRole("button").find(b => /save/i.test(b.textContent ?? "")) as HTMLButtonElement;
     expect(saveBtn.disabled).toBe(false);
   });
 

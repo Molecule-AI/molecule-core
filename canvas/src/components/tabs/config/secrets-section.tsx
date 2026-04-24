@@ -13,13 +13,58 @@ interface SecretEntry {
   scope?: "global" | "workspace";
 }
 
-const COMMON_KEYS = [
-  { key: "ANTHROPIC_API_KEY", label: "Anthropic API Key" },
-  { key: "OPENAI_API_KEY", label: "OpenAI API Key" },
-  { key: "GOOGLE_API_KEY", label: "Google AI API Key" },
-  { key: "SERP_API_KEY", label: "SERP API Key" },
-  { key: "MODEL_PROVIDER", label: "Model Override (e.g. anthropic:claude-sonnet-4-6)" },
+// Human-friendly labels for well-known env-var names. Used to render
+// familiar copy ("Anthropic API Key") instead of the raw variable name
+// when the template declares one of these. Unknown names (e.g.
+// MINIMAX_API_KEY, ZHIPU_API_KEY) fall through to humanizeKeyName below
+// — a generic "Minimax API Key" label is better than no label at all.
+//
+// SECRETS_WHEN_NO_TEMPLATE is the fallback set shown only when a
+// workspace's template doesn't declare any required_env (legacy /
+// bare-runtime case). In the normal flow the list is driven by
+// runtime_config.required_env passed in from the Config tab.
+const KNOWN_LABELS: Record<string, string> = {
+  ANTHROPIC_API_KEY: "Anthropic API Key",
+  OPENAI_API_KEY: "OpenAI API Key",
+  GOOGLE_API_KEY: "Google AI API Key",
+  SERP_API_KEY: "SERP API Key",
+  OPENROUTER_API_KEY: "OpenRouter API Key",
+  HERMES_API_KEY: "Hermes API Key (Nous Research)",
+  GROQ_API_KEY: "Groq API Key",
+  CEREBRAS_API_KEY: "Cerebras API Key",
+  MINIMAX_API_KEY: "Minimax API Key",
+  MODEL_PROVIDER: "Model Override (e.g. anthropic:claude-sonnet-4-6)",
+};
+
+const SECRETS_WHEN_NO_TEMPLATE = [
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "GOOGLE_API_KEY",
+  "SERP_API_KEY",
+  "MODEL_PROVIDER",
 ];
+
+// humanizeKeyName converts SCREAMING_SNAKE_CASE into "Title Case Words"
+// so templates that declare uncommon env var names still get a readable
+// label. "MINIMAX_API_KEY" → "Minimax API Key". Preserves "API" / "URL"
+// acronyms via the normalize step.
+function humanizeKeyName(key: string): string {
+  const words = key.toLowerCase().split("_").filter(Boolean);
+  return words
+    .map((w) => {
+      const upper = w.toUpperCase();
+      // Keep common acronyms upper-case.
+      if (["API", "URL", "URI", "ID", "SDK", "MCP", "LLM", "AI"].includes(upper)) {
+        return upper;
+      }
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    })
+    .join(" ");
+}
+
+function labelForKey(key: string): string {
+  return KNOWN_LABELS[key] ?? humanizeKeyName(key);
+}
 
 function ScopeBadge({ scope }: { scope: "global" | "workspace" | "override" }) {
   if (scope === "global") {
@@ -147,7 +192,7 @@ function CustomSecretRow({ secretKey, scope, globalMode, onSave, onDelete }: {
   );
 }
 
-export function SecretsSection({ workspaceId }: { workspaceId: string }) {
+export function SecretsSection({ workspaceId, requiredEnv }: { workspaceId: string; requiredEnv?: string[] }) {
   const [mergedSecrets, setMergedSecrets] = useState<SecretEntry[]>([]);
   const [globalSecrets, setGlobalSecrets] = useState<SecretEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -218,9 +263,27 @@ export function SecretsSection({ workspaceId }: { workspaceId: string }) {
   // For global view: use global secrets only
   const activeSecrets = globalMode ? globalSecrets : mergedSecrets;
 
-  // Split into common keys and custom keys
-  const commonKeySet = new Set(COMMON_KEYS.map((c) => c.key));
-  const customSecrets = activeSecrets.filter((s) => !commonKeySet.has(s.key));
+  // Template-driven slots: render one labelled row per env var the
+  // template declares. Falls back to a legacy common-keys list when
+  // the template has nothing (older workspaces / bare runtimes) so
+  // the Secrets section is never empty.
+  const templateKeys = (requiredEnv && requiredEnv.length > 0)
+    ? requiredEnv
+    : SECRETS_WHEN_NO_TEMPLATE;
+
+  // Deduplicate while preserving order — a template that lists the
+  // same key twice shouldn't render two rows.
+  const seen = new Set<string>();
+  const slotKeys = templateKeys.filter((k) => {
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+
+  // Split into template-slot keys and user-added custom keys so the
+  // latter still surface even when not declared by the template.
+  const slotKeySet = new Set(slotKeys);
+  const customSecrets = activeSecrets.filter((s) => !slotKeySet.has(s.key));
 
   return (
     <Section title="Secrets & API Keys" defaultOpen={false}>
@@ -256,15 +319,16 @@ export function SecretsSection({ workspaceId }: { workspaceId: string }) {
             </div>
           )}
 
-          {/* Common keys */}
-          {COMMON_KEYS.map(({ key, label }) => {
+          {/* Template-declared slots — one labelled row per env var
+              the workspace actually needs. Driven by runtime_config.required_env. */}
+          {slotKeys.map((key) => {
             const entry = globalMode
               ? globalSecrets.find((s) => s.key === key)
               : mergedByKey.get(key);
             const isSet = !!entry?.has_value;
             const scope = globalMode ? undefined : (entry ? getScope(entry) : undefined);
             return (
-              <SecretRow key={key} label={label} secretKey={key}
+              <SecretRow key={key} label={labelForKey(key)} secretKey={key}
                 isSet={isSet}
                 scope={scope}
                 globalMode={globalMode}

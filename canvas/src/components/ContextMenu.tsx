@@ -202,15 +202,22 @@ export function ContextMenu() {
     closeContextMenu();
   }, [contextMenu, closeContextMenu]);
 
+  const setCollapsed = useCanvasStore((s) => s.setCollapsed);
   const handleCollapse = useCallback(async () => {
     if (!contextMenu) return;
+    const nodeId = contextMenu.nodeId;
+    const wasCollapsed = !!contextMenu.nodeData.collapsed;
+    // Optimistic local flip so the card shrinks/expands immediately.
+    // Descendants' hidden flags are toggled atomically by the store.
+    setCollapsed(nodeId, !wasCollapsed);
     try {
-      await api.post(`/workspaces/${contextMenu.nodeId}/collapse`, {});
+      await api.patch(`/workspaces/${nodeId}`, { collapsed: !wasCollapsed });
     } catch (e) {
+      setCollapsed(nodeId, wasCollapsed);
       showToast("Collapse failed", "error");
     }
     closeContextMenu();
-  }, [contextMenu, closeContextMenu]);
+  }, [contextMenu, setCollapsed, closeContextMenu]);
 
   const handleRemoveFromTeam = useCallback(async () => {
     if (!contextMenu) return;
@@ -222,6 +229,13 @@ export function ContextMenu() {
     }
     closeContextMenu();
   }, [contextMenu, nestNode, closeContextMenu]);
+
+  const arrangeChildren = useCanvasStore((s) => s.arrangeChildren);
+  const handleArrangeChildren = useCallback(() => {
+    if (!contextMenu) return;
+    arrangeChildren(contextMenu.nodeId);
+    closeContextMenu();
+  }, [contextMenu, arrangeChildren, closeContextMenu]);
 
   const handleZoomToTeam = useCallback(() => {
     if (!contextMenu) return;
@@ -250,7 +264,12 @@ export function ContextMenu() {
       : []),
     ...(hasChildren
       ? [
-          { label: "Collapse Team", icon: "◁", action: handleCollapse },
+          { label: "Arrange Children", icon: "▦", action: handleArrangeChildren },
+          {
+            label: contextMenu.nodeData.collapsed ? "Expand Team" : "Collapse Team",
+            icon: contextMenu.nodeData.collapsed ? "▽" : "◁",
+            action: handleCollapse,
+          },
           { label: "Zoom to Team", icon: "⊕", action: handleZoomToTeam },
         ]
       : [{ label: "Expand to Team", icon: "▷", action: handleExpand }]),
@@ -289,6 +308,7 @@ export function ContextMenu() {
         }
         return (
           <button
+            type="button"
             key={i}
             role="menuitem"
             onClick={item.action}

@@ -122,6 +122,50 @@ _Opened by: Molecule AI ${role}_")
             i=$((i + 1))
             continue
             ;;
+        # Identity translation (#1957). All agents share one PAT, so
+        # `gh ... --assignee @me` resolves to the CEO and lands every
+        # agent-filed issue/PR on the human's plate. Translate to a
+        # role-tagged label instead — labels are the right abstraction
+        # for "this team owns it" in a multi-agent fleet.
+        #
+        # Reviewer requests are dropped: the review-bot scans by label,
+        # not by direct request, so --reviewer @me is just noise.
+        --assignee)
+            next_i=$((i + 1))
+            val="${!next_i:-}"
+            if [[ "$val" == "@me" ]]; then
+                # Translate: drop --assignee, add --label team:<role-slug>
+                slug=$(echo "$role" | tr '[:upper:] ' '[:lower:]-')
+                new_args+=(--label "team:${slug}")
+            else
+                new_args+=("$arg" "$val")
+            fi
+            i=$((i + 2))
+            continue
+            ;;
+        --assignee=@me)
+            slug=$(echo "$role" | tr '[:upper:] ' '[:lower:]-')
+            new_args+=(--label "team:${slug}")
+            i=$((i + 1))
+            continue
+            ;;
+        --reviewer)
+            next_i=$((i + 1))
+            val="${!next_i:-}"
+            if [[ "$val" == "@me" ]]; then
+                # Drop entirely — review-bot picks up via label scan
+                : # no-op
+            else
+                new_args+=("$arg" "$val")
+            fi
+            i=$((i + 2))
+            continue
+            ;;
+        --reviewer=@me)
+            # Drop entirely
+            i=$((i + 1))
+            continue
+            ;;
         *)
             new_args+=("$arg")
             i=$((i + 1))

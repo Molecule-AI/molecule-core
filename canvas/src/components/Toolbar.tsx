@@ -16,6 +16,17 @@ export function Toolbar() {
   const setShowA2AEdges = useCanvasStore((s) => s.setShowA2AEdges);
   const selectedNodeId = useCanvasStore((s) => s.selectedNodeId);
   const setPanelTab = useCanvasStore((s) => s.setPanelTab);
+  const sidePanelWidth = useCanvasStore((s) => s.sidePanelWidth);
+
+  // Toolbar is fixed + centred on the viewport. When a workspace is
+  // selected the SidePanel (z-50, fixed right-0) opens and covers the
+  // right edge of the viewport — without this adjustment, the right
+  // half of the Toolbar (Audit / Search / Help / Settings) hides
+  // behind the panel. Shifting the toolbar LEFT by half the panel
+  // width re-centres it on the remaining canvas area.
+  const toolbarOffsetStyle = selectedNodeId
+    ? { marginLeft: `-${sidePanelWidth / 2}px` }
+    : undefined;
 
   const [stopping, setStopping] = useState(false);
   const [restartingAll, setRestartingAll] = useState(false);
@@ -116,14 +127,21 @@ export function Toolbar() {
   }, []);
 
   return (
-    <div className="fixed top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 bg-zinc-900/80 backdrop-blur-md border border-zinc-800/60 rounded-xl px-4 py-2 shadow-xl shadow-black/20">
+    <div
+      className="fixed top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 bg-zinc-900/80 backdrop-blur-md border border-zinc-800/60 rounded-xl px-4 py-2 shadow-xl shadow-black/20 transition-[margin-left] duration-200"
+      style={toolbarOffsetStyle}
+    >
       {/* Logo / Title */}
       <div className="flex items-center gap-2 pr-3 border-r border-zinc-800/60">
         <img src="/molecule-icon.png" alt="Molecule AI" className="w-5 h-5" />
         <span className="text-[11px] font-semibold text-zinc-300 tracking-wide">Molecule AI</span>
       </div>
 
-      {/* Status counts */}
+      {/* Status pills + workspace total in one segment — previously two
+          separate border-delimited cells; merged to drop a redundant
+          divider and keep the count compact. `whitespace-nowrap` prevents
+          "+ N sub" from wrapping onto a second line when the toolbar
+          gets tight. */}
       <div className="flex items-center gap-2.5">
         <StatusPill color={statusDotClass("online")} count={counts.online} label="online" />
         {counts.offline > 0 && (
@@ -135,11 +153,8 @@ export function Toolbar() {
         {counts.failed > 0 && (
           <StatusPill color={statusDotClass("failed")} count={counts.failed} label="failed" />
         )}
-      </div>
-
-      {/* Total */}
-      <div className="pl-3 border-l border-zinc-800/60">
-        <span className="text-[10px] text-zinc-500">
+        <span className="text-zinc-700" aria-hidden="true">·</span>
+        <span className="text-[10px] text-zinc-500 whitespace-nowrap">
           {counts.roots} workspace{counts.roots !== 1 ? "s" : ""}
           {counts.children > 0 && <span className="text-zinc-600"> + {counts.children} sub</span>}
         </span>
@@ -153,6 +168,7 @@ export function Toolbar() {
       {/* Stop All — visible when agents have active tasks */}
       {counts.activeTasks > 0 && (
         <button
+          type="button"
           onClick={stopAll}
           disabled={stopping}
           className="flex items-center gap-1.5 px-2.5 py-1 bg-red-950/50 hover:bg-red-900/60 border border-red-800/40 rounded-lg transition-colors disabled:opacity-50"
@@ -171,6 +187,7 @@ export function Toolbar() {
       {/* Restart All — only shows when workspaces are flagged as needsRestart */}
       {needsRestartNodes.length > 0 && (
         <button
+          type="button"
           onClick={() => setRestartConfirmOpen(true)}
           disabled={restartingAll}
           className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-950/40 hover:bg-amber-900/50 border border-amber-800/40 rounded-lg transition-colors disabled:opacity-50"
@@ -186,13 +203,19 @@ export function Toolbar() {
         </button>
       )}
 
+      {/* Secondary tools below are icon-only (Figma/Linear pattern) — text
+          label is exposed via title + aria-label for hover/screen-reader
+          users. The primary Stop All / Restart Pending buttons above keep
+          their text because they are urgent + conditional. */}
+
       {/* A2A topology overlay toggle */}
       <button
+        type="button"
         onClick={() => setShowA2AEdges(!showA2AEdges)}
         aria-pressed={showA2AEdges}
         aria-label={showA2AEdges ? "Hide A2A edges" : "Show A2A edges"}
         title={showA2AEdges ? "Hide A2A delegation edges" : "Show A2A delegation edges (last 60 min)"}
-        className={`flex items-center gap-1.5 px-2.5 py-1 border rounded-lg transition-colors ${
+        className={`flex items-center justify-center w-7 h-7 border rounded-lg transition-colors ${
           showA2AEdges
             ? "bg-blue-950/50 hover:bg-blue-900/50 border-blue-800/40 text-blue-300"
             : "bg-zinc-800/50 hover:bg-zinc-700/50 border-zinc-700/40 text-zinc-500 hover:text-zinc-300"
@@ -200,8 +223,8 @@ export function Toolbar() {
       >
         {/* Mesh / network icon */}
         <svg
-          width="12"
-          height="12"
+          width="14"
+          height="14"
           viewBox="0 0 16 16"
           fill="none"
           className="shrink-0"
@@ -217,11 +240,11 @@ export function Toolbar() {
             strokeLinecap="round"
           />
         </svg>
-        <span className="text-[10px] font-medium">A2A</span>
       </button>
 
       {/* Audit trail shortcut — switches selected workspace's panel to the Audit tab */}
       <button
+        type="button"
         onClick={() => {
           if (selectedNodeId) {
             setPanelTab("audit");
@@ -230,13 +253,13 @@ export function Toolbar() {
           }
         }}
         aria-label="Open audit trail for selected workspace"
-        title="View audit ledger for the selected workspace"
-        className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-700/40 rounded-lg transition-colors text-zinc-500 hover:text-zinc-300"
+        title="Audit — view ledger for the selected workspace"
+        className="flex items-center justify-center w-7 h-7 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-700/40 rounded-lg transition-colors text-zinc-500 hover:text-zinc-300"
       >
         {/* Scroll / ledger icon */}
         <svg
-          width="12"
-          height="12"
+          width="14"
+          height="14"
           viewBox="0 0 16 16"
           fill="none"
           className="shrink-0"
@@ -245,35 +268,36 @@ export function Toolbar() {
           <rect x="3" y="2" width="10" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
           <path d="M6 5.5h4M6 8h4M6 10.5h2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
         </svg>
-        <span className="text-[10px] font-medium">Audit</span>
       </button>
 
       {/* Search shortcut */}
       <button
+        type="button"
         onClick={() => useCanvasStore.getState().setSearchOpen(true)}
-        className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-700/40 rounded-lg transition-colors"
+        aria-label="Search workspaces"
+        title="Search (⌘K)"
+        className="flex items-center justify-center w-7 h-7 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-700/40 rounded-lg transition-colors text-zinc-500 hover:text-zinc-300"
       >
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="text-zinc-500" aria-hidden="true">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5" />
           <path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
-        <span className="text-[10px] text-zinc-500">Search</span>
-        <kbd className="text-[8px] text-zinc-600 bg-zinc-900/60 px-1 py-0.5 rounded border border-zinc-700/30">⌘K</kbd>
       </button>
 
       {/* Quick help */}
       <div ref={helpRef} className="relative">
         <button
+          type="button"
           onClick={() => setHelpOpen((open) => !open)}
-          className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-700/40 rounded-lg transition-colors"
+          className="flex items-center justify-center w-7 h-7 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-700/40 rounded-lg transition-colors text-zinc-500 hover:text-zinc-300"
           aria-expanded={helpOpen}
           aria-label="Open quick help"
+          title="Help — shortcuts & quick start"
         >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="text-zinc-500" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M8 12v.5M6.5 6.3A1.9 1.9 0 1 1 9 8.1c-.7.4-1 .8-1 1.7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.2" />
           </svg>
-          <span className="text-[10px] text-zinc-500">Help</span>
         </button>
 
         {helpOpen && (
@@ -281,6 +305,7 @@ export function Toolbar() {
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-400">Quick start</span>
               <button
+                type="button"
                 onClick={() => setHelpOpen(false)}
                 className="text-[10px] text-zinc-600 hover:text-zinc-300 transition-colors"
               >

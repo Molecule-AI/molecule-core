@@ -89,11 +89,13 @@ func isSystemCaller(callerID string) bool {
 const maxProxyResponseBody = 10 << 20
 
 // a2aClient is a shared HTTP client for proxying A2A requests to workspace agents.
-// No client-level timeout — timeouts are enforced per-request via context deadlines:
-// canvas = 5 min (Rule 3), agent-to-agent = 30 min (DoS cap).
-var a2aClient = &http.Client{
-	Timeout: 60 * time.Second, // Safety net for when context deadlines are missing
-}
+// No client-level timeout — timeouts are enforced per-request via context
+// deadlines: canvas = 5 min (Rule 3), agent-to-agent = 30 min (DoS cap). Do NOT
+// set a Client.Timeout here: it is enforced independently of ctx deadlines and
+// would pre-empt legitimate slow cold-start flows (e.g. Claude Code first-token
+// over OAuth can take 30-60s on boot). Callers that want a safety net should
+// build a context.WithTimeout themselves.
+var a2aClient = &http.Client{}
 
 type proxyA2AError struct {
 	Status   int
@@ -327,6 +329,35 @@ func (h *WorkspaceHandler) proxyA2ARequest(ctx context.Context, workspaceID stri
 	// Fires in a detached goroutine so token accounting never adds latency
 	// to the critical A2A path.
 	go extractAndUpsertTokenUsage(context.WithoutCancel(ctx), workspaceID, respBody)
+
+	// Non-2xx agent response: the agent received the request but returned an
+	// error status. Return a proxyErr so the caller (DrainQueueForWorkspace)
+	// can call MarkQueueItemFailed rather than silently marking completed.
+	// 3xx is also treated as failure here (A2A does not follow redirects).
+	// Extract a meaningful error from the response body if present.
+	if resp.StatusCode >= 300 {
+		errMsg := ""
+		if len(respBody) > 0 {
+			var top map[string]json.RawMessage
+			if json.Unmarshal(respBody, &top) == nil {
+				if e, ok := top["error"]; ok {
+					// Prefer string errors from the agent's JSON body.
+					// e is json.RawMessage ([]byte); try to unmarshal as string.
+					var errStr string
+					if json.Unmarshal(e, &errStr) == nil {
+						errMsg = errStr
+					}
+				}
+			}
+		}
+		if errMsg == "" {
+			errMsg = http.StatusText(resp.StatusCode)
+		}
+		return resp.StatusCode, respBody, &proxyA2AError{
+			Status:   resp.StatusCode,
+			Response: gin.H{"error": errMsg},
+		}
+	}
 
 	return resp.StatusCode, respBody, nil
 }

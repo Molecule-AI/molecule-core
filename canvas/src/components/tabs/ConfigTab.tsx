@@ -51,17 +51,18 @@ function AgentCardSection({ workspaceId }: { workspaceId: string }) {
       ) : editing ? (
         <div className="space-y-2">
           <textarea
+            aria-label="Agent card JSON editor"
             value={draft} onChange={(e) => setDraft(e.target.value)}
             spellCheck={false} rows={12}
             className="w-full bg-zinc-800 border border-zinc-700 rounded p-2 text-[10px] font-mono text-zinc-200 focus:outline-none focus:border-blue-500 resize-none"
           />
           {error && <div className="px-2 py-1 bg-red-900/30 border border-red-800 rounded text-[10px] text-red-400">{error}</div>}
           <div className="flex gap-2">
-            <button onClick={handleSave} disabled={saving}
+            <button type="button" onClick={handleSave} disabled={saving}
               className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-white disabled:opacity-50">
               {saving ? "Saving..." : "Save"}
             </button>
-            <button onClick={() => setEditing(false)}
+            <button type="button" onClick={() => setEditing(false)}
               className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-[10px] rounded text-zinc-300">Cancel</button>
           </div>
         </div>
@@ -75,7 +76,7 @@ function AgentCardSection({ workspaceId }: { workspaceId: string }) {
             <div className="text-[10px] text-zinc-500">No agent card</div>
           )}
           {success && <div className="mt-2 px-2 py-1 bg-green-900/30 border border-green-800 rounded text-[10px] text-green-400">Updated</div>}
-          <button onClick={() => { setDraft(JSON.stringify(card || {}, null, 2)); setEditing(true); setError(null); setSuccess(false); }}
+          <button type="button" onClick={() => { setDraft(JSON.stringify(card || {}, null, 2)); setEditing(true); setError(null); setSuccess(false); }}
             className="mt-2 text-[10px] text-blue-400 hover:text-blue-300">Edit Agent Card</button>
         </div>
       )}
@@ -241,15 +242,65 @@ export function ConfigTab({ workspaceId }: Props) {
     setSuccess(false);
     try {
       const content = rawMode ? rawDraft : toYaml(config);
-      await api.put(`/workspaces/${workspaceId}/files/config.yaml`, { content });
+      const runtimeManagesOwnConfig = RUNTIMES_WITH_OWN_CONFIG.has(config.runtime || "");
+      // Only write the platform-managed config.yaml when the runtime
+      // actually consumes it. Hermes + external runtimes manage their
+      // own config file inside the container, so writing this one is a
+      // no-op at best and can fail with 404 if config.yaml was never
+      // created for this workspace.
+      if (!runtimeManagesOwnConfig) {
+        await api.put(`/workspaces/${workspaceId}/files/config.yaml`, { content });
+      }
 
-      // If runtime changed, update it in the DB so restart uses the correct image
-      const newRuntime = rawMode
-        ? (parseYaml(rawDraft).runtime as string || "")
-        : (config.runtime || "");
-      const oldRuntime = (parseYaml(originalYaml).runtime as string || "");
-      if (newRuntime && newRuntime !== oldRuntime) {
-        await api.patch(`/workspaces/${workspaceId}`, { runtime: newRuntime });
+      // DB-backed fields (name, tier, runtime, model) live on the
+      // workspace row, NOT in config.yaml. Fire separate PATCHes for
+      // the ones that actually changed — otherwise a Hermes user edits
+      // the form, hits Save, sees the request succeed, then watches the
+      // values snap back on the next reload because the workspace row
+      // never heard about the change.
+      //
+      // Diff against the RAW parsed YAML (or the form `config` in non-
+      // raw mode) rather than the DEFAULT_CONFIG-merged shape — if the
+      // user deleted a field in raw mode the merge would substitute the
+      // default (e.g. tier=1) and we'd silently PATCH that down from
+      // the stored value. Only fields the user actually typed get sent.
+      const oldParsed = parseYaml(originalYaml);
+      const nextSource = rawMode
+        ? (parseYaml(rawDraft) as Record<string, unknown>)
+        : (config as unknown as Record<string, unknown>);
+      const dbPatch: Record<string, unknown> = {};
+      if (typeof nextSource.name === "string" && nextSource.name && nextSource.name !== oldParsed.name) {
+        dbPatch.name = nextSource.name;
+      }
+      if (typeof nextSource.tier === "number" && nextSource.tier !== (oldParsed.tier ?? null)) {
+        dbPatch.tier = nextSource.tier;
+      }
+      const oldRuntime = (oldParsed.runtime as string) || "";
+      if (typeof nextSource.runtime === "string" && nextSource.runtime && nextSource.runtime !== oldRuntime) {
+        dbPatch.runtime = nextSource.runtime;
+      }
+      if (Object.keys(dbPatch).length > 0) {
+        await api.patch(`/workspaces/${workspaceId}`, dbPatch);
+      }
+
+      // Model has its own endpoint (separate from the general workspace
+      // PATCH) because the runtime may need to validate it against the
+      // template's supported models list. A model rejection is a
+      // partial-save state — we report it as a user-visible warning
+      // rather than lying "Saved" and letting the user discover the
+      // revert on next reload.
+      const oldModel = (oldParsed.model as string) || "";
+      let modelSaveError: string | null = null;
+      if (
+        typeof nextSource.model === "string" &&
+        nextSource.model &&
+        nextSource.model !== oldModel
+      ) {
+        try {
+          await api.put(`/workspaces/${workspaceId}/model`, { model: nextSource.model });
+        } catch (e) {
+          modelSaveError = e instanceof Error ? e.message : "Model update was rejected";
+        }
       }
 
       setOriginalYaml(content);
@@ -264,9 +315,16 @@ export function ConfigTab({ workspaceId }: Props) {
       } else {
         useCanvasStore.getState().updateNodeData(workspaceId, { needsRestart: true });
       }
-      setSuccess(true);
-      clearTimeout(successTimerRef.current);
-      successTimerRef.current = setTimeout(() => setSuccess(false), 2000);
+      if (modelSaveError) {
+        // Partial-save UX: surface the model rejection instead of
+        // showing "Saved" — the user would otherwise watch the model
+        // field revert on next reload with no explanation.
+        setError(`Other fields saved, but model update failed: ${modelSaveError}`);
+      } else {
+        setSuccess(true);
+        clearTimeout(successTimerRef.current);
+        successTimerRef.current = setTimeout(() => setSuccess(false), 2000);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
@@ -315,6 +373,7 @@ export function ConfigTab({ workspaceId }: Props) {
       {rawMode ? (
         <div className="flex-1 p-3">
           <textarea
+            aria-label="Raw YAML editor"
             value={rawDraft}
             onChange={(e) => setRawDraft(e.target.value)}
             spellCheck={false}
@@ -432,13 +491,19 @@ export function ConfigTab({ workspaceId }: Props) {
               label={
                 currentModelSpec?.required_env?.length &&
                 arraysEqual(config.runtime_config?.required_env ?? [], currentModelSpec.required_env)
-                  ? "Required Env Vars (from template)"
-                  : "Required Env Vars"
+                  ? "Required Env Var Names (from template)"
+                  : "Required Env Var Names"
               }
               values={config.runtime_config?.required_env ?? []}
               onChange={(v) => updateNested("runtime_config" as keyof ConfigData, "required_env", v)}
-              placeholder="e.g. CLAUDE_CODE_OAUTH_TOKEN"
+              placeholder="variable NAME (e.g. ANTHROPIC_API_KEY) — not the value"
             />
+            <p className="text-[10px] text-zinc-500 mt-1">
+              This declares which env var <em>names</em> the workspace needs.
+              Set the actual values in the <strong>Secrets</strong> section
+              below — those are encrypted and mounted into the container at
+              runtime.
+            </p>
             {currentModelSpec?.required_env?.length &&
               !arraysEqual(config.runtime_config?.required_env ?? [], currentModelSpec.required_env) && (
               <div className="text-[10px] text-zinc-500 mt-1 flex items-center gap-2">
@@ -545,7 +610,10 @@ export function ConfigTab({ workspaceId }: Props) {
             </div>
           </Section>
 
-          <SecretsSection workspaceId={workspaceId} />
+          <SecretsSection
+            workspaceId={workspaceId}
+            requiredEnv={config.runtime_config?.required_env}
+          />
 
           <AgentCardSection workspaceId={workspaceId} />
         </div>
@@ -567,6 +635,7 @@ export function ConfigTab({ workspaceId }: Props) {
 
       <div className="p-3 border-t border-zinc-800 flex gap-2">
         <button
+          type="button"
           onClick={() => handleSave(true)}
           disabled={!isDirty || saving}
           className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs rounded text-white disabled:opacity-30 transition-colors"
@@ -574,6 +643,7 @@ export function ConfigTab({ workspaceId }: Props) {
           {saving ? "Restarting..." : "Save & Restart"}
         </button>
         <button
+          type="button"
           onClick={() => handleSave(false)}
           disabled={!isDirty || saving}
           className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-xs rounded text-zinc-300 disabled:opacity-30 transition-colors"
@@ -581,6 +651,7 @@ export function ConfigTab({ workspaceId }: Props) {
           Save
         </button>
         <button
+          type="button"
           onClick={loadConfig}
           className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-xs rounded text-zinc-300 ml-auto"
         >

@@ -19,11 +19,18 @@ vi.mock("@/lib/api", () => ({
   api: { get: vi.fn(), put: vi.fn(), patch: vi.fn(), post: vi.fn() },
 }));
 
+const mockCanvasState = {
+  restartWorkspace: vi.fn(),
+  updateNodeData: vi.fn(),
+};
+
 vi.mock("@/store/canvas", () => ({
-  useCanvasStore: vi.fn(() => ({
-    restartWorkspace: vi.fn(),
-    updateNodeData: vi.fn(),
-  })),
+  useCanvasStore: Object.assign(
+    vi.fn((selector: (s: Record<string, unknown>) => unknown) =>
+      selector(mockCanvasState as Record<string, unknown>)
+    ),
+    { getState: () => mockCanvasState }
+  ),
 }));
 
 vi.mock("../tabs/config/secrets-section", () => ({

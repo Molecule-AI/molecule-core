@@ -132,6 +132,7 @@ export function SearchDialog() {
           ) : (
             filtered.map((node, index) => (
               <button
+                type="button"
                 key={node.id}
                 id={`search-result-${node.id}`}
                 role="option"

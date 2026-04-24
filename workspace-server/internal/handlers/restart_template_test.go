@@ -176,3 +176,68 @@ func TestResolveRestartTemplate_Priority_ExplicitBeatsApplyTemplate(t *testing.T
 		t.Errorf("expected path %q, got %q", expected, path)
 	}
 }
+
+// TestResolveRestartTemplate_CWE22_TraversalRuntime_FallsThrough is the
+// regression test for CWE-22 in Tier 4 of resolveRestartTemplate.
+//
+// An attacker who holds a workspace token can set the runtime field to a
+// path-traversal string (e.g. "../../../etc").  Before the fix, the code
+// did:
+//   runtimeTemplate := filepath.Join(configsDir, dbRuntime+"-default")
+// which on a host with /configs/../../../etc-default would return /etc-default,
+// injecting arbitrary host files into the workspace container.
+//
+// After the fix, sanitizeRuntime is called first.  Unknown runtimes
+// (including traversal strings) are remapped to "langgraph".  The attacker
+// cannot choose an arbitrary host path — they can at most trigger
+// langgraph-default if that template happens to exist.
+//
+// This test verifies that a traversal string in dbRuntime falls through to
+// "existing-volume" when no langgraph-default template is present.
+func TestResolveRestartTemplate_CWE22_TraversalRuntime_FallsThrough(t *testing.T) {
+	root := newTemplateDir(t) // no template dirs at all
+
+	for _, tc := range []struct {
+		name     string
+		dbRuntime string
+	}{
+		{"simple traversal", "../../../etc"},
+		{"mid-path traversal", "langgraph/../../../etc"},
+		{"absolute-path attempt", "/etc/passwd"},
+		{"double-dot chain", "../.."},
+		{"deep traversal", "a/b/c/../../../d"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, label := resolveRestartTemplate(root, "Some Workspace", tc.dbRuntime, restartTemplateInput{
+				ApplyTemplate: true,
+			})
+			// Must NOT return a path that escapes root
+			if path != "" {
+				t.Errorf("CWE-22: traversal runtime %q must not resolve; got path=%q", tc.dbRuntime, path)
+			}
+			if label != "existing-volume" {
+				t.Errorf("CWE-22: traversal runtime %q must fall through to existing-volume; got label=%q", tc.dbRuntime, label)
+			}
+		})
+	}
+}
+
+// TestResolveRestartTemplate_CWE22_TraversalRuntime_CannotOverrideKnownRuntime
+// verifies that even if a langgraph-default template exists, a traversal
+// string in dbRuntime resolves langgraph-default (the safe default) rather
+// than any attacker-chosen path.  The attacker gains no additional access.
+func TestResolveRestartTemplate_CWE22_TraversalRuntime_CannotOverrideKnownRuntime(t *testing.T) {
+	root := newTemplateDir(t, "langgraph-default")
+
+	path, label := resolveRestartTemplate(root, "Some Workspace", "../../../etc", restartTemplateInput{
+		ApplyTemplate: true,
+	})
+	// Must resolve to langgraph-default, not to an escaped path
+	expected := filepath.Join(root, "langgraph-default")
+	if path != expected {
+		t.Errorf("traversal runtime must resolve to langgraph-default; got path=%q", path)
+	}
+	if label != "langgraph-default" {
+		t.Errorf("label must be langgraph-default; got %q", label)
+	}
+}

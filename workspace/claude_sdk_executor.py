@@ -39,7 +39,7 @@ import claude_agent_sdk as sdk
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
-from a2a.utils import new_agent_text_message
+from a2a.helpers import new_agent_text_message
 
 from executor_helpers import (
     CONFIG_MOUNT,

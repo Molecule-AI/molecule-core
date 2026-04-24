@@ -361,7 +361,7 @@ describe("handleCanvasEvent – WORKSPACE_REMOVED", () => {
     const { nodes: updatedNodes } = set.mock.calls[0][0] as { nodes: Node<WorkspaceNodeData>[] };
     const updatedChild = updatedNodes.find((n) => n.id === "child")!;
     expect(updatedChild.data.parentId).toBe("parent");
-    expect(updatedChild.hidden).toBe(true); // still has a parent
+    expect(updatedChild.parentId).toBe("parent"); // RF binding re-pointed
   });
 
   it("reparents children to null when root node is removed", () => {
@@ -374,7 +374,7 @@ describe("handleCanvasEvent – WORKSPACE_REMOVED", () => {
     const { nodes: updatedNodes } = set.mock.calls[0][0] as { nodes: Node<WorkspaceNodeData>[] };
     const updatedChild = updatedNodes.find((n) => n.id === "child")!;
     expect(updatedChild.data.parentId).toBeNull();
-    expect(updatedChild.hidden).toBe(false);
+    expect(updatedChild.parentId).toBeUndefined();
   });
 
   it("removes edges connected to the removed workspace", () => {

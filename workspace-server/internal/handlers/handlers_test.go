@@ -26,6 +26,8 @@ func init() {
 }
 
 // setupTestDB creates a sqlmock DB and assigns it to the global db.DB.
+// It also disables the SSRF URL check so that httptest.NewServer loopback
+// URLs and fake hostnames (*.example) used in tests don't trigger rejections.
 func setupTestDB(t *testing.T) sqlmock.Sqlmock {
 	t.Helper()
 	mockDB, mock, err := sqlmock.New()
@@ -34,6 +36,13 @@ func setupTestDB(t *testing.T) sqlmock.Sqlmock {
 	}
 	db.DB = mockDB
 	t.Cleanup(func() { mockDB.Close() })
+
+	// Disable SSRF checks for the duration of this test only. Restore
+	// the previous state via t.Cleanup so that TestIsSafeURL_* tests
+	// (which run with SSRF enabled) are not affected by state leak.
+	restore := setSSRFCheckForTest(false)
+	t.Cleanup(restore)
+
 	return mock
 }
 
@@ -279,9 +288,10 @@ func TestWorkspaceCreate(t *testing.T) {
 	// Expect transaction begin for atomic workspace+secrets creation
 	mock.ExpectBegin()
 
-	// Expect workspace INSERT (uuid is dynamic, use AnyArg for id, runtime, awareness_namespace)
+	// Expect workspace INSERT (uuid is dynamic, use AnyArg for id, runtime, awareness_namespace).
+	// Default tier is 3 (Privileged) — see workspace.go create-handler comment.
 	mock.ExpectExec("INSERT INTO workspaces").
-		WithArgs(sqlmock.AnyArg(), "Test Agent", nil, 1, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
+		WithArgs(sqlmock.AnyArg(), "Test Agent", nil, 3, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// Expect transaction commit (no secrets in this payload)

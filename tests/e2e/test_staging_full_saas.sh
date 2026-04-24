@@ -243,7 +243,28 @@ if [ -n "${E2E_OPENAI_API_KEY:-}" ]; then
   # model name → 404 model_not_found. Also set OPENAI_BASE_URL to
   # OpenAI's own endpoint — default is openrouter.ai which would need
   # a different key format.
-  SECRETS_JSON="{\"OPENAI_API_KEY\":\"$E2E_OPENAI_API_KEY\",\"OPENAI_BASE_URL\":\"https://api.openai.com/v1\",\"MODEL_PROVIDER\":\"openai:gpt-4o\"}"
+  #
+  # The HERMES_* fields below bypass template-hermes/scripts/derive-provider.sh
+  # — verified 2026-04-24 that even with template-hermes#19's fix in main,
+  # staging tenants sometimes resolve openai/* to PROVIDER=openrouter and
+  # emit {'message':'Missing Authentication header','code':401} (OpenRouter's
+  # shape) in the A2A reply. Setting HERMES_INFERENCE_PROVIDER=custom +
+  # HERMES_CUSTOM_{BASE_URL,API_KEY,API_MODE} pins the bridge deterministically
+  # so the test doesn't depend on every tenant EC2 having a freshly-cloned
+  # template-hermes.
+  SECRETS_JSON=$(python3 -c "
+import json, os
+k = os.environ['E2E_OPENAI_API_KEY']
+print(json.dumps({
+    'OPENAI_API_KEY': k,
+    'OPENAI_BASE_URL': 'https://api.openai.com/v1',
+    'MODEL_PROVIDER': 'openai:gpt-4o',
+    'HERMES_INFERENCE_PROVIDER': 'custom',
+    'HERMES_CUSTOM_BASE_URL': 'https://api.openai.com/v1',
+    'HERMES_CUSTOM_API_KEY': k,
+    'HERMES_CUSTOM_API_MODE': 'chat_completions',
+}))
+")
 fi
 
 # Model slug MUST be provider-prefixed for hermes — the template's
@@ -277,20 +298,48 @@ else
 fi
 
 # ─── 7. Wait for workspace(s) online ───────────────────────────────────
-log "7/11 Waiting for workspace(s) to reach status=online..."
-WS_DEADLINE=$(( $(date +%s) + 600 ))
+# Hermes cold-boot takes 10-13 min on slow apt days (apt + uv + hermes
+# install + npm browser-tools). The controlplane bootstrap-watcher
+# deadline fires at 5 min and sets status=failed prematurely; heartbeat
+# then transitions failed → online after install.sh finishes. So:
+#
+#   - 20 min deadline (hermes worst-case + slack)
+#   - 'failed' is a TRANSIENT state we must tolerate — log and keep
+#     polling, only hard-fail at the deadline. Pre-bootstrap-watcher-fix
+#     (controlplane#245) this was a flake generator: workspace went
+#     failed→online inside our window but we bailed at the failed read.
+log "7/11 Waiting for workspace(s) to reach status=online (up to 30 min — hermes cold boot)..."
+WS_DEADLINE=$(( $(date +%s) + 1800 ))
 WS_TO_CHECK="$PARENT_ID"
 [ -n "$CHILD_ID" ] && WS_TO_CHECK="$WS_TO_CHECK $CHILD_ID"
 for wid in $WS_TO_CHECK; do
+  WS_LAST_STATUS=""
+  WS_FAILED_LOGGED=0
   while true; do
     if [ "$(date +%s)" -gt "$WS_DEADLINE" ]; then
-      fail "Workspace $wid never reached online within 10 min"
+      WS_LAST_ERR=$(tenant_call GET "/workspaces/$wid" 2>/dev/null | \
+        python3 -c "import json,sys; print(json.load(sys.stdin).get('last_sample_error',''))" 2>/dev/null || echo "")
+      fail "Workspace $wid never reached online within 20 min (last status=$WS_LAST_STATUS, err=$WS_LAST_ERR)"
     fi
     WS_JSON=$(tenant_call GET "/workspaces/$wid" 2>/dev/null || echo '{}')
     WS_STATUS=$(echo "$WS_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('status',''))" 2>/dev/null)
+    if [ "$WS_STATUS" != "$WS_LAST_STATUS" ]; then
+      log "    $wid → $WS_STATUS"
+      WS_LAST_STATUS="$WS_STATUS"
+    fi
     case "$WS_STATUS" in
       online) break ;;
-      failed) fail "Workspace $wid status=failed: $(echo "$WS_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("last_sample_error",""))')" ;;
+      failed)
+        # Not a hard fail — bootstrap-watcher frequently marks failed at
+        # 5 min on hermes, then heartbeat recovers to online around 10-13
+        # min when install.sh finishes. Log once per workspace so the CI
+        # output isn't spammy.
+        if [ "$WS_FAILED_LOGGED" = "0" ]; then
+          log "    $wid transiently failed — waiting for heartbeat recovery (bootstrap-watcher deadline, see cp#245)"
+          WS_FAILED_LOGGED=1
+        fi
+        sleep 10
+        ;;
       *)      sleep 10 ;;
     esac
   done
@@ -326,9 +375,47 @@ print(parts[0].get('text', '') if parts else '')
 if [ -z "$AGENT_TEXT" ]; then
   fail "A2A returned no text. Raw: $A2A_RESP"
 fi
+
+# Specific error-class checks — each pattern caught a real P0 bug on
+# 2026-04-23 that a generic "error|exception" check missed or misreported:
+#
+#   "[hermes-agent error 401]"       → gateway API_SERVER_KEY not propagated (hermes #12)
+#   "Invalid API key"                → tenant auth chain (CP #238 race)
+#   "model_not_found"                → hermes custom provider slug passthrough (#13)
+#   "Encrypted content is not supported" → hermes codex_responses API misroute (#14)
+#   "Unknown provider"               → bridge misconfigured PROVIDER= (regression of #13 fix)
+#   "hermes-agent unreachable"       → gateway process died
+#
+# Fail LOUD with the specific pattern so CI log + alert channel makes the
+# regression unambiguous.
+if echo "$AGENT_TEXT" | grep -qF "[hermes-agent error 401]"; then
+  fail "A2A — REGRESSION: hermes gateway auth broken (API_SERVER_KEY not in runtime env). See template-hermes#12. Raw: $AGENT_TEXT"
+fi
+if echo "$AGENT_TEXT" | grep -qF "hermes-agent unreachable"; then
+  fail "A2A — REGRESSION: hermes gateway process down. Check /var/log/hermes-gateway.log on the workspace EC2. Raw: $AGENT_TEXT"
+fi
+if echo "$AGENT_TEXT" | grep -qF "model_not_found"; then
+  fail "A2A — REGRESSION: model slug passed through with provider prefix. See template-hermes#13. Raw: $AGENT_TEXT"
+fi
+if echo "$AGENT_TEXT" | grep -qF "Encrypted content is not supported"; then
+  fail "A2A — REGRESSION: hermes custom provider hit /v1/responses instead of chat_completions. Config.yaml should declare api_mode: chat_completions. See template-hermes#14. Raw: $AGENT_TEXT"
+fi
+if echo "$AGENT_TEXT" | grep -qF "Unknown provider"; then
+  fail "A2A — REGRESSION: install.sh set PROVIDER to a value not in hermes's registry. Run 'hermes doctor' on the workspace to see valid values. Raw: $AGENT_TEXT"
+fi
+# Generic catch-all — falls through if none of the known regressions hit.
 if echo "$AGENT_TEXT" | grep -qiE "error|exception"; then
   fail "A2A returned an error-shaped response: $AGENT_TEXT"
 fi
+
+# Content assertion — the prompt asks the model to reply with exactly "PONG".
+# Real models produce "PONG" (possibly with minor wrapping); a broken pipeline
+# that echoes the prompt back or returns truncated context won't. Normalize
+# to uppercase before matching to tolerate "pong" / "Pong".
+if ! echo "$AGENT_TEXT" | tr '[:lower:]' '[:upper:]' | grep -qF "PONG"; then
+  fail "A2A reply didn't contain expected PONG token. Real: $AGENT_TEXT"
+fi
+
 ok "A2A parent round-trip succeeded: \"${AGENT_TEXT:0:80}\""
 
 # ─── 9. HMA + peers + activity (full mode) ─────────────────────────────

@@ -145,6 +145,7 @@ export function handleCanvasEvent(
                 url: "",
                 parentId: null,
                 currentTask: "",
+                runtime: (msg.payload.runtime as string) ?? "",
                 needsRestart: false,
               },
             },
@@ -173,7 +174,7 @@ export function handleCanvasEvent(
             n.data.parentId === msg.workspace_id
               ? {
                   ...n,
-                  hidden: !!parentOfRemoved,
+                  parentId: parentOfRemoved ?? undefined,
                   data: { ...n.data, parentId: parentOfRemoved },
                 }
               : n

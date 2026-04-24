@@ -188,6 +188,20 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 			log.Printf("Update parent_id error for %s: %v", id, err)
 		}
 	}
+	if collapsed, ok := body["collapsed"]; ok {
+		// `collapsed` is the canvas UI-only flag that hides descendants
+		// in the tree view (WorkspaceNode renders the parent as header-
+		// only). It lives on canvas_layouts (005_canvas_layouts.sql),
+		// not workspaces — UPSERT because workspaces created outside the
+		// canvas flow (e.g. workspace_handler Create before a layout row
+		// exists) may not have a canvas_layouts row yet.
+		if _, err := db.DB.ExecContext(ctx, `
+			INSERT INTO canvas_layouts (workspace_id, collapsed) VALUES ($1, $2)
+			ON CONFLICT (workspace_id) DO UPDATE SET collapsed = EXCLUDED.collapsed
+		`, id, collapsed); err != nil {
+			log.Printf("Update collapsed error for %s: %v", id, err)
+		}
+	}
 	if runtime, ok := body["runtime"]; ok {
 		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET runtime = $2, updated_at = now() WHERE id = $1`, id, runtime); err != nil {
 			log.Printf("Update runtime error for %s: %v", id, err)

@@ -1,31 +1,25 @@
 "use client";
 
-import { useCallback, useMemo, useRef } from "react";
-import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
+import { useCallback, useMemo } from "react";
+import { Handle, NodeResizer, Position, type NodeProps, type Node } from "@xyflow/react";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { showToast } from "@/components/Toaster";
 import { Tooltip } from "@/components/Tooltip";
 import { STATUS_CONFIG, TIER_CONFIG } from "@/lib/design-tokens";
-import { useShallow } from "zustand/react/shallow";
 
-/** Stable selector: returns children, grandchild flag, and descendant count for a node */
-function useHierarchyInfo(parentId: string) {
-  const childIds = useCanvasStore(
-    useCallback((s) => s.nodes.filter((n) => n.data.parentId === parentId).map((n) => n.id).join(","), [parentId])
+/** Descendant count for the "N sub" badge — children are first-class nodes
+ *  rendered as full cards inside this one via React Flow's native parentId,
+ *  so we don't need to subscribe to the actual child list here. */
+function useDescendantCount(nodeId: string): number {
+  return useCanvasStore(
+    useCallback((s) => countDescendants(nodeId, s.nodes), [nodeId])
   );
-  const children = useCanvasStore(
-    useShallow((s) => s.nodes.filter((n) => n.data.parentId === parentId))
+}
+
+function useHasChildren(nodeId: string): boolean {
+  return useCanvasStore(
+    useCallback((s) => s.nodes.some((n) => n.data.parentId === nodeId), [nodeId])
   );
-  const hasGrandchildren = useCanvasStore(
-    useCallback((s) => {
-      const ids = childIds.split(",").filter(Boolean);
-      return ids.length > 0 && ids.some((cid) => s.nodes.some((n) => n.data.parentId === cid));
-    }, [childIds])
-  );
-  const descendantCount = useCanvasStore(
-    useCallback((s) => countDescendants(parentId, s.nodes), [parentId])
-  );
-  return { children, hasGrandchildren, descendantCount };
 }
 
 /** Eject/extract arrow icon — visually distinct from delete ✕ */
@@ -52,18 +46,26 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
   const toggleNodeSelection = useCanvasStore((s) => s.toggleNodeSelection);
   const isOnline = data.status === "online";
 
-  // Get children + hierarchy info (single stable selector avoids redundant re-renders)
-  const { children, hasGrandchildren, descendantCount } = useHierarchyInfo(id);
-  const hasChildren = children.length > 0;
+  // Children are first-class RF nodes now (rendered inside this one via
+  // React Flow's native parentId). We only need the count for the badge
+  // and a boolean so parent cards default to a larger size.
+  const hasChildren = useHasChildren(id);
+  const descendantCount = useDescendantCount(id);
 
   const skills = getSkillNames(data.agentCard);
 
-  const handleExtract = useCallback(
-    (childId: string) => nestNode(childId, null),
-    [nestNode]
-  );
-
   return (
+    <>
+      {/* NodeResizer — visible only on the selected card. Lets the user
+       *  drag any edge/corner to grow or shrink the workspace, which is
+       *  useful on cards that contain nested child workspaces. */}
+      <NodeResizer
+        isVisible={isSelected}
+        minWidth={hasChildren ? 360 : 210}
+        minHeight={hasChildren ? 200 : 110}
+        lineClassName="!border-blue-500/40"
+        handleClassName="!w-2 !h-2 !bg-blue-500 !border !border-blue-300"
+      />
     <div
       role="button"
       tabIndex={0}
@@ -79,9 +81,23 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
       }}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        if (hasChildren) {
-          window.dispatchEvent(new CustomEvent("molecule:zoom-to-team", { detail: { nodeId: id } }));
+        if (!hasChildren) return;
+        // A collapsed parent double-click EXPANDS first (flipping the
+        // collapsed flag + persisting it via the API). Once expanded,
+        // subsequent double-clicks zoom-to-team so the user can see
+        // the hierarchy fit in the viewport. Matches the user's ask:
+        // default-collapsed for clean first paint, one gesture reveals
+        // the subtree.
+        if (data.collapsed) {
+          const state = useCanvasStore.getState();
+          state.setCollapsed(id, false);
+          // Fire-and-forget persist so reload retains the expansion.
+          import("@/lib/api").then(({ api }) => {
+            api.patch(`/workspaces/${id}`, { collapsed: false }).catch(() => {});
+          });
+          return;
         }
+        window.dispatchEvent(new CustomEvent("molecule:zoom-to-team", { detail: { nodeId: id } }));
       }}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -108,8 +124,8 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
         }
       }}
       className={`
-        group relative rounded-xl
-        ${hasGrandchildren ? "min-w-[720px] max-w-[960px]" : hasChildren ? "min-w-[320px] max-w-[450px]" : "min-w-[210px] max-w-[280px]"}
+        group relative rounded-xl h-full w-full
+        ${hasChildren && !data.collapsed ? "min-w-[360px] min-h-[200px]" : "min-w-[210px]"}
         cursor-pointer overflow-hidden
         transition-all duration-200 ease-out
         ${isDragTarget
@@ -186,9 +202,12 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
           );
         })()}
 
-        {/* Role */}
+        {/* Role — clamp to 2 lines. Without this, a verbose role
+         *  description (common on org-template imports) lets the card
+         *  grow arbitrarily tall, which wrecks the grid-slot layout
+         *  because siblings all plan for the same CHILD_DEFAULT_HEIGHT. */}
         {data.role && (
-          <div className="text-[10px] text-zinc-400 mb-1.5 leading-tight">{data.role}</div>
+          <div className="text-[10px] text-zinc-400 mb-1.5 leading-tight line-clamp-2">{data.role}</div>
         )}
 
         {/* Skills */}
@@ -214,10 +233,9 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
           </div>
         )}
 
-        {/* Embedded children — rendered INSIDE the parent node */}
-        {hasChildren && (
-          <EmbeddedTeam members={children} depth={0} onSelect={selectNode} onExtract={handleExtract} />
-        )}
+        {/* Children render as first-class React Flow nodes inside this
+         *  card (parentId binding). No embedded TEAM MEMBERS list here —
+         *  just keep visual breathing room via the min-height above. */}
 
         {/* Current task */}
         {data.currentTask && (
@@ -232,6 +250,7 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
         {/* Needs restart banner */}
         {data.needsRestart && !data.currentTask && (
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               useCanvasStore.getState().restartWorkspace(id).catch(() => showToast("Restart failed", "error"));
@@ -283,10 +302,9 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
         className="!w-2.5 !h-1 !rounded-full !bg-zinc-600/80 !border-0 !-bottom-0.5 hover:!bg-blue-400 hover:!h-1.5 transition-all"
       />
     </div>
+    </>
   );
 }
-
-const MAX_NESTING_DEPTH = 3;
 
 /** Count all descendants (children + grandchildren + ...) */
 function countDescendants(nodeId: string, allNodes: Node<WorkspaceNodeData>[], visited = new Set<string>()): number {
@@ -299,6 +317,10 @@ function countDescendants(nodeId: string, allNodes: Node<WorkspaceNodeData>[], v
   }
   return count;
 }
+
+/** Maximum nesting depth for recursive TeamMemberChip rendering — prevents
+ *  infinite recursion on circular parentId references and keeps the UI readable. */
+const MAX_NESTING_DEPTH = 3;
 
 /** Subscribes to allNodes only when children exist — isolates re-renders from parent */
 function EmbeddedTeam({ members, depth, onSelect, onExtract }: {
@@ -400,6 +422,7 @@ function TeamMemberChip({
               {tierCfg.label}
             </span>
             <button
+              type="button"
               aria-label={`Extract ${data.name} from team`}
               title={`Extract ${data.name} from team`}
               onClick={(e) => {

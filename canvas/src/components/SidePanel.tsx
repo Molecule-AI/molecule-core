@@ -46,11 +46,15 @@ export function SidePanel() {
   const panelTab = useCanvasStore((s) => s.panelTab);
   const setPanelTab = useCanvasStore((s) => s.setPanelTab);
   const selectNode = useCanvasStore((s) => s.selectNode);
+  const setSidePanelWidth = useCanvasStore((s) => s.setSidePanelWidth);
   const node = useCanvasStore((s) =>
     s.nodes.find((n) => n.id === s.selectedNodeId)
   );
 
-  // Resizable panel width — persisted across node selections via localStorage
+  // Resizable panel width — persisted across node selections via localStorage.
+  // Also published to the canvas store on every change so the centered
+  // Toolbar can re-centre itself on the remaining canvas area (avoids the
+  // Audit / Search / Settings buttons hiding under the panel).
   const [width, setWidth] = useState<number>(() => {
     if (typeof window === "undefined") return SIDEPANEL_DEFAULT_WIDTH;
     const saved = localStorage.getItem(SIDEPANEL_WIDTH_KEY);
@@ -59,6 +63,9 @@ export function SidePanel() {
       ? parsed
       : SIDEPANEL_DEFAULT_WIDTH;
   });
+  useEffect(() => {
+    setSidePanelWidth(width);
+  }, [width, setSidePanelWidth]);
   const widthRef = useRef(width); // tracks live drag value for the mouseup handler
   const dragging = useRef(false);
   const startX = useRef(0);
@@ -171,6 +178,7 @@ export function SidePanel() {
           </div>
         </div>
         <button
+          type="button"
           onClick={() => selectNode(null)}
           aria-label="Close workspace panel"
           className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors"
@@ -214,6 +222,7 @@ export function SidePanel() {
       >
         {TABS.map((tab) => (
           <button
+            type="button"
             key={tab.id}
             id={`tab-${tab.id}`}
             role="tab"
@@ -239,6 +248,7 @@ export function SidePanel() {
         <div className="px-4 py-2 bg-sky-950/20 border-b border-sky-800/20 flex items-center justify-between">
           <span className="text-[10px] text-sky-300/90">Config changed — restart to apply</span>
           <button
+            type="button"
             onClick={() => {
               useCanvasStore.getState().restartWorkspace(selectedNodeId).catch(() => showToast("Restart failed", "error"));
             }}
