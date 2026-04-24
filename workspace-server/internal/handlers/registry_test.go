@@ -540,6 +540,21 @@ func TestValidateAgentURL(t *testing.T) {
 		{"blocked IPv6 loopback [::1]", "http://[::1]:8080", true},
 		{"blocked IPv6 link-local [fe80::1]", "http://[fe80::1]:8080", true},
 		{"blocked IPv6 ULA [fd00::1]", "http://[fd00::1]:8080", true},
+
+		// ── Must be rejected: RFC 5737 TEST-NET reserved ranges ─────────────
+		// These addresses are reserved for documentation and example code.
+		// No production agent has a legitimate reason to use them.
+		{"blocked TEST-NET-1 192.0.2.x", "http://192.0.2.1:8080", true},
+		{"blocked TEST-NET-1 192.0.2.254", "http://192.0.2.254:9000", true},
+		{"blocked TEST-NET-2 198.51.100.x", "http://198.51.100.1:8080", true},
+		{"blocked TEST-NET-2 198.51.100.99", "http://198.51.100.99:8000", true},
+		{"blocked TEST-NET-3 203.0.113.x", "http://203.0.113.1:8080", true},
+		{"blocked TEST-NET-3 203.0.113.254", "http://203.0.113.254:9000", true},
+
+		// ── Must be rejected: RFC 3849 IPv6 documentation prefix ────────────
+		{"blocked IPv6 documentation 2001:db8::1", "http://[2001:db8::1]:8080", true},
+		{"blocked IPv6 documentation 2001:db8::ffff", "http://[2001:db8::ffff]:8000", true},
+
 		// IPv4-mapped IPv6 for a blocked range must also be rejected.
 		// Go normalises ::ffff:169.254.x.x to IPv4 via To4(), so the existing
 		// 169.254.0.0/16 entry catches it without a dedicated rule.
