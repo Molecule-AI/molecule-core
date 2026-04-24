@@ -31,11 +31,16 @@ export function useCanvasViewport() {
   // render so we can detect the boundary when the last one finishes
   // and auto-fit the viewport around the whole tree.
   const hadProvisioningRef = useRef(false);
-  // Respect-user-pan gate for the deploy-time auto-fit: whenever the
-  // user moves the canvas (onMoveEnd stamps userPannedAtRef), we
-  // compare against the last auto-fit timestamp; if the user moved
-  // AFTER the last auto-fit, the auto-fit handler bails out for the
-  // rest of this deploy cycle.
+  // Respect-user-pan gate for the deploy-time auto-fit. Earlier
+  // revisions tried to detect user pans via `onMoveEnd`, but React
+  // Flow v12 fires that callback with a truthy event at the END of
+  // a programmatic fitView animation — so the first auto-fit we
+  // triggered would immediately look like a user pan and block
+  // every subsequent fit for the rest of the deploy, leaving the
+  // viewport stuck wherever the first fit landed. Now we stamp
+  // this ref ONLY on wheel / pointerdown / touchstart on the
+  // React Flow pane itself (see the effect below), which are
+  // unambiguous user-gesture signals.
   const userPannedAtRef = useRef<number | null>(null);
   const lastAutoFitAtRef = useRef(0);
 
@@ -44,6 +49,35 @@ export function useCanvasViewport() {
       clearTimeout(saveTimerRef.current);
       clearTimeout(panTimerRef.current);
       clearTimeout(autoFitTimerRef.current);
+    };
+  }, []);
+
+  // User-gesture listeners for the respect-user-pan gate. Listens on
+  // `document` with capture phase and filters to events whose target
+  // lies inside the React Flow pane — this avoids a mount-order race
+  // (`.react-flow__pane` may not exist when the hook first runs if
+  // RF is behind a Suspense boundary) AND keeps clicks on the
+  // toolbar / modals / side panel from stamping user-pan-intent.
+  // Capture phase runs before target-phase `stopPropagation` so a
+  // handler elsewhere can't swallow the signal. `pointerdown` covers
+  // mouse + touch + pen on every modern browser — no separate
+  // `touchstart` listener needed (would double-stamp on mobile).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stamp = (e: Event) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest?.(".react-flow__pane")) return;
+      userPannedAtRef.current = Date.now();
+    };
+    const opts: AddEventListenerOptions = { passive: true, capture: true };
+    const targets: Array<keyof DocumentEventMap> = ["wheel", "pointerdown"];
+    for (const ev of targets) {
+      document.addEventListener(ev, stamp, opts);
+    }
+    return () => {
+      for (const ev of targets) {
+        document.removeEventListener(ev, stamp, opts);
+      }
     };
   }, []);
 
@@ -105,6 +139,11 @@ export function useCanvasViewport() {
       // fitView zooms to that smaller-than-real rectangle.
       autoFitTimerRef.current = setTimeout(() => {
         fitView({
+          // Deliberately SLOWER than the in-flight tracking fits
+          // (400ms). The asymmetry reads as "settling" on the
+          // finished org rather than "tracking" another arrival,
+          // which is the intended UX for the "deploy done" moment.
+          // Don't normalize these two durations to the same value.
           duration: 1200,
           // Match the deploy-time fit padding (0.45) so end-state
           // and in-flight state use the same framing — otherwise
@@ -184,7 +223,11 @@ export function useCanvasViewport() {
       if (subtree.length === 0) return;
       fitView({
         nodes: subtree.map((id) => ({ id })),
-        duration: 600,
+        // Short animation — server paces children ~2s apart, so a
+        // 400ms fit animation reads as "smoothly tracked" rather
+        // than "constantly lurching". Longer durations (the earlier
+        // 600ms) start to overlap if the user re-triggers deploys.
+        duration: 400,
         // Generous padding so the right-hand Communications panel,
         // bottom-left Legend, and bottom-right "New Workspace"
         // button don't cover the outer cards. React Flow padding
@@ -204,9 +247,12 @@ export function useCanvasViewport() {
     };
     const handler = (e: Event) => {
       const { rootId } = (e as CustomEvent<{ rootId: string }>).detail;
-      // Keep the most recently-requested root — if the user triggers
-      // imports on two different orgs back-to-back, the later one
-      // wins the viewport, which matches user intent.
+      // Keep the most recently-requested root. Back-to-back imports
+      // on two different orgs (rare — user would have to click
+      // Import twice within 500ms) "later wins" the viewport rather
+      // than ping-ponging between them. If this becomes a real
+      // pattern we'd flush the pending fit synchronously when
+      // `rootId` changes, rather than resetting the timer.
       pendingFitRootRef.current = rootId;
       clearTimeout(autoFitTimerRef.current);
       autoFitTimerRef.current = setTimeout(runFit, 500);
@@ -251,16 +297,12 @@ export function useCanvasViewport() {
   }, [fitBounds]);
 
   const onMoveEnd = useCallback(
-    (event: unknown, vp: { x: number; y: number; zoom: number }) => {
-      // Stamp user-pan timestamp only when the move was actually
-      // initiated by the user (mouse / trackpad / keyboard). React
-      // Flow also fires onMoveEnd for programmatic fitView() calls
-      // — `event` is null in that case, which would otherwise
-      // defeat the respect-user-pan gate by making every auto-fit
-      // look like a user move.
-      if (event !== null) {
-        userPannedAtRef.current = Date.now();
-      }
+    (_event: unknown, vp: { x: number; y: number; zoom: number }) => {
+      // User-pan detection moved to the wheel/pointerdown listener
+      // above — onMoveEnd fires for programmatic fitView too, which
+      // made this callback an unreliable source for user-intent
+      // tracking. This now only handles the debounced viewport
+      // save so a reload lands the user back where they were.
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
         saveViewport(vp.x, vp.y, vp.zoom);

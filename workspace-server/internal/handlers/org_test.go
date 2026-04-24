@@ -650,3 +650,145 @@ func TestOrgImport_ScheduleComputeError(t *testing.T) {
 		})
 	}
 }
+
+// ============================================================================
+// Org env-preflight aggregation (collectOrgEnv)
+// ============================================================================
+
+func TestCollectOrgEnv_UnionAcrossLevels(t *testing.T) {
+	tmpl := &OrgTemplate{
+		RequiredEnv:    []string{"ANTHROPIC_API_KEY"},
+		RecommendedEnv: []string{"SLACK_WEBHOOK_URL"},
+		Workspaces: []OrgWorkspace{
+			{
+				Name:         "Root",
+				RequiredEnv:  []string{"GITHUB_TOKEN"},
+				Children: []OrgWorkspace{
+					{
+						Name:           "Leaf",
+						RequiredEnv:    []string{"OPENROUTER_API_KEY"},
+						RecommendedEnv: []string{"DISCORD_WEBHOOK_URL"},
+					},
+				},
+			},
+		},
+	}
+	req, rec := collectOrgEnv(tmpl)
+	// Required is the union of top-level + root + leaf.
+	wantReq := []string{"ANTHROPIC_API_KEY", "GITHUB_TOKEN", "OPENROUTER_API_KEY"}
+	if !stringSlicesEqual(req, wantReq) {
+		t.Errorf("required mismatch: got %v, want %v", req, wantReq)
+	}
+	wantRec := []string{"DISCORD_WEBHOOK_URL", "SLACK_WEBHOOK_URL"}
+	if !stringSlicesEqual(rec, wantRec) {
+		t.Errorf("recommended mismatch: got %v, want %v", rec, wantRec)
+	}
+}
+
+func TestCollectOrgEnv_RequiredWinsOverRecommended(t *testing.T) {
+	// Same key declared at one layer as recommended and another as
+	// required MUST surface only on the required side — a required
+	// declaration is strictly stricter than a recommended one, and
+	// listing it in both tiers would confuse the preflight modal.
+	tmpl := &OrgTemplate{
+		RecommendedEnv: []string{"API_KEY"},
+		Workspaces: []OrgWorkspace{
+			{Name: "X", RequiredEnv: []string{"API_KEY"}},
+		},
+	}
+	req, rec := collectOrgEnv(tmpl)
+	if len(req) != 1 || req[0] != "API_KEY" {
+		t.Errorf("required should contain API_KEY, got %v", req)
+	}
+	for _, k := range rec {
+		if k == "API_KEY" {
+			t.Errorf("API_KEY must not appear in recommended once required elsewhere")
+		}
+	}
+}
+
+func TestCollectOrgEnv_Dedup(t *testing.T) {
+	// Same key declared twice at different levels should appear once.
+	tmpl := &OrgTemplate{
+		RequiredEnv: []string{"K", "K"},
+		Workspaces: []OrgWorkspace{
+			{Name: "A", RequiredEnv: []string{"K"}},
+			{Name: "B", RequiredEnv: []string{"K"}, Children: []OrgWorkspace{
+				{Name: "C", RequiredEnv: []string{"K"}},
+			}},
+		},
+	}
+	req, _ := collectOrgEnv(tmpl)
+	if len(req) != 1 || req[0] != "K" {
+		t.Errorf("dedup failed: got %v, want [K]", req)
+	}
+}
+
+func TestCollectOrgEnv_Empty(t *testing.T) {
+	tmpl := &OrgTemplate{}
+	req, rec := collectOrgEnv(tmpl)
+	if len(req) != 0 || len(rec) != 0 {
+		t.Errorf("empty template should produce empty slices, got req=%v rec=%v", req, rec)
+	}
+}
+
+// stringSlicesEqual checks ordered equality — collectOrgEnv sorts its
+// output so callers can do deterministic comparisons.
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestCollectOrgEnv_RequiredWinsOnSameStruct(t *testing.T) {
+	// The same key declared required AND recommended on the SAME
+	// workspace node (rare but legal to parse) must still dedup
+	// correctly and end up required-only.
+	tmpl := &OrgTemplate{
+		Workspaces: []OrgWorkspace{
+			{
+				Name:           "X",
+				RequiredEnv:    []string{"API_KEY"},
+				RecommendedEnv: []string{"API_KEY"},
+			},
+		},
+	}
+	req, rec := collectOrgEnv(tmpl)
+	if len(req) != 1 || req[0] != "API_KEY" {
+		t.Errorf("required should contain API_KEY once, got %v", req)
+	}
+	for _, k := range rec {
+		if k == "API_KEY" {
+			t.Errorf("API_KEY must not appear in recommended when also required on same struct")
+		}
+	}
+}
+
+func TestCollectOrgEnv_RejectsInvalidNames(t *testing.T) {
+	// Names failing envVarNamePattern (lowercase, traversal, whitespace,
+	// shell metachars) must be dropped silently — the log line is not
+	// asserted here; the output slice assertion is enough to prove the
+	// filter fires.
+	tmpl := &OrgTemplate{
+		RequiredEnv: []string{
+			"VALID_ONE",
+			"lowercase_bad",
+			"../../etc/passwd",
+			"name with spaces",
+			"WITH-DASH",
+			"'; DROP TABLE users;--",
+			"",
+			"A", // single char — still valid per regex
+		},
+	}
+	req, _ := collectOrgEnv(tmpl)
+	if !stringSlicesEqual(req, []string{"A", "VALID_ONE"}) {
+		t.Errorf("expected only valid names, got %v", req)
+	}
+}

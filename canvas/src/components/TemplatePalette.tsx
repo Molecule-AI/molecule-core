@@ -4,32 +4,36 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import { useCanvasStore } from "@/store/canvas";
 import type { WorkspaceData } from "@/store/socket";
-import { checkDeploySecrets, type PreflightResult, type ModelSpec } from "@/lib/deploy-preflight";
-import { MissingKeysModal } from "./MissingKeysModal";
+import { type Template } from "@/lib/deploy-preflight";
+import { useTemplateDeploy } from "@/hooks/useTemplateDeploy";
+import { OrgImportPreflightModal } from "./OrgImportPreflightModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Spinner } from "./Spinner";
 import { showToast } from "./Toaster";
 import { TIER_CONFIG } from "@/lib/design-tokens";
+import { listSecrets } from "@/lib/api/secrets";
 
-interface Template {
-  id: string;
-  name: string;
-  description: string;
-  tier: number;
-  runtime?: string;
-  model: string;
-  models?: ModelSpec[];
-  /** AND-required env vars declared at runtime_config.required_env. */
-  required_env?: string[];
-  skills: string[];
-  skill_count: number;
-}
-
+// `Template` type and `resolveRuntime` helper now live in
+// `@/lib/deploy-preflight` so EmptyState can import the same ones. Was
+// redeclared here + a narrower redeclaration in EmptyState; the
+// narrower one dropped `runtime`, `models`, `required_env`, which is
+// exactly the data the preflight needs. See reviewer's "runtime
+// fallback drift" note — single source of truth closes the drift.
 export interface OrgTemplate {
   dir: string;
   name: string;
   description: string;
   workspaces: number;
+  /** Env vars that MUST be set as global secrets before the org can
+   *  import. Server refuses the import with 412 if any are missing;
+   *  the canvas preflights against /secrets/list to avoid the round
+   *  trip. Aggregated from org-level + every workspace in the tree. */
+  required_env?: string[];
+  /** "Nice-to-have" tier. Import proceeds without them but features
+   *  may degrade — a channel's webhook posts get dropped, a fallback
+   *  LLM isn't available, etc. Surfaced to the user as a non-blocking
+   *  warning with an "add now" affordance. */
+  recommended_env?: string[];
 }
 
 /** Fetch the list of org templates from the platform. Returns [] on error
@@ -91,6 +95,14 @@ export function OrgTemplatesSection() {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Preflight modal state. `preflight` is non-null when the user
+  // clicked Import on an org with declared required/recommended envs
+  // and we're waiting for them to confirm; null otherwise (direct
+  // import path for orgs with zero env requirements).
+  const [preflight, setPreflight] = useState<{
+    org: OrgTemplate;
+    configuredKeys: Set<string>;
+  } | null>(null);
   // Collapsed by default — org templates are multi-workspace imports
   // that most new users don't reach for first. Keeping them
   // expand-on-demand frees ~400 px of vertical space for the
@@ -109,7 +121,25 @@ export function OrgTemplatesSection() {
     loadOrgs();
   }, [loadOrgs]);
 
-  const handleImport = async (org: OrgTemplate) => {
+  /** Fetch the set of global secret KEYS that are already configured.
+   *  Used to strike through already-set entries in the preflight modal
+   *  and to decide whether the import needs the modal at all. */
+  const loadConfiguredKeys = useCallback(async (): Promise<Set<string>> => {
+    try {
+      const secrets = await listSecrets("global");
+      return new Set(secrets.map((s) => s.name));
+    } catch {
+      // Secrets endpoint unreachable → assume nothing configured.
+      // The server will refuse the import with 412 and the user
+      // retries; safer than letting the import fly blind.
+      return new Set();
+    }
+  }, []);
+
+  /** Actually run the import. Split out so both the "no preflight
+   *  needed" fast path and the "preflight modal approved" path can
+   *  share the fetch + hydrate + toast sequence. */
+  const doImport = useCallback(async (org: OrgTemplate) => {
     setImporting(org.dir);
     setError(null);
     try {
@@ -149,7 +179,45 @@ export function OrgTemplatesSection() {
     } finally {
       setImporting(null);
     }
-  };
+  }, []);
+
+  /** Entry point for the Import button. Two paths:
+   *
+   *   1. No env declared by the template (required_env + recommended_env
+   *      both empty) → fire doImport directly. Matches the pre-preflight
+   *      behaviour for existing templates.
+   *
+   *   2. Any env declared → load the configured-keys set and open the
+   *      preflight modal. doImport runs only when the user clicks
+   *      Import inside the modal, which is gated to "required envs all
+   *      configured" by the modal itself. */
+  const handleImport = useCallback(async (org: OrgTemplate) => {
+    const hasEnvDeclarations =
+      (org.required_env && org.required_env.length > 0) ||
+      (org.recommended_env && org.recommended_env.length > 0);
+    if (!hasEnvDeclarations) {
+      void doImport(org);
+      return;
+    }
+    // Flip the button to its "Importing…" state while the secrets
+    // lookup runs — on a tenant with 500+ global secrets the round
+    // trip can be > 200 ms and the user otherwise gets zero visual
+    // feedback after clicking. Cleared on modal close / error.
+    setImporting(org.dir);
+    try {
+      const configuredKeys = await loadConfiguredKeys();
+      setPreflight({ org, configuredKeys });
+    } finally {
+      setImporting(null);
+    }
+  }, [doImport, loadConfiguredKeys]);
+
+  /** Called by the preflight modal after a successful key save so the
+   *  strike-through re-renders and canProceed recomputes. */
+  const refreshConfiguredKeys = useCallback(async () => {
+    const keys = await loadConfiguredKeys();
+    setPreflight((prev) => (prev ? { ...prev, configuredKeys: keys } : prev));
+  }, [loadConfiguredKeys]);
 
   return (
     <div className="space-y-2" data-testid="org-templates-section">
@@ -237,6 +305,24 @@ export function OrgTemplatesSection() {
         );
       })}
         </div>
+      )}
+
+      {preflight && (
+        <OrgImportPreflightModal
+          open
+          orgName={preflight.org.name || preflight.org.dir}
+          workspaceCount={preflight.org.workspaces}
+          requiredEnv={preflight.org.required_env ?? []}
+          recommendedEnv={preflight.org.recommended_env ?? []}
+          configuredKeys={preflight.configuredKeys}
+          onSecretSaved={refreshConfiguredKeys}
+          onProceed={() => {
+            const org = preflight.org;
+            setPreflight(null);
+            void doImport(org);
+          }}
+          onCancel={() => setPreflight(null)}
+        />
       )}
     </div>
   );
@@ -335,14 +421,6 @@ export function TemplatePalette() {
 
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(false);
-  const [creating, setCreating] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // Missing keys modal state
-  const [missingKeysInfo, setMissingKeysInfo] = useState<{
-    template: Template;
-    preflight: PreflightResult;
-  } | null>(null);
 
   const loadTemplates = useCallback(async () => {
     setLoading(true);
@@ -360,65 +438,15 @@ export function TemplatePalette() {
     if (open) loadTemplates();
   }, [open, loadTemplates]);
 
-  /** Resolve runtime from template ID (e.g., "langgraph", "claude-code-default" → "claude-code") */
-  const resolveRuntime = (templateId: string): string => {
-    const runtimeMap: Record<string, string> = {
-      langgraph: "langgraph",
-      "claude-code-default": "claude-code",
-      openclaw: "openclaw",
-      deepagents: "deepagents",
-      crewai: "crewai",
-      autogen: "autogen",
-    };
-    return runtimeMap[templateId] ?? templateId.replace(/-default$/, "");
-  };
-
-  /** Actually execute the deploy API call */
-  const executeDeploy = useCallback(async (template: Template) => {
-    setCreating(template.id);
-    setError(null);
-    try {
-      await api.post("/workspaces", {
-        name: template.name,
-        template: template.id,
-        tier: template.tier,
-        canvas: {
-          x: Math.random() * 400 + 100,
-          y: Math.random() * 300 + 100,
-        },
-      });
-      setCreating(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to deploy");
-      setCreating(null);
-    }
-  }, []);
-
-  /** Pre-deploy check: validate secrets before deploying */
-  const handleDeploy = async (template: Template) => {
-    setCreating(template.id);
-    setError(null);
-
-    // Prefer the runtime the Go /templates endpoint returned verbatim —
-    // resolveRuntime() is a legacy id→runtime fallback for installs whose
-    // template summary predates the `runtime` field.
-    const runtime = template.runtime ?? resolveRuntime(template.id);
-    const preflight = await checkDeploySecrets({
-      runtime,
-      models: template.models,
-      required_env: template.required_env,
-    });
-
-    if (!preflight.ok) {
-      // Missing keys — show the modal instead of deploying
-      setMissingKeysInfo({ template, preflight });
-      setCreating(null);
-      return;
-    }
-
-    // All keys present — deploy directly
-    await executeDeploy(template);
-  };
+  // Preflight + POST + modal wiring moved into useTemplateDeploy so
+  // this component and EmptyState use one implementation. The sidebar
+  // uses the hook's default random canvas placement (no override) —
+  // an already-populated canvas shouldn't have new deploys stacking on
+  // a single fixed point. No post-deploy side effect either: the
+  // palette is operator-triggered, so auto-selecting would yank
+  // focus off whatever the user was already looking at.
+  const { deploy: handleDeploy, deploying: creating, error, modal } =
+    useTemplateDeploy();
 
   return (
     <>
@@ -442,21 +470,9 @@ export function TemplatePalette() {
         </svg>
       </button>
 
-      {/* Missing Keys Modal */}
-      <MissingKeysModal
-        open={!!missingKeysInfo}
-        missingKeys={missingKeysInfo?.preflight.missingKeys ?? []}
-        providers={missingKeysInfo?.preflight.providers ?? []}
-        runtime={missingKeysInfo?.preflight.runtime ?? ""}
-        onKeysAdded={() => {
-          if (missingKeysInfo) {
-            const template = missingKeysInfo.template;
-            setMissingKeysInfo(null);
-            executeDeploy(template);
-          }
-        }}
-        onCancel={() => setMissingKeysInfo(null)}
-      />
+      {/* Missing-keys modal — rendered by the shared hook. Same
+          instance shape used by EmptyState. */}
+      {modal}
 
       {/* Sidebar */}
       {open && (
@@ -499,7 +515,7 @@ export function TemplatePalette() {
                 <button
                   type="button"
                   key={t.id}
-                  onClick={() => handleDeploy(t)}
+                  onClick={() => void handleDeploy(t)}
                   disabled={isDeploying}
                   className="w-full text-left bg-zinc-800/40 hover:bg-zinc-800/70 border border-zinc-700/40 hover:border-zinc-600/50 rounded-xl p-3 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-zinc-800/40 disabled:hover:border-zinc-700/40 group focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
                 >

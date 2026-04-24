@@ -10,6 +10,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -538,6 +540,104 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, absX
 	}
 
 	return nil
+}
+
+// envVarNamePattern guards template-supplied env var names against
+// pathological inputs. A malicious template could ship
+// required_env: ["'; DROP …"] or whitespace-only entries that would
+// flow through collectOrgEnv → into the 412 response body and,
+// worse, into the modal's PUT /settings/secrets input. Schema
+// already has `key TEXT NOT NULL UNIQUE` and our queries are
+// parameterised so SQL injection isn't the threat — the real risks
+// are UI rendering weirdness (newlines, NUL bytes, zero-width chars)
+// and downstream env-var semantics (POSIX requires uppercase +
+// underscore + digit). A strict regex filters both classes of
+// problem at a single choke point.
+var envVarNamePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
+
+// collectOrgEnv walks the whole template tree and returns the union of
+// required_env and recommended_env declared anywhere — at the org
+// level, on root workspaces, or on any nested child. Deduplicates so
+// the canvas sees a clean set. An env var declared as required at ANY
+// level wins over recommended (required is strictly stricter).
+// Entries that fail envVarNamePattern are dropped with a log line so
+// a bad template surfaces in operator logs without breaking import.
+func collectOrgEnv(tmpl *OrgTemplate) (required, recommended []string) {
+	req := map[string]struct{}{}
+	rec := map[string]struct{}{}
+	accept := func(into map[string]struct{}, src []string, where string) {
+		for _, k := range src {
+			if !envVarNamePattern.MatchString(k) {
+				if k != "" {
+					log.Printf("collectOrgEnv: rejecting invalid env var name %q from %s (must match %s)", k, where, envVarNamePattern)
+				}
+				continue
+			}
+			into[k] = struct{}{}
+		}
+	}
+	accept(req, tmpl.RequiredEnv, "template root")
+	accept(rec, tmpl.RecommendedEnv, "template root")
+	var walk func([]OrgWorkspace)
+	walk = func(ws []OrgWorkspace) {
+		for _, w := range ws {
+			accept(req, w.RequiredEnv, "workspace "+w.Name)
+			accept(rec, w.RecommendedEnv, "workspace "+w.Name)
+			walk(w.Children)
+		}
+	}
+	walk(tmpl.Workspaces)
+	// Required wins — a key recommended at one layer and required at
+	// another surfaces only on the required side.
+	for k := range req {
+		delete(rec, k)
+	}
+	required = make([]string, 0, len(req))
+	for k := range req {
+		required = append(required, k)
+	}
+	recommended = make([]string, 0, len(rec))
+	for k := range rec {
+		recommended = append(recommended, k)
+	}
+	sort.Strings(required)
+	sort.Strings(recommended)
+	return required, recommended
+}
+
+// loadConfiguredGlobalSecretKeys returns the set of key names present
+// in global_secrets WHERE the encrypted_value is non-empty. Filtering
+// on the payload size catches the failure mode where a row was
+// upserted with an empty value (historical rows predating the
+// binding:"required" guard on SetGlobal, or a future direct SQL
+// path that skips it) — the preflight would otherwise report the
+// key as "configured" and the per-container preflight would still
+// fail at start time, defeating the whole feature.
+// The LIMIT is a sanity cap: at realistic tenant sizes (< 1k
+// secrets) it's a no-op; at pathological sizes it stops one slow
+// query from wedging org imports. A hit gets logged so operators
+// can investigate.
+const globalSecretsPreflightLimit = 10000
+
+func loadConfiguredGlobalSecretKeys(ctx context.Context) (map[string]struct{}, error) {
+	rows, err := db.DB.QueryContext(ctx,
+		`SELECT key FROM global_secrets WHERE octet_length(encrypted_value) > 0 LIMIT $1`,
+		globalSecretsPreflightLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]struct{}{}
+	for rows.Next() {
+		var k string
+		if scanErr := rows.Scan(&k); scanErr == nil && k != "" {
+			out[k] = struct{}{}
+		}
+	}
+	if len(out) == globalSecretsPreflightLimit {
+		log.Printf("loadConfiguredGlobalSecretKeys: hit LIMIT %d — org-import preflight may be incomplete", globalSecretsPreflightLimit)
+	}
+	return out, rows.Err()
 }
 
 func countWorkspaces(workspaces []OrgWorkspace) int {

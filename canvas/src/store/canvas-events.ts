@@ -288,10 +288,17 @@ export function handleCanvasEvent(
         // which aborts the fit when the user moved after the last
         // auto-fit). Event name matches the existing handler in
         // useCanvasViewport that knows how to compute subtree bounds.
-        if (parentIdRaw && typeof window !== "undefined") {
+        //
+        // Fire for roots too (not just children) so the canvas
+        // centers on the just-landed root immediately instead of
+        // waiting for the first child to arrive ~2s later. The
+        // viewport hook walks UP to find the true root, so passing
+        // the node's own id when there's no parent is equivalent
+        // to passing the root.
+        if (typeof window !== "undefined") {
           window.dispatchEvent(
             new CustomEvent("molecule:fit-deploying-org", {
-              detail: { rootId: parentIdRaw },
+              detail: { rootId: parentIdRaw ?? msg.workspace_id },
             }),
           );
         }

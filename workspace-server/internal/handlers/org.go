@@ -189,6 +189,20 @@ type OrgTemplate struct {
 	// GlobalMemories is a list of org-wide memories seeded as GLOBAL scope
 	// on the first root workspace (PM) during org import. Issue #1050.
 	GlobalMemories []models.MemorySeed `yaml:"global_memories" json:"global_memories"`
+	// RequiredEnv is the union of env vars WHICH MUST be set globally (or
+	// on every workspace in the subtree that needs them) before import
+	// will succeed. Declared at the org level for shared creds, also
+	// extensible per-workspace via OrgWorkspace.RequiredEnv for team-
+	// scoped credentials (e.g. LEGAL_VAULT_TOKEN only matters if the Legal
+	// subtree is part of this template). The canvas preflights both.
+	RequiredEnv []string `yaml:"required_env" json:"required_env"`
+	// RecommendedEnv is the "nice-to-have" tier — import still succeeds
+	// without them, but features degrade. The canvas shows them as a
+	// yellow warning ("add now for best experience") rather than a
+	// blocking red. Example: SLACK_WEBHOOK_URL for a team whose agents
+	// occasionally post status updates, or ANTHROPIC_API_KEY when an
+	// agent might fall back to claude from its primary provider.
+	RecommendedEnv []string `yaml:"recommended_env" json:"recommended_env"`
 }
 
 type OrgDefaults struct {
@@ -295,7 +309,16 @@ type OrgWorkspace struct {
 		X float64 `yaml:"x" json:"x"`
 		Y float64 `yaml:"y" json:"y"`
 	} `yaml:"canvas" json:"canvas"`
-	Children []OrgWorkspace `yaml:"children" json:"children"`
+	// RequiredEnv / RecommendedEnv declared at the workspace level
+	// narrow down what a specific team needs beyond the org-wide union.
+	// When GET /org/templates walks the tree, these flow up into
+	// OrgTemplate.RequiredEnv / RecommendedEnv. A workspace's subtree
+	// inherits: a parent declaring ANTHROPIC_API_KEY as required
+	// means every descendant considers it required too (no override
+	// needed at each leaf).
+	RequiredEnv    []string       `yaml:"required_env" json:"required_env"`
+	RecommendedEnv []string       `yaml:"recommended_env" json:"recommended_env"`
+	Children       []OrgWorkspace `yaml:"children" json:"children"`
 }
 
 // ListTemplates handles GET /org/templates — lists available org templates.
@@ -354,11 +377,18 @@ func (h *OrgHandler) ListTemplates(c *gin.Context) {
 			continue
 		}
 		count := countWorkspaces(tmpl.Workspaces)
+		// Walk the tree to collect required + recommended env union.
+		// Canvas uses these to render a preflight modal BEFORE firing
+		// the import — saves the user from a 15-workspace import that
+		// dies one container at a time on missing creds.
+		required, recommended := collectOrgEnv(&tmpl)
 		templates = append(templates, map[string]interface{}{
-			"dir":         e.Name(),
-			"name":        tmpl.Name,
-			"description": tmpl.Description,
-			"workspaces":  count,
+			"dir":             e.Name(),
+			"name":            tmpl.Name,
+			"description":     tmpl.Description,
+			"workspaces":      count,
+			"required_env":    required,
+			"recommended_env": recommended,
 		})
 	}
 
@@ -370,6 +400,13 @@ func (h *OrgHandler) Import(c *gin.Context) {
 	var body struct {
 		Dir      string      `json:"dir"`      // org template directory name
 		Template OrgTemplate `json:"template"` // or inline template
+		// Force skips the required-env preflight. Used by tooling
+		// that already computed the preflight client-side and wants
+		// to proceed despite missing creds (usually because the
+		// user explicitly acknowledged the tradeoff). Default behavior
+		// refuses the import with a 412 and the missing-key list so
+		// the canvas can surface them in its preflight modal.
+		Force bool `json:"force"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
@@ -413,6 +450,55 @@ func (h *OrgHandler) Import(c *gin.Context) {
 	} else {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "provide 'dir' or 'template'"})
 		return
+	}
+
+	// Required-env preflight — refuses import when any required_env is
+	// missing from global_secrets (unless `force: true` overrides). The
+	// canvas runs the same check client-side against GET /org/templates
+	// output and shows a modal so users set keys before clicking Import;
+	// this server-side check is the authoritative guard in case a caller
+	// bypasses the UI (CLI, API clients, etc.). 412 Precondition Failed
+	// carries the missing-key list so tooling can render the same
+	// add-key flow.
+	required, _ := collectOrgEnv(&tmpl)
+	if body.Force {
+		// Log the bypass so a post-incident search can find who
+		// imported an org with missing creds. The common audit flow
+		// treats log.Printf at INFO as the low-cost trail for
+		// explicit-override actions — keeps force as a supported
+		// knob but makes it investigable.
+		log.Printf("Org import: force=true bypass — template=%q, required_env=%v", tmpl.Name, required)
+	} else if len(required) > 0 {
+		ctx := c.Request.Context()
+		configured, err := loadConfiguredGlobalSecretKeys(ctx)
+		if err != nil {
+			// Fail closed. Previously this fell through and imported
+			// anyway, defeating the preflight for exactly the case
+			// it's meant to cover. A DB hiccup should look like a
+			// retryable 500, not a silent green light for an import
+			// that will fail at container-start time on every node.
+			log.Printf("Org import preflight: global secrets lookup failed: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "could not verify required environment variables; try again or pass force=true to override",
+			})
+			return
+		}
+		var missing []string
+		for _, k := range required {
+			if _, ok := configured[k]; !ok {
+				missing = append(missing, k)
+			}
+		}
+		if len(missing) > 0 {
+			c.JSON(http.StatusPreconditionFailed, gin.H{
+				"error":        "missing required environment variables",
+				"missing_env":  missing,
+				"required_env": required,
+				"template":     tmpl.Name,
+				"suggestion":   "set these as global secrets (POST /settings/secrets) or pass force=true to override",
+			})
+			return
+		}
 	}
 
 	results := []map[string]interface{}{}
