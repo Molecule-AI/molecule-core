@@ -352,7 +352,8 @@ func validateDiscoveryCaller(ctx context.Context, c *gin.Context, workspaceID st
 		// Add verifiedCPSession() as a fallback after the bearer check so
 		// SaaS canvas Peers tab doesn't 401. Self-hosted workspaces are
 		// unaffected — they have no CP session cookie.
-		if ok, presented := middleware.VerifiedCPSession(c.GetHeader("Cookie")); ok {
+ok, presented := middleware.VerifiedCPSession(c.GetHeader("Cookie"))
+		if ok {
 			return nil
 		}
 		if presented {
