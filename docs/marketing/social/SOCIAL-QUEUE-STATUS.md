@@ -168,8 +168,8 @@
 |---|---|---|
 | `briefs/saas-fed-v2-what-shipped.md` | ⚠️ NO IMPLEMENTATION FOUND — PM must confirm scope | PM confirmation before battlecard copy |
 | `briefs/partner-api-keys-rate-limits-note.md` | ✅ 60 req/min per mol_pk_* key (default, configurable) | PM confirm Go implementation |
-| `launches/partner-onboarding-guide.md` | ✅ First pass (831 words, 6 sections) | `[PARTNER TIER TBD]` placeholder |
-| `launches/phase-34-community-announcement.md` | ✅ Updated — SaaS Fed v2 section flagged ⚠️ PM REVIEW NEEDED | PM confirm before publish |
+| `launches/partner-onboarding-guide.md` | ✅ Tier names confirmed (Partner + Enterprise) — blog post live | Go implementation + billing endpoint TBD |
+| `launches/phase-34-community-announcement.md` | ✅ Reviewed 2026-04-24 — no SaaS Fed v2 section found (tracker flag was stale) | Ready for Marketing Lead publish |
 
 ---
 
