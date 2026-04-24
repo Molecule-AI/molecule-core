@@ -1,17 +1,50 @@
 # Marketing Social Queue — Status Tracker
-**Owner:** PMM | **Last updated:** 2026-04-23
+**Owner:** PMM | **Last updated:** 2026-04-24
 **Purpose:** Single source of truth for all social copy status across campaigns.
 
 ---
 
-## Phase 34 GA Launch (April 30, 2026)
+## Phase 34 GA Launch (April 26–30, 2026)
 
-### 2026-04-26 — Phase 34 GA: Tool Trace + Platform Instructions ✅ DRAFT (PMM)
+### 2026-04-26 — Phase 34 GA: Tool Trace + Platform Instructions ✅ APPROVED (ML 2026-04-23)
 - **File:** `2026-04-26-phase34-ga-launch/social-copy.md`
-- **Status:** PMM pre-write complete (commit 5f020914). Awaiting Marketing Lead approval → approved queue.
+- **Status:** Approved by Marketing Lead 2026-04-23. Ready for Social Media Brand execution.
 - **Content:** 6-post X thread + LinkedIn post
-- **Owner:** PMM → Social Media Brand
-- **Blocking:** Marketing Lead approval
+- **Owner:** Social Media Brand
+- **Blocking:** X credentials + visual assets (Tool Trace response screenshot, Platform Instructions diagram, LinkedIn cover split card)
+- **Campaign position:** Day 6 of Phase 30/34 social campaign
+
+### 2026-04-27 — Partner API Keys Preview ✅ APPROVED (ML 2026-04-23)
+- **File:** `2026-04-27-partner-api-keys-preview/social-copy.md`
+- **Status:** Approved by Marketing Lead 2026-04-23. Ready for Social Media Brand execution.
+- **Content:** 4-post X thread + LinkedIn post
+- **Owner:** Social Media Brand
+- **Blocking:** X credentials + visual asset (Partner API Keys demo screenshot)
+- **Campaign position:** Day 7
+
+### 2026-04-28 — Ephemeral Test Orgs (CI/CD Deep-Dive) ✅ APPROVED (ML 2026-04-23)
+- **File:** `2026-04-28-ephemeral-test-orgs/social-copy.md`
+- **Status:** Approved by Marketing Lead 2026-04-23. Ready for Social Media Brand execution.
+- **Content:** 4-post X thread
+- **Owner:** Social Media Brand
+- **Blocking:** X credentials + visual asset (GitHub Actions workflow snippet graphic)
+- **Campaign position:** Day 8
+
+### 2026-04-29 — Community Engagement (Day Before GA) ✅ APPROVED (ML 2026-04-23)
+- **File:** `2026-04-29-community-engagement/social-copy.md`
+- **Status:** Approved by Marketing Lead 2026-04-23. Ready for Social Media Brand execution.
+- **Content:** Single X tweet + LinkedIn post
+- **Owner:** Social Media Brand
+- **Blocking:** X credentials
+- **Campaign position:** Day 9
+
+### 2026-04-30 — Phase 34 GA: Partner API Keys ✅ APPROVED (ML 2026-04-23)
+- **File:** `2026-04-30-phase-34-ga-launch/social-copy.md`
+- **Status:** Approved by Marketing Lead 2026-04-23. Ready for Social Media Brand execution.
+- **Content:** 5-post X thread + LinkedIn post
+- **Owner:** Social Media Brand
+- **Blocking:** X credentials + visual asset (Partner API Keys GA screenshot or diagram)
+- **Campaign position:** Day 10 — Phase 34 GA day
 
 ---
 
@@ -126,7 +159,7 @@
 
 ---
 
-*PMM compiled 2026-04-23. Consolidated from multiple inline social-queue files into single status tracker.*
+*PMM compiled 2026-04-23. Updated 2026-04-24: Apr 26–30 entries added; all Phase 34 posts confirmed APPROVED by Marketing Lead 2026-04-23.*
 *Marketing Lead: approve queue items to unblock Social Media Brand for execution once X credentials are restored.*
 
 ---
