@@ -7,8 +7,10 @@ import { api } from "@/lib/api";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
 import { WS_URL } from "@/store/socket";
 import { closeWebSocketGracefully } from "@/lib/ws-close";
-import { type ChatMessage, createMessage, appendMessageDeduped } from "./chat/types";
-import { extractResponseText, extractRequestText } from "./chat/message-parser";
+import { type ChatMessage, type ChatAttachment, createMessage, appendMessageDeduped } from "./chat/types";
+import { uploadChatFiles, downloadChatFile } from "./chat/uploads";
+import { AttachmentChip, PendingAttachmentPill } from "./chat/AttachmentViews";
+import { extractResponseText, extractRequestText, extractFilesFromTask } from "./chat/message-parser";
 import { AgentCommsPanel } from "./chat/AgentCommsPanel";
 import { runtimeDisplayName } from "@/lib/runtime-names";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -21,10 +23,18 @@ interface Props {
 type ChatSubTab = "my-chat" | "agent-comms";
 
 // A2A response shape (subset). The full schema is in @a2a-js/sdk but we only
-// need parts/artifacts text extraction for the synchronous fallback path.
+// need parts/artifacts text + file extraction for the synchronous fallback.
+interface A2AFileRef {
+  name?: string;
+  mimeType?: string;
+  uri?: string;
+  bytes?: string;
+  size?: number;
+}
 interface A2APart {
   kind: string;
-  text: string;
+  text?: string;
+  file?: A2AFileRef;
 }
 interface A2AResponse {
   result?: {
@@ -39,18 +49,24 @@ function extractReplyText(resp: A2AResponse): string {
   const result = resp?.result;
   if (result?.parts) {
     for (const p of result.parts) {
-      if (p.kind === "text") return p.text;
+      if (p.kind === "text") return p.text ?? "";
     }
   }
   if (result?.artifacts) {
     for (const a of result.artifacts) {
       for (const p of a.parts || []) {
-        if (p.kind === "text") return p.text;
+        if (p.kind === "text") return p.text ?? "";
       }
     }
   }
   return "";
 }
+
+// Agent-returned files live on the same response shape as text —
+// delegated to extractFilesFromTask in message-parser.ts, which also
+// walks status.message.parts (that ChatTab's legacy text extractor
+// doesn't). Single source of truth for file-part parsing across
+// live chat, activity log replay, and any future consumers.
 
 /**
  * Load chat history from the activity_logs database via the platform API.
@@ -75,12 +91,19 @@ async function loadMessagesFromDB(workspaceId: string): Promise<{ messages: Chat
         messages.push(createMessage("user", userText));
       }
 
-      // Extract agent response
+      // Extract agent response — text AND any file attachments so a
+      // chat reload surfaces historical download chips, not just plain
+      // text. `result` is nested on successful A2A responses; some
+      // older rows stored the raw `result` payload at the top level,
+      // so fall back to the body itself when `.result` is absent.
       if (a.response_body) {
         const text = extractResponseText(a.response_body);
-        if (text) {
+        const attachments = extractFilesFromTask(
+          (a.response_body.result ?? a.response_body) as Record<string, unknown>,
+        );
+        if (text || attachments.length > 0) {
           const role = a.status === "error" || text.toLowerCase().startsWith("agent error") ? "system" : "agent";
-          messages.push({ ...createMessage(role, text), timestamp: a.created_at });
+          messages.push({ ...createMessage(role, text, attachments), timestamp: a.created_at });
         }
       }
     }
@@ -178,7 +201,16 @@ export function ChatTab({ workspaceId, data }: Props) {
 function MyChatPanel({ workspaceId, data }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [sending, setSending] = useState(!!data.currentTask);
+  // `sending` is strictly the "this tab kicked off a send and hasn't
+  // seen the reply yet" signal. Previously this was initialized from
+  // data.currentTask to pick up in-flight agent work on mount, but
+  // that conflated agent-busy (workspace heartbeat) with user-
+  // in-flight (local send): when the WS dropped a TASK_COMPLETE event,
+  // currentTask lingered, the component re-mounted with sending=true,
+  // and the Send button stayed disabled forever even though nothing
+  // local was in flight. For the "agent is busy, show spinner" UX,
+  // use data.currentTask directly in the render path.
+  const [sending, setSending] = useState(false);
   const [thinkingElapsed, setThinkingElapsed] = useState(0);
   const [activityLog, setActivityLog] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -189,6 +221,17 @@ function MyChatPanel({ workspaceId, data }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [confirmRestart, setConfirmRestart] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Files the user has picked but not yet sent. Cleared on send
+  // (upload success) or by the × on each pill.
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Guard against a double-click during the upload phase: React
+  // state updates from the click that started the upload haven't
+  // flushed yet, so the disabled-button logic sees `uploading=false`
+  // from the closure and lets a second `sendMessage` enter. A ref
+  // observes the latest value synchronously.
+  const sendInFlightRef = useRef(false);
 
   // Load chat history from database on mount
   useEffect(() => {
@@ -231,8 +274,10 @@ function MyChatPanel({ workspaceId, data }: Props) {
       // Dedupe in case the agent proactively pushed the same text the
       // HTTP /a2a response already delivered (observed with the Hermes
       // runtime, which emits both a reply body and a send_message_to_user
-      // push for the same content).
-      setMessages((prev) => appendMessageDeduped(prev, createMessage("agent", m.content)));
+      // push for the same content). Attachments ride along with the
+      // message so files returned by the A2A_RESPONSE WS path render
+      // their download chips.
+      setMessages((prev) => appendMessageDeduped(prev, createMessage("agent", m.content, m.attachments)));
     }
     if (sendingFromAPIRef.current && msgs.length > 0) {
       setSending(false);
@@ -339,10 +384,35 @@ function MyChatPanel({ workspaceId, data }: Props) {
 
   const sendMessage = async () => {
     const text = input.trim();
-    if (!text || !agentReachable || sending) return;
+    const filesToSend = pendingFiles;
+    // Allow sending if EITHER text OR attachments are present — a user
+    // can drop a file with no text and the agent still receives it.
+    if ((!text && filesToSend.length === 0) || !agentReachable || sending || uploading) return;
+    // Synchronous re-entry guard — see sendInFlightRef comment.
+    if (sendInFlightRef.current) return;
+    sendInFlightRef.current = true;
+
+    // Upload attachments first so we can include URIs in the A2A
+    // message parts. Sequential-before-send: a message with references
+    // to files not yet staged would fail agent-side; staging happens
+    // synchronously via /chat/uploads before message/send dispatch.
+    let uploaded: ChatAttachment[] = [];
+    if (filesToSend.length > 0) {
+      setUploading(true);
+      try {
+        uploaded = await uploadChatFiles(workspaceId, filesToSend);
+      } catch (e) {
+        setUploading(false);
+        sendInFlightRef.current = false;
+        setError(e instanceof Error ? `Upload failed: ${e.message}` : "Upload failed");
+        return;
+      }
+      setUploading(false);
+    }
 
     setInput("");
-    setMessages((prev) => [...prev, createMessage("user", text)]);
+    setPendingFiles([]);
+    setMessages((prev) => [...prev, createMessage("user", text, uploaded)]);
     setSending(true);
     sendingFromAPIRef.current = true;
     setError(null);
@@ -356,40 +426,141 @@ function MyChatPanel({ workspaceId, data }: Props) {
         parts: [{ kind: "text", text: m.content }],
       }));
 
+    // A2A parts: text part (if any) + file parts (per attachment). The
+    // agent sees both in a single turn, matching the A2A spec shape.
+    const parts: A2APart[] = [];
+    if (text) parts.push({ kind: "text", text });
+    for (const att of uploaded) {
+      parts.push({
+        kind: "file",
+        file: {
+          name: att.name,
+          mimeType: att.mimeType,
+          uri: att.uri,
+          size: att.size,
+        },
+      });
+    }
+
+    // A2A calls can legitimately take minutes — LLM latency +
+    // multi-turn tool use is common on slower providers (Hermes+minimax,
+    // Claude Code invoking bash/file tools, etc.). The 15s default
+    // would silently abort the fetch here, leaving the server to
+    // complete the reply and the user staring at
+    // "agent may be unreachable". Match the upload timeout (60s × 2)
+    // for the happy-path ceiling; anything longer is genuinely stuck.
     api.post<A2AResponse>(`/workspaces/${workspaceId}/a2a`, {
       method: "message/send",
       params: {
         message: {
           role: "user",
           messageId: crypto.randomUUID(),
-          parts: [{ kind: "text", text }],
+          parts,
         },
         metadata: { history },
       },
-    })
+    }, { timeoutMs: 120_000 })
       .then((resp) => {
         // Skip if the WS A2A_RESPONSE event already handled this response.
         // Both paths (WS + HTTP) check sendingFromAPIRef — whichever clears
         // it first wins, the other becomes a no-op (no duplicate messages).
         if (!sendingFromAPIRef.current) return;
         const replyText = extractReplyText(resp);
-        if (replyText) {
-          setMessages((prev) => appendMessageDeduped(prev, createMessage("agent", replyText)));
+        const replyFiles = extractFilesFromTask((resp?.result ?? {}) as Record<string, unknown>);
+        if (replyText || replyFiles.length > 0) {
+          setMessages((prev) =>
+            appendMessageDeduped(prev, createMessage("agent", replyText, replyFiles)),
+          );
         }
         setSending(false);
         sendingFromAPIRef.current = false;
+        sendInFlightRef.current = false;
       })
       .catch(() => {
         setSending(false);
         sendingFromAPIRef.current = false;
+        sendInFlightRef.current = false;
         setError("Failed to send message — agent may be unreachable");
       });
+  };
+
+  const onFilesPicked = (fileList: FileList | null) => {
+    if (!fileList) return;
+    const picked = Array.from(fileList);
+    // Deduplicate against current pending set by name+size — user
+    // picking the same file twice shouldn't append it.
+    setPendingFiles((prev) => {
+      const keyed = new Set(prev.map((f) => `${f.name}:${f.size}`));
+      return [...prev, ...picked.filter((f) => !keyed.has(`${f.name}:${f.size}`))];
+    });
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const removePendingFile = (index: number) =>
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+
+  // Drag-and-drop staging. dragDepthRef counts enter vs leave events so
+  // the overlay doesn't flicker when the cursor crosses nested children
+  // (textarea, buttons) — dragenter/dragleave fire for every boundary.
+  const [dragOver, setDragOver] = useState(false);
+  const dragDepthRef = useRef(0);
+  const dropEnabled = agentReachable && !sending && !uploading;
+  const isFileDrag = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer.types || []).includes("Files");
+
+  const onDragEnter = (e: React.DragEvent) => {
+    if (!dropEnabled || !isFileDrag(e)) return;
+    e.preventDefault();
+    dragDepthRef.current += 1;
+    setDragOver(true);
+  };
+  const onDragOver = (e: React.DragEvent) => {
+    if (!dropEnabled || !isFileDrag(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    if (!dropEnabled || !isFileDrag(e)) return;
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDragOver(false);
+  };
+  const onDrop = (e: React.DragEvent) => {
+    if (!dropEnabled || !isFileDrag(e)) return;
+    e.preventDefault();
+    dragDepthRef.current = 0;
+    setDragOver(false);
+    onFilesPicked(e.dataTransfer.files);
+  };
+
+  const downloadAttachment = (att: ChatAttachment) => {
+    // Errors here are rare but user-visible (401 on a revoked token,
+    // 404 if the agent deleted the file). Surface via the inline
+    // error banner — the message list itself stays untouched.
+    downloadChatFile(workspaceId, att).catch((e) => {
+      setError(e instanceof Error ? `Download failed: ${e.message}` : "Download failed");
+    });
   };
 
   const isOnline = data.status === "online" || data.status === "degraded";
 
   return (
-    <div className="flex flex-col h-full">
+    <div
+      className="flex flex-col h-full relative"
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {dragOver && (
+        <div
+          className="absolute inset-0 z-20 flex items-center justify-center bg-blue-500/10 border-2 border-dashed border-blue-400 rounded pointer-events-none"
+          aria-live="polite"
+        >
+          <div className="bg-zinc-900/90 border border-blue-400/50 rounded-lg px-4 py-2 text-xs text-blue-200">
+            Drop to attach
+          </div>
+        </div>
+      )}
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {loading && (
@@ -435,9 +606,23 @@ function MyChatPanel({ workspaceId, data }: Props) {
                     : "bg-zinc-800/80 text-zinc-200 border border-zinc-700/30"
               }`}
             >
-              <div className="prose prose-sm prose-invert max-w-none [&>p]:mb-1 [&>p:last-child]:mb-0">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-              </div>
+              {msg.content && (
+                <div className="prose prose-sm prose-invert max-w-none [&>p]:mb-1 [&>p:last-child]:mb-0">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                </div>
+              )}
+              {msg.attachments && msg.attachments.length > 0 && (
+                <div className={`flex flex-wrap gap-1 ${msg.content ? "mt-1.5" : ""}`}>
+                  {msg.attachments.map((att, i) => (
+                    <AttachmentChip
+                      key={`${msg.id}-${i}`}
+                      attachment={att}
+                      onDownload={downloadAttachment}
+                      tone={msg.role === "user" ? "user" : "agent"}
+                    />
+                  ))}
+                </div>
+              )}
               <div className="text-[9px] text-zinc-500 mt-1">
                 {new Date(msg.timestamp).toLocaleTimeString()}
               </div>
@@ -445,8 +630,11 @@ function MyChatPanel({ workspaceId, data }: Props) {
           </div>
         ))}
 
-        {/* Thinking indicator */}
-        {sending && (
+        {/* Thinking indicator — shows when this tab is awaiting a reply
+           OR when the workspace heartbeat reports an in-flight task
+           (covers the "agent is already busy when I open the tab" case
+           without locking the Send button on a stale currentTask). */}
+        {(sending || !!data.currentTask) && (
           <div className="flex justify-start">
             <div className="bg-zinc-800/50 border border-zinc-700/30 rounded-lg px-3 py-2 max-w-[85%]">
               <div className="flex items-center gap-2 text-xs text-zinc-400">
@@ -490,7 +678,37 @@ function MyChatPanel({ workspaceId, data }: Props) {
 
       {/* Input */}
       <div className="p-3 border-t border-zinc-800">
-        <div className="flex gap-2">
+        {pendingFiles.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {pendingFiles.map((f, i) => (
+              <PendingAttachmentPill
+                key={`${f.name}-${f.size}-${i}`}
+                file={f}
+                onRemove={() => removePendingFile(i)}
+              />
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2 items-end">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => onFilesPicked(e.target.files)}
+            aria-hidden="true"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!agentReachable || sending || uploading}
+            aria-label="Attach file"
+            title="Attach file"
+            className="p-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-zinc-400 hover:text-zinc-200 transition-colors shrink-0 disabled:opacity-40"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M11 6.5 7 10.5a2 2 0 1 0 2.8 2.8l4-4a3.5 3.5 0 0 0-5-5l-4.5 4.5a5 5 0 0 0 7 7l4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
           <textarea
             aria-label="Message to agent"
             value={input}
@@ -508,10 +726,10 @@ function MyChatPanel({ workspaceId, data }: Props) {
           />
           <button
             onClick={sendMessage}
-            disabled={!input.trim() || !agentReachable || sending}
+            disabled={(!input.trim() && pendingFiles.length === 0) || !agentReachable || sending || uploading}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-xs font-medium rounded-lg text-white disabled:opacity-30 transition-colors shrink-0"
           >
-            Send
+            {uploading ? "Uploading…" : "Send"}
           </button>
         </div>
       </div>

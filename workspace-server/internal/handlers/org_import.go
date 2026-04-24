@@ -28,7 +28,13 @@ import (
 // parent.abs + childSlotInGrid(index, siblingSizes) computed by the
 // caller. Storing already-absolute coords means a child that is itself
 // a parent can simply compound the grid without any per-call math.
-func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, absX, absY float64, defaults OrgDefaults, orgBaseDir string, results *[]map[string]interface{}, provisionSem chan struct{}) error {
+// relX / relY are THIS workspace's position RELATIVE to its parent's
+// absolute origin (i.e. childSlotInGrid output for children; 0,0 for
+// roots since a root's absolute IS its relative). The broadcast
+// payload ships relative coords so the canvas can drop the node
+// straight into the parent's child-coordinate space without doing a
+// canvas-wide absolute-position walk.
+func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, absX, absY, relX, relY float64, defaults OrgDefaults, orgBaseDir string, results *[]map[string]interface{}, provisionSem chan struct{}) error {
 	// Apply defaults
 	runtime := ws.Runtime
 	if runtime == "" {
@@ -128,10 +134,23 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, absX
 	}
 
 	// Broadcast — include runtime so the canvas pill renders the right
-	// badge immediately instead of "unknown".
-	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, map[string]interface{}{
+	// badge immediately instead of "unknown". parent_id + x/y let the
+	// canvas's org-deploy animation spawn the child from the parent's
+	// current coords and tween into its reserved slot, instead of
+	// landing in a default grid position first and snapping on the
+	// next hydrate.
+	payload := map[string]interface{}{
 		"name": ws.Name, "tier": tier, "runtime": runtime,
-	})
+		// Parent-relative coords — the canvas's React Flow node uses
+		// these as the node's position when parent_id is set (React
+		// Flow treats node.position as parent-relative when the node
+		// has a parentId). For roots, relX/relY == absX/absY.
+		"x": relX, "y": relY,
+	}
+	if parentID != nil {
+		payload["parent_id"] = *parentID
+	}
+	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, payload)
 
 	// Seed initial memories from workspace config or defaults (issue #1050).
 	// Per-workspace initial_memories override defaults; if workspace has none,
@@ -509,7 +528,9 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, absX
 			slotX, slotY := childSlotInGrid(i, siblingSizes)
 			childAbsX := absX + slotX
 			childAbsY := absY + slotY
-			if err := h.createWorkspaceTree(child, &id, childAbsX, childAbsY, defaults, orgBaseDir, results, provisionSem); err != nil {
+			// slotX/slotY are already parent-relative — that's
+			// exactly what childSlotInGrid returns.
+			if err := h.createWorkspaceTree(child, &id, childAbsX, childAbsY, slotX, slotY, defaults, orgBaseDir, results, provisionSem); err != nil {
 				return err
 			}
 			time.Sleep(workspaceCreatePacingMs * time.Millisecond)

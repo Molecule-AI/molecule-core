@@ -69,6 +69,15 @@ async def main():  # pragma: no cover
     # 0. Initialise OpenTelemetry (no-op if packages not installed)
     setup_telemetry(service_name=workspace_id)
 
+    # 0a. Fix /workspace perms before any agent code runs. Docker ships
+    # named volumes as root:root 755 — without this the non-root agent
+    # user can't write files the user asked it to produce, and the
+    # "agent → file → user downloads" flow dead-ends at a bash "permission
+    # denied". Best-effort: no-ops silently if molecule-runtime itself
+    # isn't root (template's own start.sh should have handled it there).
+    from executor_helpers import ensure_workspace_writable
+    ensure_workspace_writable()
+
     # 1. Load config
     config = load_config(config_path)
     port = config.a2a.port

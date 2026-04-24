@@ -414,7 +414,8 @@ func (h *OrgHandler) Import(c *gin.Context) {
 	// using subtree-aware grid slots (children that are themselves
 	// parents get a bigger slot so they don't overflow into siblings).
 	for _, ws := range tmpl.Workspaces {
-		if err := h.createWorkspaceTree(ws, nil, ws.Canvas.X, ws.Canvas.Y, tmpl.Defaults, orgBaseDir, &results, provisionSem); err != nil {
+		// Root: relX/relY == absX/absY (no parent to be relative to).
+		if err := h.createWorkspaceTree(ws, nil, ws.Canvas.X, ws.Canvas.Y, ws.Canvas.X, ws.Canvas.Y, tmpl.Defaults, orgBaseDir, &results, provisionSem); err != nil {
 			createErr = err
 			break
 		}

@@ -171,6 +171,15 @@ interface CanvasState {
   setPendingDelete: (
     v: { id: string; name: string; hasChildren: boolean; children: { id: string; name: string }[] } | null
   ) => void;
+  /** Node IDs whose DELETE request is in flight. Populated the moment
+   *  the user confirms a cascade delete; drained as WORKSPACE_REMOVED
+   *  events strip the nodes (or all-at-once on request failure). Lets
+   *  the canvas render the "don't touch — something is happening"
+   *  treatment (dim + non-draggable) during the network round trip
+   *  and the server-side cascade, matching the deploy-lock UX. */
+  deletingIds: Set<string>;
+  beginDelete: (ids: Iterable<string>) => void;
+  endDelete: (ids: Iterable<string>) => void;
   searchOpen: boolean;
   setSearchOpen: (open: boolean) => void;
   viewport: { x: number; y: number; zoom: number };
@@ -184,8 +193,8 @@ interface CanvasState {
   batchPause: () => Promise<void>;
   batchDelete: () => Promise<void>;
   /** Agent-pushed messages keyed by workspace ID. ChatTab consumes and clears these. */
-  agentMessages: Record<string, Array<{ id: string; content: string; timestamp: string }>>;
-  consumeAgentMessages: (workspaceId: string) => Array<{ id: string; content: string; timestamp: string }>;
+  agentMessages: Record<string, Array<{ id: string; content: string; timestamp: string; attachments?: Array<{ name: string; uri: string; mimeType?: string; size?: number }> }>>;
+  consumeAgentMessages: (workspaceId: string) => Array<{ id: string; content: string; timestamp: string; attachments?: Array<{ name: string; uri: string; mimeType?: string; size?: number }> }>;
   /** WebSocket connection status — drives the live indicator in the Toolbar. */
   wsStatus: "connected" | "connecting" | "disconnected";
   setWsStatus: (status: "connected" | "connecting" | "disconnected") => void;
@@ -303,6 +312,17 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   closeContextMenu: () => set({ contextMenu: null }),
   pendingDelete: null,
   setPendingDelete: (v) => set({ pendingDelete: v }),
+  deletingIds: new Set<string>(),
+  beginDelete: (ids) => {
+    const next = new Set(get().deletingIds);
+    for (const id of ids) next.add(id);
+    set({ deletingIds: next });
+  },
+  endDelete: (ids) => {
+    const next = new Set(get().deletingIds);
+    for (const id of ids) next.delete(id);
+    set({ deletingIds: next });
+  },
   searchOpen: false,
   setSearchOpen: (open) => set({ searchOpen: open }),
   agentMessages: {},

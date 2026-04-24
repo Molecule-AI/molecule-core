@@ -114,16 +114,32 @@ export function OrgTemplatesSection() {
     setError(null);
     try {
       await importOrgTemplate(org.dir);
-      // Refresh canvas inline — the WebSocket may be offline, in which case
-      // WORKSPACE_PROVISIONING broadcasts never arrive and the user sees
-      // no change from clicking "Import org". A direct fetch guarantees
-      // the new workspaces land on canvas regardless of WS state.
-      try {
-        const workspaces = await api.get<WorkspaceData[]>("/workspaces");
-        useCanvasStore.getState().hydrate(workspaces);
-      } catch {
-        // Rehydrate failure is non-fatal; WS (if alive) or the next
-        // health-check cycle will eventually pick the new workspaces up.
+      // Hydrate is the safety net for the "WS is offline" case —
+      // without live events the canvas stays empty. But calling it
+      // immediately wipes the org-deploy animation (hydrate rebuilds
+      // the node array from scratch, dropping the spawn / shimmer
+      // classes and position tweens). So:
+      //   1. If the number of nodes on the canvas already matches
+      //      (or exceeds) the template's workspace count, WS
+      //      delivered everything — skip hydrate.
+      //   2. Otherwise, wait a short window to let any in-flight WS
+      //      events land, then hydrate only if still behind.
+      const expectedCount = org.workspaces;
+      // Nodes transition through WORKSPACE_REMOVED which physically
+      // drops them from the store — there is no "removed" status in
+      // WorkspaceNodeData — so a simple length check is enough here.
+      const hasAll = () => useCanvasStore.getState().nodes.length >= expectedCount;
+      if (!hasAll()) {
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      if (!hasAll()) {
+        try {
+          const workspaces = await api.get<WorkspaceData[]>("/workspaces");
+          useCanvasStore.getState().hydrate(workspaces);
+        } catch {
+          // WS (if alive) or the next health-check cycle will
+          // eventually pick the new workspaces up.
+        }
       }
       showToast(`Imported "${org.name || org.dir}" (${org.workspaces} workspaces)`, "success");
     } catch (e) {

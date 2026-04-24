@@ -466,3 +466,70 @@ func (h *SecretsHandler) GetModel(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"model": string(decrypted), "source": "workspace_secrets"})
 }
+
+// SetModel handles PUT /workspaces/:id/model — writes the model slug
+// into workspace_secrets as MODEL_PROVIDER (the key GetModel reads).
+// For hermes, the value is a hermes-native slug like "minimax/MiniMax-M2.7";
+// for langgraph it's the legacy "provider:model" form. Either way it's just
+// an opaque string the runtime interprets on its next start.
+//
+// Empty string clears the override. Triggers auto-restart so the new
+// env (HERMES_DEFAULT_MODEL etc.) takes effect immediately — without
+// this the user clicks Save+Restart, the canvas PUT lands, but the
+// already-restarting container misses the window and boots with the
+// old value.
+func (h *SecretsHandler) SetModel(c *gin.Context) {
+	workspaceID := c.Param("id")
+	if !uuidRegex.MatchString(workspaceID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace ID"})
+		return
+	}
+	ctx := c.Request.Context()
+
+	var body struct {
+		Model string `json:"model"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	if body.Model == "" {
+		if _, err := db.DB.ExecContext(ctx,
+			`DELETE FROM workspace_secrets WHERE workspace_id = $1 AND key = 'MODEL_PROVIDER'`,
+			workspaceID); err != nil {
+			log.Printf("SetModel delete error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to clear model"})
+			return
+		}
+		if h.restartFunc != nil {
+			go h.restartFunc(workspaceID)
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "cleared"})
+		return
+	}
+
+	encrypted, err := crypto.Encrypt([]byte(body.Model))
+	if err != nil {
+		log.Printf("SetModel encrypt error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encrypt model"})
+		return
+	}
+	version := crypto.CurrentEncryptionVersion()
+	_, err = db.DB.ExecContext(ctx, `
+		INSERT INTO workspace_secrets (workspace_id, key, encrypted_value, encryption_version)
+		VALUES ($1, 'MODEL_PROVIDER', $2, $3)
+		ON CONFLICT (workspace_id, key) DO UPDATE
+			SET encrypted_value = $2, encryption_version = $3, updated_at = now()
+	`, workspaceID, encrypted, version)
+	if err != nil {
+		log.Printf("SetModel upsert error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save model"})
+		return
+	}
+
+	if h.restartFunc != nil {
+		go h.restartFunc(workspaceID)
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "saved", "model": body.Model})
+}

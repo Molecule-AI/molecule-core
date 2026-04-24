@@ -18,16 +18,31 @@ class ReconnectingSocket {
   private url: string;
   private lastEventTime = 0;
   private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // disposed signals that disconnect() has been called. Any in-flight
+  // reconnect / handshake must abort early rather than attach to a
+  // socket the caller no longer owns — otherwise React StrictMode's
+  // effect double-invoke (and any future intentional disconnect)
+  // leaves a zombie WebSocket alive forever.
+  private disposed = false;
 
   constructor(url: string) {
     this.url = url;
   }
 
   connect() {
+    if (this.disposed) return;
     useCanvasStore.getState().setWsStatus("connecting");
-    this.ws = new WebSocket(this.url);
+    const ws = new WebSocket(this.url);
+    this.ws = ws;
 
-    this.ws.onopen = () => {
+    ws.onopen = () => {
+      if (this.disposed || this.ws !== ws) {
+        // Late-open on an abandoned socket. Close it cleanly; the
+        // caller already moved on.
+        try { ws.close(); } catch { /* noop */ }
+        return;
+      }
       this.attempt = 0;
       this.lastEventTime = Date.now();
       useCanvasStore.getState().setWsStatus("connected");
@@ -35,7 +50,8 @@ class ReconnectingSocket {
       this.startHealthCheck();
     };
 
-    this.ws.onmessage = (event) => {
+    ws.onmessage = (event) => {
+      if (this.disposed || this.ws !== ws) return;
       this.lastEventTime = Date.now();
       try {
         const msg: WSMessage = JSON.parse(event.data);
@@ -45,15 +61,20 @@ class ReconnectingSocket {
       }
     };
 
-    this.ws.onclose = () => {
+    ws.onclose = () => {
+      // Fired on intentional close (disposed) OR server/network drop.
+      // Only schedule a reconnect when the socket is still live AND
+      // corresponds to the WS we just tore down (prevents a stale
+      // onclose from a zombie socket from re-arming the loop).
+      if (this.disposed || this.ws !== ws) return;
       this.stopHealthCheck();
       useCanvasStore.getState().setWsStatus("connecting");
       const delay = Math.min(1000 * 2 ** this.attempt, 30000);
       this.attempt++;
-      setTimeout(() => this.connect(), delay);
+      this.reconnectTimer = setTimeout(() => this.connect(), delay);
     };
 
-    this.ws.onerror = () => {
+    ws.onerror = () => {
       // Suppressed — onclose handles reconnection. onerror fires before onclose
       // and the Event object doesn't contain useful info (serializes to {}).
     };
@@ -91,9 +112,23 @@ class ReconnectingSocket {
   }
 
   disconnect() {
+    this.disposed = true;
     this.stopHealthCheck();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
-      this.ws.close();
+      // Detach listeners before close() so we don't route the close
+      // event through our onclose → scheduleReconnect path. Belt +
+      // braces on top of the `disposed` check, because StrictMode
+      // cycles through so fast that an attached onclose can fire
+      // after disposed=true is set but before this assignment runs.
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      try { this.ws.close(); } catch { /* noop */ }
       this.ws = null;
     }
     useCanvasStore.getState().setWsStatus("disconnected");

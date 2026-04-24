@@ -1,7 +1,7 @@
 import type { Node, Edge } from "@xyflow/react";
 import type { WSMessage } from "./socket";
 import type { WorkspaceNodeData } from "./canvas";
-import { extractResponseText } from "@/components/tabs/chat/message-parser";
+import { extractResponseText, extractFilesFromTask } from "@/components/tabs/chat/message-parser";
 
 // ---------------------------------------------------------------------------
 // Monotonically increasing counter used to assign grid positions.
@@ -21,12 +21,45 @@ import { extractResponseText } from "@/components/tabs/chat/message-parser";
 //
 // A monotonic counter is immune to deletions: it only ever increases.
 // ---------------------------------------------------------------------------
+import { appendClass, removeClass, scheduleNodeClassRemoval } from "./classNames";
+
 let _provisioningSequence = 0;
 
 /** Reset the sequence counter — exposed for test teardown only. */
 export function resetProvisioningSequence(): void {
   _provisioningSequence = 0;
+  _pendingOnline.clear();
 }
+
+/** WORKSPACE_ONLINE events that arrived BEFORE the matching
+ *  WORKSPACE_PROVISIONING — buffered here so the late-arriving
+ *  provision event can immediately flip to the correct status
+ *  instead of leaving the node stuck as "provisioning" forever.
+ *  Cleared when applied, or on module reset (tests). */
+const _pendingOnline = new Set<string>();
+
+/** Debounced parent-grow. Each child arrival schedules this; the
+ *  timer keeps resetting as more siblings land, so the actual
+ *  width/height update runs ONCE after arrivals go quiet. Avoids
+ *  the visible size-pulse that happened when growParentsToFitChildren
+ *  ran per event. */
+let _growTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleParentGrow(): void {
+  if (typeof window === "undefined") return;
+  if (_growTimer) clearTimeout(_growTimer);
+  _growTimer = setTimeout(() => {
+    _growTimer = null;
+    import("./canvas").then(({ useCanvasStore }) => {
+      useCanvasStore.getState().growParentsToFitChildren?.();
+    });
+  }, 300);
+}
+
+// (absoluteNodePosition was used by an earlier "spawn from parent"
+// revision that subtracted parent absolute coords from server-sent
+// absolute child coords. The server now ships parent-relative coords
+// directly, so the walk is no longer needed. Deleted rather than
+// kept as dead code.)
 
 /**
  * Standalone event handler extracted from the canvas store.
@@ -38,7 +71,7 @@ export function handleCanvasEvent(
     nodes: Node<WorkspaceNodeData>[];
     edges: Edge[];
     selectedNodeId: string | null;
-    agentMessages: Record<string, Array<{ id: string; content: string; timestamp: string }>>;
+    agentMessages: Record<string, Array<{ id: string; content: string; timestamp: string; attachments?: Array<{ name: string; uri: string; mimeType?: string; size?: number }> }>>;
   },
   set: (partial: Record<string, unknown>) => void,
 ): void {
@@ -47,14 +80,44 @@ export function handleCanvasEvent(
   switch (msg.event) {
     case "WORKSPACE_ONLINE": {
       const existing = nodes.find((n) => n.id === msg.workspace_id);
-      if (existing) {
-        set({
-          nodes: nodes.map((n) =>
-            n.id === msg.workspace_id
-              ? { ...n, data: { ...n.data, status: "online" } }
-              : n
-          ),
-        });
+      if (!existing) {
+        // PROVISIONING event hasn't been applied yet (WS reorder or
+        // this tab joined mid-deploy). Buffer so the later PROVISIONING
+        // handler can flip status in one pass instead of leaving the
+        // node stuck in "provisioning" forever.
+        _pendingOnline.add(msg.workspace_id);
+        break;
+      }
+      // Flip incoming edge from blueprint → laser so the link is
+      // drawn solid the moment this child is live. The laser class
+      // plays the stroke-dashoffset keyframe once; after ~500ms the
+      // edge falls back to the default solid style (see
+      // org-deploy.css and the follow-up setTimeout below).
+      const updatedEdges = edges.map((e) =>
+        e.target === msg.workspace_id && e.className?.includes("mol-deploy-edge-blueprint")
+          ? { ...e, className: "mol-deploy-edge-laser" }
+          : e,
+      );
+      set({
+        edges: updatedEdges,
+        nodes: nodes.map((n) =>
+          n.id === msg.workspace_id
+            ? { ...n, data: { ...n.data, status: "online" } }
+            : n,
+        ),
+      });
+      // Remove the laser class after its keyframe ends so the edge
+      // settles into the app's default solid styling. Fire-and-forget.
+      if (typeof window !== "undefined") {
+        const targetEdgeId = `${existing.data.parentId ?? ""}-${msg.workspace_id}`;
+        window.setTimeout(() => {
+          const s = get();
+          set({
+            edges: s.edges.map((e) =>
+              e.id === targetEdgeId ? { ...e, className: undefined } : e,
+            ),
+          });
+        }, 600);
       }
       break;
     }
@@ -113,25 +176,73 @@ export function handleCanvasEvent(
           ),
         });
       } else {
-        // Spread new nodes in a grid so they don't stack at the viewport origin.
-        // Use the monotonic _provisioningSequence counter (not nodes.length) so
-        // deletions never cause two live nodes to share a grid slot.
-        const GRID_COLS = 4;
-        const COL_SPACING = 320;
-        const ROW_SPACING = 160;
-        const GRID_ORIGIN_X = 100;
-        const GRID_ORIGIN_Y = 100;
-        const idx = _provisioningSequence++;
-        const x = GRID_ORIGIN_X + (idx % GRID_COLS) * COL_SPACING;
-        const y = GRID_ORIGIN_Y + Math.floor(idx / GRID_COLS) * ROW_SPACING;
+        // Payload may carry parent_id + final x/y (org import broadcasts
+        // these so the canvas can animate the "spawn from parent" motion).
+        // Standalone workspace creates still omit them — fall back to the
+        // grid-slot behaviour that handled that case historically.
+        const parentIdRaw = (msg.payload.parent_id as string | undefined) ?? null;
+        const finalX = msg.payload.x as number | undefined;
+        const finalY = msg.payload.y as number | undefined;
 
+        let spawnX: number;
+        let spawnY: number;
+        let targetX: number;
+        let targetY: number;
+        let parentId: string | null = null;
+
+        // Place the node at its final slot immediately — no
+        // spring-from-parent motion. The earlier "materialize from
+        // parent then tween to target" was expensive (two set()
+        // calls + rAF) and produced wrong offsets because the
+        // server sends absolute coords computed against the template's
+        // own coord system while the client had placed the parent at
+        // a grid slot, so the target math always landed off-grid.
+        // Now: server coords are parent-relative (see org_import.go),
+        // we trust them verbatim.
+        const parentInStore = parentIdRaw
+          ? nodes.find((n) => n.id === parentIdRaw)
+          : undefined;
+        if (parentIdRaw && parentInStore && finalX !== undefined && finalY !== undefined) {
+          targetX = finalX;
+          targetY = finalY;
+          parentId = parentIdRaw;
+        } else {
+          // Standalone create OR org-child whose parent hasn't arrived
+          // yet (rare WS reorder) — monotonic-grid placement. The
+          // follow-up hydrate pass reconciles parent_id + the correct
+          // nested position if parent lands later.
+          const GRID_COLS = 4;
+          const COL_SPACING = 320;
+          const ROW_SPACING = 160;
+          const GRID_ORIGIN_X = 100;
+          const GRID_ORIGIN_Y = 100;
+          const idx = _provisioningSequence++;
+          targetX = GRID_ORIGIN_X + (idx % GRID_COLS) * COL_SPACING;
+          targetY = GRID_ORIGIN_Y + Math.floor(idx / GRID_COLS) * ROW_SPACING;
+        }
+        spawnX = targetX;
+        spawnY = targetY;
+
+        // Parent→child relationship is already visible via React
+        // Flow's nested rendering (the child card sits INSIDE the
+        // parent container). An explicit edge on top of that was
+        // visual double-counting and made the canvas look busy;
+        // removed per demo feedback. A2A edges (showA2AEdges) still
+        // render when enabled — those represent runtime traffic,
+        // which nesting doesn't express.
         set({
           nodes: [
             ...nodes,
             {
               id: msg.workspace_id,
               type: "workspaceNode",
-              position: { x, y },
+              position: { x: spawnX, y: spawnY },
+              // React Flow's parentId (distinct from data.parentId)
+              // triggers parent-relative positioning. Set it when the
+              // server told us this is an org-import child so the
+              // node renders nested inside the parent container.
+              ...(parentId ? { parentId } : {}),
+              className: "mol-deploy-spawn",
               data: {
                 name: (msg.payload.name as string) ?? "New Workspace",
                 status: "provisioning",
@@ -143,7 +254,7 @@ export function handleCanvasEvent(
                 lastErrorRate: 0,
                 lastSampleError: "",
                 url: "",
-                parentId: null,
+                parentId, // data.parentId mirrors React Flow's parentId
                 currentTask: "",
                 runtime: (msg.payload.runtime as string) ?? "",
                 needsRestart: false,
@@ -152,8 +263,69 @@ export function handleCanvasEvent(
           ],
         });
 
-        // Pan the canvas to the new node
-        if (typeof window !== "undefined") {
+        // Grow the parent to fit the just-landed child. DEBOUNCED
+        // across rapid sibling arrivals — firing width/height updates
+        // on every child made the parent card visibly pulse in size
+        // as each kid landed, which read as the parent "flashing
+        // around". One grow pass ~300ms after the last arrival
+        // coalesces the whole burst into a single layout change.
+        if (parentId && typeof window !== "undefined") {
+          scheduleParentGrow();
+        }
+        // Parent-border pulse removed per demo feedback — the soft
+        // box-shadow ring on each arrival compounded with the size
+        // grow to make the whole parent card look unstable. The
+        // dim-light signal on the provisioning child is sufficient
+        // acknowledgement that something is happening.
+
+        // Remove the one-shot spawn class after the keyframe ends so
+        // future re-renders don't replay it.
+        scheduleNodeClassRemoval(msg.workspace_id, "mol-deploy-spawn", 400, get, set);
+
+        // Auto-pan+zoom to the whole deploying org after each
+        // arrival so the user always sees the full picture — unless
+        // they've panned themselves (handled by the viewport hook,
+        // which aborts the fit when the user moved after the last
+        // auto-fit). Event name matches the existing handler in
+        // useCanvasViewport that knows how to compute subtree bounds.
+        if (parentIdRaw && typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("molecule:fit-deploying-org", {
+              detail: { rootId: parentIdRaw },
+            }),
+          );
+        }
+
+        // Race handling: if a WORKSPACE_ONLINE event beat the
+        // matching PROVISIONING to this tab, the online flag was
+        // buffered in _pendingOnline. Apply it now so the node
+        // doesn't stay stuck as "provisioning" forever.
+        //
+        // Only flip to "online" if the current status is still
+        // "provisioning" at drain time. Otherwise a WORKSPACE_DEGRADED
+        // / FAILED / PAUSED that arrived between the set() above and
+        // the scheduled drain would be silently clobbered — the
+        // buffered ONLINE is stale by then.
+        if (_pendingOnline.has(msg.workspace_id)) {
+          _pendingOnline.delete(msg.workspace_id);
+          if (typeof window !== "undefined") {
+            window.setTimeout(() => {
+              const s = get();
+              set({
+                nodes: s.nodes.map((n) =>
+                  n.id === msg.workspace_id && n.data.status === "provisioning"
+                    ? { ...n, data: { ...n.data, status: "online" } }
+                    : n,
+                ),
+              });
+            }, 0);
+          }
+        }
+
+        // Pan the canvas to the new node (standalone create only —
+        // during an org import, zooming to every child chases the
+        // spawn animation around the viewport which is jarring).
+        if (!parentIdRaw && typeof window !== "undefined") {
           window.dispatchEvent(
             new CustomEvent("molecule:pan-to-node", {
               detail: { nodeId: msg.workspace_id },
@@ -252,12 +424,19 @@ export function handleCanvasEvent(
     }
 
     case "A2A_RESPONSE": {
-      // A2A proxy completed — extract response text and store as agent message.
-      // This gives the ChatTab instant response delivery via WebSocket instead of polling.
+      // A2A proxy completed — extract response text AND any `kind: file`
+      // parts. Without the file extraction, agent-returned attachments
+      // delivered via this WebSocket path would disappear (the canvas
+      // would render a text-only message while the HTTP fallback
+      // rendered the same reply with download chips, depending on
+      // which delivery path raced to completion first).
       const responseBody = msg.payload.response_body as Record<string, unknown> | undefined;
       if (responseBody) {
         const text = extractResponseText(responseBody);
-        if (text) {
+        const attachments = extractFilesFromTask(
+          (responseBody.result ?? responseBody) as Record<string, unknown>,
+        );
+        if (text || attachments.length > 0) {
           const { agentMessages } = get();
           const existing = agentMessages[msg.workspace_id] || [];
           set({
@@ -265,7 +444,12 @@ export function handleCanvasEvent(
               ...agentMessages,
               [msg.workspace_id]: [
                 ...existing,
-                { id: crypto.randomUUID(), content: text, timestamp: new Date().toISOString() },
+                {
+                  id: crypto.randomUUID(),
+                  content: text,
+                  timestamp: new Date().toISOString(),
+                  attachments: attachments.length > 0 ? attachments : undefined,
+                },
               ],
             },
           });

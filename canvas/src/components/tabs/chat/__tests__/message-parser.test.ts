@@ -4,6 +4,7 @@ import {
   extractResponseText,
   extractAgentText,
   extractTextsFromParts,
+  extractFilesFromTask,
 } from "../message-parser";
 
 describe("extractRequestText", () => {
@@ -131,5 +132,73 @@ describe("extractTextsFromParts", () => {
       { kind: "text", text: "Only text" },
     ];
     expect(extractTextsFromParts(parts)).toBe("Only text");
+  });
+});
+
+describe("extractFilesFromTask", () => {
+  it("pulls A2A file parts out of a result", () => {
+    const task = {
+      parts: [
+        { kind: "text", text: "here's the report" },
+        {
+          kind: "file",
+          file: { name: "report.pdf", mimeType: "application/pdf", uri: "workspace:/reports/report.pdf", size: 4096 },
+        },
+      ],
+    };
+    const files = extractFilesFromTask(task);
+    expect(files).toEqual([
+      { name: "report.pdf", mimeType: "application/pdf", uri: "workspace:/reports/report.pdf", size: 4096 },
+    ]);
+  });
+
+  it("recovers a filename from the URI when `name` is absent", () => {
+    const task = {
+      parts: [
+        { kind: "file", file: { uri: "workspace:/workspace/out/graph.png" } },
+      ],
+    };
+    const files = extractFilesFromTask(task);
+    expect(files[0].name).toBe("graph.png");
+  });
+
+  it("skips file parts without a URI (inline bytes are not supported yet)", () => {
+    const task = {
+      parts: [
+        { kind: "file", file: { name: "inline.bin", bytes: "AAA=" } },
+      ],
+    };
+    expect(extractFilesFromTask(task)).toEqual([]);
+  });
+
+  it("walks artifacts[] so file parts nested inside artifact envelopes are found", () => {
+    const task = {
+      artifacts: [
+        {
+          parts: [
+            { kind: "file", file: { name: "trace.log", uri: "workspace:/logs/trace.log" } },
+          ],
+        },
+      ],
+    };
+    const files = extractFilesFromTask(task);
+    expect(files[0]).toMatchObject({ name: "trace.log", uri: "workspace:/logs/trace.log" });
+  });
+
+  it("returns [] on malformed input rather than throwing", () => {
+    expect(extractFilesFromTask({})).toEqual([]);
+    expect(extractFilesFromTask({ parts: "not-an-array" } as unknown as Record<string, unknown>)).toEqual([]);
+  });
+
+  it("walks result.message.parts — the non-task reply shape some A2A servers use", () => {
+    const task = {
+      message: {
+        parts: [
+          { kind: "file", file: { name: "out.txt", uri: "workspace:/workspace/out.txt" } },
+        ],
+      },
+    };
+    const files = extractFilesFromTask(task);
+    expect(files[0]).toMatchObject({ name: "out.txt", uri: "workspace:/workspace/out.txt" });
   });
 });

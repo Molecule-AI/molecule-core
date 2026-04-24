@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useReactFlow } from "@xyflow/react";
 import { useCanvasStore } from "@/store/canvas";
+import { appendClass, removeClass } from "@/store/classNames";
 import {
   CHILD_DEFAULT_HEIGHT,
   CHILD_DEFAULT_WIDTH,
@@ -30,6 +31,13 @@ export function useCanvasViewport() {
   // render so we can detect the boundary when the last one finishes
   // and auto-fit the viewport around the whole tree.
   const hadProvisioningRef = useRef(false);
+  // Respect-user-pan gate for the deploy-time auto-fit: whenever the
+  // user moves the canvas (onMoveEnd stamps userPannedAtRef), we
+  // compare against the last auto-fit timestamp; if the user moved
+  // AFTER the last auto-fit, the auto-fit handler bails out for the
+  // rest of this deploy cycle.
+  const userPannedAtRef = useRef<number | null>(null);
+  const lastAutoFitAtRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -55,6 +63,41 @@ export function useCanvasViewport() {
     hadProvisioningRef.current = hasProvisioning;
 
     if (wasProvisioning && !hasProvisioning && nodeCount > 0) {
+      // Root-complete moment — every root that has children just
+      // finished deploying. Pop + glow once (mol-deploy-root-complete)
+      // then auto-fit the viewport around the whole org. Leaf-only
+      // roots (single workspaces with no children) are skipped so the
+      // effect reads as "your org landed" not "random card flickered".
+      const state = useCanvasStore.getState();
+      const rootsWithChildren = new Set<string>();
+      for (const n of state.nodes) {
+        if (n.data.parentId) continue;
+        if (state.nodes.some((c) => c.data.parentId === n.id)) {
+          rootsWithChildren.add(n.id);
+        }
+      }
+      if (rootsWithChildren.size > 0) {
+        useCanvasStore.setState({
+          nodes: state.nodes.map((n) =>
+            rootsWithChildren.has(n.id)
+              ? { ...n, className: appendClass(n.className, "mol-deploy-root-complete") }
+              : n,
+          ),
+        });
+        // Strip the one-shot class after the keyframe ends so a later
+        // deploy on the same node can fire it again.
+        window.setTimeout(() => {
+          const s = useCanvasStore.getState();
+          useCanvasStore.setState({
+            nodes: s.nodes.map((n) =>
+              rootsWithChildren.has(n.id)
+                ? { ...n, className: removeClass(n.className, "mol-deploy-root-complete") }
+                : n,
+            ),
+          });
+        }, 800);
+      }
+
       clearTimeout(autoFitTimerRef.current);
       // 1200ms settle delay: lets React Flow's DOM measurement pass
       // resize newly-online parents before we compute bounds.
@@ -63,12 +106,16 @@ export function useCanvasViewport() {
       autoFitTimerRef.current = setTimeout(() => {
         fitView({
           duration: 1200,
-          padding: 0.25,
+          // Match the deploy-time fit padding (0.45) so end-state
+          // and in-flight state use the same framing — otherwise
+          // the final zoom-out "jumps" relative to the intermediate
+          // fits and looks like a mis-layout.
+          padding: 0.45,
           // Cap zoom-in: a small tree (2-3 nodes) would otherwise end
           // up at the 2x maxZoom, visually implying "something is
-          // wrong". 0.8 reads like "here's your whole org" even when
-          // the tree is small.
-          maxZoom: 0.8,
+          // wrong". 0.65 reads like "here's your whole org" even when
+          // the tree is small — matches deploy-time cap.
+          maxZoom: 0.65,
           // Cap zoom-out: fitView would fall back to the component's
           // minZoom=0.1 on a sparse/outlier layout, leaving the user
           // staring at a postage-stamp canvas. 0.25 is the floor.
@@ -90,6 +137,82 @@ export function useCanvasViewport() {
     };
     window.addEventListener("molecule:pan-to-node", handler);
     return () => window.removeEventListener("molecule:pan-to-node", handler);
+  }, [fitView]);
+
+  // Auto pan+zoom to the whole deploying org after each child
+  // arrival — DEBOUNCED. Firing fitView on every event with a
+  // 600ms animation meant rapid sibling arrivals (server paces 2s
+  // apart, HMR bursts can land faster) made the viewport lurch
+  // continuously, which the user read as "parent flashing around".
+  // We now wait until the arrivals GO QUIET for 500ms, then run
+  // exactly one fit. The rootId we captured on the most recent
+  // event drives the fit bounds. Respect-user-pan still short-
+  // circuits: if the user moved after our last auto-fit, we never
+  // fit again this deploy.
+  const pendingFitRootRef = useRef<string | null>(null);
+  useEffect(() => {
+    const runFit = () => {
+      const rootCandidate = pendingFitRootRef.current;
+      pendingFitRootRef.current = null;
+      if (!rootCandidate) return;
+      if (
+        userPannedAtRef.current !== null &&
+        userPannedAtRef.current > lastAutoFitAtRef.current
+      ) {
+        return;
+      }
+      const state = useCanvasStore.getState();
+      // Climb to the true root — the event's rootId is the just-
+      // landed child's direct parent, which may itself be nested.
+      let topId = rootCandidate;
+      let cursor = state.nodes.find((n) => n.id === topId);
+      while (cursor?.data.parentId) {
+        const up = state.nodes.find((n) => n.id === cursor!.data.parentId);
+        if (!up) break;
+        cursor = up;
+        topId = up.id;
+      }
+      const subtree: string[] = [];
+      const stack = [topId];
+      while (stack.length) {
+        const id = stack.pop()!;
+        subtree.push(id);
+        for (const n of state.nodes) {
+          if (n.data.parentId === id) stack.push(n.id);
+        }
+      }
+      if (subtree.length === 0) return;
+      fitView({
+        nodes: subtree.map((id) => ({ id })),
+        duration: 600,
+        // Generous padding so the right-hand Communications panel,
+        // bottom-left Legend, and bottom-right "New Workspace"
+        // button don't cover the outer cards. React Flow padding
+        // is a fraction of viewport dims, so 0.45 ≈ ~430px of
+        // margin on a 960-wide canvas — enough clearance for the
+        // two side panels (~300px + ~280px).
+        padding: 0.45,
+        // Lower maxZoom so small orgs (2-3 cards) still zoom out
+        // enough to show the parent frame + children clearly with
+        // the padded margins. 0.65 reads as "here's the whole org"
+        // without getting dragged to the maxZoom by fitView's
+        // "fill the viewport" default.
+        maxZoom: 0.65,
+        minZoom: 0.25,
+      });
+      lastAutoFitAtRef.current = Date.now();
+    };
+    const handler = (e: Event) => {
+      const { rootId } = (e as CustomEvent<{ rootId: string }>).detail;
+      // Keep the most recently-requested root — if the user triggers
+      // imports on two different orgs back-to-back, the later one
+      // wins the viewport, which matches user intent.
+      pendingFitRootRef.current = rootId;
+      clearTimeout(autoFitTimerRef.current);
+      autoFitTimerRef.current = setTimeout(runFit, 500);
+    };
+    window.addEventListener("molecule:fit-deploying-org", handler);
+    return () => window.removeEventListener("molecule:fit-deploying-org", handler);
   }, [fitView]);
 
   // Zoom to a team: fit the parent + its direct children in view.
@@ -128,7 +251,16 @@ export function useCanvasViewport() {
   }, [fitBounds]);
 
   const onMoveEnd = useCallback(
-    (_event: unknown, vp: { x: number; y: number; zoom: number }) => {
+    (event: unknown, vp: { x: number; y: number; zoom: number }) => {
+      // Stamp user-pan timestamp only when the move was actually
+      // initiated by the user (mouse / trackpad / keyboard). React
+      // Flow also fires onMoveEnd for programmatic fitView() calls
+      // — `event` is null in that case, which would otherwise
+      // defeat the respect-user-pan gate by making every auto-fit
+      // look like a user move.
+      if (event !== null) {
+        userPannedAtRef.current = Date.now();
+      }
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
         saveViewport(vp.x, vp.y, vp.zoom);

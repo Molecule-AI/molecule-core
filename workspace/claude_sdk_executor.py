@@ -47,7 +47,9 @@ from executor_helpers import (
     WORKSPACE_MOUNT,
     auto_push_hook,
     brief_summary,
+    collect_outbound_files,
     commit_memory,
+    extract_attached_files,
     extract_message_text,
     get_a2a_instructions,
     get_hma_instructions,
@@ -365,6 +367,18 @@ class ClaudeSDKExecutor(AgentExecutor):
         workspace queue rather than racing on `_session_id` / `_active_stream`.
         """
         user_input = extract_message_text(context.message)
+        # Surface attached files to claude-code via a manifest in the prompt.
+        # Claude Code reads files through its own Read/Glob tools by path —
+        # as long as the prompt names the path, the CLI will open them on
+        # demand. Same contract every platform runtime uses so the UX is
+        # identical across hermes / langgraph / claude-code.
+        attached = extract_attached_files(context.message)
+        if attached:
+            manifest = "\n\nAttached files:\n" + "\n".join(
+                f"- {f['name']} ({f['mime_type'] or 'unknown type'}) at {f['path']}"
+                for f in attached
+            )
+            user_input = (user_input + manifest) if user_input else manifest.lstrip()
         if not user_input:
             await event_queue.enqueue_event(new_agent_text_message(_NO_TEXT_MSG))
             return
@@ -375,7 +389,26 @@ class ClaudeSDKExecutor(AgentExecutor):
         # Enqueue outside the lock so the next queued turn can start
         # preparing its prompt while this turn's response ships. Event
         # ordering is preserved per-queue by the A2A server, so no races.
-        await event_queue.enqueue_event(new_agent_text_message(response_text))
+        # If the response mentions /workspace/... files, stage each and
+        # emit FileParts alongside the text so the canvas can download.
+        outbound = collect_outbound_files(response_text)
+        if outbound:
+            from a2a.types import FilePart, FileWithUri, Message, Part, Role, TextPart
+            import uuid as _uuid
+            parts: list = [Part(root=TextPart(text=response_text))] if response_text else []
+            for f in outbound:
+                parts.append(Part(root=FilePart(file=FileWithUri(
+                    uri="workspace:" + f["path"],
+                    name=f["name"],
+                    mimeType=f["mime_type"],
+                ))))
+            await event_queue.enqueue_event(Message(
+                messageId=_uuid.uuid4().hex,
+                role=Role.agent,
+                parts=parts,
+            ))
+        else:
+            await event_queue.enqueue_event(new_agent_text_message(response_text))
 
     @staticmethod
     def _is_retryable(exc: BaseException) -> bool:

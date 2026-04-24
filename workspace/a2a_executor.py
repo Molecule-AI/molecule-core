@@ -48,6 +48,10 @@ from shared_runtime import (
     brief_task,
     set_current_task,
 )
+from executor_helpers import (
+    collect_outbound_files,
+    extract_attached_files,
+)
 from builtin_tools.telemetry import (
     A2A_TASK_ID,
     GEN_AI_OPERATION_NAME,
@@ -211,6 +215,18 @@ class LangGraphA2AExecutor(AgentExecutor):
           3. Message(final_text)                      — terminal event
         """
         user_input = extract_message_text(context)
+        # Pull attached files from A2A message parts (kind: "file") and
+        # append a manifest to the prompt so the agent knows they exist.
+        # LangGraph tools (filesystem, bash, skills) can then open the
+        # files by path — without this the agent silently ignores the
+        # attachments and replies "I'm not sure what you're referring to".
+        _attached_files = extract_attached_files(getattr(context, "message", None))
+        if _attached_files:
+            _manifest = "\n\nAttached files:\n" + "\n".join(
+                f"- {f['name']} ({f['mime_type'] or 'unknown type'}) at {f['path']}"
+                for f in _attached_files
+            )
+            user_input = (user_input + _manifest) if user_input else _manifest.lstrip()
         if not user_input:
             parts = getattr(getattr(context, "message", None), "parts", None)
             logger.warning("A2A execute: no text content in message parts: %s", parts)
@@ -411,7 +427,31 @@ class LangGraphA2AExecutor(AgentExecutor):
                 # Non-streaming: ResultAggregator.consume_all() returns this
                 #   immediately as the response (a2a_client.py reads .parts[0].text).
                 # Streaming: yielded as the last SSE event in the stream.
-                msg = new_agent_text_message(final_text, task_id=task_id, context_id=context_id)
+                #
+                # If the reply mentions /workspace/... paths, stage each one
+                # and emit as FileParts alongside the text so the canvas can
+                # render a download button. Same contract the hermes executor
+                # uses — every runtime going through this code path (langgraph,
+                # deepagents, future ReAct variants) inherits it.
+                _outbound = collect_outbound_files(final_text)
+                if _outbound:
+                    from a2a.types import FilePart, FileWithUri, Message, Part, Role, TextPart
+                    _parts: list[Part] = [Part(root=TextPart(text=final_text))] if final_text else []
+                    for f in _outbound:
+                        _parts.append(Part(root=FilePart(file=FileWithUri(
+                            uri="workspace:" + f["path"],
+                            name=f["name"],
+                            mimeType=f["mime_type"],
+                        ))))
+                    msg = Message(
+                        messageId=uuid.uuid4().hex,
+                        role=Role.agent,
+                        parts=_parts,
+                        taskId=task_id,
+                        contextId=context_id,
+                    )
+                else:
+                    msg = new_agent_text_message(final_text, task_id=task_id, context_id=context_id)
                 # Attach tool_trace via metadata when supported. Guarded with
                 # hasattr because some test mocks return a plain string here.
                 if tool_trace and hasattr(msg, "metadata"):

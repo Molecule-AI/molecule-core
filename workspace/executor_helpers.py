@@ -10,16 +10,22 @@ Provides:
 - Brief task summary extraction (markdown-aware)
 - Error message sanitization (exception classes and subprocess categories)
 - Shared workspace path constants and the MCP server path resolver
+- Attached-file extraction and outbound-file staging (platform-wide chat
+  attachments — every runtime routes through these helpers so the
+  drag-dropped image / returned report experience is identical)
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
+import mimetypes
 import os
 import re
 import subprocess
+import uuid as _uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -582,3 +588,276 @@ async def auto_push_hook(cwd: str | None = None) -> None:
         await asyncio.to_thread(_auto_push_and_pr_sync, cwd)
     except Exception:
         logger.exception("auto_push_hook: failed (non-fatal)")
+
+
+# ========================================================================
+# Chat attachments — platform-level support for drag-drop uploads and
+# agent-returned files. Every runtime executor routes inbound file parts
+# through ``extract_attached_files`` + ``build_user_content_with_files``
+# and post-processes replies through ``collect_outbound_files`` so a file
+# attached in the canvas shows up correctly across hermes, claude-code,
+# langgraph, CLI runtimes, etc. Living here (not in any one executor)
+# keeps the attachment contract in one place — match canvas/ChatTab.tsx
+# and workspace-server/internal/handlers/chat_files.go, and every runtime
+# benefits at once.
+# ========================================================================
+
+# Matches CHAT_UPLOAD_DIR in workspace-server/internal/handlers/chat_files.go.
+# The canvas uploads files here; outbound files get staged here so the
+# download endpoint (which whitelists this directory) can serve them.
+CHAT_UPLOADS_DIR = f"{WORKSPACE_MOUNT}/.molecule/chat-uploads"
+
+
+def ensure_workspace_writable() -> None:
+    """Make /workspace (and the chat-uploads dir) writable by whoever the
+    agent will run as.
+
+    Docker's default for a new named volume is root-owned 755 — that
+    bricks the agent→user "write a file, hand it to the user" flow for
+    every template whose agent runs under a non-root user (hermes uses
+    `agent`, most others use some dedicated UID too). Each Dockerfile
+    solving this individually was the anti-pattern; this helper belongs
+    to the platform so every runtime picks up the fix by calling into
+    ``molecule_runtime`` during boot.
+
+    Runs best-effort: if molecule-runtime itself started as non-root
+    (rare, but possible in some CP configurations), the chmod silently
+    no-ops — the template's own start.sh is expected to have already
+    handled perms in that case. We prefer silent degradation to a hard
+    boot failure because misconfigured perms are recoverable (user gets
+    a clear "permission denied" from the agent) but an uncatchable
+    exception here would wedge the whole workspace in `provisioning`.
+    """
+    # 777 matches the intent: one container, one tenant, anyone in the
+    # container can read/write workspace files. Cross-tenant isolation
+    # happens at the Docker boundary, not inside the volume.
+    for path in (WORKSPACE_MOUNT, CHAT_UPLOADS_DIR):
+        try:
+            os.makedirs(path, exist_ok=True)
+            os.chmod(path, 0o777)
+        except PermissionError:
+            logger.info(
+                "ensure_workspace_writable: lacking root (non-fatal) for %s", path
+            )
+        except OSError as exc:
+            logger.warning(
+                "ensure_workspace_writable: %s for %s", exc, path
+            )
+
+# Cap image inlining so a 25MB PNG doesn't blow past provider context
+# limits. Images larger than this fall back to a path mention only —
+# the agent can still read them via file_read / bash tools.
+MAX_INLINE_ATTACHMENT_BYTES = 8 * 1024 * 1024
+
+# Absolute /workspace/... paths the agent may mention in its reply.
+# Leading boundary prevents matching the middle of URLs like
+# https://example.com/workspace/foo while allowing markdown emphasis
+# wrappers (**, *, _, `, (, [) so "**/workspace/x.pdf**" still matches.
+# Trailing '.' is stripped post-capture (see collect_outbound_files).
+_WORKSPACE_PATH_RE = re.compile(
+    r"(?:^|[\s`\"'*_(\[])(/workspace/[A-Za-z0-9_./\-]+)"
+)
+_UNSAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._\-]")
+
+
+def resolve_attachment_uri(uri: str) -> str | None:
+    """Resolve a canvas-issued attachment URI to an in-container path.
+
+    Accepted shapes (matches canvas uploads.ts + chat_files.go):
+      - ``workspace:/workspace/.molecule/chat-uploads/<name>``  (canonical)
+      - ``file:///workspace/...``                               (legacy)
+      - ``/workspace/...``                                      (bare)
+
+    Anything resolving outside ``/workspace`` is refused. ``Path.resolve``
+    collapses ``..`` segments so a crafted ``workspace:/workspace/../etc/passwd``
+    returns None instead of leaking the real filesystem.
+    """
+    if not uri:
+        return None
+    path: str | None = None
+    if uri.startswith("workspace:"):
+        path = uri[len("workspace:"):]
+    elif uri.startswith("file://"):
+        path = uri[len("file://"):]
+    elif uri.startswith("/"):
+        path = uri
+    if not path:
+        return None
+    try:
+        resolved = str(Path(path).resolve())
+    except (OSError, RuntimeError):
+        return None
+    if not (resolved == WORKSPACE_MOUNT or resolved.startswith(WORKSPACE_MOUNT + "/")):
+        return None
+    return resolved
+
+
+def extract_attached_files(message: Any) -> list[dict[str, str]]:
+    """Pull ``{name, mime_type, path}`` dicts out of an A2A message.
+
+    Handles the discriminated-union shape ``part.root.file`` that a2a-sdk
+    produces via Pydantic RootModel, and the flatter ``part.file`` shape
+    hand-built callers sometimes emit. Non-file parts and files with
+    unresolvable URIs are skipped — the caller sees an empty list rather
+    than a mix of valid and broken entries.
+    """
+    if message is None:
+        return []
+    parts = getattr(message, "parts", None) or []
+    out: list[dict[str, str]] = []
+    for part in parts:
+        root = getattr(part, "root", part)
+        if getattr(root, "kind", None) != "file":
+            continue
+        f = getattr(root, "file", None)
+        if f is None:
+            continue
+        uri = getattr(f, "uri", "") or ""
+        name = getattr(f, "name", "") or ""
+        mime = getattr(f, "mimeType", None) or getattr(f, "mime_type", None) or ""
+        path = resolve_attachment_uri(uri)
+        if not path or not os.path.isfile(path):
+            logger.warning("skipping attached file with unresolvable uri=%r", uri)
+            continue
+        out.append({"name": name, "mime_type": mime, "path": path})
+    return out
+
+
+def _read_as_data_url(path: str, mime_type: str) -> str | None:
+    """Return ``data:<mime>;base64,<...>`` or None if too large / unreadable."""
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return None
+    if size > MAX_INLINE_ATTACHMENT_BYTES:
+        logger.info(
+            "attachment %s too large to inline (%d bytes > cap)", path, size
+        )
+        return None
+    try:
+        with open(path, "rb") as fh:
+            b64 = base64.b64encode(fh.read()).decode("ascii")
+    except OSError as exc:
+        logger.warning("failed to read attachment %s: %s", path, exc)
+        return None
+    return f"data:{mime_type or 'application/octet-stream'};base64,{b64}"
+
+
+def build_user_content_with_files(
+    user_text: str, attached: list[dict[str, str]]
+) -> Any:
+    """Combine text + attachments into an OpenAI-compat ``content`` field.
+
+    - No attachments → plain string (preserves simple shape for non-vision
+      models).
+    - Any image attachment → list-of-parts with text + image_url entries
+      (multi-modal; vision-capable models see the image bytes). Skipped
+      when ``MOLECULE_DISABLE_IMAGE_INLINING`` is truthy — some provider/
+      model combos (e.g. MiniMax's hermes-agent adapter as of 2026-04)
+      claim vision support but hang indefinitely on image payloads, and
+      the caller may prefer manifest-only so the agent can still use its
+      file_read tool instead of stalling the whole request.
+    - Non-image attachments → manifest appended to the text so the agent
+      knows the filenames + absolute paths and can inspect via its
+      file_read / bash tools.
+
+    This is the platform's one-line fix for "agent didn't know I attached
+    a file": any executor that calls it gets attachment awareness for
+    free, regardless of which LLM provider is behind it.
+    """
+    if not attached:
+        return user_text
+
+    manifest_lines = [
+        f"- {f['name']} ({f['mime_type'] or 'unknown type'}) at {f['path']}"
+        for f in attached
+    ]
+    manifest = "Attached files:\n" + "\n".join(manifest_lines)
+    combined = f"{user_text}\n\n{manifest}" if user_text else manifest
+
+    disable_inline = os.environ.get("MOLECULE_DISABLE_IMAGE_INLINING", "").lower() in (
+        "1", "true", "yes", "on",
+    )
+    if disable_inline or not any(
+        (f["mime_type"] or "").startswith("image/") for f in attached
+    ):
+        return combined
+
+    content: list[dict[str, Any]] = [{"type": "text", "text": combined}]
+    for f in attached:
+        mt = f["mime_type"] or ""
+        if not mt.startswith("image/"):
+            continue
+        data_url = _read_as_data_url(f["path"], mt)
+        if data_url is not None:
+            content.append({"type": "image_url", "image_url": {"url": data_url}})
+    return content
+
+
+def _sanitize_attachment_name(name: str) -> str:
+    cleaned = _UNSAFE_NAME_RE.sub("_", name) or "file"
+    return cleaned[:100]
+
+
+def _guess_mime(path: str) -> str:
+    mt, _ = mimetypes.guess_type(path)
+    return mt or "application/octet-stream"
+
+
+def stage_outbound_file(src_path: str) -> dict[str, str] | None:
+    """Copy ``src_path`` into ``CHAT_UPLOADS_DIR`` (unless already there)
+    and return ``{name, mime_type, path}`` so the caller can attach it to
+    the A2A reply.
+
+    Files already in the chat-uploads directory are attached as-is;
+    anything elsewhere under /workspace gets a uuid-prefixed copy so
+    basenames can't collide with existing uploads and the original
+    workspace layout stays untouched. Returns None on I/O failure.
+    """
+    try:
+        os.makedirs(CHAT_UPLOADS_DIR, exist_ok=True)
+    except OSError as exc:
+        logger.warning("cannot ensure chat-uploads dir: %s", exc)
+        return None
+    name = os.path.basename(src_path)
+    mime = _guess_mime(src_path)
+    if os.path.dirname(src_path) == CHAT_UPLOADS_DIR:
+        return {"name": name, "mime_type": mime, "path": src_path}
+    try:
+        stored = f"{_uuid.uuid4().hex[:16]}-{_sanitize_attachment_name(name)}"
+        dst = os.path.join(CHAT_UPLOADS_DIR, stored)
+        with open(src_path, "rb") as fin, open(dst, "wb") as fout:
+            fout.write(fin.read())
+    except OSError as exc:
+        logger.warning("failed to stage %s → chat-uploads: %s", src_path, exc)
+        return None
+    return {"name": name, "mime_type": mime, "path": dst}
+
+
+def collect_outbound_files(reply_text: str) -> list[dict[str, str]]:
+    """Detect /workspace/... paths the agent mentioned in its reply and
+    stage each one so it can be returned to the canvas as a file part.
+
+    Each unique, readable file goes through ``stage_outbound_file`` — the
+    download endpoint only serves files from whitelisted directories, so
+    a reply referencing /workspace/private/secret.pem still can't be
+    exfiltrated via the chat download link unless we've explicitly
+    copied it under the chat-uploads dir.
+    """
+    if not reply_text:
+        return []
+    seen: set[str] = set()
+    out: list[dict[str, str]] = []
+    for match in _WORKSPACE_PATH_RE.finditer(reply_text):
+        # Trim trailing sentence punctuation that the character class
+        # greedily swallowed — "wrote /workspace/x.txt." would otherwise
+        # resolve to "x.txt." which doesn't exist.
+        raw = match.group(1).rstrip(".")
+        resolved = resolve_attachment_uri(raw)
+        if not resolved or resolved in seen or not os.path.isfile(resolved):
+            continue
+        seen.add(resolved)
+        staged = stage_outbound_file(resolved)
+        if staged is not None:
+            out.append(staged)
+    return out
