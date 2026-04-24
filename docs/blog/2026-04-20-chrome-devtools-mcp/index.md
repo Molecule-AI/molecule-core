@@ -4,6 +4,7 @@ date: 2026-04-20
 slug: chrome-devtools-mcp
 description: "Chrome DevTools MCP gives any compatible AI agent full browser control through a standards-based interface. That's powerful for prototypes. For production, you need a governance layer. Here's where Molecule AI fits in."
 tags: [browser-automation, mcp, governance, chrome-devtools, security]
+og_image: /assets/blog/2026-04-21-chrome-devtools-mcp-og.png
 ---
 
 # Browser Automation Meets Production Standards
@@ -91,3 +92,5 @@ Then install and govern it through the Molecule AI plugin system — so the tool
 ---
 
 *Chrome DevTools MCP plus Molecule AI's governance layer: browser automation that meets production standards.*
+
+→ [Every MCP Server Available in Molecule AI (2026)](/blog/mcp-server-list) — full catalogue of browser, cloud, code execution, and communication MCP servers, with governance notes.

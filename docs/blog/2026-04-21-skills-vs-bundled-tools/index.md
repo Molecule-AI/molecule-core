@@ -4,6 +4,7 @@ date: 2026-04-21
 slug: skills-vs-bundled-tools-ai-agent-platforms
 description: "Hermes v0.10.0 bundles 4 platform tools. Molecule AI installs them as skills. This piece explains why composability beats convenience for production multi-agent teams."
 tags: [skills, hermes, comparison, composability, AI-agents, tutorial]
+og_image: /assets/blog/2026-04-21-skills-vs-bundled-tools/og.png
 ---
 
 # Skills Over Bundled Tools: Why Composable AI Beats Platform Primitives

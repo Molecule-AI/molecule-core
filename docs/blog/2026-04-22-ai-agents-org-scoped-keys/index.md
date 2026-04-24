@@ -4,6 +4,7 @@ date: 2026-04-22
 slug: ai-agents-org-scoped-keys
 description: "Org-scoped API keys solve the AI agent credential problem: full admin tokens are too powerful, workspace tokens are too narrow. Here's the model that works."
 tags: [security, ai-agents, platform, api, enterprise]
+og_image: /assets/blog/2026-04-22-ai-agents-org-scoped-keys/og.png
 ---
 
 # Give Your AI Agents Exactly One Key: Org-Scoped API Keys for Agentic Workflows

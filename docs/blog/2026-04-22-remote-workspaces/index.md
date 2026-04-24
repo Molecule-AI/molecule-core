@@ -4,6 +4,7 @@ date: 2026-04-22
 slug: remote-workspaces
 description: "Molecule AI Phase 30 ships today. Connect any AI agent — wherever it runs — to your fleet canvas with full A2A collaboration and enterprise-grade auth, without moving a single agent."
 tags: [platform, phase-30, external-agents, fleet-management, a2a, mcp]
+og_image: /assets/blog/2026-04-22-remote-workspaces/og.png
 canonicalUrl: "https://docs.molecule.ai/blog/remote-workspaces"
 ---
 

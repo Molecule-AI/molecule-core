@@ -4,6 +4,7 @@ date: 2026-04-21
 slug: org-scoped-api-keys
 description: "Named, revocable, audit-trail-enabled tokens for every integration in your organization. Replace shared ADMIN_TOKEN with org-level keys that rotate without downtime and trace every call back to the key that made it."
 tags: [security, enterprise, API-keys, multi-agent, audit]
+og_image: /assets/blog/2026-04-21-org-scoped-api-keys/og.png
 ---
 
 # Org-Scoped API Keys: Enterprise Key Management for Multi-Agent Teams

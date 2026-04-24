@@ -4,6 +4,7 @@ date: 2026-04-20
 slug: container-vs-remote
 description: "Phase 30 ships remote workspaces. Phase 31 ships container workspaces. Here's how to choose between them — and when to use both in the same org."
 tags: [platform, runtime, deployment, remote-agents, containers, decision-guide]
+og_image: /assets/blog/2026-04-20-container-vs-remote/og.png
 ---
 
 # Container or Remote? How to Choose Your Agent Runtime in Molecule AI
