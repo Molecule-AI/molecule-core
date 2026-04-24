@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2  # need previous commit to diff against on push events
+          fetch-depth: 0  # full history needed: PR base SHA may be far from branch HEAD
 
       - name: Refuse if forbidden paths appear
         run: |
