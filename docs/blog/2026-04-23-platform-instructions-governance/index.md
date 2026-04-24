@@ -8,6 +8,7 @@ og_description: "Platform Instructions: global and workspace-scoped rules prepen
 tags: [governance, platform-instructions, enterprise, security, it-governance, system-prompt, policy, a2a]
 keywords: [AI fleet governance, enterprise AI policy, system prompt governance, AI agent compliance, platform instructions, workspace policy enforcement, enterprise AI security, AI agent ACL]
 canonical: https://docs.molecule.ai/blog/govern-ai-fleet-system-prompt-level
+og_image: ""
 ---
 
 <script type="application/ld+json">
@@ -99,6 +100,7 @@ Platform Instructions are available on **Enterprise plans**. To get started:
 - Verify resolved instructions via `GET /workspaces/{id}/instructions/resolve`
 
 For a complete governance picture, combine Platform Instructions with [Tool Trace](/blog/ai-agent-observability-without-overhead/) — see exactly which tools were called and what inputs were passed, alongside the policy that governed them.
+- See both features in one post: [Tool Trace + Platform Instructions Overview](/blog/tool-trace-platform-instructions-overview/)
 
 ---
 
