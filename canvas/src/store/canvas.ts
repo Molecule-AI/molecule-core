@@ -13,6 +13,7 @@ import {
   buildNodesAndEdges,
   computeAutoLayout,
   defaultChildSlot,
+  sortParentsBeforeChildren,
   CHILD_DEFAULT_HEIGHT,
   CHILD_DEFAULT_WIDTH,
   PARENT_BOTTOM_PADDING,
@@ -482,6 +483,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         (e) => !movedIds.has(e.source) && !movedIds.has(e.target),
       ),
     });
+    // Keep parents before children in the array (same invariant
+    // nestNode enforces). Needed after multi-select re-parent because
+    // the selection order is user-driven.
+    set({ nodes: sortParentsBeforeChildren(get().nodes) });
 
     // Fire every PATCH in parallel. Individual failures roll back just
     // that node (others remain committed, matching the single-node
@@ -684,6 +689,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       }),
       edges: newEdges,
     });
+    // React Flow requires parents before children in the array. Without
+    // this re-sort a newly-nested child can end up ahead of its new
+    // parent, which makes RF log "Parent node not found" and render the
+    // child at canvas-absolute coords (far outside the parent, which
+    // is the flash-bug the user just flagged).
+    set({ nodes: sortParentsBeforeChildren(get().nodes) });
 
     try {
       // One round-trip per nest: the /workspaces/:id PATCH handler

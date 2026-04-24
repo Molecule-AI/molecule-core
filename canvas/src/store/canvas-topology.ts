@@ -9,6 +9,35 @@ const V_SPACING = 200;
 // (first render, before React Flow reports dimensions). These match the
 // min-width / min-height that WorkspaceNode.tsx sets, so a parent built
 // from them will never start too small for its children on first paint.
+/**
+ * Re-orders a React Flow node array so parents always appear BEFORE
+ * their children. React Flow requires this ordering; when it's
+ * violated RF logs "Parent node ... not found" and renders the child
+ * at canvas-absolute coords (losing the parent-relative transform).
+ *
+ * We call this every time nestNode / batchNest mutates parentId —
+ * without a re-sort a freshly-nested child can appear AFTER its new
+ * parent in the array, which breaks the next drag.
+ */
+export function sortParentsBeforeChildren<T extends { id: string; parentId?: string }>(
+  nodes: T[],
+): T[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const visited = new Set<string>();
+  const out: T[] = [];
+  const visit = (n: T) => {
+    if (visited.has(n.id)) return;
+    if (n.parentId) {
+      const parent = byId.get(n.parentId);
+      if (parent && !visited.has(parent.id)) visit(parent);
+    }
+    visited.add(n.id);
+    out.push(n);
+  };
+  for (const n of nodes) visit(n);
+  return out;
+}
+
 export const CHILD_DEFAULT_WIDTH = 260;
 export const CHILD_DEFAULT_HEIGHT = 140;
 export const PARENT_HEADER_PADDING = 60; // room for the parent's own header
