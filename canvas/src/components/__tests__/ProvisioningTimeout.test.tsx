@@ -8,6 +8,12 @@ global.fetch = vi.fn(() =>
 import { useCanvasStore } from "../../store/canvas";
 import type { WorkspaceData } from "../../store/socket";
 import { DEFAULT_PROVISION_TIMEOUT_MS } from "../ProvisioningTimeout";
+import {
+  DEFAULT_RUNTIME_PROFILE,
+  RUNTIME_PROFILES,
+  getRuntimeProfile,
+  provisionTimeoutForRuntime,
+} from "@/lib/runtimeProfiles";
 
 // Helper to build a WorkspaceData object
 function makeWS(overrides: Partial<WorkspaceData> & { id: string }): WorkspaceData {
@@ -183,5 +189,103 @@ describe("ProvisioningTimeout", () => {
       .getState()
       .nodes.filter((n) => n.data.status === "provisioning");
     expect(stillProvisioning).toHaveLength(2);
+  });
+
+  // ── Runtime-aware timeout regression tests (2026-04-24 outage) ────────────
+  // Prior to this, a hermes workspace consistently false-alarmed at 2 min
+  // into its 8-13 min cold boot, pushing users to retry something that
+  // would have come online on its own. The runtime-aware override keeps
+  // the 2-min floor for fast docker runtimes while giving hermes its
+  // honest 12-min budget.
+
+  describe("runtime profile resolution (@/lib/runtimeProfiles)", () => {
+    describe("provisionTimeoutForRuntime", () => {
+      it("returns the default for unknown/missing runtimes", () => {
+        expect(provisionTimeoutForRuntime(undefined)).toBe(
+          DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs,
+        );
+        expect(provisionTimeoutForRuntime("")).toBe(
+          DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs,
+        );
+        expect(provisionTimeoutForRuntime("some-future-runtime")).toBe(
+          DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs,
+        );
+      });
+
+      it("returns default for known-fast runtimes (not in profile map)", () => {
+        // If someone ever adds one of these to RUNTIME_PROFILES with a
+        // slower value, this test catches the unintended regression.
+        expect(provisionTimeoutForRuntime("claude-code")).toBe(
+          DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs,
+        );
+        expect(provisionTimeoutForRuntime("langgraph")).toBe(
+          DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs,
+        );
+        expect(provisionTimeoutForRuntime("crewai")).toBe(
+          DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs,
+        );
+      });
+
+      it("returns hermes override when runtime = hermes", () => {
+        expect(provisionTimeoutForRuntime("hermes")).toBe(
+          RUNTIME_PROFILES.hermes?.provisionTimeoutMs,
+        );
+        expect(provisionTimeoutForRuntime("hermes")).toBeGreaterThanOrEqual(
+          DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs * 5,
+        );
+      });
+
+      it("server-side workspace override wins over runtime profile", () => {
+        // The resolution order is: overrides → profile → default.
+        // An operator-tunable per-workspace number on the backend
+        // (e.g. via a template manifest field) should beat the canvas
+        // runtime map.
+        expect(
+          provisionTimeoutForRuntime("hermes", {
+            provisionTimeoutMs: 60_000,
+          }),
+        ).toBe(60_000);
+        expect(
+          provisionTimeoutForRuntime("some-unknown", {
+            provisionTimeoutMs: 300_000,
+          }),
+        ).toBe(300_000);
+      });
+    });
+
+    describe("getRuntimeProfile", () => {
+      it("returns a structural profile with required fields", () => {
+        const profile = getRuntimeProfile("hermes");
+        expect(profile.provisionTimeoutMs).toBeTypeOf("number");
+        expect(profile.provisionTimeoutMs).toBeGreaterThan(0);
+      });
+
+      it("default profile is a valid superset of every override", () => {
+        // Every entry in RUNTIME_PROFILES must provide fields the
+        // default does — otherwise consumers could get undefined where
+        // they expected a number. This test enforces that contract so
+        // future entries can't accidentally drop fields.
+        for (const [runtime, profile] of Object.entries(RUNTIME_PROFILES)) {
+          const resolved = getRuntimeProfile(runtime);
+          expect(
+            resolved.provisionTimeoutMs,
+            `runtime=${runtime} must resolve to a number`,
+          ).toBeTypeOf("number");
+          expect(resolved.provisionTimeoutMs).toBeGreaterThan(0);
+          // Profile's explicit value should be used iff present.
+          if (profile.provisionTimeoutMs !== undefined) {
+            expect(resolved.provisionTimeoutMs).toBe(profile.provisionTimeoutMs);
+          }
+        }
+      });
+    });
+
+    describe("DEFAULT_PROVISION_TIMEOUT_MS backward-compat export", () => {
+      it("still exports the same default for legacy importers", () => {
+        expect(DEFAULT_PROVISION_TIMEOUT_MS).toBe(
+          DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs,
+        );
+      });
+    });
   });
 });
