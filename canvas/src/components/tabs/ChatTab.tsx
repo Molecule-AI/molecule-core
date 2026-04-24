@@ -144,12 +144,28 @@ export function ChatTab({ workspaceId, data }: Props) {
         </button>
       </div>
       {/* Content — both panels are always in the DOM so aria-controls targets exist.
-           The inactive panel is hidden via the HTML `hidden` attribute (removed from
-           display and accessibility tree, but present in the DOM for WCAG 4.1.2). */}
-      <div id="chat-panel-my-chat" role="tabpanel" aria-labelledby="chat-tab-my-chat" hidden={subTab !== "my-chat"} className="flex-1 overflow-hidden flex flex-col">
+           Inactive panel is hidden via a conditional `hidden` Tailwind class
+           (display: none) because the native HTML `hidden` attribute is
+           overridden by the panel's own `flex` utility — that's why both
+           sections used to render stacked. */}
+      <div
+        id="chat-panel-my-chat"
+        role="tabpanel"
+        aria-labelledby="chat-tab-my-chat"
+        className={`flex-1 overflow-hidden flex-col ${
+          subTab === "my-chat" ? "flex" : "hidden"
+        }`}
+      >
         <MyChatPanel workspaceId={workspaceId} data={data} />
       </div>
-      <div id="chat-panel-agent-comms" role="tabpanel" aria-labelledby="chat-tab-agent-comms" hidden={subTab !== "agent-comms"} className="flex-1 overflow-hidden flex flex-col">
+      <div
+        id="chat-panel-agent-comms"
+        role="tabpanel"
+        aria-labelledby="chat-tab-agent-comms"
+        className={`flex-1 overflow-hidden flex-col ${
+          subTab === "agent-comms" ? "flex" : "hidden"
+        }`}
+      >
         <AgentCommsPanel workspaceId={workspaceId} />
       </div>
     </div>
@@ -200,7 +216,12 @@ function MyChatPanel({ workspaceId, data }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Consume agent push messages (send_message_to_user) from global store
+  // Consume agent push messages (send_message_to_user) from global store.
+  // Runtimes like Claude Code SDK deliver their reply via a WS push rather
+  // than the /a2a HTTP response — when that happens, the push is the
+  // authoritative "reply arrived" signal for the UI, so clear `sending`
+  // here too. The HTTP .then() coordinates through sendingFromAPIRef so
+  // whichever path clears first wins.
   const pendingAgentMsgs = useCanvasStore((s) => s.agentMessages[workspaceId]);
   useEffect(() => {
     if (!pendingAgentMsgs || pendingAgentMsgs.length === 0) return;
@@ -213,23 +234,11 @@ function MyChatPanel({ workspaceId, data }: Props) {
       // push for the same content).
       setMessages((prev) => appendMessageDeduped(prev, createMessage("agent", m.content)));
     }
-  }, [pendingAgentMsgs, workspaceId]);
-
-  // Consume A2A_RESPONSE events from global store (streaming response delivery).
-  // Guarded by sendingFromAPIRef to avoid duplicate messages when the
-  // synchronous HTTP .then() handler also fires for the same response.
-  const pendingA2AResponse = useCanvasStore((s) => s.agentMessages[`a2a:${workspaceId}`]);
-  useEffect(() => {
-    if (!pendingA2AResponse || pendingA2AResponse.length === 0) return;
-    const consume = useCanvasStore.getState().consumeAgentMessages;
-    const msgs = consume(`a2a:${workspaceId}`);
-    if (!sendingFromAPIRef.current) return; // HTTP .then() already handled this response
-    for (const m of msgs) {
-      setMessages((prev) => appendMessageDeduped(prev, createMessage("agent", m.content)));
+    if (sendingFromAPIRef.current && msgs.length > 0) {
+      setSending(false);
+      sendingFromAPIRef.current = false;
     }
-    setSending(false);
-    sendingFromAPIRef.current = false;
-  }, [pendingA2AResponse, workspaceId]);
+  }, [pendingAgentMsgs, workspaceId]);
 
   // Resolve workspace ID → name for activity display
   const resolveWorkspaceName = useCallback((id: string) => {
@@ -281,8 +290,24 @@ function MyChatPanel({ workspaceId, data }: Props) {
             if (status === "ok" && durationMs) {
               const sec = Math.round(durationMs / 1000);
               line = `← ${targetName} responded (${sec}s)`;
+              // The platform logs a successful a2a_receive once the workspace
+              // has fully produced its reply. That's the authoritative "done"
+              // signal for the spinner — clear it even if the reply hasn't
+              // surfaced through the store yet (it may be delivered shortly
+              // via pendingAgentMsgs or the HTTP .then()).
+              const own = (targetId || msg.workspace_id) === workspaceId;
+              if (own && sendingFromAPIRef.current) {
+                setSending(false);
+                sendingFromAPIRef.current = false;
+              }
             } else if (status === "error") {
               line = `⚠ ${targetName} error`;
+              const own = (targetId || msg.workspace_id) === workspaceId;
+              if (own && sendingFromAPIRef.current) {
+                setSending(false);
+                sendingFromAPIRef.current = false;
+                setError("Agent error (Exception) — see workspace logs for details.");
+              }
             }
           } else if (type === "a2a_send") {
             const targetName = resolveWorkspaceName(targetId);
@@ -301,7 +326,9 @@ function MyChatPanel({ workspaceId, data }: Props) {
             setActivityLog((prev) => [...prev.slice(-8), `⟳ ${task}`]);
           }
         }
-        // A2A_RESPONSE is handled by the store (pendingA2AResponse effect) — no duplicate here
+        // A2A_RESPONSE is already consumed by the store and its text is
+        // appended to messages via the pendingAgentMsgs effect above; we
+        // don't need to duplicate it here.
       } catch { /* ignore */ }
     };
 

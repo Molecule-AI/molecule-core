@@ -618,3 +618,109 @@ func TestDiscoverHostPeer_Smoke_Success(t *testing.T) {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 }
+
+// ==================== Peers auth — dev-mode fail-open gate ====================
+//
+// validateDiscoveryCaller applies a Tier-1b dev-mode hatch so the canvas
+// user session (which holds no workspace-scoped bearer) can still load
+// the Details → PEERS list on a local Docker setup. The gate must pass
+// ONLY when MOLECULE_ENV is development AND ADMIN_TOKEN is empty.
+// These tests pin that contract against accidental polarity flips.
+
+// peersAuthFixtureHasLiveToken seeds the mock rows required for the
+// Peers handler to reach the auth branch: HasAnyLiveToken → true (a
+// non-zero count so validateDiscoveryCaller has to make the dev-mode
+// decision instead of grandfathering the request).
+func peersAuthFixtureHasLiveToken(mock sqlmock.Sqlmock, workspaceID string) {
+	// HasAnyLiveToken issues `SELECT COUNT(*) FROM workspace_auth_tokens ...`
+	mock.ExpectQuery("SELECT COUNT.+workspace_auth_tokens").
+		WithArgs(workspaceID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+}
+
+func TestPeers_DevModeFailOpen_AllowsBearerlessRequest(t *testing.T) {
+	// Dev mode: MOLECULE_ENV=development AND ADMIN_TOKEN empty. Canvas
+	// sends no bearer token; validateDiscoveryCaller must return nil
+	// (allow) and the handler must proceed to return the peer list.
+	t.Setenv("MOLECULE_ENV", "development")
+	t.Setenv("ADMIN_TOKEN", "")
+
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewDiscoveryHandler()
+
+	peersAuthFixtureHasLiveToken(mock, "ws-dev")
+
+	// Root workspace → children+parent queries still fire but the
+	// parent_id lookup comes first.
+	mock.ExpectQuery("SELECT parent_id FROM workspaces WHERE id =").
+		WithArgs("ws-dev").
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(nil))
+	peerCols := []string{"id", "name", "role", "tier", "status", "agent_card", "url", "parent_id", "active_tasks"}
+	mock.ExpectQuery("SELECT w.id.+WHERE w.parent_id IS NULL AND w.id").
+		WithArgs("ws-dev").
+		WillReturnRows(sqlmock.NewRows(peerCols))
+	mock.ExpectQuery("SELECT w.id.+WHERE w.parent_id = \\$1 AND w.status").
+		WithArgs("ws-dev").
+		WillReturnRows(sqlmock.NewRows(peerCols))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-dev"}}
+	c.Request = httptest.NewRequest("GET", "/registry/ws-dev/peers", nil)
+
+	handler.Peers(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 under dev-mode hatch, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestPeers_DevModeFailOpen_ClosedWhenAdminTokenSet(t *testing.T) {
+	// An operator with ADMIN_TOKEN set has explicitly opted into #684
+	// closure; dev-mode hatch must NOT open even when MOLECULE_ENV is
+	// "development". This is the SaaS guarantee.
+	t.Setenv("MOLECULE_ENV", "development")
+	t.Setenv("ADMIN_TOKEN", "seven-admin-token")
+
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewDiscoveryHandler()
+
+	peersAuthFixtureHasLiveToken(mock, "ws-prod")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-prod"}}
+	c.Request = httptest.NewRequest("GET", "/registry/ws-prod/peers", nil)
+
+	handler.Peers(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 with ADMIN_TOKEN set, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestPeers_DevModeFailOpen_ClosedInProduction(t *testing.T) {
+	// Production MOLECULE_ENV — hatch must stay closed regardless of
+	// ADMIN_TOKEN state. SaaS production rejects the bearerless call.
+	t.Setenv("MOLECULE_ENV", "production")
+	t.Setenv("ADMIN_TOKEN", "")
+
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewDiscoveryHandler()
+
+	peersAuthFixtureHasLiveToken(mock, "ws-prod")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-prod"}}
+	c.Request = httptest.NewRequest("GET", "/registry/ws-prod/peers", nil)
+
+	handler.Peers(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 in production, got %d: %s", w.Code, w.Body.String())
+	}
+}

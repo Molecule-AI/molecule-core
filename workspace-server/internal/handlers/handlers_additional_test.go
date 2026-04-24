@@ -183,6 +183,40 @@ func TestWorkspaceUpdate_NameOnly(t *testing.T) {
 	}
 }
 
+// ---------- workspace.go: Update with collapsed flag ----------
+
+func TestWorkspaceUpdate_Collapsed(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	// Canvas "collapse team" flip — the handler must run the UPDATE
+	// to persist the flag, otherwise the UI state resets on reload.
+	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
+		WithArgs("dddddddd-0005-0000-0000-000000000000").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec("UPDATE workspaces SET collapsed").
+		WithArgs("dddddddd-0005-0000-0000-000000000000", true).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "dddddddd-0005-0000-0000-000000000000"}}
+	body := `{"collapsed":true}`
+	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-collapse", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Update(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
 // ---------- workspace.go: List with actual data ----------
 
 func TestWorkspaceList_WithData(t *testing.T) {

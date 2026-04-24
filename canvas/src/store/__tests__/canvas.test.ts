@@ -92,7 +92,11 @@ describe("hydrate", () => {
     expect(edges).toHaveLength(0);
   });
 
-  it("sets hidden=true for nodes with parent_id", () => {
+  it("binds children to their parent via React Flow parentId", () => {
+    // The old model hid child nodes + embedded them as chips inside the
+    // parent card. The new model renders every workspace as a first-class
+    // card, using React Flow's native parentId to group them so moving
+    // the parent carries the children along.
     const workspaces = [
       makeWS({ id: "parent", name: "Parent" }),
       makeWS({ id: "child", name: "Child", parent_id: "parent" }),
@@ -105,7 +109,9 @@ describe("hydrate", () => {
     const child = nodes.find((n) => n.id === "child")!;
 
     expect(parent.hidden).toBeFalsy();
-    expect(child.hidden).toBe(true);
+    expect(child.hidden).toBeFalsy();
+    expect(parent.parentId).toBeUndefined();
+    expect(child.parentId).toBe("parent");
     expect(child.data.parentId).toBe("parent");
   });
 
@@ -331,7 +337,7 @@ describe("applyEvent", () => {
     expect(nodes).toHaveLength(1);
     expect(nodes[0].id).toBe("ws-2");
     expect(nodes[0].data.parentId).toBeNull();
-    expect(nodes[0].hidden).toBe(false);
+    expect(nodes[0].parentId).toBeUndefined();
   });
 
   it("WORKSPACE_REMOVED clears selectedNodeId if removed", () => {
@@ -454,7 +460,7 @@ describe("removeNode", () => {
 
     const leaf = useCanvasStore.getState().nodes.find((n) => n.id === "leaf")!;
     expect(leaf.data.parentId).toBe("root");
-    expect(leaf.hidden).toBe(true); // still has a parent
+    expect(leaf.parentId).toBe("root"); // RF binding also re-pointed
   });
 
   it("reparents children to null when root is deleted", () => {
@@ -462,7 +468,7 @@ describe("removeNode", () => {
 
     const mid = useCanvasStore.getState().nodes.find((n) => n.id === "mid")!;
     expect(mid.data.parentId).toBeNull();
-    expect(mid.hidden).toBe(false);
+    expect(mid.parentId).toBeUndefined();
   });
 
   it("clears selection if removed node was selected", () => {
@@ -655,23 +661,21 @@ describe("nestNode", () => {
     ]);
   });
 
-  it("optimistically updates parentId and hidden", async () => {
+  it("optimistically updates parentId and the RF parent binding", async () => {
     await useCanvasStore.getState().nestNode("b", "a");
 
     const b = useCanvasStore.getState().nodes.find((n) => n.id === "b")!;
     expect(b.data.parentId).toBe("a");
-    expect(b.hidden).toBe(true);
+    expect(b.parentId).toBe("a");
   });
 
-  it("un-nesting sets parentId to null and shows node", async () => {
-    // First nest
+  it("un-nesting clears parentId and the RF binding", async () => {
     await useCanvasStore.getState().nestNode("b", "a");
-    // Then un-nest
     await useCanvasStore.getState().nestNode("b", null);
 
     const b = useCanvasStore.getState().nodes.find((n) => n.id === "b")!;
     expect(b.data.parentId).toBeNull();
-    expect(b.hidden).toBe(false);
+    expect(b.parentId).toBeUndefined();
   });
 
   it("skips when parentId is already the target", async () => {
@@ -694,7 +698,7 @@ describe("nestNode", () => {
     // Should revert to original state (no parent)
     const b = useCanvasStore.getState().nodes.find((n) => n.id === "b")!;
     expect(b.data.parentId).toBeNull();
-    expect(b.hidden).toBe(false);
+    expect(b.parentId).toBeUndefined();
   });
 });
 
@@ -849,5 +853,207 @@ describe("TASK_UPDATED edge cases", () => {
     const ws2 = useCanvasStore.getState().nodes.find((n) => n.id === "ws-2")!;
     expect(ws1.data.currentTask).toBe("Updated A");
     expect(ws2.data.currentTask).toBe("Task B"); // unchanged
+  });
+});
+
+// ---------- setCollapsed round-trip ----------
+
+describe("setCollapsed", () => {
+  beforeEach(() => {
+    // Three-level chain so we can test that collapsing an ancestor
+    // hides all descendants AND that expanding it correctly preserves
+    // any intermediate collapsed state (otherwise setCollapsed and
+    // hydrate produce different hidden flags — the drift the review
+    // flagged as Critical).
+    useCanvasStore.getState().hydrate([
+      makeWS({ id: "a", name: "A" }),
+      makeWS({ id: "b", name: "B", parent_id: "a" }),
+      makeWS({ id: "c", name: "C", parent_id: "b" }),
+    ]);
+  });
+
+  it("hides the entire subtree when the root is collapsed", () => {
+    useCanvasStore.getState().setCollapsed("a", true);
+    const { nodes } = useCanvasStore.getState();
+    expect(nodes.find((n) => n.id === "a")!.hidden).toBeFalsy();
+    expect(nodes.find((n) => n.id === "b")!.hidden).toBe(true);
+    expect(nodes.find((n) => n.id === "c")!.hidden).toBe(true);
+    expect(nodes.find((n) => n.id === "a")!.data.collapsed).toBe(true);
+  });
+
+  it("keeps descendants hidden when an ancestor is un-collapsed but a middle parent is still collapsed", () => {
+    // Collapse both A and B, then expand A. C must stay hidden because
+    // B — its immediate parent — is still collapsed. Before the fix,
+    // setCollapsed naively unhid every descendant of A and drifted from
+    // what hydrate would produce.
+    useCanvasStore.getState().setCollapsed("a", true);
+    useCanvasStore.getState().setCollapsed("b", true);
+    useCanvasStore.getState().setCollapsed("a", false);
+    const { nodes } = useCanvasStore.getState();
+    expect(nodes.find((n) => n.id === "b")!.hidden).toBeFalsy();
+    expect(nodes.find((n) => n.id === "c")!.hidden).toBe(true);
+  });
+
+  it("matches hydrate's hidden flags (no drift on snapshot refresh)", () => {
+    // Run the same scenario through setCollapsed, then re-hydrate from
+    // an equivalent server snapshot and assert the hidden flags agree.
+    useCanvasStore.getState().setCollapsed("a", true);
+    const afterCollapse = useCanvasStore.getState().nodes.map((n) => ({
+      id: n.id,
+      hidden: !!n.hidden,
+    }));
+
+    useCanvasStore.getState().hydrate([
+      makeWS({ id: "a", name: "A", collapsed: true }),
+      makeWS({ id: "b", name: "B", parent_id: "a" }),
+      makeWS({ id: "c", name: "C", parent_id: "b" }),
+    ]);
+    const afterHydrate = useCanvasStore.getState().nodes.map((n) => ({
+      id: n.id,
+      hidden: !!n.hidden,
+    }));
+    expect(afterHydrate).toEqual(afterCollapse);
+  });
+});
+
+// ---------- bumpZOrder ----------
+
+describe("bumpZOrder", () => {
+  beforeEach(() => {
+    useCanvasStore.getState().hydrate([
+      makeWS({ id: "r1", name: "R1" }),
+      makeWS({ id: "r2", name: "R2" }),
+      makeWS({ id: "r3", name: "R3" }),
+    ]);
+  });
+
+  it("swaps with the neighbour in the bump direction (no drift on identical zIndex)", () => {
+    // Fresh topology: all three siblings start at zIndex=0 (depth=0).
+    // Bumping r2 forward must put it above exactly one sibling, not
+    // arbitrarily far ahead.
+    useCanvasStore.getState().bumpZOrder("r2", 1);
+    const nodes = useCanvasStore.getState().nodes;
+    const r1Z = nodes.find((n) => n.id === "r1")!.zIndex ?? 0;
+    const r2Z = nodes.find((n) => n.id === "r2")!.zIndex ?? 0;
+    const r3Z = nodes.find((n) => n.id === "r3")!.zIndex ?? 0;
+    // r2 now above at least one neighbour.
+    expect(r2Z).toBeGreaterThan(Math.min(r1Z, r3Z));
+    // Bumping once more swaps with the remaining one — not unbounded.
+    useCanvasStore.getState().bumpZOrder("r2", 1);
+    const r2ZAfter = useCanvasStore.getState().nodes.find((n) => n.id === "r2")!.zIndex ?? 0;
+    expect(r2ZAfter).toBeLessThanOrEqual(r2Z + 2);
+  });
+
+  it("no-ops at the edge of the sibling list", () => {
+    const beforeZ = useCanvasStore.getState().nodes.map((n) => n.zIndex ?? 0);
+    // First sibling bumped backward has no earlier neighbour.
+    useCanvasStore.getState().bumpZOrder("r1", -1);
+    const afterZ = useCanvasStore.getState().nodes.map((n) => n.zIndex ?? 0);
+    expect(afterZ).toEqual(beforeZ);
+  });
+});
+
+// ---------- batchNest ----------
+
+describe("batchNest", () => {
+  beforeEach(() => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockClear();
+    // Scenario: two root nodes (a, b) and one nested under a (a-child).
+    // Tests below re-parent various subsets into `target`.
+    useCanvasStore.getState().hydrate([
+      makeWS({ id: "target", name: "Target", x: 1000, y: 0 }),
+      makeWS({ id: "a", name: "A", x: 0, y: 0 }),
+      makeWS({ id: "b", name: "B", x: 200, y: 0 }),
+      makeWS({ id: "a-child", name: "A/Child", parent_id: "a", x: 50, y: 50 }),
+    ]);
+  });
+
+  it("re-parents every selected root into the target via one PATCH each", async () => {
+    const mock = global.fetch as ReturnType<typeof vi.fn>;
+    mock.mockImplementation(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response),
+    );
+    // Clear any PATCHes that hydrate's computeAutoLayout may have fired
+    // (auto-positioned workspaces trigger a savePosition → PATCH).
+    mock.mockClear();
+    await useCanvasStore.getState().batchNest(["a", "b"], "target");
+    const nodes = useCanvasStore.getState().nodes;
+    expect(nodes.find((n) => n.id === "a")!.data.parentId).toBe("target");
+    expect(nodes.find((n) => n.id === "b")!.data.parentId).toBe("target");
+    // Every PATCH fired by batchNest should target /workspaces/<id>
+    // and carry `parent_id: "target"` plus absolute x,y. One per root.
+    const nestPatchCalls = mock.mock.calls.filter((c) => {
+      const init = c[1] as RequestInit | undefined;
+      if (init?.method !== "PATCH") return false;
+      const body = init.body ? JSON.parse(init.body as string) : {};
+      return body.parent_id === "target";
+    });
+    expect(nestPatchCalls).toHaveLength(2);
+    for (const call of nestPatchCalls) {
+      const body = JSON.parse((call[1] as RequestInit).body as string);
+      expect(body.x).toBeTypeOf("number");
+      expect(body.y).toBeTypeOf("number");
+    }
+  });
+
+  it("filters out selected descendants so a subtree moves intact", async () => {
+    // User selects both A AND its child A/Child, then drags into target.
+    // Intent: move the A subtree — A/Child stays under A, not target.
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response),
+    );
+    await useCanvasStore.getState().batchNest(["a", "a-child"], "target");
+    const nodes = useCanvasStore.getState().nodes;
+    expect(nodes.find((n) => n.id === "a")!.data.parentId).toBe("target");
+    // The descendant is NOT independently re-parented; its parent is still A.
+    expect(nodes.find((n) => n.id === "a-child")!.data.parentId).toBe("a");
+  });
+
+  it("rolls back only the nodes whose PATCH rejected", async () => {
+    // Reject the PATCH for `a`, accept the one for `b`.
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (typeof url === "string" && url.endsWith("/workspaces/a")) {
+        return Promise.reject(new Error("network"));
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({}),
+      } as Response);
+    });
+    await useCanvasStore.getState().batchNest(["a", "b"], "target");
+    const nodes = useCanvasStore.getState().nodes;
+    // `a` rolled back to its original parent (null), `b` stayed committed.
+    expect(nodes.find((n) => n.id === "a")!.data.parentId).toBeNull();
+    expect(nodes.find((n) => n.id === "b")!.data.parentId).toBe("target");
+  });
+
+  it("filters out all selected descendants in a three-level chain", async () => {
+    // Re-hydrate to a chain A → B → C. User selects all three.
+    // Expected: only A is planned for re-parent; B and C ride with it
+    // via React Flow's parent binding.
+    useCanvasStore.getState().hydrate([
+      makeWS({ id: "target", name: "Target", x: 2000, y: 0 }),
+      makeWS({ id: "A", name: "A", x: 0, y: 0 }),
+      makeWS({ id: "B", name: "B", parent_id: "A", x: 50, y: 50 }),
+      makeWS({ id: "C", name: "C", parent_id: "B", x: 10, y: 10 }),
+    ]);
+    const mock = global.fetch as ReturnType<typeof vi.fn>;
+    mock.mockImplementation(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response),
+    );
+    mock.mockClear();
+    await useCanvasStore.getState().batchNest(["A", "B", "C"], "target");
+    const nodes = useCanvasStore.getState().nodes;
+    expect(nodes.find((n) => n.id === "A")!.data.parentId).toBe("target");
+    expect(nodes.find((n) => n.id === "B")!.data.parentId).toBe("A");
+    expect(nodes.find((n) => n.id === "C")!.data.parentId).toBe("B");
+    // Exactly one nest-PATCH (for A). B and C weren't re-parented.
+    const nestPatches = mock.mock.calls.filter((c) => {
+      const init = c[1] as RequestInit | undefined;
+      if (init?.method !== "PATCH") return false;
+      const body = init.body ? JSON.parse(init.body as string) : {};
+      return body.parent_id === "target";
+    });
+    expect(nestPatches).toHaveLength(1);
   });
 });

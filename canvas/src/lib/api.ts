@@ -17,7 +17,8 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 async function request<T>(
   method: string,
   path: string,
-  body?: unknown
+  body?: unknown,
+  retryCount = 0,
 ): Promise<T> {
   // SaaS cross-origin shape:
   //  - X-Molecule-Org-Slug: derived from window.location.hostname by
@@ -38,6 +39,18 @@ async function request<T>(
     credentials: "include",
     signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
   });
+  // Transient rate-limit recovery. A single IP bucket can momentarily
+  // spike on page load (several panels hydrate simultaneously). Instead
+  // of bubbling up a 429 that blanks the Canvas, wait the
+  // Retry-After window and try once — any further 429 surfaces normally.
+  // GET / idempotent methods only; never auto-retry mutations.
+  if (res.status === 429 && retryCount === 0 && method === "GET") {
+    const retryAfterHeader = res.headers.get("Retry-After");
+    const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) : NaN;
+    const delayMs = Number.isFinite(retryAfter) ? Math.min(retryAfter, 20) * 1000 : 2000;
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    return request<T>(method, path, body, retryCount + 1);
+  }
   if (res.status === 401) {
     // Session expired or credentials lost. On SaaS (tenant subdomain)
     // the login page lives at /cp/auth/login and is mounted by the
