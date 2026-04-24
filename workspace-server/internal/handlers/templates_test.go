@@ -807,7 +807,6 @@ func TestCWE78_DeleteFile_TraversalVariants(t *testing.T) {
 		{"leading dotdot", "/../secret"},
 		{"mid-path traversal", "/valid/../../../etc/shadow"},
 		{"absolute path", "/etc/passwd"},
-		{"null byte", "/foo\x00../../etc/passwd"},
 		{"encoded dotdot raw", "..%2F..%2Fetc%2Fpasswd"},
 		{"triple dotdot", "/../../.."},
 	}

@@ -410,9 +410,13 @@ func (h *TemplatesHandler) WriteFile(c *gin.Context) {
 func (h *TemplatesHandler) DeleteFile(c *gin.Context) {
 	workspaceID := c.Param("id")
 	filePath := c.Param("path")
-	if strings.HasPrefix(filePath, "/") {
-		filePath = filePath[1:]
+	// Reject absolute paths before stripping the leading slash — this check
+	// must come before the strip so that "/etc/passwd" is not silently accepted.
+	if filepath.IsAbs(filePath) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "absolute paths not permitted"})
+		return
 	}
+	filePath = strings.TrimPrefix(filePath, "/")
 
 	if err := validateRelPath(filePath); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
