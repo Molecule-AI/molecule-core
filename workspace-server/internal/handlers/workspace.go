@@ -254,10 +254,14 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 	// Non-fatal: failures are logged but don't block workspace creation.
 	seedInitialMemories(ctx, id, payload.InitialMemories, awarenessNamespace)
 
-	// Broadcast provisioning event
+	// Broadcast provisioning event. Include `runtime` so the canvas can
+	// populate the Runtime pill on the side panel immediately — without it
+	// the node lives as "runtime: unknown" until something refetches the
+	// workspace row (which nothing does during provisioning).
 	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, map[string]interface{}{
-		"name": payload.Name,
-		"tier": payload.Tier,
+		"name":    payload.Name,
+		"tier":    payload.Tier,
+		"runtime": payload.Runtime,
 	})
 
 	// External workspaces: no container provisioning — just set the URL and mark online
