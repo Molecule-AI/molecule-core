@@ -6,13 +6,14 @@
 
 ## Phase 34 GA Launch (April 30, 2026)
 
-### 2026-04-26 — Phase 34 GA: Tool Trace + Platform Instructions ⚠️ PENDING APPROVAL (T-4)
+### 2026-04-26 — Phase 34 GA: Tool Trace + Platform Instructions ✅ INTERNALLY CONSISTENT — awaiting Marketing Lead approval (T-4)
 - **File:** `2026-04-26-phase34-ga-launch/social-copy.md`
-- **Status:** PMM pre-write complete. Awaiting Marketing Lead approval. **Internally consistent** — all sources agree: Tool Trace (all plans) + Platform Instructions (Enterprise plans). Conflict resolved this tick. Blog posts confirmed on `origin/staging` (commit `cfdaefe5`, PR #1799).
+- **Status:** ✅ CONFLICT RESOLVED this tick (2026-04-24). All sources now agree: Tool Trace (all plans) + Platform Instructions (Enterprise plans only, per `router.go:376 AdminAuth`). Blog post was correct. Community FAQ was wrong → fixed (commit `6a9d52a3`). Apr 26 social copy internally consistent. Blog posts confirmed on `origin/staging` (commit `cfdaefe5`, PR #1799). Awaiting Marketing Lead approval for publishing.
 - **Content:** 6-post X thread + LinkedIn post
-- **Owner:** PMM → Social Media Brand
+- **Owner:** PMM → Marketing Lead (approval) → Social Media Brand (execution)
 - **Blocking:** Marketing Lead approval + X credentials
 - **Canonical:** `docs.molecule.ai/blog/tool-trace-platform-instructions`
+- **Note:** Apr 26 social copy ready for ML approval. GH_TOKEN blocking pushes.
 
 ### 2026-04-30 — Phase 34 GA: Partner API Keys ✅ APPROVED (Marketing Lead)
 - **File:** `2026-04-30-phase-34-ga-launch/social-copy.md`

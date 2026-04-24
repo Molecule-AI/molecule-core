@@ -1,7 +1,8 @@
 # Phase 34 GA Launch — Social Copy
 **Campaign:** Phase 34 GA | **Features:** Tool Trace + Platform Instructions
 **Publish day:** 2026-04-26 (Day 6 of Phase 30 social campaign)
-**Status:** DRAFT — PMM pre-write pending Marketing Lead approval
+**Status:** ✅ INTERNALLY CONSISTENT — awaiting Marketing Lead approval (2026-04-24)
+**Conflicts resolved:** Platform Instructions = Enterprise plans only (confirmed via `router.go:376 AdminAuth`). Blog post was correct. Community FAQ wrong → fixed commit `6a9d52a3`.
 **Source:** PRs #1686 + #1824 + blog posts `docs/blog/2026-04-23-tool-trace-*` and `docs/blog/2026-04-23-platform-instructions-governance`
 **Owner:** PMM → Social Media Brand | **Canonical:** `docs.molecule.ai/blog/tool-trace-platform-instructions`
 
