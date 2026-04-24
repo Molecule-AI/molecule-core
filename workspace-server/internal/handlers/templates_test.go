@@ -649,7 +649,7 @@ func TestDeleteFile_WorkspaceNotFound(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{
 		{Key: "id", Value: "ws-del-nf"},
-		{Key: "path", Value: "/old-file.txt"},
+		{Key: "path", Value: "old-file.txt"},
 	}
 	c.Request = httptest.NewRequest("DELETE", "/workspaces/ws-del-nf/files/old-file.txt", nil)
 
