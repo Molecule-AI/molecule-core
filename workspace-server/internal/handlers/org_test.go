@@ -829,6 +829,73 @@ func TestCollectOrgEnv_RejectsInvalidNames(t *testing.T) {
 	}
 }
 
+// TestOrgTemplate_ClaudeAnyOfAuthPreflight exercises the shape the
+// ux-ab-lab template ships with: a single any-of group at the org
+// level covering ANTHROPIC_API_KEY vs. CLAUDE_CODE_OAUTH_TOKEN, plus
+// two strict recommended entries (SERPER_API_KEY, VERCEL_TOKEN).
+// Proves the end-to-end YAML → OrgTemplate → collectOrgEnv → IsSatisfied
+// pipeline works for the canonical "Claude sub OR API key" pattern
+// without depending on the on-disk template file (org-templates/ is
+// populated by the clone-manifest, not tracked in this monorepo).
+func TestOrgTemplate_ClaudeAnyOfAuthPreflight(t *testing.T) {
+	src := `
+name: UX A/B Lab
+required_env:
+  - any_of:
+      - ANTHROPIC_API_KEY
+      - CLAUDE_CODE_OAUTH_TOKEN
+recommended_env:
+  - SERPER_API_KEY
+  - VERCEL_TOKEN
+workspaces:
+  - name: Design Director
+    children:
+      - name: UX Researcher
+      - name: Visual Designer
+      - name: React Engineer
+      - name: Deploy Engineer
+      - name: A11y + SEO Auditor
+      - name: Perf Auditor
+`
+	var tmpl OrgTemplate
+	if err := yaml.Unmarshal([]byte(src), &tmpl); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(tmpl.Workspaces) != 1 || len(tmpl.Workspaces[0].Children) != 6 {
+		t.Fatalf("expected 1 root with 6 children, got shape %+v", tmpl.Workspaces)
+	}
+
+	required, recommended := collectOrgEnv(&tmpl)
+	if len(required) != 1 {
+		t.Fatalf("expected 1 required requirement (the any-of group), got %d: %v", len(required), reqNames(required))
+	}
+	if required[0].Name != "" {
+		t.Errorf("expected any-of group, got strict name %q", required[0].Name)
+	}
+	wantMembers := []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"}
+	got := append([]string(nil), required[0].AnyOf...)
+	sort.Strings(got)
+	if !stringSlicesEqual(got, wantMembers) {
+		t.Errorf("any-of members mismatch: got %v, want %v", got, wantMembers)
+	}
+
+	// Either member should independently satisfy the group.
+	if !required[0].IsSatisfied(map[string]struct{}{"ANTHROPIC_API_KEY": {}}) {
+		t.Errorf("ANTHROPIC_API_KEY alone should satisfy the group")
+	}
+	if !required[0].IsSatisfied(map[string]struct{}{"CLAUDE_CODE_OAUTH_TOKEN": {}}) {
+		t.Errorf("CLAUDE_CODE_OAUTH_TOKEN alone should satisfy the group")
+	}
+	if required[0].IsSatisfied(map[string]struct{}{"OPENAI_API_KEY": {}}) {
+		t.Errorf("unrelated key should NOT satisfy the group")
+	}
+
+	wantRec := []string{"SERPER_API_KEY", "VERCEL_TOKEN"}
+	if !stringSlicesEqual(reqNames(recommended), wantRec) {
+		t.Errorf("recommended mismatch: got %v, want %v", reqNames(recommended), wantRec)
+	}
+}
+
 // TestEnvRequirement_UnmarshalYAML proves the on-disk YAML shape
 // (scalar OR `{any_of: [...]}` block) round-trips into EnvRequirement
 // correctly. The preflight pipeline reads user-authored org.yaml
