@@ -1011,8 +1011,10 @@ func TestCanvasOrBearer_TokensExist_NoCreds_Returns401(t *testing.T) {
 	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
+	handlerCalled := false
 	r := gin.New()
 	r.PUT("/canvas/viewport", CanvasOrBearer(mockDB), func(c *gin.Context) {
+		handlerCalled = true
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 
@@ -1022,6 +1024,9 @@ func TestCanvasOrBearer_TokensExist_NoCreds_Returns401(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("no creds: got %d, want 401", w.Code)
+	}
+	if handlerCalled {
+		t.Error("handler called after AbortWithStatusJSON — missing return allows fall-through")
 	}
 }
 
@@ -1112,8 +1117,10 @@ func TestCanvasOrBearer_TokensExist_WrongOrigin_Returns401(t *testing.T) {
 
 	t.Setenv("CORS_ORIGINS", "https://acme.moleculesai.app")
 
+	handlerCalled := false
 	r := gin.New()
 	r.PUT("/canvas/viewport", CanvasOrBearer(mockDB), func(c *gin.Context) {
+		handlerCalled = true
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 
@@ -1124,6 +1131,9 @@ func TestCanvasOrBearer_TokensExist_WrongOrigin_Returns401(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("wrong origin: got %d, want 401", w.Code)
+	}
+	if handlerCalled {
+		t.Error("handler called after AbortWithStatusJSON — missing return allows fall-through")
 	}
 }
 
