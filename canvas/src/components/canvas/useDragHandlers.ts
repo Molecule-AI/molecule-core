@@ -138,25 +138,22 @@ export function useDragHandlers(): DragHandlers {
 
       const nodeName = node.data.name;
       const currentParentId = node.data.parentId;
-      const altHeld = event.altKey || dragModifiersRef.current.alt;
       const forceDetach =
         event.metaKey || event.ctrlKey || dragModifiersRef.current.meta;
       const droppingIntoAnotherParent =
         !!dragOverNodeId && dragOverNodeId !== currentParentId;
-
-      // Soft clamp (plain drag, no modifier, not re-parenting): snap
-      // the child back inside its current parent. Alt or Cmd bypass.
-      if (
-        currentParentId &&
-        !altHeld &&
-        !forceDetach &&
-        !droppingIntoAnotherParent &&
-        shouldDetach(node.id, currentParentId, getInternalNode)
-      ) {
-        clampChildIntoParent(node.id, currentParentId, getInternalNode);
-      }
+      // Past the 20 %-overlap hysteresis? Treat the gesture as a
+      // deliberate drag-out. Below that threshold we soft-clamp the
+      // child back inside so a twitchy release doesn't un-nest
+      // accidentally (same intent as before, just: plain drag works
+      // without a modifier now).
+      const pastHysteresis =
+        !!currentParentId &&
+        shouldDetach(node.id, currentParentId, getInternalNode);
 
       if (droppingIntoAnotherParent) {
+        // Explicit drop onto another workspace always wins over
+        // clamp/detach — the user pointed at a new target.
         const targetNode = allNodes.find((n) => n.id === dragOverNodeId);
         const targetName = targetNode?.data.name || "Unknown";
         setPendingNest({
@@ -165,11 +162,9 @@ export function useDragHandlers(): DragHandlers {
           nodeName,
           targetName,
         });
-      } else if (
-        currentParentId &&
-        (forceDetach ||
-          (altHeld && shouldDetach(node.id, currentParentId, getInternalNode)))
-      ) {
+      } else if (currentParentId && (forceDetach || pastHysteresis)) {
+        // Dragged past the edge (or Cmd-held as a force override): the
+        // user wants out of the parent. Confirm the un-nest.
         const parentNode = allNodes.find((n) => n.id === currentParentId);
         const parentName = parentNode?.data.name || "Unknown";
         setPendingNest({
@@ -178,6 +173,11 @@ export function useDragHandlers(): DragHandlers {
           nodeName,
           targetName: parentName,
         });
+      } else if (currentParentId) {
+        // Still inside parent but the drag ended slightly past the
+        // edge (under 20 % outside). Snap back in so the card doesn't
+        // visually spill — Miro frame behaviour.
+        clampChildIntoParent(node.id, currentParentId, getInternalNode);
       }
 
       const internal = getInternalNode(node.id);
