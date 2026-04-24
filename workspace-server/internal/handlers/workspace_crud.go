@@ -485,5 +485,13 @@ func validateWorkspaceFields(name, role, model, runtime string) error {
 	if len(runtime) > 100 {
 		return fmt.Errorf("runtime must be at most 100 characters")
 	}
+	// Defend CWE-22: runtime is used in filepath.Join(configsDir, runtime+"-default")
+	// inside Tier 4 of resolveRestartTemplate. Reject any path traversal attempt.
+	// Valid values are simple identifiers: alphanumerics, hyphens, underscores.
+	for _, c := range runtime {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+			return fmt.Errorf("runtime contains invalid characters")
+		}
+	}
 	return nil
 }

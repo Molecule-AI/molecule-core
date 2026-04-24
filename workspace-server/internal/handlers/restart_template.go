@@ -82,11 +82,16 @@ func resolveRestartTemplate(configsDir, wsName, dbRuntime string, body restartTe
 	// runtime's base files (entry point, Dockerfile, skill scaffolding)
 	// because the existing volume was written by the old runtime.
 	if body.ApplyTemplate && dbRuntime != "" {
-		runtimeTemplate := filepath.Join(configsDir, dbRuntime+"-default")
-		if _, err := os.Stat(runtimeTemplate); err == nil {
+		// CWE-22 defense-in-depth: dbRuntime is validated at write-time
+		// (workspace_crud.go) but guard here too in case it arrives via
+		// DB migration, audit fix, or future code path.
+		candidatePath := filepath.Join(configsDir, dbRuntime+"-default")
+		if _, err := resolveInsideRoot(configsDir, dbRuntime+"-default"); err != nil {
+			log.Printf("Restart: invalid runtime %q in Tier 4: %v — proceeding without it", dbRuntime, err)
+		} else if _, err := os.Stat(candidatePath); err == nil {
 			label := dbRuntime + "-default"
 			log.Printf("Restart: applying template %s (runtime change)", label)
-			return runtimeTemplate, label
+			return candidatePath, label
 		}
 	}
 
