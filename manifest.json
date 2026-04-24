@@ -4,6 +4,7 @@
   "plugins": [
     {"name": "browser-automation", "repo": "Molecule-AI/molecule-ai-plugin-browser-automation", "ref": "main"},
     {"name": "ecc", "repo": "Molecule-AI/molecule-ai-plugin-ecc", "ref": "main"},
+    {"name": "gh-identity", "repo": "Molecule-AI/molecule-ai-plugin-gh-identity", "ref": "main"},
     {"name": "molecule-audit", "repo": "Molecule-AI/molecule-ai-plugin-molecule-audit", "ref": "main"},
     {"name": "molecule-audit-trail", "repo": "Molecule-AI/molecule-ai-plugin-molecule-audit-trail", "ref": "main"},
     {"name": "molecule-careful-bash", "repo": "Molecule-AI/molecule-ai-plugin-molecule-careful-bash", "ref": "main"},

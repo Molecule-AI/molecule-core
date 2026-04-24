@@ -143,6 +143,21 @@ func (r *Registry) Names() []string {
 	return names
 }
 
+// Mutators returns a copy of the registered mutators in registration
+// order. Used when multiple plugins build their own registries and need
+// to merge onto a shared one at boot. Returns a copy so callers can't
+// mutate internal state.
+func (r *Registry) Mutators() []EnvMutator {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]EnvMutator, len(r.mutators))
+	copy(out, r.mutators)
+	return out
+}
+
 // FirstTokenProvider returns the first registered mutator that also
 // implements TokenProvider, or nil if none do. Used to back the
 // GET /admin/github-installation-token endpoint so long-running
