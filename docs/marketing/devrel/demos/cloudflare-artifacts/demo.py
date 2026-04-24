@@ -24,7 +24,7 @@ Usage:
 
 from __future__ import annotations
 
-import json, os, re, shutil, subprocess, tempfile, textwrap, time
+import os, shutil, subprocess, tempfile, textwrap, time
 from dataclasses import dataclass
 from typing import Optional
 

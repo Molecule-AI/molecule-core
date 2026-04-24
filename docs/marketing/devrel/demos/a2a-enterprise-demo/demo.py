@@ -23,9 +23,7 @@ Usage:
 
 from __future__ import annotations
 
-import json, os, textwrap, time
-from dataclasses import dataclass
-from typing import Optional
+import os, textwrap
 
 try:
     import requests
@@ -284,10 +282,10 @@ def main():
         except Exception as e:
             print(f"  ✗ Error: {e}")
     else:
-        result = simulate_send_task("Summarize A2A protocol observability best practices")
-        print(f"  ✓ Agent completed task in {result['metadata']['duration_ms']}ms")
-        print(f"    tools called: {[t['tool'] for t in result['metadata']['tool_trace']]}")
-        print(f"    tokens used: {result['metadata']['tokens_used']}")
+        resp = simulate_send_task("Summarize A2A protocol observability best practices")
+        print(f"  ✓ Agent completed task in {resp['metadata']['duration_ms']}ms")
+        print(f"    tools called: {[t['tool'] for t in resp['metadata']['tool_trace']]}")
+        print(f"    tokens used: {resp['metadata']['tokens_used']}")
 
     # ── Step 4 ────────────────────────────────────────────────────────────
     step(4, "Parallel tool calls with run_id correlation")
