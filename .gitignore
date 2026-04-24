@@ -120,6 +120,11 @@ backups/
 # org-templates live in Molecule-AI/molecule-ai-org-template-* repos
 # (including molecule-dev — no checkin exception).
 # plugins live in Molecule-AI/molecule-ai-plugin-* repos.
+# All three directories are populated by scripts/clone-manifest.sh
+# (now auto-run by infra/scripts/setup.sh). The in-tree exception for
+# molecule-dev was removed because the checked-in copy drifted from
+# the standalone repo and shipped with broken !include references to
+# role files that never existed in the snapshot.
 /org-templates/
 /plugins/
 /workspace-configs-templates/

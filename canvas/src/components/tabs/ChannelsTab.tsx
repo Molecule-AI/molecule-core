@@ -60,18 +60,36 @@ export function ChannelsTab({ workspaceId }: Props) {
   const allowedUsersId = useId();
 
   const load = useCallback(async () => {
-    try {
-      const [chRes, adRes] = await Promise.all([
-        api.get<Channel[]>(`/workspaces/${workspaceId}/channels`),
-        api.get<ChannelAdapter[]>(`/channels/adapters`),
-      ]);
-      setChannels(Array.isArray(chRes) ? chRes : []);
-      setAdapters(Array.isArray(adRes) ? adRes : []);
-    } catch {
-      /* ignore */
-    } finally {
-      setLoading(false);
+    // Fetch channels and adapters independently so a failure in one
+    // doesn't blank the other. Previously a single Promise.all + silent
+    // catch meant ANY request failing left both `channels` and
+    // `adapters` empty — the user saw a "+ Connect" button with no
+    // platform options, with no clue why.
+    const [chResult, adResult] = await Promise.allSettled([
+      api.get<Channel[]>(`/workspaces/${workspaceId}/channels`),
+      api.get<ChannelAdapter[]>(`/channels/adapters`),
+    ]);
+    const errors: string[] = [];
+    if (chResult.status === "fulfilled") {
+      setChannels(Array.isArray(chResult.value) ? chResult.value : []);
+    } else {
+      console.warn("ChannelsTab: channels load failed", chResult.reason);
+      errors.push("connected channels");
     }
+    if (adResult.status === "fulfilled") {
+      setAdapters(Array.isArray(adResult.value) ? adResult.value : []);
+    } else {
+      console.warn("ChannelsTab: adapters load failed", adResult.reason);
+      errors.push("platforms");
+    }
+    // Surface BOTH failure modes so the user can distinguish
+    // "no channels configured" from "API unreachable".
+    if (errors.length > 0) {
+      setError(`Failed to load ${errors.join(" and ")} — try refreshing`);
+    } else {
+      setError("");
+    }
+    setLoading(false);
   }, [workspaceId]);
 
   useEffect(() => { load(); }, [load]);

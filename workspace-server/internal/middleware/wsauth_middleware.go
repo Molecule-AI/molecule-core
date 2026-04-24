@@ -90,6 +90,12 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		// Local-dev escape hatch — see devmode.go. Unreachable on SaaS
+		// (hosted tenants always have ADMIN_TOKEN + MOLECULE_ENV=production).
+		if isDevModeFailOpen() {
+			c.Next()
+			return
+		}
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing workspace auth token"})
 		return
 	}
@@ -148,6 +154,15 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 			}
 		}
 
+		// Tier 1b: Local-dev escape hatch — see devmode.go. Lets the
+		// Canvas dashboard keep working after the first workspace token
+		// lands in the DB on `go run ./cmd/server`. Unreachable on SaaS
+		// (hosted tenants always have ADMIN_TOKEN + MOLECULE_ENV=production).
+		if isDevModeFailOpen() {
+			c.Next()
+			return
+		}
+
 		// SaaS-canvas path: when the request carries a WorkOS session
 		// cookie AND the CP confirms it's valid, accept without a
 		// bearer. This is how the tenant's Next.js canvas UI
@@ -159,7 +174,7 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 		// hosted / dev deploys without a CP fall through to the
 		// bearer-only path unchanged.
 		if cookieHeader := c.GetHeader("Cookie"); cookieHeader != "" {
-			if ok, _ := verifiedCPSession(cookieHeader); ok {
+			if ok, _ := VerifiedCPSession(cookieHeader); ok {
 				c.Next()
 				return
 			}

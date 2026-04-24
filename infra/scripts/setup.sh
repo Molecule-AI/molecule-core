@@ -7,6 +7,28 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 echo "==> Ensuring shared docker network exists..."
 docker network create molecule-monorepo-net 2>/dev/null || true
 
+# Populate the template / plugin registry.
+# workspace-configs-templates/, org-templates/, and plugins/ are intentionally
+# gitignored — the curated set lives in manifest.json as external repos. Without
+# them the Canvas template palette is empty and workspace provisioning falls
+# through to a bare default. The script itself is idempotent (skips dirs that
+# already have content), so re-running setup.sh is safe.
+if [ -f "$ROOT_DIR/manifest.json" ] && [ -f "$ROOT_DIR/scripts/clone-manifest.sh" ]; then
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "==> NOTE: jq not installed — skipping template registry populate."
+    echo "    Install with: brew install jq   (macOS) / apt install jq (Debian)"
+    echo "    Then rerun:   bash scripts/clone-manifest.sh manifest.json \\"
+    echo "                    workspace-configs-templates/ org-templates/ plugins/"
+  else
+    echo "==> Populating template / plugin registry from manifest.json..."
+    bash "$ROOT_DIR/scripts/clone-manifest.sh" \
+      "$ROOT_DIR/manifest.json" \
+      "$ROOT_DIR/workspace-configs-templates" \
+      "$ROOT_DIR/org-templates" \
+      "$ROOT_DIR/plugins"
+  fi
+fi
+
 echo "==> Starting infrastructure..."
 docker compose -f "$ROOT_DIR/docker-compose.infra.yml" up -d
 

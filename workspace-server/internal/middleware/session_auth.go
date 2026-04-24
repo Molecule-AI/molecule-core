@@ -193,7 +193,7 @@ func verifiedCPSession(cookieHeader string) (valid, presented bool) {
 	client := &http.Client{Timeout: 3 * time.Second}
 	req, err := http.NewRequest("GET", verifyURL, nil)
 	if err != nil {
-		log.Printf("verifiedCPSession: build req: %v", err)
+		log.Printf("VerifiedCPSession: build req: %v", err)
 		return false, true
 	}
 	req.Header.Set("Cookie", cookieHeader)
@@ -201,7 +201,7 @@ func verifiedCPSession(cookieHeader string) (valid, presented bool) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("verifiedCPSession: upstream: %v", err)
+		log.Printf("VerifiedCPSession: upstream: %v", err)
 		// NOTE: we deliberately do NOT cache transport failures.
 		// Caching them would mean a 3s CP blip locks out all users
 		// for the negative-TTL window. Next request retries.
@@ -231,10 +231,10 @@ func verifiedCPSession(cookieHeader string) (valid, presented bool) {
 	return true, true
 }
 
-// VerifiedCPSession is the exported alias for handlers/discovery.go.
-// Internal-only deployments (self-hosted / dev) where CP_UPSTREAM_URL
-// is unset get (false, true) so the session path is skipped and the
-// bearer token path runs as normal.
+// VerifiedCPSession is the exported alias — callers in other packages
+// (discovery.go, wsauth_middleware.go) use this name. Internal-only
+// deployments (self-hosted/dev) where CP_UPSTREAM_URL is unset get
+// (false, true) so the session path is skipped and bearer token auth runs.
 func VerifiedCPSession(cookieHeader string) (valid, presented bool) {
 	return verifiedCPSession(cookieHeader)
 }

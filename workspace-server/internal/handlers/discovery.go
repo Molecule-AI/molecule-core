@@ -330,6 +330,15 @@ func validateDiscoveryCaller(ctx context.Context, c *gin.Context, workspaceID st
 	if !hasLive {
 		return nil // legacy / pre-upgrade
 	}
+	// Tier-1b dev-mode hatch — same escape hatch AdminAuth and
+	// WorkspaceAuth apply on a local Docker setup. Without this, the
+	// canvas Details tab can never load peers for a workspace that has
+	// registered its live token, producing the 401 the user sees.
+	// Gated by MOLECULE_ENV=development + empty ADMIN_TOKEN, so SaaS
+	// production stays strict.
+	if middleware.IsDevModeFailOpen() {
+		return nil
+	}
 
 	// Try session cookie auth first (SaaS canvas path).
 	// verifiedCPSession returns (valid, presented):
@@ -348,6 +357,18 @@ func validateDiscoveryCaller(ctx context.Context, c *gin.Context, workspaceID st
 
 	tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
 	if tok == "" {
+		// Canvas hits this endpoint via session cookie, not bearer token.
+		// Add verifiedCPSession() as a fallback after the bearer check so
+		// SaaS canvas Peers tab doesn't 401. Self-hosted workspaces are
+		// unaffected — they have no CP session cookie.
+		ok, presented := middleware.VerifiedCPSession(c.GetHeader("Cookie"))
+		if ok {
+			return nil
+		}
+		if presented {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid session"})
+			return errors.New("invalid session")
+		}
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing workspace auth token"})
 		return errors.New("missing token")
 	}

@@ -112,8 +112,9 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 	db.DB.ExecContext(ctx,
 		`UPDATE workspaces SET status = 'provisioning', url = '', updated_at = now() WHERE id = $1`, id)
 	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, map[string]interface{}{
-		"name": wsName,
-		"tier": tier,
+		"name":    wsName,
+		"tier":    tier,
+		"runtime": containerRuntime,
 	})
 
 	// Read template from request body or try to find matching config
@@ -130,6 +131,17 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 		ApplyTemplate: body.ApplyTemplate,
 		RebuildConfig: body.RebuildConfig,
 	})
+
+	// #239: rebuild_config=true — try org-templates as last-resort source so a
+	// workspace with a destroyed config volume can self-recover without admin
+	// intervention. Only fires when no other template was resolved above.
+	if templatePath == "" && body.RebuildConfig {
+		if p, label := resolveOrgTemplate(h.configsDir, wsName); p != "" {
+			templatePath = p
+			configLabel = label
+			log.Printf("Restart: rebuild_config — using org-template %s for %s (%s)", label, wsName, id)
+		}
+	}
 
 	if templatePath == "" {
 		log.Printf("Restart: reusing existing config volume for %s (%s)", wsName, id)
@@ -331,7 +343,7 @@ func (h *WorkspaceHandler) RestartByID(workspaceID string) {
 	db.DB.ExecContext(ctx,
 		`UPDATE workspaces SET status = 'provisioning', url = '', updated_at = now() WHERE id = $1`, workspaceID)
 	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", workspaceID, map[string]interface{}{
-		"name": wsName, "tier": tier,
+		"name": wsName, "tier": tier, "runtime": dbRuntime,
 	})
 
 	// Runtime from DB — no more config file parsing
@@ -463,7 +475,7 @@ func (h *WorkspaceHandler) Resume(c *gin.Context) {
 		db.DB.ExecContext(ctx,
 			`UPDATE workspaces SET status = 'provisioning', updated_at = now() WHERE id = $1`, ws.id)
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", ws.id, map[string]interface{}{
-			"name": ws.name, "tier": ws.tier,
+			"name": ws.name, "tier": ws.tier, "runtime": ws.runtime,
 		})
 		payload := models.CreateWorkspacePayload{Name: ws.name, Tier: ws.tier, Runtime: ws.runtime}
 		// Dispatch to the matching provisioner (mirrors the Create +
