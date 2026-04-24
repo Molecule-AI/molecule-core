@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/Molecule-AI/molecule-ai-plugin-github-app-auth v0.0.0-20260416194734-2cd28737f845
+	github.com/Molecule-AI/molecule-ai-plugin-github-app-auth v0.0.0-20260421064811-7d98ae51e31d
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/creack/pty v1.1.18
 	github.com/docker/docker v28.2.2+incompatible
@@ -16,6 +16,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/lib/pq v1.10.9
+	github.com/opencontainers/image-spec v1.1.1
 	github.com/redis/go-redis/v9 v9.7.0
 	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/crypto v0.49.0
@@ -56,7 +57,6 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/morikuni/aec v1.1.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
-	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
@@ -78,4 +78,3 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 )
-
