@@ -111,7 +111,7 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
       }}
       className={`
         group relative rounded-xl h-full w-full
-        ${hasChildren ? "min-w-[360px] min-h-[200px]" : "min-w-[210px]"}
+        ${hasChildren && !data.collapsed ? "min-w-[360px] min-h-[200px]" : "min-w-[210px]"}
         cursor-pointer overflow-hidden
         transition-all duration-200 ease-out
         ${isDragTarget
