@@ -142,13 +142,27 @@ func validateAgentURL(rawURL string) error {
 		{"127.0.0.0/8", "loopback address"},
 		{"fe80::/10", "IPv6 link-local address (cloud metadata analogue)"},
 		{"::1/128", "IPv6 loopback address"},
+		// Always-blocked regardless of deploy mode: these ranges are never valid
+		// agent URLs in any deployment. TEST-NET (RFC-5737) are documentation-only
+		// ranges. CGNAT (RFC-6598) is never used for VPC subnets on any cloud
+		// provider. IPv4 multicast is never a unicast endpoint. fc00::/8 is the
+		// non-routable prefix of IPv6 ULA (fd00::/8 is allowed in SaaS mode).
+		{"192.0.2.0/24", "TEST-NET-1 documentation range (RFC-5737)"},
+		{"198.51.100.0/24", "TEST-NET-2 documentation range (RFC-5737)"},
+		{"203.0.113.0/24", "TEST-NET-3 documentation range (RFC-5737)"},
+		{"100.64.0.0/10", "carrier-grade NAT address (RFC-6598)"},
+		{"224.0.0.0/4", "IPv4 multicast address"},
+		{"fc00::/8", "IPv6 ULA non-routable prefix (fc00::/8)"},
 	}
 	if !saasMode() {
 		blockedRanges = append(blockedRanges,
 			blockedRange{"10.0.0.0/8", "RFC-1918 private address"},
 			blockedRange{"172.16.0.0/12", "RFC-1918 private address"},
 			blockedRange{"192.168.0.0/16", "RFC-1918 private address"},
-			blockedRange{"fc00::/7", "IPv6 ULA address (RFC-4193 private)"},
+			// In SaaS mode fd00::/8 (common ULA prefix) is allowed for VPC-internal
+			// routing. fc00::/8 is already always-blocked above. In non-SaaS mode
+			// block the entire fc00::/7 supernet (covers both fd00 and fc00).
+			blockedRange{"fd00::/8", "IPv6 ULA address (RFC-4193 private)"},
 		)
 	}
 
