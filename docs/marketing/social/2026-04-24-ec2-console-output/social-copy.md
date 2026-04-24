@@ -43,7 +43,7 @@ EC2 Console Output is now in Canvas — no AWS Console required.
 Works for any workspace: local Docker, remote EC2, on-prem VM.
 If Molecule AI manages the instance, the console log is one click away.
 
-→ [See how it works](https://docs.molecule.ai/docs/guides/remote-workspaces)
+→ [docs.molecule.ai/blog/remote-workspaces](https://docs.molecule.ai/blog/remote-workspaces)
 
 ---
 
@@ -65,7 +65,7 @@ Works for any workspace Molecule AI manages: local Docker, remote EC2, on-prem V
 
 EC2 Console Output ships with Phase 30.
 
-→ [Read the docs](https://docs.molecule.ai/docs/guides/remote-workspaces)
+→ [docs.molecule.ai/blog/remote-workspaces](https://docs.molecule.ai/blog/remote-workspaces)
 → [Molecule AI on GitHub](https://github.com/Molecule-AI/molecule-core)
 
 #AIagents #DevOps #AWs #CloudComputing #MoleculeAI

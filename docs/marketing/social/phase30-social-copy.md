@@ -68,8 +68,8 @@ The governance is the same. The A2A protocol is the same. The auth contract is t
 
 Phase 30 is generally available today.
 
-See the quick start → [link]
-Read the guide → [link]
+See the quick start → [docs.molecule.ai/getting-started/quick-start](https://docs.molecule.ai/getting-started/quick-start)
+Read the guide → [docs.molecule.ai/blog/remote-workspaces](https://docs.molecule.ai/blog/remote-workspaces)
 ```
 
 ---
