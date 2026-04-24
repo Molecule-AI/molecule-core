@@ -1,3 +1,14 @@
+# Social Queue Status — Updated 2026-04-24
+**Owner:** Community Manager
+**Status:** Active queue — 3 past due dates flagged
+
+> ⚠️ **Past-due items (Apr 24 + Apr 25):** These were marked APPROVED but blocked on visual assets + X credentials. Today is April 24 — items are past their scheduled dates. Social Media Brand to publish when X credentials land.
+> 
+> **Apr 24** (EC2 Console Output): APPROVED, visual assets present. Blocked on X credentials.
+> **Apr 25** (Org-Scoped API Keys): APPROVED, visual assets needed. Blocked on X credentials.
+
+---
+
 # Chrome DevTools MCP — Social Copy
 **Source:** PR #1306 merged to origin/main (2026-04-21)
 **Status:** MERGED — awaiting Marketing Lead approval for publishing
@@ -126,6 +137,31 @@ Full 5-post X thread + LinkedIn post. Angle: no SSH key management, ephemeral pe
 **File:** `docs/marketing/social/2026-04-25-org-scoped-api-keys/social-copy.md`
 **Status:** ✅ APPROVED — Marketing Lead 2026-04-21 | `#AgenticAI` replaced with `#AIAgents` (fix applied 2026-04-23)
 **Canonical URL:** `docs.molecule.ai/blog/org-scoped-api-keys`
-**Owner:** Social Media Brand | **Day:** 5 (2026-04-25)
+**Owner:** Social Media Brand | **Day:** 5 (2026-04-25) ⚠️ PAST DUE
 
 Full 5-post X thread + LinkedIn post. Angle: named, revocable, audit-attributed org API keys replacing shared ADMIN_TOKEN. Compliance + DevOps audience. ⚠️ Blog publish confirmation + visual assets needed.
+
+---
+
+## Forward-Looking Queue
+
+### Phase 34 Launch — Day 6 (2026-04-26)
+**File:** `docs/marketing/social/2026-04-26-phase34-ga-launch/social-copy.md`
+**Status:** DRAFT — PMM pre-write, pending Marketing Lead approval
+**Features:** Tool Trace + Platform Instructions
+**Canonical URL:** `docs.molecule.ai/blog/tool-trace-platform-instructions`
+**Owner:** PMM → Social Media Brand
+**Blocker:** Marketing Lead approval required before Social Media Brand can publish
+
+### Phase 34 GA — Day 10 (2026-04-30)
+**File:** `docs/marketing/social/2026-04-30-phase-34-ga-launch/social-copy.md`
+**Status:** ✅ APPROVED — Marketing Lead 2026-04-23
+**Features:** Partner API Keys GA + Tool Trace/Platform Instructions recap
+**Canonical URL:** `docs.molecule.ai/api/partner-keys`
+**Owner:** Social Media Brand | **Day:** 10 (2026-04-30) GA day
+**Blocker:** X credentials needed; GA vs Beta label must be resolved (Gate 1)
+
+---
+
+*Updated: 2026-04-24 by Community Manager*
+*Next update: After Marketing Lead approves Apr 26 Phase 34 social copy*

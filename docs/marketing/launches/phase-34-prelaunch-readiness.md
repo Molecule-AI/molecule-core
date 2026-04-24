@@ -1,7 +1,7 @@
 # Phase 34 — Pre-Launch Readiness Summary
 **Campaign:** Phase 34 GA (April 30, 2026)
 **Owner:** Community Manager
-**Date:** 2026-04-23
+**Date:** 2026-04-24
 **Git push:** BLOCKED (token) — all commits local on `marketing/phase-34-launch-prep`
 
 ---
@@ -10,13 +10,13 @@
 
 ### Gate 1: GA vs Beta Label Conflict
 **File:** `docs/marketing/briefs/phase34-ga-vs-beta-conflict.md`
-**Status:** PM must decide
+**Status:** PM must decide — escalated, awaiting response
 **Impact:** All four Phase 34 features have inconsistent GA/Beta framing between internal briefs (BETA) and external assets ("live now"). Cannot post Discord, Reddit, or HN until PM confirms labeling.
 
 ### Gate 2: Git Push Token
-**Status:** `ghs_*` token dead fleet-wide — all commits stuck locally
-**Impact:** Nothing can reach `origin/` until ops provides a new token
-**Note:** Content is complete — only blocked on transport
+**Status:** `ghs_*` GitHub App tokens expire after 60 min with no refresh wired up — Issue #1933 (P0, opened Apr 24)
+**Impact:** Nothing can reach `origin/` until P0 fix is shipped and token refresh works reliably
+**Note:** Content is complete — only blocked on infrastructure fix
 
 ### Gate 3: X Credentials (Issue #1865)
 **Status:** No mol-ops response
@@ -88,6 +88,7 @@ Phase 34: Not in public PLAN.md — likely in private `molecule-controlplane` re
 KI-001: Telegram kicked event (no fix yet)
 KI-002: Delegation idempotency guard (no fix yet)
 KI-003: commit_memory not in activity_logs (no fix yet)
+P0 #1933 (Apr 24): GH_TOKEN expires after 60min, refresh not wired up — fleet token dead, queues stalled
 
 ---
 
@@ -100,4 +101,4 @@ KI-003: commit_memory not in activity_logs (no fix yet)
 
 ---
 
-*Last updated: 2026-04-23 22:00 UTC*
+*Last updated: 2026-04-24 00:00 UTC*
