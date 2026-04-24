@@ -649,7 +649,7 @@ func TestDeleteFile_WorkspaceNotFound(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{
 		{Key: "id", Value: "ws-del-nf"},
-		{Key: "path", Value: "/old-file.txt"},
+		{Key: "path", Value: "old-file.txt"},
 	}
 	c.Request = httptest.NewRequest("DELETE", "/workspaces/ws-del-nf/files/old-file.txt", nil)
 
@@ -787,5 +787,109 @@ func TestResolveTemplateDir_NotFound(t *testing.T) {
 
 	if result != "" {
 		t.Errorf("expected empty string, got %q", result)
+	}
+}
+
+// ==================== CWE-78 hardening regression (issue #2011) ====================
+// These tests lock in the defence-in-depth guards for DeleteFile and SharedContext.
+// The primary guard is validateRelPath (fires before any exec/file-read path);
+// the exec-form path construction (filepath.Join / separate args) is defence-in-depth.
+
+// TestCWE78_DeleteFile_TraversalVariants asserts that a range of traversal patterns
+// are all rejected with 400 before any Docker exec or ephemeral container operation.
+// This covers the validateRelPath guard that sits at the entry of DeleteFile.
+func TestCWE78_DeleteFile_TraversalVariants(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"double dotdot", "/../../../etc/passwd"},
+		{"leading dotdot", "/../secret"},
+		{"mid-path traversal", "/valid/../../../etc/shadow"},
+		{"absolute path", "/etc/passwd"},
+		{"encoded dotdot raw", "..%2F..%2Fetc%2Fpasswd"},
+		{"triple dotdot", "/../../.."},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setupTestDB(t)
+			setupTestRedis(t)
+
+			handler := NewTemplatesHandler(t.TempDir(), nil)
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Params = gin.Params{
+				{Key: "id", Value: "ws-cwe78"},
+				{Key: "path", Value: tc.path},
+			}
+			c.Request = httptest.NewRequest("DELETE", "/workspaces/ws-cwe78/files"+tc.path, nil)
+
+			handler.DeleteFile(c)
+
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("path %q: expected 400 (traversal blocked), got %d: %s",
+					tc.path, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestCWE78_SharedContext_SkipsTraversalPaths asserts that when a workspace's
+// config.yaml lists traversal paths in shared_context, SharedContext skips them
+// via validateRelPath rather than passing them to exec or os.ReadFile.
+// Uses the filesystem fallback path (no docker client) so no container mock needed.
+func TestCWE78_SharedContext_SkipsTraversalPaths(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	tmpDir := t.TempDir()
+	// Create a template directory that SharedContext will resolve for "Cwe Agent".
+	tmplDir := filepath.Join(tmpDir, "cwe-agent")
+	os.MkdirAll(tmplDir, 0755)
+	// config.yaml with a mix of safe and traversal-attack paths.
+	configYAML := "name: Cwe Agent\nshared_context:\n  - safe-file.md\n  - ../../etc/passwd\n  - ../shadow\n  - another-safe.md\n"
+	os.WriteFile(filepath.Join(tmplDir, "config.yaml"), []byte(configYAML), 0644)
+	// Only write the safe files — traversal paths must not be reachable.
+	os.WriteFile(filepath.Join(tmplDir, "safe-file.md"), []byte("# safe"), 0644)
+	os.WriteFile(filepath.Join(tmplDir, "another-safe.md"), []byte("# also safe"), 0644)
+
+	mock.ExpectQuery("SELECT name FROM workspaces WHERE id =").
+		WithArgs("ws-cwe78-sc").
+		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Cwe Agent"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-cwe78-sc"}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/ws-cwe78-sc/shared-context", nil)
+
+	handler := NewTemplatesHandler(tmpDir, nil) // nil docker → filesystem fallback
+	handler.SharedContext(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var files []struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &files); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	// Only the two safe files must appear; traversal paths must be absent.
+	if len(files) != 2 {
+		t.Errorf("expected 2 safe files, got %d: %v", len(files), files)
+	}
+	for _, f := range files {
+		if strings.Contains(f.Path, "..") || strings.Contains(f.Path, "etc") || strings.Contains(f.Path, "shadow") {
+			t.Errorf("traversal path %q must not appear in shared-context response", f.Path)
+		}
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
 }
