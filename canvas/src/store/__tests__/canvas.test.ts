@@ -1026,4 +1026,34 @@ describe("batchNest", () => {
     expect(nodes.find((n) => n.id === "a")!.data.parentId).toBeNull();
     expect(nodes.find((n) => n.id === "b")!.data.parentId).toBe("target");
   });
+
+  it("filters out all selected descendants in a three-level chain", async () => {
+    // Re-hydrate to a chain A → B → C. User selects all three.
+    // Expected: only A is planned for re-parent; B and C ride with it
+    // via React Flow's parent binding.
+    useCanvasStore.getState().hydrate([
+      makeWS({ id: "target", name: "Target", x: 2000, y: 0 }),
+      makeWS({ id: "A", name: "A", x: 0, y: 0 }),
+      makeWS({ id: "B", name: "B", parent_id: "A", x: 50, y: 50 }),
+      makeWS({ id: "C", name: "C", parent_id: "B", x: 10, y: 10 }),
+    ]);
+    const mock = global.fetch as ReturnType<typeof vi.fn>;
+    mock.mockImplementation(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response),
+    );
+    mock.mockClear();
+    await useCanvasStore.getState().batchNest(["A", "B", "C"], "target");
+    const nodes = useCanvasStore.getState().nodes;
+    expect(nodes.find((n) => n.id === "A")!.data.parentId).toBe("target");
+    expect(nodes.find((n) => n.id === "B")!.data.parentId).toBe("A");
+    expect(nodes.find((n) => n.id === "C")!.data.parentId).toBe("B");
+    // Exactly one nest-PATCH (for A). B and C weren't re-parented.
+    const nestPatches = mock.mock.calls.filter((c) => {
+      const init = c[1] as RequestInit | undefined;
+      if (init?.method !== "PATCH") return false;
+      const body = init.body ? JSON.parse(init.body as string) : {};
+      return body.parent_id === "target";
+    });
+    expect(nestPatches).toHaveLength(1);
+  });
 });
