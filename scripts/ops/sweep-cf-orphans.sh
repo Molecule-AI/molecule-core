@@ -32,7 +32,7 @@
 set -euo pipefail
 
 DRY_RUN=1
-MAX_DELETE_PCT=50   # refuse to delete more than half the records in one run
+MAX_DELETE_PCT="${MAX_DELETE_PCT:-50}"   # refuse to delete more than this pct of records in one run; caller can override via env
 REGION="${AWS_DEFAULT_REGION:-us-east-2}"
 
 for arg in "$@"; do
