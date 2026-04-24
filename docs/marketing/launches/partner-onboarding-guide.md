@@ -1,6 +1,6 @@
 # Partner Onboarding Guide — First Pass
-**Date:** 2026-04-23 | **Owner:** PMM | **Status:** DRAFT — PM confirm partner tiers
-**Scope:** `[PARTNER TIER TBD]` | Rate limit: 60 req/min per key (default, configurable — confirmed per architecture doc)
+**Date:** 2026-04-23 | **Owner:** PMM | **Status:** DRAFT — tier names confirmed (blog post live), PM confirm Go implementation
+**Scope:** Partner and Enterprise plans | Rate limit: 60 req/min per key (default, configurable — confirmed per architecture doc)
 
 ---
 
@@ -22,7 +22,7 @@ Before calling the Partner API, you need:
 | Requirement | How to get it |
 |---|---|
 | Admin token or org-scoped key | Created in Canvas → Org Settings → API Keys |
-| Partner tier access | `[PARTNER TIER TBD]` — contact your account team or apply via moleculesai.app/partners |
+| Partner tier access | Partner and Enterprise plans — contact your account team or apply via moleculesai.app/partners |
 | Scope assignment | Decide at key creation time which scopes to grant |
 | Compliance review (optional) | Enterprise tier may require a security questionnaire |
 
@@ -176,4 +176,4 @@ jobs:
 
 ---
 
-*PMM draft 2026-04-23 — first pass. Needs PM confirmation on partner tiers, rate limit ceiling, and billing endpoint availability before external distribution.*
+*PMM draft 2026-04-23 — first pass. Tier names confirmed via blog post (2026-04-23). Still needs PM confirmation on Go implementation and billing endpoint availability before external distribution.*
