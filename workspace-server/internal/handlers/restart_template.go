@@ -82,7 +82,13 @@ func resolveRestartTemplate(configsDir, wsName, dbRuntime string, body restartTe
 	// runtime's base files (entry point, Dockerfile, skill scaffolding)
 	// because the existing volume was written by the old runtime.
 	if body.ApplyTemplate && dbRuntime != "" {
-		runtimeTemplate := filepath.Join(configsDir, dbRuntime+"-default")
+		// CWE-22: apply allowlist sanitisation before using the runtime name
+		// in a filesystem path. Without this, dbRuntime="../../../etc" could
+		// reach arbitrary host directories. sanitizeRuntime remaps unknown
+		// values to "langgraph" so the attacker can at most trigger the
+		// langgraph-default template.
+		safeRuntime := sanitizeRuntime(dbRuntime)
+		runtimeTemplate := filepath.Join(configsDir, safeRuntime+"-default")
 		if _, err := os.Stat(runtimeTemplate); err == nil {
 			label := dbRuntime + "-default"
 			log.Printf("Restart: applying template %s (runtime change)", label)
