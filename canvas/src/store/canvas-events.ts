@@ -145,6 +145,7 @@ export function handleCanvasEvent(
                 url: "",
                 parentId: null,
                 currentTask: "",
+                runtime: (msg.payload.runtime as string) ?? "",
                 needsRestart: false,
               },
             },

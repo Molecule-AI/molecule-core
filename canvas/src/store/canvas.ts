@@ -51,6 +51,18 @@ interface CanvasState {
   panelTab: PanelTab;
   dragOverNodeId: string | null;
   contextMenu: ContextMenuState | null;
+  // Live width of the SidePanel in pixels. Only meaningful when
+  // selectedNodeId is non-null (panel visible). The Toolbar reads this
+  // to stay centred on the remaining canvas area instead of the full
+  // viewport, so the "Audit" / "Search" / "Settings" buttons don't get
+  // hidden behind the panel when a workspace is selected.
+  sidePanelWidth: number;
+  setSidePanelWidth: (w: number) => void;
+  // Whether the TemplatePalette left-drawer is open. Consumed by the
+  // Legend so it can shift right and avoid being hidden under the
+  // palette. Set by TemplatePalette's toggle button.
+  templatePaletteOpen: boolean;
+  setTemplatePaletteOpen: (open: boolean) => void;
   hydrate: (workspaces: WorkspaceData[]) => void;
   applyEvent: (msg: WSMessage) => void;
   onNodesChange: (changes: NodeChange<Node<WorkspaceNodeData>>[]) => void;
@@ -115,6 +127,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   panelTab: "chat",
   dragOverNodeId: null,
   contextMenu: null,
+  sidePanelWidth: 480, // matches SIDEPANEL_DEFAULT_WIDTH in SidePanel.tsx
+  setSidePanelWidth: (w) => set({ sidePanelWidth: w }),
+  templatePaletteOpen: false,
+  setTemplatePaletteOpen: (open) => set({ templatePaletteOpen: open }),
   // Batch selection
   selectedNodeIds: new Set<string>(),
   toggleNodeSelection: (id) => {

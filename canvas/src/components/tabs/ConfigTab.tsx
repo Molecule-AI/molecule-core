@@ -432,13 +432,19 @@ export function ConfigTab({ workspaceId }: Props) {
               label={
                 currentModelSpec?.required_env?.length &&
                 arraysEqual(config.runtime_config?.required_env ?? [], currentModelSpec.required_env)
-                  ? "Required Env Vars (from template)"
-                  : "Required Env Vars"
+                  ? "Required Env Var Names (from template)"
+                  : "Required Env Var Names"
               }
               values={config.runtime_config?.required_env ?? []}
               onChange={(v) => updateNested("runtime_config" as keyof ConfigData, "required_env", v)}
-              placeholder="e.g. CLAUDE_CODE_OAUTH_TOKEN"
+              placeholder="variable NAME (e.g. ANTHROPIC_API_KEY) — not the value"
             />
+            <p className="text-[10px] text-zinc-500 mt-1">
+              This declares which env var <em>names</em> the workspace needs.
+              Set the actual values in the <strong>Secrets</strong> section
+              below — those are encrypted and mounted into the container at
+              runtime.
+            </p>
             {currentModelSpec?.required_env?.length &&
               !arraysEqual(config.runtime_config?.required_env ?? [], currentModelSpec.required_env) && (
               <div className="text-[10px] text-zinc-500 mt-1 flex items-center gap-2">
@@ -545,7 +551,10 @@ export function ConfigTab({ workspaceId }: Props) {
             </div>
           </Section>
 
-          <SecretsSection workspaceId={workspaceId} />
+          <SecretsSection
+            workspaceId={workspaceId}
+            requiredEnv={config.runtime_config?.required_env}
+          />
 
           <AgentCardSection workspaceId={workspaceId} />
         </div>
