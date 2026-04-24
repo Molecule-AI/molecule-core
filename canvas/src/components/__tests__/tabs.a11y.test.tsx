@@ -26,9 +26,16 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
+const mockCanvasTabState = {
+  setPanelTab: vi.fn(),
+};
+
 vi.mock("@/store/canvas", () => ({
-  useCanvasStore: vi.fn((selector: (s: Record<string, unknown>) => unknown) =>
-    selector({ setPanelTab: vi.fn() })
+  useCanvasStore: Object.assign(
+    vi.fn((selector: (s: Record<string, unknown>) => unknown) =>
+      selector(mockCanvasTabState as Record<string, unknown>)
+    ),
+    { getState: () => mockCanvasTabState }
   ),
   summarizeWorkspaceCapabilities: vi.fn(() => ({ skills: [], tools: [] })),
 }));

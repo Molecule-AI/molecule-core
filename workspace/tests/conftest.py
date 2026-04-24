@@ -65,25 +65,19 @@ def _make_a2a_mocks():
 
     tasks_mod.TaskUpdater = TaskUpdater
 
-    # a2a.types needs Part and TextPart stubs for artifact construction
+    # a2a.types needs Part stub for artifact construction (v1: Part takes text= directly, no TextPart)
     types_mod = ModuleType("a2a.types")
 
-    class TextPart:
-        """Stub for A2A TextPart."""
-        def __init__(self, text=""):
+    class Part:
+        """Stub for A2A Part (v1: takes text= kwarg directly)."""
+        def __init__(self, text=None, root=None, **kwargs):
             self.text = text
 
-    class Part:
-        """Stub for A2A Part (wraps TextPart / FilePart / DataPart)."""
-        def __init__(self, root=None):
-            self.root = root
-
-    types_mod.TextPart = TextPart
     types_mod.Part = Part
 
-    # a2a.utils needs new_agent_text_message as a passthrough (accepts kwargs)
-    utils_mod = ModuleType("a2a.utils")
-    utils_mod.new_agent_text_message = lambda text, **kwargs: text
+    # a2a.helpers (v1: moved from a2a.utils)
+    helpers_mod = ModuleType("a2a.helpers")
+    helpers_mod.new_agent_text_message = lambda text, **kwargs: text
 
     # Register all module paths
     a2a_mod = ModuleType("a2a")
@@ -95,7 +89,7 @@ def _make_a2a_mocks():
     sys.modules["a2a.server.events"] = events_mod
     sys.modules["a2a.server.tasks"] = tasks_mod
     sys.modules["a2a.types"] = types_mod
-    sys.modules["a2a.utils"] = utils_mod
+    sys.modules["a2a.helpers"] = helpers_mod
 
 
 def _make_langchain_mocks():

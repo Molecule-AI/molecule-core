@@ -4,9 +4,45 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 )
+
+// devModeAllowsLoopback reports whether the SSRF defence should permit
+// http://127.0.0.1:<port> workspace URLs. True only when MOLECULE_ENV is
+// a dev value — this is the same convention the middleware dev-mode
+// escape hatch uses (handlers/admin_test_token.go, middleware/devmode.go).
+//
+// Why: on a self-hosted Docker setup the provisioner publishes each
+// container's A2A port on 127.0.0.1:<ephemeral> and writes that URL
+// to workspaces.url. The A2A proxy on the host platform needs to POST
+// to that same 127.0.0.1:<port> to reach the container — there's no
+// other reachable address. SaaS never hits this branch because hosted
+// tenants run MOLECULE_ENV=production (enforced by the crypto strict-
+// init path) and the workspace URL is the tenant EC2's VPC-private IP.
+//
+// The relaxation is narrowly scoped to loopback IPv4 + ::1 — the
+// metadata, CGNAT, TEST-NET, and link-local guards stay blocked even
+// in dev mode.
+func devModeAllowsLoopback() bool {
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("MOLECULE_ENV")))
+	return env == "development" || env == "dev"
+}
+
+// ssrfCheckEnabled controls whether isSafeURL performs real validation.
+// Tests disable it via setSSRFCheckForTest so that httptest.NewServer
+// loopback URLs and fake hostnames (*.example) don't trigger SSRF
+// rejections. Production code never mutates this.
+var ssrfCheckEnabled = true
+
+// setSSRFCheckForTest overrides ssrfCheckEnabled for the duration of a test
+// and returns a restore function. Use with defer in *_test.go only.
+func setSSRFCheckForTest(enabled bool) func() {
+	prev := ssrfCheckEnabled
+	ssrfCheckEnabled = enabled
+	return func() { ssrfCheckEnabled = prev }
+}
 
 // isSafeURL validates that a URL resolves to a publicly-routable address,
 // preventing A2A requests from being redirected to internal/cloud-metadata
@@ -18,6 +54,9 @@ import (
 // the same VPC and register by their VPC-private IP. Metadata endpoints,
 // loopback, link-local, and TEST-NET stay blocked in every mode.
 func isSafeURL(rawURL string) error {
+	if !ssrfCheckEnabled {
+		return nil
+	}
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
@@ -30,7 +69,7 @@ func isSafeURL(rawURL string) error {
 		return fmt.Errorf("empty hostname")
 	}
 	if ip := net.ParseIP(host); ip != nil {
-		if (ip.IsLoopback() && !testAllowLoopback) || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
+		if (ip.IsLoopback() && !testAllowLoopback && !devModeAllowsLoopback()) || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
 			return fmt.Errorf("forbidden loopback/unspecified/link-local IP: %s", ip)
 		}
 		if isPrivateOrMetadataIP(ip) {
@@ -50,7 +89,7 @@ func isSafeURL(rawURL string) error {
 		if ip == nil {
 			continue
 		}
-		if (ip.IsLoopback() && !testAllowLoopback) || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
+		if (ip.IsLoopback() && !testAllowLoopback && !devModeAllowsLoopback()) || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
 			return fmt.Errorf("hostname %s resolves to forbidden link-local/loopback IP: %s", host, ip)
 		}
 		if isPrivateOrMetadataIP(ip) {
@@ -117,8 +156,9 @@ func isPrivateOrMetadataIP(ip net.IP) bool {
 
 	// IPv6 path — .To4() was nil so this is a real v6 address.
 	// ::1 (loopback) — treat as blocked here too for defense-in-depth,
-	// unless tests have opted into loopback via testAllowLoopback.
-	if ip.IsLoopback() && !testAllowLoopback {
+	// unless tests have opted into loopback via testAllowLoopback OR
+	// MOLECULE_ENV is a dev value (mirrors the v4 relaxation above).
+	if ip.IsLoopback() && !testAllowLoopback && !devModeAllowsLoopback() {
 		return true
 	}
 	// Link-local fe80::/10 — always blocked.
@@ -168,8 +208,20 @@ func mustCIDR(s string) net.IPNet {
 // the destination via absolute paths or ".." traversal. Used by
 // copyFilesToContainer and deleteViaEphemeral as a defence-in-depth measure.
 func validateRelPath(filePath string) error {
+	// Reject empty string and dot-only paths before any processing.
+	if filePath == "" || filePath == "." {
+		return fmt.Errorf("empty or dot-only path not allowed")
+	}
 	clean := filepath.Clean(filePath)
-	if filepath.IsAbs(clean) || strings.Contains(clean, "..") {
+	// Reject absolute paths (Unix / or Windows C:\).
+	if filepath.IsAbs(clean) {
+		return fmt.Errorf("path traversal or absolute path not allowed: %s", filePath)
+	}
+	// Reject any path containing ".." anywhere — check both raw and cleaned
+	// because filepath.Clean resolves ".." upward (e.g. "foo/../bar" → "bar"
+	// and "foo/.." → ".") which would make the check pass if only clean were checked.
+	// We only want explicitly-named files; ".." implies intent to escape.
+	if strings.Contains(filePath, "..") || strings.Contains(clean, "..") {
 		return fmt.Errorf("path traversal or absolute path not allowed: %s", filePath)
 	}
 	return nil

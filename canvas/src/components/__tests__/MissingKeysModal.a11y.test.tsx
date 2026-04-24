@@ -28,6 +28,8 @@ vi.mock("@/lib/deploy-preflight", () => ({
     return labels[key] ?? key;
   },
 }));
+// a11y tests render the modal without a `providers` prop — it falls
+// back to all-keys mode driven by the `missingKeys` array.
 
 // ── Import after mocks ────────────────────────────────────────────────────────
 
@@ -83,7 +85,7 @@ describe("MissingKeysModal — WCAG 2.1 dialog accessibility", () => {
     const backdrop = document.querySelector('[aria-hidden="true"]');
     expect(backdrop).toBeTruthy();
     // Verify the backdrop is the full-screen overlay (has bg-black/70)
-    expect(backdrop?.className).toContain("bg-black");
+    expect(backdrop?.className).toContain("bg-black/70");
   });
 
   it("decorative warning SVG in header has aria-hidden='true'", () => {

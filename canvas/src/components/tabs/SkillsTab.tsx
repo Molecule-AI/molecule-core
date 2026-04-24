@@ -68,22 +68,32 @@ export function SkillsTab({ data }: Props) {
   const loadInstalled = useCallback(async () => {
     try {
       const result = await api.get<PluginInfo[]>(`/workspaces/${workspaceId}/plugins`);
-      if (mountedRef.current) setInstalled(result);
-    } catch { /* ignore */ }
+      if (mountedRef.current) setInstalled(Array.isArray(result) ? result : []);
+    } catch (e) {
+      console.warn("SkillsTab: installed plugins load failed", e);
+    }
   }, [workspaceId]);
 
   const loadRegistry = useCallback(async () => {
     try {
       const result = await api.get<PluginInfo[]>("/plugins");
-      if (mountedRef.current) setRegistry(result);
-    } catch { /* ignore */ }
+      if (mountedRef.current) setRegistry(Array.isArray(result) ? result : []);
+    } catch (e) {
+      // Registry is the AVAILABLE PLUGINS list. Silent failure here
+      // left the user seeing "No plugins in registry" with no clue
+      // it was a fetch error — log it so devtools shows the cause.
+      console.warn("SkillsTab: registry load failed", e);
+    }
   }, []);
 
   const loadSourceSchemes = useCallback(async () => {
     try {
       const result = await api.get<SourceSchemesResponse>("/plugins/sources");
       if (mountedRef.current) setSourceSchemes(result.schemes ?? []);
-    } catch { /* ignore — falls back to "local only" UX */ }
+    } catch (e) {
+      console.warn("SkillsTab: plugin sources load failed", e);
+      // Falls back to "local only" UX — non-fatal.
+    }
   }, []);
 
   useEffect(() => {

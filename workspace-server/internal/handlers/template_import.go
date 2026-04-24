@@ -74,7 +74,9 @@ func generateDefaultConfig(name string, files map[string]string) string {
 	var cfg strings.Builder
 	cfg.WriteString(`name: "` + escaped + `"` + "\n")
 	cfg.WriteString("description: Imported agent\n")
-	cfg.WriteString("version: 1.0.0\ntier: 1\n")
+	// Default to tier 3 ("Privileged") — matches the workspace.go
+	// create handler default. See its comment for rationale.
+	cfg.WriteString("version: 1.0.0\ntier: 3\n")
 	cfg.WriteString("model: anthropic:claude-haiku-4-5-20251001\n")
 	cfg.WriteString("\nprompt_files:\n")
 	if len(promptFiles) > 0 {
