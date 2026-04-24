@@ -132,6 +132,17 @@ func (h *WorkspaceHandler) Restart(c *gin.Context) {
 		RebuildConfig: body.RebuildConfig,
 	})
 
+	// #239: rebuild_config=true — try org-templates as last-resort source so a
+	// workspace with a destroyed config volume can self-recover without admin
+	// intervention. Only fires when no other template was resolved above.
+	if templatePath == "" && body.RebuildConfig {
+		if p, label := resolveOrgTemplate(h.configsDir, wsName); p != "" {
+			templatePath = p
+			configLabel = label
+			log.Printf("Restart: rebuild_config — using org-template %s for %s (%s)", label, wsName, id)
+		}
+	}
+
 	if templatePath == "" {
 		log.Printf("Restart: reusing existing config volume for %s (%s)", wsName, id)
 	} else {
