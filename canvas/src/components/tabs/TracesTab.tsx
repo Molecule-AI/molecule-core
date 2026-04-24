@@ -55,7 +55,7 @@ export function TracesTab({ workspaceId }: Props) {
     <div className="p-4 space-y-2">
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs text-zinc-400">{traces.length} traces</span>
-        <button onClick={loadTraces} className="text-[10px] text-zinc-500 hover:text-zinc-300">
+        <button type="button" onClick={loadTraces} className="text-[10px] text-zinc-500 hover:text-zinc-300">
           Refresh
         </button>
       </div>

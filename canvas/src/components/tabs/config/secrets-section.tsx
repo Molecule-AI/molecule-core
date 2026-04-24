@@ -113,9 +113,9 @@ function SecretRow({ label, secretKey, isSet, scope, globalMode, onSave, onDelet
           {isSet && <span className="text-[10px] text-green-500 bg-green-900/30 px-1.5 py-0.5 rounded">Set</span>}
           {scope && <ScopeBadge scope={scope} />}
           {!editing && isSet && (globalMode || scope !== "global") && (
-            <button onClick={onDelete} className="text-[11px] text-red-400 hover:text-red-300">Remove</button>
+            <button type="button" onClick={onDelete} className="text-[11px] text-red-400 hover:text-red-300">Remove</button>
           )}
-          <button onClick={() => setEditing(!editing)} className="text-[11px] text-blue-400 hover:text-blue-300">
+          <button type="button" onClick={() => setEditing(!editing)} className="text-[11px] text-blue-400 hover:text-blue-300">
             {actionLabel()}
           </button>
         </div>
@@ -128,7 +128,7 @@ function SecretRow({ label, secretKey, isSet, scope, globalMode, onSave, onDelet
             type={isPlaintext ? "text" : "password"} autoFocus
             className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-[10px] text-zinc-100 font-mono focus:outline-none focus:border-blue-500"
           />
-          <button
+          <button type="button"
             onClick={() => { onSave(value); setEditing(false); setValue(""); }}
             disabled={!value}
             className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-white disabled:opacity-30"
@@ -165,10 +165,10 @@ function CustomSecretRow({ secretKey, scope, globalMode, onSave, onDelete }: {
           <span className="text-[10px] text-green-500">Set</span>
           {!globalMode && <ScopeBadge scope={scope} />}
           {canDelete && !editing && (
-            <button onClick={onDelete} className="text-[11px] text-red-400 hover:text-red-300">Remove</button>
+            <button type="button" onClick={onDelete} className="text-[11px] text-red-400 hover:text-red-300">Remove</button>
           )}
           {(canDelete || showOverride) && (
-            <button onClick={() => setEditing(!editing)} className="text-[11px] text-blue-400 hover:text-blue-300">
+            <button type="button" onClick={() => setEditing(!editing)} className="text-[11px] text-blue-400 hover:text-blue-300">
               {editing ? "Cancel" : showOverride ? "Override" : "Update"}
             </button>
           )}
@@ -181,7 +181,7 @@ function CustomSecretRow({ secretKey, scope, globalMode, onSave, onDelete }: {
             placeholder="New value" type="password" autoFocus
             className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-[10px] text-zinc-100 font-mono focus:outline-none focus:border-blue-500"
           />
-          <button
+          <button type="button"
             onClick={() => { onSave(value); setEditing(false); setValue(""); }}
             disabled={!value}
             className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-white disabled:opacity-30"
@@ -355,16 +355,16 @@ export function SecretsSection({ workspaceId, requiredEnv }: { workspaceId: stri
               <input value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder="Value" type="password"
                 className="w-full bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-[10px] text-zinc-100 focus:outline-none focus:border-blue-500" />
               <div className="flex gap-2">
-                <button onClick={() => { if (newKey && newValue) handleSave(newKey, newValue); }} disabled={!newKey || !newValue}
+                <button type="button" onClick={() => { if (newKey && newValue) handleSave(newKey, newValue); }} disabled={!newKey || !newValue}
                   className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-[10px] rounded text-white disabled:opacity-30">
                   Save{globalMode ? " (Global)" : ""}
                 </button>
-                <button onClick={() => { setShowAdd(false); setNewKey(""); setNewValue(""); }}
+                <button type="button" onClick={() => { setShowAdd(false); setNewKey(""); setNewValue(""); }}
                   className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-[10px] rounded text-zinc-300">Cancel</button>
               </div>
             </div>
           ) : (
-            <button onClick={() => setShowAdd(true)} className="text-[10px] text-blue-400 hover:text-blue-300">
+            <button type="button" onClick={() => setShowAdd(true)} className="text-[10px] text-blue-400 hover:text-blue-300">
               + Add {globalMode ? "Global " : ""}Variable
             </button>
           )}
