@@ -5,7 +5,7 @@ name: E2E Staging SaaS (full lifecycle)
 # HMA memory → activity → peers), then tears down and asserts leak-free.
 #
 # Why a separate workflow (not folded into ci.yml):
-#   - The run takes ~20 min (EC2 boot + cloudflared DNS + provision sweeps +
+#   - The run takes ~25-35 min (EC2 boot + cloudflared DNS + provision sweeps +
 #     agent bootstrap), way too slow for every PR.
 #   - Needs its own concurrency group so two pushes don't fight over the
 #     same staging org slug prefix.
@@ -68,7 +68,7 @@ jobs:
   e2e-staging-saas:
     name: E2E Staging SaaS
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: read
 
