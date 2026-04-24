@@ -269,7 +269,7 @@ describe("applyEvent", () => {
       makeMsg({
         event: "WORKSPACE_PROVISIONING",
         workspace_id: "ws-new",
-        payload: { name: "Fresh", tier: 2 },
+        payload: { name: "Fresh", tier: 2, runtime: "hermes" },
       })
     );
 
@@ -281,6 +281,9 @@ describe("applyEvent", () => {
     expect(newNode.data.name).toBe("Fresh");
     expect(newNode.data.tier).toBe(2);
     expect(newNode.data.status).toBe("provisioning");
+    // Runtime must flow through the provisioning event so the side-panel
+    // pill renders the real runtime instead of "unknown" until a refetch.
+    expect(newNode.data.runtime).toBe("hermes");
     // Position is offset by existing node count * 40
     expect(newNode.position.x).toBeGreaterThanOrEqual(0);
     expect(newNode.position.y).toBeGreaterThanOrEqual(0);

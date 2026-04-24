@@ -143,7 +143,7 @@ func TestWorkspaceBudget_Create_WithLimit(t *testing.T) {
 			sqlmock.AnyArg(), // id
 			"Budgeted Agent", // name
 			nil,              // role
-			1,                // tier
+			3,                // tier (default, workspace.go create-handler)
 			"langgraph",      // runtime
 			sqlmock.AnyArg(), // awareness_namespace
 			(*string)(nil),   // parent_id

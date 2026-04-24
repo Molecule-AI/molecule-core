@@ -28,6 +28,8 @@ vi.mock("@/lib/deploy-preflight", () => ({
     return labels[key] ?? key;
   },
 }));
+// a11y tests render the modal without a `providers` prop — it falls
+// back to all-keys mode driven by the `missingKeys` array.
 
 // ── Import after mocks ────────────────────────────────────────────────────────
 

@@ -89,7 +89,13 @@ export function CreateWorkspaceButton() {
           ],
     [isSaaS],
   );
-  const defaultTier = isSaaS ? 4 : 1;
+  // T3 ("Privileged") is the self-hosted default — gives agents the
+  // read_write workspace mount + Docker daemon access most templates
+  // expect to do real work. T1 sandboxed and T2 standard are kept as
+  // explicit opt-ins for low-trust agents. SaaS still defaults to T4
+  // because every SaaS workspace gets its own EC2 (sibling VMs, no
+  // shared blast radius — see isSaaSTenant() / tier picker hide logic).
+  const defaultTier = isSaaS ? 4 : 3;
   const [tier, setTier] = useState(defaultTier);
 
   // Refs for roving tabIndex on the tier radio group (WCAG 2.1 arrow-key nav)

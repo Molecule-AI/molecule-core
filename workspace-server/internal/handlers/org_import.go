@@ -103,9 +103,10 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 		log.Printf("Org import: canvas layout insert failed for %s: %v", ws.Name, err)
 	}
 
-	// Broadcast
+	// Broadcast — include runtime so the canvas pill renders the right
+	// badge immediately instead of "unknown".
 	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, map[string]interface{}{
-		"name": ws.Name, "tier": tier,
+		"name": ws.Name, "tier": tier, "runtime": runtime,
 	})
 
 	// Seed initial memories from workspace config or defaults (issue #1050).

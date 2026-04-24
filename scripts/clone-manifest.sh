@@ -34,6 +34,17 @@ clone_category() {
         repo=$(jq -r ".${category}[$i].repo" "$MANIFEST")
         ref=$(jq -r ".${category}[$i].ref // \"main\"" "$MANIFEST")
 
+        # Idempotent: skip if the target already looks populated. Lets the
+        # README quickstart rerun setup.sh safely without having to delete
+        # already-cloned repos. A directory with any entries counts as
+        # populated; empty dirs reclone (may exist from a prior failed run).
+        if [ -d "$target_dir/$name" ] && [ -n "$(ls -A "$target_dir/$name" 2>/dev/null || true)" ]; then
+            echo "  skipping $target_dir/$name (already populated)"
+            CLONED=$((CLONED + 1))
+            i=$((i + 1))
+            continue
+        fi
+
         echo "  cloning $repo -> $target_dir/$name (ref=$ref)"
         if [ "$ref" = "main" ]; then
             git clone --depth=1 -q "https://github.com/${repo}.git" "$target_dir/$name"
