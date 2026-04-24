@@ -1021,7 +1021,8 @@ async def test_cancel_emits_canceled_event(monkeypatch):
     types_mod = sys.modules["a2a.types"]
 
     class _TaskState:
-        canceled = "canceled"
+        # v1: TaskState enum uses SCREAMING_SNAKE_CASE keys
+        TASK_STATE_CANCELED = "canceled"
 
     class _TaskStatus:
         def __init__(self, state=None):
@@ -1046,4 +1047,4 @@ async def test_cancel_emits_canceled_event(monkeypatch):
     event = eq.enqueue_event.call_args[0][0]
     assert isinstance(event, _TaskStatusUpdateEvent), "expected a TaskStatusUpdateEvent"
     assert event.final is True, "cancel event must be marked final=True"
-    assert event.status.state == _TaskState.canceled, "cancel event must have state=canceled"
+    assert event.status.state == _TaskState.TASK_STATE_CANCELED, "cancel event must have state=TASK_STATE_CANCELED"
