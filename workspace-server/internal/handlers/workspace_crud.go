@@ -188,6 +188,14 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 			log.Printf("Update parent_id error for %s: %v", id, err)
 		}
 	}
+	if collapsed, ok := body["collapsed"]; ok {
+		// `collapsed` is the canvas UI-only flag that hides descendants
+		// in the tree view (WorkspaceNode renders the parent as header-
+		// only). Persisting it here so the state survives reload.
+		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET collapsed = $2, updated_at = now() WHERE id = $1`, id, collapsed); err != nil {
+			log.Printf("Update collapsed error for %s: %v", id, err)
+		}
+	}
 	if runtime, ok := body["runtime"]; ok {
 		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET runtime = $2, updated_at = now() WHERE id = $1`, id, runtime); err != nil {
 			log.Printf("Update runtime error for %s: %v", id, err)

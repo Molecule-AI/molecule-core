@@ -24,7 +24,7 @@ Planned as the ecosystem matures (none are implemented yet — rule of
 three: promote a class here only after 3+ plugins ship the same custom
 shape via their own ``adapters/<runtime>.py``):
 
-* ``MCPServerAdaptor`` — install a plugin as an MCP server *(TODO)*
+* :class:`MCPServerAdaptor` — install a plugin as an MCP server ✅ (issue #847)
 * ``DeepAgentsSubagentAdaptor`` — register a DeepAgents sub-agent
   (runtime-locked to deepagents) *(TODO)*
 * ``LangGraphSubgraphAdaptor`` — install a LangGraph sub-graph *(TODO)*
@@ -339,5 +339,95 @@ def _deep_merge_hooks(existing: dict, fragment: dict) -> dict:
     for top_key, val in fragment.items():
         if top_key == "hooks":
             continue
-        out.setdefault(top_key, val)
+        # mcpServers must be deep-merged: plugin A ships "firecrawl" and
+        # plugin B ships "github" → both entries land in settings.json.
+        # Using setdefault would skip the fragment's value when the key
+        # already exists, so we explicitly handle the dict case.
+        if top_key in out and isinstance(out[top_key], dict) and isinstance(val, dict):
+            out[top_key] = {**out[top_key], **val}
+        else:
+            out.setdefault(top_key, val)
     return out
+
+
+# ----------------------------------------------------------------------
+# MCPServerAdaptor — issue #847.
+# Promoted from custom adapters after 4 plugin proposals (molecule-firecrawl
+# #512, molecule-github-mcp #520, molecule-browser-use #553, mcp-connector
+# #573) all shipped the same pattern independently.
+# ----------------------------------------------------------------------
+
+
+class MCPServerAdaptor:
+    """Sub-type adaptor for plugins that wrap an MCP server.
+
+    The plugin ships:
+
+    * ``settings-fragment.json`` with an ``mcpServers`` block — standard
+      Claude Code ``claude_desktop_config`` format, e.g.:
+
+      .. code-block:: json
+
+          {
+            "mcpServers": {
+              "my-server": {
+                "command": "npx",
+                "args": ["-y", "@org/my-mcp-server"]
+              }
+            }
+          }
+
+    * ``skills/<name>/SKILL.md`` (optional) — agentskills.io skill docs;
+      ``AgentskillsAdaptor`` logic handles these.
+    * ``rules/*.md`` (optional) — always-on prose appended to CLAUDE.md;
+      ``AgentskillsAdaptor`` logic handles these.
+    * ``setup.sh`` (optional) — install npm packages, build binaries, etc.;
+      ``AgentskillsAdaptor`` logic handles these.
+
+    On ``install()``:
+
+      1. ``settings-fragment.json`` → ``_install_claude_layer()`` merges the
+         ``mcpServers`` block into ``<configs>/.claude/settings.json``.
+         Hooks are also merged via the same path (so MCP-server plugins
+         can also ship hooks if they need them).
+      2. Skills + rules + setup.sh → delegated to ``AgentskillsAdaptor``.
+
+    On ``uninstall()``:
+
+      1. Skills + rules → delegated to ``AgentskillsAdaptor.uninstall()``.
+      2. ``mcpServers`` entries are intentionally **not** removed from
+         ``settings.json`` on uninstall. MCP server configurations are
+         often shared with other tools or manually curated, so removing
+         them could break a user's setup. The user must remove them
+         manually if desired.
+
+    Usage — in the plugin's per-runtime adapter file:
+
+    .. code-block:: python
+
+        # plugins/<name>/adapters/claude_code.py
+        from plugins_registry.builtins import MCPServerAdaptor as Adaptor
+    """
+
+    def __init__(self, plugin_name: str, runtime: str) -> None:
+        self.plugin_name = plugin_name
+        self.runtime = runtime
+
+    async def install(self, ctx: InstallContext) -> InstallResult:
+        result = InstallResult(
+            plugin_name=self.plugin_name,
+            runtime=self.runtime,
+            source="plugin",
+        )
+        # 1. Merge mcpServers (and any hooks) from settings-fragment.json.
+        _install_claude_layer(ctx, result, self.plugin_name)
+        # 2. Skills + rules + setup.sh — reuse AgentskillsAdaptor logic.
+        sub = await AgentskillsAdaptor(self.plugin_name, self.runtime).install(ctx)
+        result.files_written.extend(sub.files_written)
+        result.warnings.extend(sub.warnings)
+        return result
+
+    async def uninstall(self, ctx: InstallContext) -> None:
+        # Delegate to AgentskillsAdaptor for skills + rules cleanup.
+        # NOTE: mcpServers entries are intentionally NOT removed (see class docstring).
+        await AgentskillsAdaptor(self.plugin_name, self.runtime).uninstall(ctx)

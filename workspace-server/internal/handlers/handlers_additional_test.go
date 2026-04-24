@@ -29,8 +29,9 @@ func TestWorkspaceCreate_WithParentID(t *testing.T) {
 
 	parentID := "parent-ws-123"
 	mock.ExpectBegin()
+	// Default tier is 3 (Privileged) — see workspace.go create-handler comment.
 	mock.ExpectExec("INSERT INTO workspaces").
-		WithArgs(sqlmock.AnyArg(), "Child Agent", nil, 1, "langgraph", sqlmock.AnyArg(), &parentID, nil, "none", (*int64)(nil)).
+		WithArgs(sqlmock.AnyArg(), "Child Agent", nil, 3, "langgraph", sqlmock.AnyArg(), &parentID, nil, "none", (*int64)(nil)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectExec("INSERT INTO canvas_layouts").
@@ -176,6 +177,40 @@ func TestWorkspaceUpdate_NameOnly(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp["status"] != "updated" {
 		t.Errorf("expected 'updated', got %v", resp["status"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// ---------- workspace.go: Update with collapsed flag ----------
+
+func TestWorkspaceUpdate_Collapsed(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
+
+	// Canvas "collapse team" flip — the handler must run the UPDATE
+	// to persist the flag, otherwise the UI state resets on reload.
+	mock.ExpectQuery("SELECT EXISTS.*workspaces WHERE id").
+		WithArgs("dddddddd-0005-0000-0000-000000000000").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec("UPDATE workspaces SET collapsed").
+		WithArgs("dddddddd-0005-0000-0000-000000000000", true).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "dddddddd-0005-0000-0000-000000000000"}}
+	body := `{"collapsed":true}`
+	c.Request = httptest.NewRequest("PATCH", "/workspaces/ws-collapse", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Update(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)

@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
-import { checkDeploySecrets, type PreflightResult } from "@/lib/deploy-preflight";
+import { useCanvasStore } from "@/store/canvas";
+import { checkDeploySecrets, type PreflightResult, type ModelSpec } from "@/lib/deploy-preflight";
 import { MissingKeysModal } from "./MissingKeysModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Spinner } from "./Spinner";
@@ -13,7 +14,11 @@ interface Template {
   name: string;
   description: string;
   tier: number;
+  runtime?: string;
   model: string;
+  models?: ModelSpec[];
+  /** AND-required env vars declared at runtime_config.required_env. */
+  required_env?: string[];
   skills: string[];
   skill_count: number;
 }
@@ -53,6 +58,13 @@ export function OrgTemplatesSection() {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Collapsed by default — org templates are multi-workspace imports
+  // that most new users don't reach for first. Keeping them
+  // expand-on-demand frees ~400 px of vertical space for the
+  // individual workspace templates above, which is the primary
+  // deploy path. The count in the header still makes discovery
+  // obvious: "Org Templates (4) ▸".
+  const [expanded, setExpanded] = useState(false);
 
   const loadOrgs = useCallback(async () => {
     setLoading(true);
@@ -79,9 +91,26 @@ export function OrgTemplatesSection() {
   return (
     <div className="space-y-2" data-testid="org-templates-section">
       <div className="flex items-center justify-between">
-        <h3 className="text-[10px] uppercase tracking-wide text-zinc-500 font-semibold">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          aria-controls="org-templates-body"
+          className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-zinc-500 hover:text-zinc-300 font-semibold transition-colors"
+        >
+          <span
+            aria-hidden="true"
+            className={`inline-block text-[8px] transition-transform duration-150 ${expanded ? "rotate-90" : ""}`}
+          >
+            ▶
+          </span>
           Org Templates
-        </h3>
+          {orgs.length > 0 && (
+            <span className="text-zinc-600 normal-case tracking-normal">
+              ({orgs.length})
+            </span>
+          )}
+        </button>
         <button
           onClick={loadOrgs}
           aria-label="Refresh org templates"
@@ -91,6 +120,8 @@ export function OrgTemplatesSection() {
         </button>
       </div>
 
+      {expanded && (
+        <div id="org-templates-body" className="space-y-2">
       {loading && (
         <div role="status" aria-live="polite" className="flex items-center gap-1.5 text-[10px] text-zinc-500">
           <Spinner size="sm" />
@@ -140,6 +171,8 @@ export function OrgTemplatesSection() {
           </div>
         );
       })}
+        </div>
+      )}
     </div>
   );
 }
@@ -226,6 +259,14 @@ function ImportAgentButton({ onImported }: { onImported: () => void }) {
 
 export function TemplatePalette() {
   const [open, setOpen] = useState(false);
+  // Publish palette-open state to the canvas store so Legend (and any
+  // future floating left-bottom UI) can shift right to avoid being
+  // hidden behind the 280 px palette drawer.
+  const setTemplatePaletteOpen = useCanvasStore((s) => s.setTemplatePaletteOpen);
+  useEffect(() => {
+    setTemplatePaletteOpen(open);
+  }, [open, setTemplatePaletteOpen]);
+
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
@@ -292,8 +333,15 @@ export function TemplatePalette() {
     setCreating(template.id);
     setError(null);
 
-    const runtime = resolveRuntime(template.id);
-    const preflight = await checkDeploySecrets(runtime);
+    // Prefer the runtime the Go /templates endpoint returned verbatim —
+    // resolveRuntime() is a legacy id→runtime fallback for installs whose
+    // template summary predates the `runtime` field.
+    const runtime = template.runtime ?? resolveRuntime(template.id);
+    const preflight = await checkDeploySecrets({
+      runtime,
+      models: template.models,
+      required_env: template.required_env,
+    });
 
     if (!preflight.ok) {
       // Missing keys — show the modal instead of deploying
@@ -331,6 +379,7 @@ export function TemplatePalette() {
       <MissingKeysModal
         open={!!missingKeysInfo}
         missingKeys={missingKeysInfo?.preflight.missingKeys ?? []}
+        providers={missingKeysInfo?.preflight.providers ?? []}
         runtime={missingKeysInfo?.preflight.runtime ?? ""}
         onKeysAdded={() => {
           if (missingKeysInfo) {
@@ -351,6 +400,11 @@ export function TemplatePalette() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {/* Org templates live INSIDE the scroll container so an
+             *  expanded list (15+ entries) is reachable instead of
+             *  overflowing the fixed footer below. */}
+            <OrgTemplatesSection />
+
             {loading && (
               <div role="status" aria-live="polite" className="flex items-center justify-center gap-2 text-xs text-zinc-500 text-center py-8">
                 <Spinner />
@@ -418,7 +472,6 @@ export function TemplatePalette() {
           </div>
 
           <div className="px-4 py-3 border-t border-zinc-800/60 space-y-3">
-            <OrgTemplatesSection />
             <ImportAgentButton onImported={loadTemplates} />
             <button
               onClick={loadTemplates}

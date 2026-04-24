@@ -6,11 +6,30 @@ import { CookieConsent, hasConsent } from "../CookieConsent";
 const STORAGE_KEY = "molecule_cookie_consent";
 
 // These tests lock the privacy-preserving default: the banner appears on
-// first visit, clicking either button records a decision, and subsequent
-// renders skip the banner until the policy version changes.
+// first visit (SaaS mode), clicking either button records a decision, and
+// subsequent renders skip the banner until the policy version changes.
+//
+// The banner is SaaS-only — it references moleculesai.app's hosted privacy
+// policy and presumes GDPR/ePrivacy obligations that only apply to the
+// hosted offering. Self-hosted / local-dev hosts must not see it. Most
+// tests below simulate SaaS by overriding window.location.hostname; the
+// "local-dev" test omits that override.
+
+// setSaaSHostname rewrites window.location.hostname to look like a SaaS
+// tenant subdomain so isSaaSTenant() returns true. Must run before
+// CookieConsent mounts, otherwise its one-shot useEffect captures the
+// localhost default. jsdom's location object is read-only via the normal
+// setter but defineProperty lets us replace it for the scope of a test.
+function setSaaSHostname(host = "acme.moleculesai.app") {
+  Object.defineProperty(window, "location", {
+    configurable: true,
+    value: { ...window.location, hostname: host },
+  });
+}
 
 beforeEach(() => {
   window.localStorage.clear();
+  setSaaSHostname();
 });
 
 afterEach(() => {
@@ -85,6 +104,28 @@ describe("CookieConsent", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog.getAttribute("aria-labelledby")).toBe("cookie-consent-title");
     expect(dialog.getAttribute("aria-describedby")).toBe("cookie-consent-body");
+  });
+
+  it("does NOT render on local dev (non-SaaS hostname)", () => {
+    // Simulate `npm run dev` on localhost — isSaaSTenant() returns false
+    // and the banner must stay hidden. Regression test for PR #1871:
+    // a fresh-clone Canvas showing the hosted privacy banner on
+    // localhost:3000 was confusing for self-hosted users.
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...window.location, hostname: "localhost" },
+    });
+    render(<CookieConsent />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("does NOT render on a LAN hostname (192.168.*, *.local)", () => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...window.location, hostname: "192.168.1.74" },
+    });
+    render(<CookieConsent />);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 

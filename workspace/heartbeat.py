@@ -17,7 +17,7 @@ from pathlib import Path
 
 import httpx
 
-from platform_auth import auth_headers
+from platform_auth import auth_headers, refresh_cache
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +102,35 @@ class HeartbeatLoop:
                         self._consecutive_failures = 0
                     except Exception as e:
                         self._consecutive_failures += 1
+                        # Issue #1877: if heartbeat 401'd, re-read the token from disk
+                        # and retry once. This handles the platform's token-rotation race
+                        # where WriteFilesToContainer hasn't finished writing the new
+                        # token before the runtime boots and caches the old value.
+                        is_401 = False
+                        if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 401:
+                            is_401 = True
+                        if is_401:
+                            logger.warning("Heartbeat 401 for %s — refreshing token cache and retrying once", self.workspace_id)
+                            refresh_cache()
+                            try:
+                                await client.post(
+                                    f"{self.platform_url}/registry/heartbeat",
+                                    json={
+                                        "workspace_id": self.workspace_id,
+                                        "error_rate": self.error_rate,
+                                        "sample_error": self.sample_error,
+                                        "active_tasks": self.active_tasks,
+                                        "current_task": self.current_task,
+                                        "uptime_seconds": int(time.time() - self.start_time),
+                                    },
+                                    headers=auth_headers(),
+                                )
+                                self._consecutive_failures = 0
+                                self.request_count += 1
+                            except Exception:
+                                # Retry also failed — fall through to the normal
+                                # failure tracking below.
+                                pass
                         if self._consecutive_failures <= 3 or self._consecutive_failures % MAX_CONSECUTIVE_FAILURES == 0:
                             logger.warning("Heartbeat failed (%d consecutive): %s", self._consecutive_failures, e)
                         if self._consecutive_failures >= MAX_CONSECUTIVE_FAILURES:

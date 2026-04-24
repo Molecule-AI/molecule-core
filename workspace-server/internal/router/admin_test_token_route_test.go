@@ -49,6 +49,13 @@ func setupRouterTestDB(t *testing.T) sqlmock.Sqlmock {
 // would reach the handler and mint a new bearer for any workspace UUID.
 func TestTestTokenRoute_RequiresAdminAuth_WhenTokensExist(t *testing.T) {
 	t.Setenv("MOLECULE_ENV", "development") // enable the handler itself
+	// Explicit ADMIN_TOKEN so AdminAuth's dev-mode fail-open branch
+	// (middleware/devmode.go::isDevModeFailOpen) does NOT fire — we're
+	// testing the production-like security property that once any
+	// workspace token exists, an unauthenticated request is rejected.
+	// Setting ADMIN_TOKEN is the operator's opt-in to #684 closure and
+	// is what hosted SaaS tenants always have set.
+	t.Setenv("ADMIN_TOKEN", "test-admin-secret-not-presented-by-caller")
 	mock := setupRouterTestDB(t)
 
 	// HasAnyLiveTokenGlobal: platform has one enrolled workspace.

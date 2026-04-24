@@ -12,6 +12,11 @@ development workflow, conventions, and how to get your changes merged.
 - **Python 3.11+** — workspace runtime
 - **Docker** — infrastructure services (Postgres, Redis)
 - **Git** — with hooks path set to `.githooks`
+- **jq** — parses `manifest.json` during `setup.sh` to clone the
+  template/plugin registry. Install via `brew install jq` (macOS) or
+  `apt install jq` (Debian). Without it, setup.sh prints a note and
+  leaves the registry dirs empty (recoverable by installing jq and
+  re-running).
 
 ### Setup
 

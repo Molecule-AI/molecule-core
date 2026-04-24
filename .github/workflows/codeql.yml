@@ -18,6 +18,12 @@ on:
     branches: [main, staging]
   pull_request:
     branches: [main, staging]
+  # GitHub merge queue fires `merge_group` for the queue's pre-merge CI run.
+  # Required so CodeQL Analyze checks get a real result on the queued
+  # commit instead of a false-green. Event only fires once merge queue is
+  # enabled on the target branch — safe to add unconditionally.
+  merge_group:
+    types: [checks_requested]
   schedule:
     # Weekly run picks up findings in code that hasn't been touched.
     - cron: '30 1 * * 0'
