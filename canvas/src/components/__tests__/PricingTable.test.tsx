@@ -50,14 +50,14 @@ describe("PricingTable", () => {
   it("renders all three plans with their CTAs", () => {
     render(<PricingTable />);
     expect(screen.getByRole("heading", { name: "Free" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Starter" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Pro" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Team" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Growth" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Get started" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Upgrade to Starter" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Upgrade to Pro" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Upgrade to Team" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Upgrade to Growth" })).toBeTruthy();
   });
 
-  it("shows the 'Most popular' badge only on the starter card", () => {
+  it("shows the 'Most popular' badge only on the Team card", () => {
     render(<PricingTable />);
     const badges = screen.getAllByText("Most popular");
     expect(badges.length).toBe(1);

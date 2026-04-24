@@ -14,7 +14,7 @@ import { PricingTable } from "@/components/PricingTable";
 export const metadata = {
   title: "Pricing — Molecule AI",
   description:
-    "Free while you tinker, paid tiers for shipping production multi-agent organizations. Transparent usage-based overage pricing on Pro.",
+    "Flat-rate team and org pricing — no per-seat fees. Free to start, $29/month for teams, $99/month for production orgs. Full runtime stack included on every paid tier.",
 };
 
 export default function PricingPage() {
@@ -25,9 +25,12 @@ export default function PricingPage() {
           Pricing
         </h1>
         <p className="mx-auto mt-4 max-w-2xl text-lg text-zinc-300">
-          Free while you tinker. Pay when you ship real agents to production.
-          Every tier includes the full runtime stack — you upgrade for scale,
-          support, and dedicated infrastructure.
+          One flat price per org — not per seat. Every paid tier includes the
+          full runtime stack. You upgrade for scale, support, and dedicated
+          infrastructure.
+        </p>
+        <p className="mx-auto mt-2 max-w-xl text-sm text-zinc-400">
+          5-person team? You pay $29/month — not $200. No seat math, ever.
         </p>
       </div>
 
@@ -53,7 +56,8 @@ export default function PricingPage() {
           .
         </p>
         <p className="mt-6 text-sm text-zinc-500">
-          Prices shown in USD. Enterprise / self-hosted licensing available — contact us.
+          Prices shown in USD. Flat-rate per org — no per-seat fees on any paid tier.
+          Enterprise / self-hosted licensing available — contact us.
         </p>
       </section>
 
