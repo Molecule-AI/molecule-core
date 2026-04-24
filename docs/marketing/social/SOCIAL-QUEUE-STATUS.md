@@ -1,5 +1,5 @@
 # Marketing Social Queue — Status Tracker
-**Owner:** PMM | **Last updated:** 2026-04-24 (T-6 to GA)
+**Owner:** PMM | **Last updated:** 2026-04-24 mid-cycle
 **Purpose:** Single source of truth for all social copy status across campaigns.
 
 ---
@@ -41,7 +41,6 @@
 - **File:** `2026-04-22-ec2-instance-connect-ssh/social-copy.md`
 - **Status:** PMM positioning approved (GH #1637). DevRel screenshot + blog still outstanding. Whether posted is unconfirmed.
 - **Owner:** PMM → Social Media Brand → DevRel
-
 
 ---
 
