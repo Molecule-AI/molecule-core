@@ -408,6 +408,7 @@ func (h *WorkspaceHandler) issueAndInjectToken(ctx context.Context, workspaceID 
 	// This call is best-effort — if it fails (or provisioner is nil in tests)
 	// we still log and fall through; the runtime's heartbeat.py will retry
 	// on 401 if needed.
+	// Guard against nil provisioner (unit-test environments without Docker).
 	if h.provisioner != nil {
 		if writeErr := h.provisioner.WriteAuthTokenToVolume(ctx, workspaceID, token); writeErr != nil {
 			log.Printf("Provisioner: warning — pre-write token to volume failed for %s: %v (token still injected via WriteFilesToContainer after start)", workspaceID, writeErr)
