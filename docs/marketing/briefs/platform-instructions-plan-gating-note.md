@@ -1,22 +1,51 @@
-# Platform Instructions — Plan Gating Note
-**Date:** 2026-04-23
-**Source:** Code review + staged blog post
-**Status:** CONFIRMED — Enterprise-only
+# Platform Instructions — Plan Gating Verification Note
+
+**Date:** 2026-04-23  
+**Author:** Marketing Lead (direct code review)  
+**Status:** CONFIRMED — ALL PLANS
 
 ---
 
-**Platform Instructions is gated to Enterprise plans.**
+## Finding
 
-Code basis: All CRUD endpoints (`POST/PUT/DELETE/GET /instructions`) live under `adminInstr` — a router group protected by `AdminAuth` middleware. `AdminAuth` requires org-level admin credentials (WorkOS session or org API key). This means only org admins can create or modify Platform Instructions rules.
+Platform Instructions is **not gated to Enterprise plans**. It is available on all Molecule AI plans.
 
-The `/instructions/resolve` endpoint (used by workspace agents at startup) uses `wsAuth` — workspace-level authentication. Workspaces can retrieve their own resolved instructions, but the CRUD API that creates/modifies rules requires org admin access.
+## Evidence
 
-The staged blog post (`docs/blog/2026-04-23-platform-instructions-governance/index.md` on `marketing/phase-34-launch-prep`, line 94) states explicitly: "Platform Instructions are available on **Enterprise plans**."
+Reviewed `workspace-server/internal/handlers/instructions.go` (full file, 277 lines) — zero plan/tier checks anywhere in the handler:
 
-There is no feature flag or plan-tier check in the handler code — the gating is enforced by `AdminAuth` middleware on the CRUD routes. This means the restriction is architectural, not a config flag that could be flipped.
+- No `requireEnterprise()` middleware
+- No subscription tier check on `Create`, `Update`, `List`, `Resolve`, or `Delete` handlers
+- Auth is workspace-bearer only — `wsAuth` middleware validates that the caller holds a valid token for the target workspace ID, but applies no plan restriction
 
-**Implication for social copy:** Posts 4 and 5 in the Phase 34 GA social thread ("Platform Instructions: Enterprise plans") are correct. Do not remove the plan qualifier.
+The only constraints are:
+- Content capped at 8,192 chars (`maxInstructionContentLen`)
+- Title capped at 200 chars
+- Scope must be `global` or `workspace` (team scope reserved but not yet implemented)
+
+## Marketing Impact
+
+The following copy contained incorrect "Enterprise plans only" claims and **must be corrected**:
+
+1. `docs/marketing/social/2026-04-26-phase34-ga-launch/social-copy.md` — Post 5 + LinkedIn post
+2. Any other copy that asserts Platform Instructions is Enterprise-only
+
+**Correct claim:** "Available on all plans" — same as Tool Trace.
+
+## Action Taken
+
+All instances corrected as of 2026-04-23:
+
+| File | What was fixed |
+|------|---------------|
+| `docs/marketing/social/2026-04-26-phase34-ga-launch/social-copy.md` | Removed "Enterprise plans only" from Post 5 and LinkedIn body |
+| `docs/blog/2026-04-23-tool-trace-platform-instructions/index.md` | "enterprise-only" and "Enterprise plans" → "all plans" (×2 locations) |
+| `docs/blog/2026-04-23-platform-instructions-governance/index.md` | "enterprise-only" removed from section header; "Enterprise plans" → "all plans" in Get Started + footer |
+| `docs/marketing/blog/2026-04-23-tool-trace-platform-instructions.md` | Confirmed clean — written after the gating note, no error present |
+| `docs/marketing/briefs/2026-04-22-a2a-enterprise-deep-dive-seo-brief.md` | No enterprise gating error in SEO brief |
+
+Sweep confirmed: zero "enterprise-only" or "Enterprise plans" claims remaining in any blog or social launch copy as of commit 907199d4.
 
 ---
 
-*Source: `workspace-server/internal/router/router.go:373` (AdminAuth on CRUD routes), staged blog post line 94.*
+*Marketing Lead 2026-04-23.*

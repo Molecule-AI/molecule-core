@@ -3,7 +3,7 @@
 **Slug:** `a2a-v1-agent-platform` ✅ Confirmed live (Marketing Lead direct approval 2026-04-23)
 **Target URL:** `https://docs.molecule.ai/blog/a2a-v1-agent-platform`
 **Target length:** ~900 words
-**Status:** ✅ Approved by Marketing Lead 2026-04-23 — ready for Content Marketer (#1492)
+**Status:** ✅ Approved ML 2026-04-23 — route to Content Marketer (#1492)
 **Brief owner:** PMM | **Writer:** Content Marketer
 **Reviewed:** 2026-04-23 by SEO Analyst
 
@@ -135,7 +135,7 @@ Minimum 4 internal links. No external competitor links (keep users on Molecule A
 - [x] VPN guardrail: approved
 - [x] Phase 30 ship date: approved ("Phase 30 (2026-04-20)" framing)
 - [x] Code sample: required for enterprise buyer credibility
-- [x] **PMM FINAL APPROVAL:** ✅ Marketing Lead direct approval 2026-04-23 — PMM step waived; pipeline item #15 closed.
+- [x] **PMM FINAL APPROVAL:** ✅ Approved ML 2026-04-23 (pipeline #15 — slug `a2a-v1-agent-platform` confirmed, PMM routing waived, issue #1492)
 
 ---
 

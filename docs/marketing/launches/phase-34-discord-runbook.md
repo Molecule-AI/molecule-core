@@ -1,223 +1,181 @@
-# Phase 34 — Discord Launch Runbook
-**Campaign:** Phase 34 GA (April 30, 2026)
-**Owner:** Community Manager
-**Use:** Step-by-step execution guide for launch day
-**Date:** 2026-04-23
+# Phase 34 Discord Launch Runbook — April 30, 2026
+
+**Owner:** Community Manager + DevRel
+**GA date:** April 30, 2026
+**Primary channels:** `#announcements`, `#general`, `#bug-reports`, `#partner-program`
 
 ---
 
-## Launch day overview
+## 1. Pre-launch checklist
 
-| Time (UTC) | Action |
-|------------|--------|
-| -15 min (08:45) | Pre-launch checklist |
-| -5 min (08:55) | Final link verification |
-| 09:00 | Post in `#announcements` |
-| 09:00 | Pin FAQ in `#faq` |
-| 09:00–11:00 | Monitor `#general` + `#feedback` (2h active watch, 30-min SLA) |
-| Ongoing | Route inbound to correct channel / team |
-| Apr 30 ~16:00 (Day 2) | Reddit r/MachineLearning + HN Show HN |
+Complete all items before 09:00 UTC on April 30.
 
----
+### Docs and links
+- [ ] `/docs/api/partner-keys` is live and returns 200
+- [ ] `phase-34-community-faq.md` is published and linked from the announcement
+- [ ] Phase 34 changelog is live
+- [ ] All code examples in the announcement and FAQ have been verified against the production API
 
-## Pre-launch checklist (complete by 08:45 UTC)
+### Feature verification
+- [ ] `message.metadata.tool_trace` is present in a real A2A response (smoke test in staging, then prod)
+- [ ] `PUT /cp/platform-instructions` succeeds with an org admin token in prod
+- [ ] `POST /cp/admin/partner-keys` returns a `mol_pk_*` key in prod
+- [ ] `DELETE /cp/admin/partner-keys/:id` completes cleanly and billing stops
+- [ ] SaaS Fed v2: confirm federated org boundary enforcement is behaving correctly in prod
 
-### Blog posts verified live
-- [ ] `docs.moleculesai.app/blog/ai-agent-observability-without-overhead` (Tool Trace)
-- [ ] `docs.moleculesai.app/blog/platform-instructions-governance` (Platform Instructions)
-- [ ] `docs.moleculesai.app/blog/partner-api-keys` (Partner API Keys — GA April 30, may show "coming soon" before launch)
-- [ ] `docs.moleculesai.app/guides/external-workspace-quickstart` (SaaS Fed v2)
-- [ ] `docs.moleculesai.app/blog/tool-trace-platform-instructions` (combined overview)
+### Discord setup
+- [ ] Announcement message is drafted and reviewed (see Section 2)
+- [ ] `#announcements` is set to slow mode or admin-only post for the first 30 minutes
+- [ ] Community Manager and at least one DevRel engineer are online and available at 09:00 UTC
+- [ ] Dev Lead is reachable (Slack/phone) from 09:00–13:00 UTC
+- [ ] `#partner-program` pinned message is up to date with April 30 GA date
 
-### API endpoints responding
-- [ ] `PUT /cp/platform-instructions` — test in staging (org admin endpoint)
-- [ ] Partner API Keys endpoint — confirm not responding before GA (expected)
-- [ ] `GET /cp/platform-instructions` — confirm accessible in staging
-
-### Docs updated
-- [ ] `docs/architecture/partner-api-keys.md` — reflects `mol_pk_*` key format and scopes
-- [ ] `docs/api-protocol/a2a-protocol.md` — mentions `tool_trace` in `Message.metadata`
-- [ ] `docs/guides/external-workspace-quickstart.md` — reflects SaaS Fed v2 changes
-
-### Announcement file verified
-- [ ] `docs/marketing/launches/phase-34-community-announcement.md` — on `staging` or `main`, CTA links accurate
-- [ ] No design partner names in copy
-- [ ] Partner API Keys framed as "GA April 30" — not "available now"
-
-### X credentials status (issue #1865)
-- [ ] If `X_API_KEY` + `X_API_SECRET` provided by mol-ops → note in Discord post thread
-- [ ] If not provided → Reddit/HN posts go Day 2, no external social Apr 30
-
-### Teams on standby
-- [ ] DevRel confirmed monitoring `#devrel` or DM for how-to routing
-- [ ] Platform team monitoring `#bug-reports`
-- [ ] Marketing Lead aware of launch timing
-
-### Escalation path clear
-- [ ] DM list for emergencies: DevRel, Security, Marketing Lead
-- [ ] Bug-report channel confirmed active
+### Comms
+- [ ] Blog posts for Tool Trace and Platform Instructions are published and URLs are confirmed
+- [ ] GitHub Discussions announcement post is drafted and ready to publish
+- [ ] Email announcement (if applicable) is scheduled and reviewed
 
 ---
 
-## Step 1 — Post announcement in `#announcements` (09:00 UTC)
+## 2. Launch announcement message template
 
-**Source:** `docs/marketing/launches/phase-34-community-announcement.md`
-
-Post as plain text, emoji-formatted. Discord message limit is 2000 chars — split across multiple messages if needed. Keep the block separators (`━━`) intact.
-
-**Before posting — final checks:**
-1. Run `curl -s -o /dev/null -w "%{http_code}" docs.moleculesai.app/blog/ai-agent-observability-without-overhead` and confirm 200
-2. Confirm no "available now" framing for Partner API Keys
-3. Confirm no design partner names
-
-**Post announcement, then immediately reply in thread:**
-```
-📋 FAQ — answers to the top community questions:
-[paste link or mirror the FAQ content here]
-
-Full blog coverage:
-docs.moleculesai.app/blog/tool-trace-platform-instructions
-docs.moleculesai.app/blog/ai-agent-observability-without-overhead
-docs.moleculesai.app/blog/platform-instructions-governance
-docs.moleculesai.app/blog/partner-api-keys
-docs.moleculesai.app/guides/external-workspace-quickstart
-```
+Paste this into `#announcements` at 09:00 UTC on April 30. Edit anything in `[brackets]` before posting.
 
 ---
 
-## Step 2 — Pin FAQ in `#faq` (09:00 UTC)
+**Phase 34 is GA. Four new features for platform builders, live now.**
 
-1. Open `#faq`
-2. Paste full content from `docs/marketing/launches/phase-34-community-faq.md`
-3. Right-click → Pin Message
-4. Confirm pin is visible
-5. If channel has stale pins, clear old ones and pin Phase 34 FAQ
-
-**FAQ should be pinned before the announcement goes out** so people can find it immediately when they arrive.
+- **Tool Trace** — every A2A response now includes `message.metadata.tool_trace`: a full list of every tool your agent called, with inputs and output previews. Parallel calls are handled correctly via `run_id`. Capped at 200 entries. No config needed — it's there already.
+- **Platform Instructions** — org admins can now set org-wide system instructions with `PUT /cp/platform-instructions`. Set once, every agent in your org inherits it. Available on all plans.
+- **Partner API Keys (`mol_pk_*`) — GA today** — programmatically create and manage Molecule AI orgs via API. Ephemeral orgs per PR, org-scoped keys, automated billing teardown on `DELETE`. Full docs at `/docs/api/partner-keys`.
+- **SaaS Federation v2** — improved reliability and org boundary enforcement for federated multi-org deployments. See the changelog for details.
+- Questions? Reply here or check the [FAQ link]. Bugs go to `#bug-reports`. Partner program interest goes to `#partner-program`.
 
 ---
 
-## Step 3 — Monitor `#general` and `#feedback` (09:00–11:00 UTC)
+## 3. Channel monitoring schedule
 
-**SLA: respond within 30 minutes of any Phase 34 reply.**
+### 09:00–11:00 UTC (first 2 hours — highest traffic window)
 
-Set a 30-minute repeating reminder to check both channels.
+| Channel | What to watch for | Who monitors |
+|---|---|---|
+| `#announcements` | Questions in thread replies; confusion about Partner Key GA date | Community Manager |
+| `#general` | Tool Trace not appearing in responses; plan eligibility questions; "where is X" | DevRel Engineer |
+| `#bug-reports` | Any new reports tagged Phase 34 / Tool Trace / Platform Instructions / Partner Keys | DevRel Engineer (triage) + Dev Lead (escalation) |
+| `#partner-program` | Access requests for Partner API Keys; integration questions | Partner team / mol-ops |
 
-**Response template — question you can answer:**
-```
-Hey [name] — good question. [1-2 sentence answer]. Full details in our docs: [link]. Let me know if that doesn't cover it!
-```
+### 11:00–17:00 UTC (steady state)
 
-**Response template — question you can't answer:**
-```
-Great question — let me loop in the platform team and get back to you. Tagging @devrel for a closer look.
-```
+| Channel | What to watch for | Who monitors |
+|---|---|---|
+| `#general` | Ongoing questions; sentiment check | Community Manager (async, check every 60 min) |
+| `#bug-reports` | New reports; ensure nothing is going unacknowledged for >30 min | DevRel Engineer |
+| `#partner-program` | Access requests accumulating; flag to mol-ops if queue is growing | Community Manager |
 
-**Response template — feature request:**
-```
-Love this idea — tagging @pm so this gets into the backlog. You can also open a GitHub issue with the label "enhancement" to track it formally.
-```
+### 17:00–24:00 UTC (end of day + late traffic)
 
----
-
-## Step 4 — Monitor `#bugs`, `#partner-program` (ongoing)
-
-### `#bugs` channel
-- Tool Trace bugs → tag `@devrel` in `#devrel` or DM directly
-- Platform Instructions bugs → tag `@dev-lead` in `#devrel` or DM directly
-- Partner API Keys issues (post-GA) → tag `@mol-ops` or DM
-
-### `#partner-program` channel
-- Partner API Keys early access requests → acknowledge, DM with next steps
-- Integration questions → route to DevRel if technical, Marketing Lead if strategic
-
-### `#general`
-- How-to questions → answer directly or tag `@devrel`
-- "Is this available now?" → check against GA date, redirect to docs
-- Security concerns → do not respond publicly. DM Security team immediately.
+| Channel | What to watch for | Who monitors |
+|---|---|---|
+| `#bug-reports` | Any late-breaking issues; confirm nothing severity-1 is open unacknowledged | On-call DevRel |
+| `#general` | Any unresolved threads from earlier | On-call DevRel |
 
 ---
 
-## Step 5 — Escalation paths
+## 4. Escalation paths
 
-| Issue type | Route to | How |
-|-----------|----------|-----|
-| Tool Trace unexpected behavior | DevRel | DM or tag in `#devrel` |
-| Platform Instructions not applying | DevRel / Dev Lead | DM or tag in `#devrel` |
-| Partner API Keys access / billing issues | mol-ops | DM or tag in `#partner-program` |
-| SaaS Fed v2 isolation concern | Security / Dev Lead | DM Security, tag Dev Lead |
-| Security vulnerability | Security team | **DM only — do not post in any channel** |
-| Press / media inquiry | Marketing Lead | **Do not engage publicly — DM Marketing Lead immediately** |
+### Tool Trace issues
+**Symptoms:** `tool_trace` missing from responses, incorrect entries, parallel call pairing broken, entries exceeding 200 cap unexpectedly.
+**First response:** DevRel Engineer (acknowledge in `#bug-reports`, gather: org ID, request body, response body)
+**Escalate to:** Dev Lead if the issue is reproducible in prod and affects more than one org
 
-**For any toxic or spam thread:**
-- Do not engage
-- Screenshot thread
-- DM Marketing Lead with link + screenshot
+### Platform Instructions bugs
+**Symptoms:** Instructions not applying to all agents, workspace-scope overriding global-scope incorrectly, `PUT /cp/platform-instructions` returning non-200.
+**First response:** DevRel Engineer (acknowledge and reproduce)
+**Escalate to:** Dev Lead with a reproduction case
 
----
+### Partner API Keys — access and provisioning questions
+**Symptoms:** "I can't create a key", "my `mol_pk_*` key isn't working", "I need early access".
+**First response:** Community Manager or DevRel (direct to `/docs/api/partner-keys` and `#partner-program`)
+**Escalate to:** mol-ops / partner team for provisioning issues or access grants that need manual intervention
 
-## Response templates — common questions
-
-**Q: "Is Partner API Keys available now?"**
-A: "Partner API Keys ship on April 30, 2026. Until then the API isn't live. If you want early access for a concrete integration use case, DM me and I'll connect you with the team."
-
-**Q: "How is Tool Trace different from Langfuse/Helicone?"**
-A: "Tool Trace captures A2A-level agent behavior — tool calls, inputs, output previews. Langfuse/Helicone capture LLM API calls. They measure different layers. If you're running agents on Molecule, Tool Trace is zero-config and free. If you need cross-platform multi-model observability, Langfuse is still a great complement."
-
-**Q: "Can I use Platform Instructions to enforce a policy across my org?"**
-A: "Yes — set a global instruction via PUT /cp/platform-instructions (scope: global). It applies to every workspace in your org at startup. Rules prepend to each agent's system prompt — workspace users can't override them by editing config.yaml."
-
-**Q: "What's the rate limit on Partner API Keys?"**
-A: "Default is 60 requests/minute per key, configurable at key creation time. For high-volume CI pipelines, request a higher limit when you apply for a partner key."
-
-**Q: "My agent isn't producing tool_trace in responses."**
-A: "Tool Trace is on by default for all workspaces. Make sure activity logging is enabled on your workspace. If it is, and you're still not seeing traces, open a bug in #bug-reports and tag @devrel."
-
-**Q: "Where is the migration guide for Phase 34?"**
-A: "Phase 34 features are additive — no migration required for existing agents. Tool Trace starts appearing automatically, Platform Instructions are opt-in per org admin. Migration docs at docs.moleculesai.app/guides/phase-34-migration — live on April 30."
+### Performance and uptime issues
+**Symptoms:** Elevated latency, 5xx errors across multiple endpoints, federation dropping events at scale.
+**First response:** DevRel Engineer (check status page, post acknowledgment in `#general` within 10 minutes)
+**Escalate to:** Dev Lead + PM immediately — treat as a Sev-1 incident. Do not wait for multiple reports.
 
 ---
 
-## Post-launch (24h): metrics and feedback
+## 5. Canned response templates
 
-### Engagement metrics to capture
-- `#announcements` — reply count, reaction count (first 4h)
-- `#faq` — pin view count if available, question count
-- `#general` — Phase 34 thread volume
-- GitHub Discussions — new discussions opened, response time
-- Reddit/HN (Day 2) — post score, comment count, avg time to first reply
-
-### Feedback to route to PM
-- Questions that surfaced unexpected complexity in the features
-- Feature requests that multiple community members asked about
-- Any confusion about what shipped vs what's coming April 30
-- Partner API Keys early access requests — log use case + org name
-
-### Day 2 — Reddit + HN
-
-**Reddit r/MachineLearning** (~09:00 PT / 16:00 UTC):
-- Source: `docs/marketing/community/phase34-reddit-post.md`
-- Title: "Built agent execution tracing into the platform — no SDK, no sidecar, no sampling"
-- Monitor for 2h, reply to top-level comments within 30 min
-- Do not name design partners
-
-**HackerNews Show HN** (~09:00 PT / 16:00 UTC):
-- Source: `docs/marketing/community/phase34-hn-post.md`
-- Title: "Show HN: Molecule AI's approach to platform-native agent observability + governance"
-- First reply (pinned): code snippet from the tool_trace example
-- Monitor for 3h, reply to every top-level comment
+Copy, personalize lightly (add the user's name or org ID where natural), and post.
 
 ---
 
-## Files reference
+**CR-1: "Is this feature on my plan?"**
 
-| File | Purpose |
-|------|---------|
-| `docs/marketing/launches/phase-34-community-announcement.md` | Announce in `#announcements` |
-| `docs/marketing/launches/phase-34-community-faq.md` | Pin in `#faq` |
-| `docs/marketing/community/phase34-reddit-post.md` | Reddit Day 2 |
-| `docs/marketing/community/phase34-hn-post.md` | HN Day 2 |
-| `docs/marketing/briefs/phase34-positioning.md` | PMM-approved positioning |
-| `docs/marketing/launches/phase-34-discord-runbook.md` | This file |
+> Great question — Tool Trace, Platform Instructions, and the other Phase 34 features are available on all plans, including the free tier. Partner API Keys are also available on all plans starting today. No upgrade needed. If you're still not seeing something, let us know your org ID and we'll take a look.
 
-**Last updated:** 2026-04-23
+---
+
+**CR-2: "I don't see `tool_trace` in my response"**
+
+> `tool_trace` lives at `message.metadata.tool_trace` in the A2A response — it's there by default with no config required. A couple of things to check: (1) make sure you're reading from the `metadata` field of the `Message` object, not the top-level response, and (2) confirm you're making an A2A call (not a direct completions call). If you're doing both of those and still not seeing it, paste a redacted version of your response and we'll dig in.
+
+---
+
+**CR-3: "How do I get a Partner API Key?"**
+
+> Partner API Keys are GA today. Full docs are at `/docs/api/partner-keys` — you'll find the endpoints for creating (`POST /cp/admin/partner-keys`) and deleting (`DELETE /cp/admin/partner-keys/:id`) keys there. If you run into any access issues or have questions about what you can build, drop details in `#partner-program` and the partner team will get back to you.
+
+---
+
+**CR-4: "How do I set up Platform Instructions?"**
+
+> Platform Instructions are set with a single API call using your org admin token:
+>
+> ```http
+> PUT /cp/platform-instructions
+> Authorization: Bearer <your-org-admin-token>
+> Content-Type: application/json
+>
+> { "instructions": "Your org-wide instructions here." }
+> ```
+>
+> Once set, every agent in your org inherits them automatically — no changes needed to individual workspace configs. Let us know if you hit any issues.
+
+---
+
+**CR-5: "What's the difference between global and workspace scope for Platform Instructions?"**
+
+> Global scope (set via `PUT /cp/platform-instructions`) applies to your entire org — every workspace and every agent. Workspace scope applies only to a specific workspace. When both are set, they're combined: your global instructions always run alongside whatever workspace-specific instructions are in place. Global is the right home for compliance rules or anything org-wide; workspace scope is for context specific to one team or product area.
+
+---
+
+## 6. Post-launch: 24-hour metrics and feedback routing
+
+### Metrics to capture by 09:00 UTC May 1
+
+**Usage**
+- [ ] Number of A2A responses containing a non-empty `tool_trace` (past 24h)
+- [ ] Number of orgs that have called `PUT /cp/platform-instructions`
+- [ ] Number of `mol_pk_*` keys created on April 30
+- [ ] Number of `DELETE /cp/admin/partner-keys/:id` calls (teardown events)
+
+**Support volume**
+- [ ] Total `#bug-reports` posts tagged Phase 34 (triage status for each: resolved / open / escalated)
+- [ ] Total `#partner-program` access requests received
+- [ ] Total `#general` threads that required a response
+
+**Sentiment**
+- [ ] Note any recurring confusion themes (e.g., common misunderstanding about where `tool_trace` lives)
+- [ ] Note any feature requests that came up more than twice
+
+### Feedback routing
+
+| Source | Route to |
+|---|---|
+| Bug reports still open after 24h | Dev Lead — create GitHub issues |
+| Feature requests (2+ mentions) | PM — add to backlog review queue |
+| Partner integration questions unanswered | mol-ops / partner team |
+| Positive shoutouts / testimonials worth amplifying | Community Manager — consider quoting in next newsletter or social post |
+| Confusion patterns that suggest doc gaps | DevRel — file doc improvement tasks against `phase-34-community-faq.md` |

@@ -1,11 +1,12 @@
 ---
-title: "Ship Partner Integrations Faster with Programmatic Org Management"
+title: "Partner API Keys: Programmatic Org Provisioning"
 date: 2026-04-23
 slug: partner-api-keys
 description: "Partner API Keys let marketplace resellers, CI/CD pipelines, and automation tools create and manage Molecule AI orgs via API — no browser session required."
-og_title: "Ship Partner Integrations Faster with Programmatic Org Management"
+og_title: "Partner API Keys: Programmatic Org Provisioning"
 og_description: "Partner API Keys: scoped, rate-limited, revocable API keys for programmatic org management. Built for marketplaces, CI/CD, and automation platforms."
 tags: [partner-api-keys, marketplace, ci-cd, automation, api, enterprise, provisioning]
+og_image: /assets/blog/2026-04-23-partner-api-keys/og.png
 keywords: [partner API keys, programmatic org management, marketplace integration, CI/CD automation, Molecule AI API, reseller integration, org provisioning API]
 canonical: https://docs.molecule.ai/blog/partner-api-keys
 ---
@@ -129,12 +130,18 @@ Each run gets a clean environment. No shared state, no test pollution, no manual
 
 ## Get Started
 
-Partner API Keys are available on **Partner and Enterprise plans**. To get started:
+Partner API Keys reach GA on **April 30, 2026**. To get started:
 
-- Contact your account team to request Partner API Key issuance
-- Review the partner integration guide (coming soon)
-- Example flows: create org → poll status → redirect to tenant; CI/CD test org lifecycle
+- Review the [Partner API Keys onboarding guide](https://docs.molecule.ai/api/partner-keys)
+- Example flows: create org → run tests → DELETE teardown; CI/CD ephemeral org per PR
+- Questions? Join `#partner-program` in the [Molecule AI Discord](https://discord.gg/molecule-ai)
 
 ---
 
-*Molecule AI is open source. Partner API Keys shipped in Phase 34 (2026-04-23). Available on Partner and Enterprise plans.*
+*Molecule AI is open source. Partner API Keys GA April 30, 2026 — part of Phase 34.*
+
+---
+
+**Phase 34 also shipped:**
+→ [Tool Trace: Agent Observability Without the Overhead](/blog/ai-agent-observability-without-overhead) — every tool call recorded in every A2A response, zero config
+→ [Platform Instructions: Governance at the System Prompt Level](/blog/tool-trace-platform-instructions) — org-wide behavioral rules enforced before the first agent turn

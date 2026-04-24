@@ -1,14 +1,10 @@
 ---
 title: "What A2A v1.0 Means for Your Agent Stack: Why Protocol-Native Beats Protocol-Added"
-description: "A2A v1.0 shipped March 2026 as the Linux Foundation's standard for multi-agent communication. Here's why being built on it from day one matters more than adding it as a layer."
+description: "A2A v1.0 is the Linux Foundation standard for multi-agent communication. Here's why protocol-native agent platforms outperform bolt-on implementations."
 date: 2026-04-22
 canonical: https://docs.molecule.ai/blog/a2a-v1-agent-platform
 tags: [a2a, agent-protocol, multi-agent, governance, enterprise, platform]
-og_image: /assets/blog/2026-04-21-chrome-devtools-mcp-og.png
----
-
-*Meta description (160 chars): Before you buy an agent platform, ask how A2A delegation is attributed. The answer reveals everything about governance.*
-
+og_image: /assets/blog/2026-04-22-a2a-v1/og.png
 ---
 
 On March 12, 2026, the Linux Foundation ratified A2A v1.0 — a vendor-neutral protocol for multi-agent communication — with 23,300 GitHub stars, five official SDKs, and 383 community implementations already in the wild. This is the moment the agent internet gets a standard. And it's the moment every AI platform has to answer the same question: *Is A2A something you were built for, or something you added on top?*
@@ -136,3 +132,11 @@ With protocol-native A2A, you get:
 Molecule AI's external agent registration is production-ready. Documentation is live at [External Agent Registration Guide](https://docs.molecule.ai/docs/guides/external-agent-registration). The npm package for the MCP server is available at [`@molecule-ai/mcp-server`](https://www.npmjs.com/package/@molecule-ai/mcp-server).
 
 Read the full [A2A v1.0 protocol spec](https://github.com/Molecule-AI/molecule-core/blob/main/docs/api-protocol/a2a-protocol.md) on GitHub.
+
+---
+
+**→ See also: [Agent Observability Built In: Tool Trace + Platform Instructions](https://docs.molecule.ai/blog/agent-observability-tool-trace-platform-instructions)** — every A2A response now includes a `tool_trace` field with a complete execution record of every tool call your agent made. Zero SDK setup, ships as part of Phase 34.
+
+→ [Every MCP Server Available in Molecule AI (2026)](/blog/mcp-server-list) — full catalogue of every tool your A2A agents can call, with governance notes on controlling MCP access at org scale.
+
+**Phase 34 ships April 30, 2026** — Partner API Keys (`mol_pk_*`), Tool Trace, Platform Instructions, and SaaS Federation v2. See the [Phase 34 announcement](https://docs.molecule.ai/blog/phase-34-community-announcement) for the full picture.

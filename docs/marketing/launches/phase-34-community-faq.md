@@ -23,7 +23,7 @@ In `Message.metadata.tool_trace`. It's a JSON array in the response envelope —
 ```python
 response = agent.send(task="deploy to staging")
 for entry in response.metadata.tool_trace:
-    print(f"{entry['tool']}: {entry['input']} → {entry['output_preview']}")
+    print(f"{entry['tool_name']}: {entry['input']} → {entry['output_preview']}")
 ```
 
 ---
@@ -118,7 +118,7 @@ Common patterns:
 - **CI/CD test orgs** — spin up an ephemeral org per pipeline run, run your test suite, tear it down. Billing stops when you DELETE.
 - **Internal tooling** — provision orgs for internal teams or products without browser auth
 
-Key constraints: keys are scoped to the orgs they're authorized for, rate-limited (60 req/min default, configurable), and fully revocable. Revocation is immediate — no grace period.
+Key constraints: keys are scoped to the orgs they're authorized for, rate-limited (specific limits to be confirmed at GA — see docs.moleculesai.app/api/partner-keys for current values), and fully revocable. Revocation is immediate — no grace period.
 
 ---
 

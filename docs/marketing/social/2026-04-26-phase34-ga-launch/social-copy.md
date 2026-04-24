@@ -1,7 +1,7 @@
 # Phase 34 GA Launch — Social Copy
 **Campaign:** Phase 34 GA | **Features:** Tool Trace + Platform Instructions
 **Publish day:** 2026-04-26 (Day 6 of Phase 30 social campaign)
-**Status:** DRAFT — PMM pre-write pending Marketing Lead approval
+**Status:** APPROVED — Marketing Lead 2026-04-23. Plan gating corrected: Platform Instructions is all-plans (verified instructions.go). Ready for Social Brand to publish Apr 26.
 **Source:** PRs #1686 + #1824 + blog posts `docs/blog/2026-04-23-tool-trace-*` and `docs/blog/2026-04-23-platform-instructions-governance`
 **Owner:** PMM → Social Media Brand | **Canonical:** `https://doc.moleculesai.app/docs/development/observability`
 
@@ -15,7 +15,7 @@ Two separate product capabilities. One narrative:
 - Together → complete observability + governance loop for enterprise AI fleets
 
 **Lead with Tool Trace** (accessible to all audiences, available on all plans).
-**Pull in Platform Instructions** (enterprise governance, enterprise plans only — don't lead with this on X).
+**Pull in Platform Instructions** (governance angle, also available on all plans — don't lead with this on X).
 
 ---
 
@@ -86,7 +86,7 @@ Run them together: write the policy once, enforce it everywhere, trace every exe
 That's the observability + governance loop enterprise AI teams need.
 
 Tool Trace: all plans.
-Platform Instructions: Enterprise plans.
+Platform Instructions: all plans.
 
 → https://doc.moleculesai.app/docs/development/observability
 
@@ -119,7 +119,7 @@ Most platforms answer neither question well. Some answer one. Phase 34 from Mole
 
 **Tool Trace** — embedded in every A2A response. Every tool call, input, output preview, parallel call grouping, and timing metadata. The full trace without an extra API call. Available on all plans.
 
-**Platform Instructions** — configurable rules scoped globally or per-workspace. Enforced before every agent turn. The rule is part of the system prompt, not a filter applied after. Enterprise plans only.
+**Platform Instructions** — configurable rules scoped globally or per-workspace. Enforced before every agent turn. The rule is part of the system prompt, not a filter applied after. Available on all plans.
 
 Together: write the policy once, enforce it everywhere, trace every execution.
 
@@ -150,4 +150,4 @@ If you're scaling AI agents in production and don't have this — it's the gap w
 
 ---
 
-*PMM drafted 2026-04-23 — Phase 34 GA launch social. Pre-write pending Marketing Lead approval.*
+*PMM drafted 2026-04-23 — Phase 34 GA launch social. Approved by Marketing Lead 2026-04-23. Plan gating note: see `docs/marketing/briefs/platform-instructions-plan-gating-note.md`.*
