@@ -88,11 +88,19 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, defa
 
 	ctx := context.Background()
 
-	// Insert workspace
+	// Org-template imports can drop dozens of nested workspaces onto the
+	// canvas at once. Letting them render expanded by default sprays
+	// child cards across the viewport (sibling workspaces spill below
+	// the parent before the user can orient themselves). Default every
+	// parent in the imported tree to collapsed — the parent card shows
+	// only its header + "N sub" badge until the user double-clicks to
+	// expand it. Leaf workspaces stay expanded (nothing to hide).
+	initialCollapsed := len(ws.Children) > 0
+
 	_, err := db.DB.ExecContext(ctx, `
-		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`, id, ws.Name, role, tier, runtime, awarenessNS, "provisioning", parentID, workspaceDir, workspaceAccess)
+		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access, collapsed)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`, id, ws.Name, role, tier, runtime, awarenessNS, "provisioning", parentID, workspaceDir, workspaceAccess, initialCollapsed)
 	if err != nil {
 		log.Printf("Org import: failed to create %s: %v", ws.Name, err)
 		return fmt.Errorf("failed to create %s: %w", ws.Name, err)

@@ -81,9 +81,23 @@ export function WorkspaceNode({ id, data }: NodeProps<Node<WorkspaceNodeData>>) 
       }}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        if (hasChildren) {
-          window.dispatchEvent(new CustomEvent("molecule:zoom-to-team", { detail: { nodeId: id } }));
+        if (!hasChildren) return;
+        // A collapsed parent double-click EXPANDS first (flipping the
+        // collapsed flag + persisting it via the API). Once expanded,
+        // subsequent double-clicks zoom-to-team so the user can see
+        // the hierarchy fit in the viewport. Matches the user's ask:
+        // default-collapsed for clean first paint, one gesture reveals
+        // the subtree.
+        if (data.collapsed) {
+          const state = useCanvasStore.getState();
+          state.setCollapsed(id, false);
+          // Fire-and-forget persist so reload retains the expansion.
+          import("@/lib/api").then(({ api }) => {
+            api.patch(`/workspaces/${id}`, { collapsed: false }).catch(() => {});
+          });
+          return;
         }
+        window.dispatchEvent(new CustomEvent("molecule:zoom-to-team", { detail: { nodeId: id } }));
       }}
       onContextMenu={(e) => {
         e.preventDefault();
