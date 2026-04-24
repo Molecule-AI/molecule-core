@@ -2,8 +2,10 @@
 title: "Give Your AI Agent a Git Repository: Molecule AI + Cloudflare Artifacts"
 date: 2026-04-21
 slug: cloudflare-artifacts-molecule-ai
-description: "Attach a Cloudflare Artifacts git repository to any Molecule AI workspace. Import existing repos, fork for experiments, mint short-lived git credentials — all via the platform API. Git-native storage for AI agents."
+description: "Attach a Cloudflare Artifacts git repository to any Molecule AI workspace. Import repos, fork for experiments, mint short-lived credentials via API."
 tags: [Cloudflare, git, artifacts, AI-agents, workflow, tutorial]
+og_image: /assets/blog/2026-04-21-cloudflare-artifacts/og.png
+status: "⚠️ PM ruling 2026-04-22: sub-100ms claim UNSUBSTANTIATED — replaced with 'low-latency' (same latency class)"
 ---
 
 # Give Your AI Agent a Git Repository: Molecule AI + Cloudflare Artifacts
@@ -25,7 +27,7 @@ Git-native storage is different because:
 - **Agents already know git.** Clone, branch, commit, push. No new primitives to learn.
 - **Versioning is structural.** Every change is a commit. Rollback is `git revert`. No "last writer wins" data loss.
 - **Collaboration is native.** Fork a repo, experiment, open a PR. The same workflow humans use to collaborate applies to agents.
-- **Cloudflare Artifacts is fast.** Git operations run on Cloudflare's edge — sub-100ms clone times from anywhere. No S3 bandwidth bills.
+- **Cloudflare Artifacts is fast.** Git operations run on Cloudflare's edge — low-latency clone times from anywhere. No S3 bandwidth bills.
 - **Access control is git-native.** Token scoping, branch protection, repo-level permissions. The same model your team already uses.
 
 ## API Reference

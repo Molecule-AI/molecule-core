@@ -4,6 +4,7 @@ date: 2026-04-17
 slug: deploy-anywhere
 description: "Molecule AI supports fly.io agent deployment and control-plane provisioning. Switch backends with one env var — no agent code changes required."
 tags: [platform, fly.io, deployment, infrastructure]
+og_image: /assets/blog/2026-04-17-deploy-anywhere/og.png
 ---
 
 # Deploy AI Agents on Fly.io — or Any Cloud — with One Config Change

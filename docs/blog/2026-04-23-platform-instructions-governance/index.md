@@ -6,6 +6,7 @@ description: "Platform Instructions lets enterprise IT teams enforce org-wide po
 og_title: "Govern Your AI Fleet at the System Prompt Level"
 og_description: "Platform Instructions: global and workspace-scoped rules prepended to the system prompt. Governance before the first turn, not after."
 tags: [governance, platform-instructions, enterprise, security, it-governance, system-prompt, policy, a2a]
+og_image: /assets/blog/2026-04-23-platform-instructions-governance/og.png
 keywords: [AI fleet governance, enterprise AI policy, system prompt governance, AI agent compliance, platform instructions, workspace policy enforcement, enterprise AI security, AI agent ACL]
 canonical: https://docs.molecule.ai/blog/govern-ai-fleet-system-prompt-level
 ---
@@ -80,7 +81,7 @@ With Platform Instructions, the rule isn't a gate. It's a context.
 
 ## Enterprise Security: ACLs and Access Control
 
-Platform Instructions are enterprise-only because enterprise governance requires enterprise-grade access control. The security model reflects this:
+Platform Instructions ship with a layered access control model that keeps policy authority where it belongs. The security model:
 
 - **Global instructions** are managed by org admins — not workspace owners
 - **Workspace instructions** are managed by workspace admins within their own scope
@@ -91,10 +92,9 @@ For security and IT governance teams evaluating AI agent platforms, this is the 
 
 ## Get Started
 
-Platform Instructions are available on **Enterprise plans**. To get started:
+Platform Instructions are available on **all plans**. To get started:
 
-- Contact your account team or visit your workspace settings
-- Define your first global instruction via `POST /instructions`
+- Define your first global instruction via `POST /instructions` with your org admin token
 - Assign workspace-scoped instructions to specific workspaces via `POST /instructions` with `workspace_id`
 - Verify resolved instructions via `GET /workspaces/{id}/instructions/resolve`
 
@@ -102,4 +102,10 @@ For a complete governance picture, combine Platform Instructions with [Tool Trac
 
 ---
 
-*Molecule AI is open source. Platform Instructions shipped in Phase 34 (2026-04-23). Enterprise plans include org-scoped governance, wsAuth-gated resolve endpoints, and full instruction audit logs.*
+*Molecule AI is open source. Platform Instructions shipped in Phase 34 (2026-04-23). Available on all plans — org-scoped governance, wsAuth-gated resolve endpoints, and full instruction audit logs included.*
+
+---
+
+**Phase 34 also shipped:**
+→ [Tool Trace: Agent Observability Without the Overhead](/blog/ai-agent-observability-without-overhead) — every tool call recorded in every A2A response
+→ [Partner API Keys: Programmatic Org Provisioning](/blog/partner-api-keys) — CI/CD-native ephemeral orgs via API
