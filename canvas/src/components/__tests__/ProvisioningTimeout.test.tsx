@@ -7,11 +7,13 @@ global.fetch = vi.fn(() =>
 
 import { useCanvasStore } from "../../store/canvas";
 import type { WorkspaceData } from "../../store/socket";
+import { DEFAULT_PROVISION_TIMEOUT_MS } from "../ProvisioningTimeout";
 import {
-  DEFAULT_PROVISION_TIMEOUT_MS,
-  RUNTIME_TIMEOUT_OVERRIDES_MS,
-  timeoutForRuntime,
-} from "../ProvisioningTimeout";
+  DEFAULT_RUNTIME_PROFILE,
+  RUNTIME_PROFILES,
+  getRuntimeProfile,
+  provisionTimeoutForRuntime,
+} from "@/lib/runtimeProfiles";
 
 // Helper to build a WorkspaceData object
 function makeWS(overrides: Partial<WorkspaceData> & { id: string }): WorkspaceData {
@@ -196,37 +198,94 @@ describe("ProvisioningTimeout", () => {
   // the 2-min floor for fast docker runtimes while giving hermes its
   // honest 12-min budget.
 
-  describe("timeoutForRuntime", () => {
-    it("returns the 2-min default for unknown/missing runtimes", () => {
-      expect(timeoutForRuntime(undefined)).toBe(DEFAULT_PROVISION_TIMEOUT_MS);
-      expect(timeoutForRuntime("")).toBe(DEFAULT_PROVISION_TIMEOUT_MS);
-      expect(timeoutForRuntime("some-future-runtime")).toBe(
-        DEFAULT_PROVISION_TIMEOUT_MS,
-      );
+  describe("runtime profile resolution (@/lib/runtimeProfiles)", () => {
+    describe("provisionTimeoutForRuntime", () => {
+      it("returns the default for unknown/missing runtimes", () => {
+        expect(provisionTimeoutForRuntime(undefined)).toBe(
+          DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs,
+        );
+        expect(provisionTimeoutForRuntime("")).toBe(
+          DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs,
+        );
+        expect(provisionTimeoutForRuntime("some-future-runtime")).toBe(
+          DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs,
+        );
+      });
+
+      it("returns default for known-fast runtimes (not in profile map)", () => {
+        // If someone ever adds one of these to RUNTIME_PROFILES with a
+        // slower value, this test catches the unintended regression.
+        expect(provisionTimeoutForRuntime("claude-code")).toBe(
+          DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs,
+        );
+        expect(provisionTimeoutForRuntime("langgraph")).toBe(
+          DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs,
+        );
+        expect(provisionTimeoutForRuntime("crewai")).toBe(
+          DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs,
+        );
+      });
+
+      it("returns hermes override when runtime = hermes", () => {
+        expect(provisionTimeoutForRuntime("hermes")).toBe(
+          RUNTIME_PROFILES.hermes?.provisionTimeoutMs,
+        );
+        expect(provisionTimeoutForRuntime("hermes")).toBeGreaterThanOrEqual(
+          DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs * 5,
+        );
+      });
+
+      it("server-side workspace override wins over runtime profile", () => {
+        // The resolution order is: overrides → profile → default.
+        // An operator-tunable per-workspace number on the backend
+        // (e.g. via a template manifest field) should beat the canvas
+        // runtime map.
+        expect(
+          provisionTimeoutForRuntime("hermes", {
+            provisionTimeoutMs: 60_000,
+          }),
+        ).toBe(60_000);
+        expect(
+          provisionTimeoutForRuntime("some-unknown", {
+            provisionTimeoutMs: 300_000,
+          }),
+        ).toBe(300_000);
+      });
     });
 
-    it("returns the docker-fast 2-min default for known-fast runtimes", () => {
-      // These aren't in the override map so they get the default.
-      // If someone ever adds one of them to RUNTIME_TIMEOUT_OVERRIDES_MS,
-      // this test catches the accidental regression.
-      expect(timeoutForRuntime("claude-code")).toBe(DEFAULT_PROVISION_TIMEOUT_MS);
-      expect(timeoutForRuntime("langgraph")).toBe(DEFAULT_PROVISION_TIMEOUT_MS);
-      expect(timeoutForRuntime("crewai")).toBe(DEFAULT_PROVISION_TIMEOUT_MS);
+    describe("getRuntimeProfile", () => {
+      it("returns a structural profile with required fields", () => {
+        const profile = getRuntimeProfile("hermes");
+        expect(profile.provisionTimeoutMs).toBeTypeOf("number");
+        expect(profile.provisionTimeoutMs).toBeGreaterThan(0);
+      });
+
+      it("default profile is a valid superset of every override", () => {
+        // Every entry in RUNTIME_PROFILES must provide fields the
+        // default does — otherwise consumers could get undefined where
+        // they expected a number. This test enforces that contract so
+        // future entries can't accidentally drop fields.
+        for (const [runtime, profile] of Object.entries(RUNTIME_PROFILES)) {
+          const resolved = getRuntimeProfile(runtime);
+          expect(
+            resolved.provisionTimeoutMs,
+            `runtime=${runtime} must resolve to a number`,
+          ).toBeTypeOf("number");
+          expect(resolved.provisionTimeoutMs).toBeGreaterThan(0);
+          // Profile's explicit value should be used iff present.
+          if (profile.provisionTimeoutMs !== undefined) {
+            expect(resolved.provisionTimeoutMs).toBe(profile.provisionTimeoutMs);
+          }
+        }
+      });
     });
 
-    it("returns 12 min for hermes — covers cold-boot install tail", () => {
-      expect(timeoutForRuntime("hermes")).toBe(720_000);
-      expect(timeoutForRuntime("hermes")).toBe(
-        RUNTIME_TIMEOUT_OVERRIDES_MS.hermes,
-      );
-    });
-
-    it("hermes override is materially longer than the default", () => {
-      // Guard against future refactors that accidentally weaken the
-      // override (e.g. typo lowering hermes to 72_000 = 72s).
-      expect(RUNTIME_TIMEOUT_OVERRIDES_MS.hermes).toBeGreaterThanOrEqual(
-        DEFAULT_PROVISION_TIMEOUT_MS * 5,
-      );
+    describe("DEFAULT_PROVISION_TIMEOUT_MS backward-compat export", () => {
+      it("still exports the same default for legacy importers", () => {
+        expect(DEFAULT_PROVISION_TIMEOUT_MS).toBe(
+          DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs,
+        );
+      });
     });
   });
 });

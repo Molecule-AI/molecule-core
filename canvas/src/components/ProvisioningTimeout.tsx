@@ -6,38 +6,16 @@ import { api } from "@/lib/api";
 import { showToast } from "./Toaster";
 import { ConsoleModal } from "./ConsoleModal";
 
-/** Base provisioning timeout in milliseconds (2 minutes). Floor for fast
- *  runtimes (claude-code, langgraph, crewai) on Docker where cold boot
- *  is 30-90s. Slow runtimes override via RUNTIME_TIMEOUT_OVERRIDES_MS.
- *  The effective threshold also scales with concurrent-provisioning
- *  count (see effectiveTimeoutMs below). */
-export const DEFAULT_PROVISION_TIMEOUT_MS = 120_000;
+import {
+  DEFAULT_RUNTIME_PROFILE,
+  provisionTimeoutForRuntime,
+} from "@/lib/runtimeProfiles";
 
-/** Per-runtime timeout floors for cold-boot sequences that legitimately
- *  exceed the 2-minute default. A too-low threshold creates false-alarm
- *  banners telling users "your workspace is stuck" while it's actually
- *  mid-install — confusing, and it makes users retry workspaces that
- *  would have come online on their own.
- *
- *  Hermes at 12min: installs ripgrep + ffmpeg + node22 + builds
- *  hermes-agent from source + Playwright + Chromium (~300MB). Measured
- *  boots on staging EC2 routinely land at 8-13 min. Aligns with the
- *  SaaS E2E PROVISION_TIMEOUT_SECS=900 (15 min) so the UI warning lands
- *  shortly before the backend itself gives up.
- *
- *  Add entries here as new runtimes surface false-alarm complaints.
- *  Runtimes absent from the map get DEFAULT_PROVISION_TIMEOUT_MS. */
-export const RUNTIME_TIMEOUT_OVERRIDES_MS: Record<string, number> = {
-  hermes: 720_000, // 12 min — see comment above
-};
-
-/** Resolve the base timeout for a workspace given its runtime. */
-export function timeoutForRuntime(runtime: string | undefined): number {
-  if (runtime && runtime in RUNTIME_TIMEOUT_OVERRIDES_MS) {
-    return RUNTIME_TIMEOUT_OVERRIDES_MS[runtime];
-  }
-  return DEFAULT_PROVISION_TIMEOUT_MS;
-}
+/** Re-export for backward compatibility with tests and other importers
+ *  that previously imported DEFAULT_PROVISION_TIMEOUT_MS from this file.
+ *  New code should read via getRuntimeProfile() from @/lib/runtimeProfiles. */
+export const DEFAULT_PROVISION_TIMEOUT_MS =
+  DEFAULT_RUNTIME_PROFILE.provisionTimeoutMs;
 
 /** The server provisions up to `PROVISION_CONCURRENCY` containers at
  *  once and paces the rest in a queue (`workspaceCreatePacingMs` =
@@ -155,14 +133,15 @@ export function ProvisioningTimeout({
       const now = Date.now();
       const newTimedOut: TimeoutEntry[] = [];
 
-      // Per-node timeout: each workspace has its own base (runtime-aware)
-      // scaled by the total concurrent-provisioning count. A hermes
-      // workspace in a batch alongside two langgraph workspaces gets
-      // hermes's 12-min base, not langgraph's 2-min base.
+      // Per-node timeout: each workspace resolves its own base via
+      // @/lib/runtimeProfiles (server-override → runtime profile →
+      // default), then scales by concurrent-provisioning count. A
+      // hermes workspace in a batch alongside two langgraph workspaces
+      // gets hermes's 12-min base, not langgraph's 2-min base.
       for (const node of parsedProvisioningNodes) {
         const startedAt = tracking.get(node.id);
         if (!startedAt) continue;
-        const base = timeoutMs ?? timeoutForRuntime(node.runtime);
+        const base = timeoutMs ?? provisionTimeoutForRuntime(node.runtime);
         const effective = effectiveTimeoutMs(
           base,
           parsedProvisioningNodes.length,
