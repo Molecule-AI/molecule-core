@@ -39,8 +39,9 @@ import uuid
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
-from a2a.types import Part, TextPart
-from a2a.utils import new_agent_text_message
+from a2a.types import Part
+# KI-009: a2a-sdk v1 renames a2a.utils → a2a.helpers; TextPart removed (Part takes text= directly)
+from a2a.helpers import new_agent_text_message
 from shared_runtime import (
     extract_history as _extract_history,
     extract_message_text,
@@ -334,7 +335,7 @@ class LangGraphA2AExecutor(AgentExecutor):
                                 texts = _extract_chunk_text(chunk.content)
                                 for text in texts:
                                     await updater.add_artifact(
-                                        parts=[Part(root=TextPart(text=text))],
+                                        parts=[Part(text=text)],  # v1: TextPart removed, Part takes text= directly
                                         artifact_id=artifact_id,
                                         append=has_streamed,  # False=first, True=append
                                         last_chunk=False,
@@ -446,7 +447,7 @@ class LangGraphA2AExecutor(AgentExecutor):
         from a2a.types import TaskStatus, TaskState, TaskStatusUpdateEvent
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
-                status=TaskStatus(state=TaskState.canceled),
+                status=TaskStatus(state=TaskState.TASK_STATE_CANCELED),  # v1: TaskState uses SCREAMING_SNAKE_CASE
                 final=True,
             )
         )
