@@ -6,6 +6,14 @@ import { useCanvasStore, summarizeWorkspaceCapabilities, type WorkspaceNodeData 
 import { showToast } from "../Toaster";
 
 interface Props {
+  // The workspace's id is NOT a field on WorkspaceNodeData — that
+  // interface is the React Flow `node.data` blob, while the id lives
+  // on `node.id`. Pass it explicitly (matches every other tab in
+  // SidePanel) so the install/uninstall API calls don't end up
+  // POSTing to /workspaces/undefined/plugins. The interface extending
+  // Record<string, unknown> meant TypeScript silently typed
+  // `data.id` as `unknown` instead of erroring — easy to miss.
+  workspaceId: string;
   data: WorkspaceNodeData;
 }
 
@@ -40,7 +48,7 @@ interface SourceSchemesResponse {
 // Delay before reloading installed plugins after install/uninstall (workspace restarts)
 const PLUGIN_RELOAD_DELAY_MS = 15_000;
 
-export function SkillsTab({ data }: Props) {
+export function SkillsTab({ workspaceId, data }: Props) {
   const capability = summarizeWorkspaceCapabilities(data);
   const skills = useMemo(() => extractSkills(data.agentCard), [data.agentCard]);
   const setPanelTab = useCanvasStore((s) => s.setPanelTab);
@@ -73,8 +81,6 @@ export function SkillsTab({ data }: Props) {
       clearTimeout(reloadTimerRef.current);
     };
   }, []);
-
-  const workspaceId = data.id;
 
   // Tracks whether loadInstalled has completed at least once (success
   // or empty-array success — NOT failure). Without this the auto-
@@ -233,7 +239,7 @@ export function SkillsTab({ data }: Props) {
   const handleUninstall = async (pluginName: string) => {
     setUninstalling(pluginName);
     try {
-      await api.del(`/workspaces/${data.id}/plugins/${pluginName}`);
+      await api.del(`/workspaces/${workspaceId}/plugins/${pluginName}`);
       showToast(`Removed ${pluginName} — restarting workspace`, "success");
       setInstalled((prev) => prev.filter((p) => p.name !== pluginName));
       reloadTimerRef.current = setTimeout(() => loadInstalled(), PLUGIN_RELOAD_DELAY_MS);
