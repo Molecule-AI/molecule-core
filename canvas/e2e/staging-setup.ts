@@ -5,7 +5,7 @@
  * the per-tenant admin token, provisions one hermes workspace, waits
  * for online, then exports:
  *
- *   STAGING_TENANT_URL     https://<slug>.moleculesai.app
+ *   STAGING_TENANT_URL     https://<slug>.staging.moleculesai.app
  *   STAGING_WORKSPACE_ID   UUID of the hermes workspace
  *   STAGING_TENANT_TOKEN   per-tenant admin bearer (for spec requests)
  *   STAGING_SLUG           org slug (used by teardown)
@@ -16,6 +16,11 @@
  *                          CP_ADMIN_API_TOKEN). Drives provision +
  *                          tenant-token retrieval + teardown via a
  *                          single credential.
+ *   STAGING_TENANT_DOMAIN  default: staging.moleculesai.app — the
+ *                          DNS suffix the CP provisioner writes for
+ *                          staging tenants. Override only when
+ *                          running this harness against a non-default
+ *                          zone.
  */
 
 import type { FullConfig } from "@playwright/test";
@@ -25,6 +30,14 @@ import { join } from "path";
 const CP_URL = process.env.MOLECULE_CP_URL || "https://staging-api.moleculesai.app";
 const ADMIN_TOKEN = process.env.MOLECULE_ADMIN_TOKEN;
 const STAGING = process.env.CANVAS_E2E_STAGING === "1";
+// Tenant DNS zone for staging. CP provisioner registers DNS as
+// `<slug>.staging.moleculesai.app` (see internal/provisioner/ec2.go's
+// EC2 provisioner: DNS log line). The previous default of plain
+// `moleculesai.app` matched prod tenant naming and silently broke
+// every staging E2E at the TLS readiness step — DNS literally didn't
+// resolve, fetch threw NXDOMAIN, waitFor saw null on every poll, and
+// the harness wedged at TLS_TIMEOUT_MS instead of failing loud.
+const TENANT_DOMAIN = process.env.STAGING_TENANT_DOMAIN || "staging.moleculesai.app";
 
 // Tenant cold boot on staging regularly takes 12-15 min when the
 // workspace-server Docker image isn't already cached on the AMI. Raised
@@ -142,7 +155,7 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
     );
   }
   const tenantToken: string = tokRes.body.admin_token;
-  const tenantURL = `https://${slug}.moleculesai.app`;
+  const tenantURL = `https://${slug}.${TENANT_DOMAIN}`;
   console.log(`[staging-setup] Tenant URL: ${tenantURL}`);
 
   // 4. TLS readiness
