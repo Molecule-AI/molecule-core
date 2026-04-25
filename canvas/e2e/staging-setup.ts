@@ -105,15 +105,24 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   }
   console.log(`[staging-setup] Org created: ${slug}`);
 
-  // 2. Wait for tenant running (admin-orgs list is the status source)
+  // 2. Wait for tenant running (admin-orgs list is the status source).
+  //
+  // The CP /cp/admin/orgs endpoint returns each org with an
+  // `instance_status` field (handlers/admin.go:adminOrgSummary,
+  // sourced from `org_instances.status`). NOT `status` — there's no
+  // top-level `status` on the row at all. A previous version of this
+  // test polled `row.status`, which was always undefined, so this
+  // waitFor never resolved truthy and the harness invariably timed
+  // out at 1200s — masking real CP bugs (see #242 chain) AND
+  // surviving real CP fixes alike.
   await waitFor<boolean>(
     async () => {
       const r = await jsonFetch(`${CP_URL}/cp/admin/orgs`, { headers: adminAuth });
       if (r.status !== 200) return null;
       const row = (r.body?.orgs || []).find((o: any) => o.slug === slug);
       if (!row) return null;
-      if (row.status === "running") return true;
-      if (row.status === "failed") throw new Error(`provision failed: ${slug}`);
+      if (row.instance_status === "running") return true;
+      if (row.instance_status === "failed") throw new Error(`provision failed: ${slug}`);
       return null;
     },
     PROVISION_TIMEOUT_MS,
