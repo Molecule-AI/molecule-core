@@ -128,13 +128,23 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   // waitFor never resolved truthy and the harness invariably timed
   // out at 1200s — masking real CP bugs (see #242 chain) AND
   // surviving real CP fixes alike.
+  // Capture the org UUID alongside the running check — every request
+  // we send to the tenant URL after this point needs an
+  // X-Molecule-Org-Id header (see workspace-server middleware/tenant_guard.go).
+  // Without it, TenantGuard returns 404 ("must not be inferable by
+  // probing other orgs' machines"). The CP returns the id on the
+  // admin-orgs row; capture it here while we're already polling.
+  let orgID = "";
   await waitFor<boolean>(
     async () => {
       const r = await jsonFetch(`${CP_URL}/cp/admin/orgs`, { headers: adminAuth });
       if (r.status !== 200) return null;
       const row = (r.body?.orgs || []).find((o: any) => o.slug === slug);
       if (!row) return null;
-      if (row.instance_status === "running") return true;
+      if (row.instance_status === "running") {
+        orgID = row.id;
+        return true;
+      }
       if (row.instance_status === "failed") throw new Error(`provision failed: ${slug}`);
       return null;
     },
@@ -142,7 +152,10 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
     15_000,
     "tenant provision",
   );
-  console.log(`[staging-setup] Tenant running`);
+  if (!orgID) {
+    throw new Error(`expected admin-orgs row to carry id, got empty for slug=${slug}`);
+  }
+  console.log(`[staging-setup] Tenant running (org_id=${orgID})`);
 
   // 3. Fetch per-tenant admin token
   const tokRes = await jsonFetch(
@@ -176,7 +189,17 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   );
 
   // 5. Provision workspace
-  const tenantAuth = { Authorization: `Bearer ${tenantToken}` };
+  //
+  // tenantAuth carries TWO headers, both required:
+  //   - Authorization: Bearer <admin-token>  — wsAdmin middleware gate
+  //   - X-Molecule-Org-Id: <uuid>           — TenantGuard cross-org gate
+  // Missing the org-id header silently 404s every non-allowlisted
+  // route, with no body and no security headers. The 404 is intentional
+  // (existence-non-inference) which makes it look like a missing route.
+  const tenantAuth = {
+    "Authorization": `Bearer ${tenantToken}`,
+    "X-Molecule-Org-Id": orgID,
+  };
   const ws = await jsonFetch(`${tenantURL}/workspaces`, {
     method: "POST",
     headers: tenantAuth,
