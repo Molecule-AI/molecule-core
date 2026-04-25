@@ -213,12 +213,35 @@ export function SkillsTab({ workspaceId, data }: Props) {
   // Install always goes through the source-based API. For registry
   // plugins we build the local:// source on the fly; custom sources
   // (github://, clawhub://, …) are typed into the input below.
-  const installFromSource = async (source: string, labelOverride?: string) => {
+  //
+  // Optional `optimistic` parameter mirrors the uninstall flow's local
+  // state mutation. Without it, the user sees the button revert from
+  // "Installing..." → "Install" the instant the POST returns, and the
+  // green "Installed" tag doesn't appear for ~15s while we wait out
+  // PLUGIN_RELOAD_DELAY_MS for the workspace restart before refetching.
+  // 15s of staring at the same button feels broken. Pushing the
+  // registry entry into `installed` immediately makes the UI reflect
+  // the install instantly; the delayed loadInstalled() reconciles
+  // anything we got wrong (or any server-side filtering we don't
+  // know about locally).
+  const installFromSource = async (
+    source: string,
+    labelOverride?: string,
+    optimistic?: PluginInfo,
+  ) => {
     const label = labelOverride ?? source;
     setInstalling(label);
     try {
       await api.post(`/workspaces/${workspaceId}/plugins`, { source });
       showToast(`Installed ${label} — restarting workspace`, "success");
+      if (optimistic && mountedRef.current) {
+        setInstalled((prev) =>
+          prev.some((p) => p.name === optimistic.name)
+            ? prev
+            : [...prev, { ...optimistic, supported_on_runtime: true }],
+        );
+        setInstalledLoaded(true);
+      }
       reloadTimerRef.current = setTimeout(() => loadInstalled(), PLUGIN_RELOAD_DELAY_MS);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Install failed", "error");
@@ -227,7 +250,10 @@ export function SkillsTab({ workspaceId, data }: Props) {
     }
   };
 
-  const handleInstall = (pluginName: string) => installFromSource(`local://${pluginName}`, pluginName);
+  const handleInstall = (pluginName: string) => {
+    const entry = registry.find((p) => p.name === pluginName);
+    return installFromSource(`local://${pluginName}`, pluginName, entry);
+  };
 
   const handleInstallCustom = async () => {
     const source = customSource.trim();
