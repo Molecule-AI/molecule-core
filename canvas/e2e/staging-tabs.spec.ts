@@ -73,10 +73,15 @@ test.describe("staging canvas tabs", () => {
     await page.goto(tenantURL, { waitUntil: "networkidle" });
 
     // Canvas hydration races WebSocket connect + /workspaces fetch.
-    // Wait for the tablist element (appears after a workspace is
-    // selected) or the hydration-error banner — whichever wins first.
+    // Wait for the React Flow canvas wrapper (always present once
+    // hydrated, even with zero workspaces) or the hydration-error
+    // banner — whichever wins first. Previous version of this wait
+    // used `[role="tablist"]`, but that selector only appears AFTER
+    // a workspace node is clicked (which happens below at L100), so
+    // the wait would always time out at 45s before any meaningful
+    // failure surfaced.
     await page.waitForSelector(
-      '[role="tablist"], [data-testid="hydration-error"]',
+      '[aria-label="Molecule AI workspace canvas"], [data-testid="hydration-error"]',
       { timeout: 45_000 },
     );
 
