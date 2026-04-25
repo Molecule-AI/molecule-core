@@ -35,6 +35,31 @@ func TestParseDotEnvLine(t *testing.T) {
 
 		{in: "FOO=", k: "FOO", v: "", ok: true, comment: "empty value"},
 		{in: "ADMIN_TOKEN=", k: "ADMIN_TOKEN", v: "", ok: true, comment: "empty value (production gate sentinel)"},
+
+		// `export` prefix: shell-friendly .env files (direnv, .envrc-style)
+		// — the prefix must be stripped, NOT folded into the key.
+		{in: "export FOO=bar", k: "FOO", v: "bar", ok: true, comment: "export prefix stripped"},
+		{in: "  export FOO=bar", k: "FOO", v: "bar", ok: true, comment: "leading whitespace + export"},
+		{in: "export DATABASE_URL=postgres://u:p@h/db", k: "DATABASE_URL", v: "postgres://u:p@h/db", ok: true, comment: "export with URL value"},
+
+		// Quoted values: one matched pair of surrounding quotes is
+		// stripped; embedded `#` survives because it isn't an inline
+		// comment inside a quote.
+		{in: `FOO="hello world"`, k: "FOO", v: "hello world", ok: true, comment: "double-quoted value"},
+		{in: `FOO='hello world'`, k: "FOO", v: "hello world", ok: true, comment: "single-quoted value"},
+		{in: `FOO="value # not a comment"`, k: "FOO", v: "value # not a comment", ok: true, comment: "hash inside quotes is part of value"},
+		{in: `FOO=  "padded"`, k: "FOO", v: "padded", ok: true, comment: "whitespace before opening quote"},
+		{in: `FOO="unterminated`, k: "FOO", v: `"unterminated`, ok: true, comment: "unterminated quote stays as bare value"},
+
+		// CRLF endings: bufio.Scanner strips \n; \r is left and stripped
+		// by the value-side TrimSpace. Locking this in so a future
+		// refactor doesn't accidentally feed \r into os.Setenv.
+		{in: "FOO=bar\r", k: "FOO", v: "bar", ok: true, comment: "CRLF trailing carriage return stripped"},
+
+		// UTF-8 BOM at file start: a Windows-edited .env begins with
+		// \xEF\xBB\xBF; without explicit stripping the first key would
+		// be "\ufeffFOO".
+		{in: "\ufeffFOO=bar", k: "FOO", v: "bar", ok: true, comment: "UTF-8 BOM stripped"},
 	}
 
 	for _, tc := range cases {
@@ -53,13 +78,27 @@ func TestParseDotEnvLine(t *testing.T) {
 	}
 }
 
-func TestLoadDotEnvIfPresent_PreservesExisting(t *testing.T) {
+// makeFakeMonorepo creates a temp dir that satisfies isMonorepoRoot()
+// (i.e., contains workspace-server/go.mod) plus a .env file with the
+// given body. Returns the dir so the caller can chdir into it.
+func makeFakeMonorepo(t *testing.T, envBody string) string {
+	t.Helper()
 	dir := t.TempDir()
-	envPath := filepath.Join(dir, ".env")
-	body := []byte("DOTENV_TEST_NEW=from_file\nDOTENV_TEST_EXISTING=from_file\n")
-	if err := os.WriteFile(envPath, body, 0o644); err != nil {
+	wsDir := filepath.Join(dir, "workspace-server")
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wsDir, "go.mod"), []byte("module fake\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(envBody), 0o644); err != nil {
 		t.Fatalf("write .env: %v", err)
 	}
+	return dir
+}
+
+func TestLoadDotEnvIfPresent_PreservesExisting(t *testing.T) {
+	dir := makeFakeMonorepo(t, "DOTENV_TEST_NEW=from_file\nDOTENV_TEST_EXISTING=from_file\n")
 
 	// Pre-set one of the keys — file value must NOT clobber it.
 	t.Setenv("DOTENV_TEST_EXISTING", "from_real_env")
@@ -104,10 +143,7 @@ func TestLoadDotEnvIfPresent_NoFile_NoOp(t *testing.T) {
 }
 
 func TestFindDotEnv_WalksUpward(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("X=1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	root := makeFakeMonorepo(t, "X=1\n")
 	nested := filepath.Join(root, "a", "b", "c")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
@@ -133,5 +169,31 @@ func TestFindDotEnv_WalksUpward(t *testing.T) {
 	wantR, _ := filepath.EvalSymlinks(want)
 	if gotR != wantR {
 		t.Errorf("findDotEnv() = %q, want %q", got, want)
+	}
+}
+
+func TestFindDotEnv_RejectsUnrelatedDotEnv(t *testing.T) {
+	// Simulates a developer running the binary from inside an
+	// unrelated project tree that happens to have its own .env (or
+	// from $HOME with a personal ~/.env). Without the monorepo
+	// sentinel, findDotEnv would happily load it and clobber env
+	// with arbitrary values — a real foot-gun this regression test
+	// guards against.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("LEAKY=value\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prev) })
+
+	if got, ok := findDotEnv(); ok {
+		t.Errorf("findDotEnv() = %q, ok=true; want ok=false (no workspace-server sibling)", got)
 	}
 }

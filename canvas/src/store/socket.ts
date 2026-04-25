@@ -105,6 +105,16 @@ class ReconnectingSocket {
   connect() {
     if (this.disposed) return;
     useCanvasStore.getState().setWsStatus("connecting");
+    // Start the HTTP fallback poll up-front, not just on onclose. Two
+    // scenarios this guards against:
+    //   1. The very first connect attempt — onclose hasn't fired yet
+    //      because we never had a successful onopen.
+    //   2. A failed handshake where the browser takes tens of seconds
+    //      to surface as onclose (Chrome can hold a SYN-SENT WebSocket
+    //      open for ~75s before giving up).
+    // Idempotent — startFallbackPoll early-returns if a timer is
+    // already running, so calling it from both places is cheap.
+    this.startFallbackPoll();
     const ws = new WebSocket(this.url);
     this.ws = ws;
 

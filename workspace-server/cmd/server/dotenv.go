@@ -71,6 +71,14 @@ func loadDotEnvIfPresent() {
 // findDotEnv returns the path of the nearest .env file walking upward
 // from CWD. Capped at 6 levels so a deeply-nested launch dir doesn't
 // scan the entire filesystem.
+//
+// Sentinel gate: only accept a .env that sits next to `workspace-server/`
+// (the monorepo marker). Without it, a developer running the binary from
+// `~/Documents/other-project/` would walk up to `~/.env` and load
+// arbitrary variables — a real foot-gun on shared dev machines and a
+// possible information-leak vector on bare-metal deploys. Skipping the
+// match falls through to "no .env found" which is identical to today's
+// pre-fix behavior (the operator must export env explicitly).
 func findDotEnv() (string, bool) {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -79,7 +87,12 @@ func findDotEnv() (string, bool) {
 	for i := 0; i < 6; i++ {
 		p := filepath.Join(dir, ".env")
 		if st, err := os.Stat(p); err == nil && !st.IsDir() {
-			return p, true
+			if isMonorepoRoot(dir) {
+				return p, true
+			}
+			// .env exists here but the directory isn't the monorepo
+			// root — keep walking. Loading it could clobber
+			// environment with values from an unrelated project.
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -90,26 +103,62 @@ func findDotEnv() (string, bool) {
 	return "", false
 }
 
+// isMonorepoRoot returns true if `dir` looks like the molecule-core
+// monorepo root — the directory that owns the .env we want to load.
+// The marker is `workspace-server/go.mod`, which is the canonical
+// in-tree go module and exists only in this monorepo. A simple
+// `workspace-server/` directory check would false-positive on a fork
+// that renamed the dir; the go.mod check is more precise.
+func isMonorepoRoot(dir string) bool {
+	st, err := os.Stat(filepath.Join(dir, "workspace-server", "go.mod"))
+	return err == nil && !st.IsDir()
+}
+
 // parseDotEnvLine parses a single .env line. Returns (key, value, true)
 // for KEY=VALUE pairs. Returns (_, _, false) for blanks, comments, and
-// malformed lines. Supports inline `# comment` after a value when
-// preceded by whitespace, matching the convention already in the
-// repo's .env file.
+// malformed lines. Handles:
+//   - leading `export ` prefix (so shell-friendly .env files written
+//     for `source .env` or direnv work without modification)
+//   - leading UTF-8 BOM on the first line (Windows editors)
+//   - inline `# comment` after a value when preceded by whitespace
+//   - surrounding `"` or `'` quotes on the value (stripped one matched
+//     pair); inside a quoted value, `#` is part of the value, not a
+//     comment marker
 func parseDotEnvLine(line string) (string, string, bool) {
+	// Strip a UTF-8 BOM if present. bufio.Scanner doesn't filter it,
+	// so the very first line of a Windows-edited .env would otherwise
+	// produce a key like U+FEFF + "FOO" that os.Setenv silently accepts.
+	line = strings.TrimPrefix(line, "\ufeff")
 	line = strings.TrimSpace(line)
 	if line == "" || strings.HasPrefix(line, "#") {
 		return "", "", false
 	}
+	// Drop a leading `export ` so lines like `export FOO=bar` (the
+	// form direnv and many `.env` templates emit) don't end up as a
+	// junk key with an embedded space.
+	line = strings.TrimPrefix(line, "export ")
+	line = strings.TrimLeft(line, " \t") // re-trim in case `export` itself had trailing space
 	eq := strings.IndexByte(line, '=')
 	if eq <= 0 {
 		return "", "", false
 	}
 	k := strings.TrimSpace(line[:eq])
 	v := line[eq+1:]
-	// Strip inline comment introduced by whitespace + `#`. A bare `#`
-	// inside the value (no preceding whitespace) is part of the value
-	// — matches the convention in dotenv parsers and lets values like
-	// `KEY=token#fragment` round-trip.
+	// Quoted value: strip one matched pair of surrounding quotes and
+	// take the contents verbatim (no inline-comment splitting). Matches
+	// the godotenv convention so values with leading/trailing spaces or
+	// `#` survive round-trip.
+	v = strings.TrimLeft(v, " \t")
+	if len(v) >= 2 {
+		first := v[0]
+		if (first == '"' || first == '\'') && v[len(v)-1] == first {
+			return k, v[1 : len(v)-1], true
+		}
+	}
+	// Bare value: strip inline comment introduced by whitespace + `#`.
+	// A bare `#` inside the value (no preceding whitespace) is part of
+	// the value — matches dotenv parsers and lets `KEY=token#fragment`
+	// round-trip.
 	for _, sep := range []string{" #", "\t#"} {
 		if i := strings.Index(v, sep); i >= 0 {
 			v = v[:i]
