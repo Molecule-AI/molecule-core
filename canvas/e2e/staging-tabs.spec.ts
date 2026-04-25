@@ -63,6 +63,30 @@ test.describe("staging canvas tabs", () => {
       Authorization: `Bearer ${tenantToken}`,
     });
 
+    // canvas/src/components/AuthGate.tsx fetches /cp/auth/me on mount
+    // and redirects to the login page on 401. The bearer header above
+    // is for platform API calls — it does NOT satisfy /cp/auth/me,
+    // which is cookie-based (WorkOS session). Without this mock, the
+    // canvas page mounts AuthGate, sees 401 from /cp/auth/me, and
+    // redirects away from the tenant URL before the React Flow root
+    // ever renders. The [aria-label] selector wait then times out.
+    //
+    // Intercept /cp/auth/me + return a fake Session shape so AuthGate
+    // resolves to "authenticated" and renders {children}. The session
+    // contents are cosmetic — the canvas only inspects org_id/user_id
+    // in a few places that don't fail when these are dummy values.
+    await context.route("**/cp/auth/me", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          user_id: `e2e-test-user-${workspaceId}`,
+          org_id: "e2e-test-org",
+          email: "e2e@test.local",
+        }),
+      }),
+    );
+
     const consoleErrors: string[] = [];
     page.on("console", (msg) => {
       if (msg.type() === "error") {
@@ -70,13 +94,24 @@ test.describe("staging canvas tabs", () => {
       }
     });
 
-    await page.goto(tenantURL, { waitUntil: "networkidle" });
+    // waitUntil="networkidle" is wrong here — the canvas keeps a
+    // WebSocket open + polls /events and /workspaces every few
+    // seconds, so the network is *never* idle for 500ms. page.goto
+    // would hang until its 45s default timeout. "domcontentloaded"
+    // returns as soon as the HTML is parsed; React hydration + the
+    // selector wait below is what actually gates ready-for-interaction.
+    await page.goto(tenantURL, { waitUntil: "domcontentloaded" });
 
     // Canvas hydration races WebSocket connect + /workspaces fetch.
-    // Wait for the tablist element (appears after a workspace is
-    // selected) or the hydration-error banner — whichever wins first.
+    // Wait for the React Flow canvas wrapper (always present once
+    // hydrated, even with zero workspaces) or the hydration-error
+    // banner — whichever wins first. Previous version of this wait
+    // used `[role="tablist"]`, but that selector only appears AFTER
+    // a workspace node is clicked (which happens below at L100), so
+    // the wait would always time out at 45s before any meaningful
+    // failure surfaced.
     await page.waitForSelector(
-      '[role="tablist"], [data-testid="hydration-error"]',
+      '[aria-label="Molecule AI workspace canvas"], [data-testid="hydration-error"]',
       { timeout: 45_000 },
     );
 
@@ -106,6 +141,15 @@ test.describe("staging canvas tabs", () => {
     for (const tabId of TAB_IDS) {
       await test.step(`tab: ${tabId}`, async () => {
         const tabButton = page.locator(`#tab-${tabId}`);
+        // The TABS bar is `overflow-x-auto` (SidePanel.tsx:~tabs
+        // wrapper) — tabs after position ~3 are clipped behind the
+        // right-edge fade gradient on smaller viewports. Playwright's
+        // `toBeVisible()` returns false for clipped elements, so a
+        // bare visibility check fails on `skills` and later tabs in
+        // CI. scrollIntoViewIfNeeded brings the button into view
+        // before the visibility check, mirroring what SidePanel's own
+        // keyboard handler does on arrow-key navigation.
+        await tabButton.scrollIntoViewIfNeeded({ timeout: 5_000 });
         await expect(
           tabButton,
           `tab-${tabId} button missing — TABS list may have drifted`,
