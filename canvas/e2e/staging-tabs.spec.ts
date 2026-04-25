@@ -70,7 +70,13 @@ test.describe("staging canvas tabs", () => {
       }
     });
 
-    await page.goto(tenantURL, { waitUntil: "networkidle" });
+    // waitUntil="networkidle" is wrong here — the canvas keeps a
+    // WebSocket open + polls /events and /workspaces every few
+    // seconds, so the network is *never* idle for 500ms. page.goto
+    // would hang until its 45s default timeout. "domcontentloaded"
+    // returns as soon as the HTML is parsed; React hydration + the
+    // selector wait below is what actually gates ready-for-interaction.
+    await page.goto(tenantURL, { waitUntil: "domcontentloaded" });
 
     // Canvas hydration races WebSocket connect + /workspaces fetch.
     // Wait for the React Flow canvas wrapper (always present once
