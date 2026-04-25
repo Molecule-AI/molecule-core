@@ -9,6 +9,7 @@ import { WS_URL } from "@/store/socket";
 import { closeWebSocketGracefully } from "@/lib/ws-close";
 import { showToast } from "../../Toaster";
 import { extractResponseText, extractRequestText } from "./message-parser";
+import { inferA2AErrorHint } from "./a2aErrorHint";
 
 export interface ActivityEntry {
   id: string;
@@ -115,29 +116,8 @@ function unwrapErrorText(raw: string | null): string {
   return trimmed;
 }
 
-/** Best-effort cause hint based on what we can see in the error text.
- *  These map known runtime symptoms to operator-actionable language so
- *  the user isn't left staring at "[A2A_ERROR]" with no next step. */
-function inferCauseHint(errorText: string): string {
-  const t = errorText.toLowerCase();
-  // "control request timeout" is the specific Claude Code SDK init
-  // wedge symptom. Don't pattern on bare "initialize" — too broad
-  // (a user task containing "failed to initialize database" would
-  // false-positive into the SDK-wedge hint).
-  if (t.includes("control request timeout")) {
-    return "The remote agent's Claude Code SDK is wedged on initialization (often after a long idle period or OAuth refresh). A workspace restart usually clears it.";
-  }
-  if (t.includes("deadline exceeded") || t.includes("timeout")) {
-    return "The remote agent didn't respond within the proxy timeout. It may be busy with a long-running task, or the runtime is stuck. Restart the workspace if this repeats.";
-  }
-  if (t.includes("agent error") || t.includes("exception")) {
-    return "The remote agent's runtime threw an exception. Check the workspace's container logs for the traceback. Restart usually clears transient runtime crashes.";
-  }
-  if (errorText === "") {
-    return "The remote agent returned no error detail (the underlying httpx exception had an empty message — typically a connection-reset or silent timeout). A workspace restart is the safe first move.";
-  }
-  return "The remote agent reported a delivery failure. Check the workspace logs or try restarting.";
-}
+// inferA2AErrorHint moved to ./a2aErrorHint so the Activity tab and
+// this panel render identical hints for the same symptom.
 
 export function AgentCommsPanel({ workspaceId }: { workspaceId: string }) {
   const [messages, setMessages] = useState<CommMessage[]>([]);
@@ -314,7 +294,7 @@ function ErrorMessage({ msg }: { msg: CommMessage }) {
   const selectNode = useCanvasStore((s) => s.selectNode);
   const [restarting, setRestarting] = useState(false);
   const errorText = unwrapErrorText(msg.responseText);
-  const hint = inferCauseHint(errorText);
+  const hint = inferA2AErrorHint(errorText);
 
   // Guard against acting on a peer whose workspace has been deleted
   // since this row was logged. Without the guard, restart 404s

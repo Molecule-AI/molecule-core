@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { ConversationTraceModal } from "@/components/ConversationTraceModal";
 import { type ActivityEntry } from "@/types/activity";
 import { useWorkspaceName } from "@/hooks/useWorkspaceName";
+import { inferA2AErrorHint } from "./chat/a2aErrorHint";
 
 interface Props {
   workspaceId: string;
@@ -287,29 +288,6 @@ function ActivityRow({
 }
 
 const A2A_ERROR_PREFIX = "[A2A_ERROR]";
-
-/** Best-effort cause hint for an A2A delivery failure. Mirrors the
- *  patterns used by AgentCommsPanel's inferCauseHint so the same
- *  symptom reads the same way in both surfaces. */
-function inferA2AErrorHint(detail: string): string {
-  const t = detail.toLowerCase();
-  if (t.includes("control request timeout")) {
-    return "The remote agent's Claude Code SDK is wedged on initialization. Restart the workspace to clear it.";
-  }
-  if (t.includes("readtimeout") || t.includes("connecttimeout") || t.includes("deadline exceeded") || t.includes("timeout")) {
-    return "The remote agent didn't respond within the proxy timeout. It may be busy with a long task or its runtime is stuck — restart if this repeats.";
-  }
-  if (t.includes("connectionreset") || t.includes("remoteprotocolerror") || t.includes("connection reset") || t.includes("no message")) {
-    return "The connection to the remote agent dropped before a reply arrived. Usually a transient network blip; retry once. If it repeats, the remote container may have crashed mid-request — check its logs.";
-  }
-  if (t.includes("agent error") || t.includes("exception")) {
-    return "The remote agent's runtime threw an exception. Check the workspace's container logs for the traceback. Restart usually clears transient runtime crashes.";
-  }
-  if (t.includes("not found") || t.includes("not accessible") || t.includes("offline")) {
-    return "The remote workspace can't be reached — it may be stopped, removed, or outside the access control list. Verify the peer is online before retrying.";
-  }
-  return "Check the remote agent's container logs for context. Restart the workspace if the failure repeats.";
-}
 
 /** Render a [A2A_ERROR]-prefixed response as a structured error block
  *  with a stripped detail line + a cause hint. The previous raw render

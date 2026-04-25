@@ -111,7 +111,12 @@ async def send_a2a_message(target_url: str, message: str) -> str:
             type_name = type(e).__name__
             if not msg:
                 detail = f"{type_name} (no message — likely connection reset or silent timeout)"
-            elif type_name in msg:
+            elif msg.startswith(f"{type_name}:") or msg.startswith(f"{type_name} "):
+                # Already prefixed with the type — don't double-prefix.
+                # Prefix-anchored check (not substring) so a message that
+                # happens to mention some OTHER class name mid-string
+                # (e.g. "got OSError on read") doesn't suppress our own
+                # type prefix and lose the diagnostic signal.
                 detail = msg
             else:
                 detail = f"{type_name}: {msg}"

@@ -207,6 +207,24 @@ class TestSendA2AMessage:
         # Target URL is included so chained delegations are traceable.
         assert "target=http://target/a2a" in result
 
+    async def test_jsonrpc_error_with_code_zero_includes_code_in_detail(self):
+        """JSON-RPC error code=0 is technically not valid in the spec,
+        but a malformed peer can still send it — make sure the code is
+        preserved in the detail rather than collapsing into the
+        no-code path. Locks in the `code is not None` semantics over
+        the truthy-check shortcut."""
+        import a2a_client
+
+        resp = _make_response(200, {"error": {"code": 0, "message": "weird"}})
+        mock_client = _make_mock_client(post_resp=resp)
+
+        with patch("a2a_client.httpx.AsyncClient", return_value=mock_client):
+            result = await a2a_client.send_a2a_message("http://target/a2a", "task")
+
+        assert result.startswith(a2a_client._A2A_ERROR_PREFIX)
+        assert "code=0" in result
+        assert "weird" in result
+
     async def test_neither_result_nor_error_returns_a2a_error_with_payload(self):
         """Response with neither 'result' nor 'error' → A2A_ERROR + payload context."""
         import a2a_client

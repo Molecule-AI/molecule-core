@@ -188,7 +188,14 @@ async def tool_delegate_task(workspace_id: str, task: str) -> str:
     # Strip the sentinel prefix so error_detail is the human-readable
     # cause directly. The Activity tab's red error chip surfaces this
     # without the user having to scroll into the raw response JSON.
-    error_detail = result[len(_A2A_ERROR_PREFIX):].strip() if is_error else ""
+    #
+    # Cap at 4096 chars before sending — the platform's
+    # activity_logs.error_detail column is unbounded TEXT and a
+    # malicious or buggy peer could otherwise stream an arbitrarily
+    # large error message into the caller's activity log. 4096 is
+    # comfortably above any real exception traceback we've seen and
+    # well below an obvious-DoS threshold.
+    error_detail = result[len(_A2A_ERROR_PREFIX):].strip()[:4096] if is_error else ""
     await report_activity(
         "a2a_receive", workspace_id,
         f"{peer_name} responded ({len(result)} chars)" if not is_error else f"{peer_name} failed: {error_detail[:120]}",
