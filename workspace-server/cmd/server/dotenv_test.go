@@ -36,6 +36,18 @@ func TestParseDotEnvLine(t *testing.T) {
 		{in: "FOO=", k: "FOO", v: "", ok: true, comment: "empty value"},
 		{in: "ADMIN_TOKEN=", k: "ADMIN_TOKEN", v: "", ok: true, comment: "empty value (production gate sentinel)"},
 
+		// Regression: the repo's own .env contains lines like
+		// `CONFIGS_DIR=                   # Path to ...` where the value
+		// is empty + an inline comment. Pre-fix parser stripped leading
+		// whitespace BEFORE detecting the comment, leaving `#` at v[0]
+		// with nothing preceding it, so the inline-comment check missed
+		// it and the comment text was returned as the value. Server
+		// then tried to use the comment as a directory path and template
+		// loading silently failed (GET /templates returned []).
+		{in: "CONFIGS_DIR=                   # Path to /var/foo (auto-discovered if empty)", k: "CONFIGS_DIR", v: "", ok: true, comment: "empty value with leading whitespace + inline comment"},
+		{in: "FOO=    # comment", k: "FOO", v: "", ok: true, comment: "spaces-only value with inline comment"},
+		{in: "FOO=\t# comment", k: "FOO", v: "", ok: true, comment: "tab-only value with inline comment"},
+
 		// `export` prefix: shell-friendly .env files (direnv, .envrc-style)
 		// — the prefix must be stripped, NOT folded into the key.
 		{in: "export FOO=bar", k: "FOO", v: "bar", ok: true, comment: "export prefix stripped"},

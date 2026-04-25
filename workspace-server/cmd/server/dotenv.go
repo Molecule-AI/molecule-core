@@ -144,23 +144,34 @@ func parseDotEnvLine(line string) (string, string, bool) {
 	}
 	k := strings.TrimSpace(line[:eq])
 	v := line[eq+1:]
-	// Quoted value: strip one matched pair of surrounding quotes and
-	// take the contents verbatim (no inline-comment splitting). Matches
-	// the godotenv convention so values with leading/trailing spaces or
-	// `#` survive round-trip.
+	// Trim leading whitespace so a quoted value's opening quote is at
+	// v[0]. The comment-detection loop below then treats the position
+	// after the trim as "start of value" — `KEY=    # comment` has its
+	// `#` at the new v[0] (preceded only by whitespace in the source)
+	// and is correctly classified as an empty value followed by a
+	// comment, not as a value of `# comment`.
 	v = strings.TrimLeft(v, " \t")
-	if len(v) >= 2 {
-		first := v[0]
-		if (first == '"' || first == '\'') && v[len(v)-1] == first {
-			return k, v[1 : len(v)-1], true
+	// Quoted value: strip one matched pair of surrounding quotes and
+	// take the contents verbatim (no inline-comment splitting). Must
+	// happen BEFORE comment detection so `KEY="value # not a comment"`
+	// keeps the `#` as part of the value.
+	if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') {
+		quote := v[0]
+		if end := strings.IndexByte(v[1:], quote); end >= 0 {
+			return k, v[1 : 1+end], true
 		}
+		// Unterminated quote — fall through to bare-value handling
+		// (treats the opening quote as a literal char in the value).
 	}
-	// Bare value: strip inline comment introduced by whitespace + `#`.
-	// A bare `#` inside the value (no preceding whitespace) is part of
-	// the value — matches dotenv parsers and lets `KEY=token#fragment`
-	// round-trip.
-	for _, sep := range []string{" #", "\t#"} {
-		if i := strings.Index(v, sep); i >= 0 {
+	// Bare value: strip inline comment. A `#` is a comment marker iff
+	// it's at the start of the (trimmed) value OR is preceded by
+	// whitespace. `KEY=token#fragment` keeps the `#` as part of the
+	// value because v[i-1] is alphanum.
+	for i := 0; i < len(v); i++ {
+		if v[i] != '#' {
+			continue
+		}
+		if i == 0 || v[i-1] == ' ' || v[i-1] == '\t' {
 			v = v[:i]
 			break
 		}
