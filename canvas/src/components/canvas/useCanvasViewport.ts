@@ -57,7 +57,22 @@ export function useCanvasViewport() {
   const saveViewport = useCanvasStore((s) => s.saveViewport);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const panTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const autoFitTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Two distinct fit timers — DO NOT collapse to one.
+  //   - settleFitTimerRef:   1200ms one-shot run by the
+  //     "transition from any-provisioning to none" effect (the deploy
+  //     just finished — settle on the whole org once).
+  //   - trackingFitTimerRef: 500ms debounced by the per-arrival
+  //     molecule:fit-deploying-org event handler (track the org's
+  //     bounds as children land during the deploy).
+  // They MUST NOT share a ref: the two effects fire interleaved
+  // (every WS event during a deploy resets the tracking timer; the
+  // settle timer arms the moment provisioning hits zero), and a
+  // shared ref made each effect silently clearTimeout the other's
+  // pending fit. Today's behavior happened to land in the right
+  // order out of luck; splitting the refs makes ordering independent
+  // of fire sequence.
+  const settleFitTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const trackingFitTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   // Tracks whether any workspace was provisioning on the previous
   // render so we can detect the boundary when the last one finishes
   // and auto-fit the viewport around the whole tree.
@@ -79,7 +94,8 @@ export function useCanvasViewport() {
     return () => {
       clearTimeout(saveTimerRef.current);
       clearTimeout(panTimerRef.current);
-      clearTimeout(autoFitTimerRef.current);
+      clearTimeout(settleFitTimerRef.current);
+      clearTimeout(trackingFitTimerRef.current);
     };
   }, []);
 
@@ -168,12 +184,12 @@ export function useCanvasViewport() {
         }, 800);
       }
 
-      clearTimeout(autoFitTimerRef.current);
+      clearTimeout(settleFitTimerRef.current);
       // 1200ms settle delay: lets React Flow's DOM measurement pass
       // resize newly-online parents before we compute bounds.
       // Measuring too early gives us the pre-render skeleton bbox and
       // fitView zooms to that smaller-than-real rectangle.
-      autoFitTimerRef.current = setTimeout(() => {
+      settleFitTimerRef.current = setTimeout(() => {
         fitView({
           // Deliberately SLOWER than the in-flight tracking fits
           // (400ms). The asymmetry reads as "settling" on the
@@ -316,8 +332,8 @@ export function useCanvasViewport() {
       // pattern we'd flush the pending fit synchronously when
       // `rootId` changes, rather than resetting the timer.
       pendingFitRootRef.current = rootId;
-      clearTimeout(autoFitTimerRef.current);
-      autoFitTimerRef.current = setTimeout(runFit, 500);
+      clearTimeout(trackingFitTimerRef.current);
+      trackingFitTimerRef.current = setTimeout(runFit, 500);
     };
     window.addEventListener("molecule:fit-deploying-org", handler);
     return () => window.removeEventListener("molecule:fit-deploying-org", handler);
