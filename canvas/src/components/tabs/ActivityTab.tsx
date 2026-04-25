@@ -286,6 +286,49 @@ function ActivityRow({
   );
 }
 
+const A2A_ERROR_PREFIX = "[A2A_ERROR]";
+
+/** Best-effort cause hint for an A2A delivery failure. Mirrors the
+ *  patterns used by AgentCommsPanel's inferCauseHint so the same
+ *  symptom reads the same way in both surfaces. */
+function inferA2AErrorHint(detail: string): string {
+  const t = detail.toLowerCase();
+  if (t.includes("control request timeout")) {
+    return "The remote agent's Claude Code SDK is wedged on initialization. Restart the workspace to clear it.";
+  }
+  if (t.includes("readtimeout") || t.includes("connecttimeout") || t.includes("deadline exceeded") || t.includes("timeout")) {
+    return "The remote agent didn't respond within the proxy timeout. It may be busy with a long task or its runtime is stuck — restart if this repeats.";
+  }
+  if (t.includes("connectionreset") || t.includes("remoteprotocolerror") || t.includes("connection reset") || t.includes("no message")) {
+    return "The connection to the remote agent dropped before a reply arrived. Usually a transient network blip; retry once. If it repeats, the remote container may have crashed mid-request — check its logs.";
+  }
+  if (t.includes("agent error") || t.includes("exception")) {
+    return "The remote agent's runtime threw an exception. Check the workspace's container logs for the traceback. Restart usually clears transient runtime crashes.";
+  }
+  if (t.includes("not found") || t.includes("not accessible") || t.includes("offline")) {
+    return "The remote workspace can't be reached — it may be stopped, removed, or outside the access control list. Verify the peer is online before retrying.";
+  }
+  return "Check the remote agent's container logs for context. Restart the workspace if the failure repeats.";
+}
+
+/** Render a [A2A_ERROR]-prefixed response as a structured error block
+ *  with a stripped detail line + a cause hint. The previous raw render
+ *  ("[A2A_ERROR] " literal in the response area) gave the user no
+ *  signal to act on. */
+function A2AErrorPreview({ label, raw }: { label: string; raw: string }) {
+  const detail = raw.slice(A2A_ERROR_PREFIX.length).trim() || "(no detail provided)";
+  const hint = inferA2AErrorHint(detail);
+  return (
+    <div>
+      <div className="text-[8px] text-red-400/80 uppercase tracking-wider mb-1">{label} — delivery failed</div>
+      <div className="text-[10px] text-red-300 bg-red-950/30 border border-red-800/40 rounded p-2 space-y-1.5">
+        <div className="font-mono whitespace-pre-wrap break-words max-h-32 overflow-y-auto">{detail}</div>
+        <div className="text-[9px] text-red-300/70 leading-relaxed border-t border-red-800/30 pt-1.5">{hint}</div>
+      </div>
+    </div>
+  );
+}
+
 /** Extract human-readable text from A2A request/response JSON */
 function MessagePreview({ label, body }: { label: string; body: Record<string, unknown> }) {
   // Try to extract text from A2A message parts
@@ -295,6 +338,14 @@ function MessagePreview({ label, body }: { label: string; body: Record<string, u
     if (body.task && typeof body.task === "string") { text = body.task; }
     if (!text && body.result && typeof body.result === "string") { text = body.result; }
     if (text) {
+      // [A2A_ERROR]-prefixed responses get the structured error
+      // treatment. Bare text fallthrough renders a bland gray block
+      // — fine for normal replies, terrible for "[A2A_ERROR] " with
+      // no further context. Detect at the top of the rendering path
+      // so it short-circuits before the generic preview kicks in.
+      if (text.trimStart().startsWith(A2A_ERROR_PREFIX)) {
+        return <A2AErrorPreview label={label} raw={text.trimStart()} />;
+      }
       return (
         <div>
           <div className="text-[8px] text-zinc-500 uppercase tracking-wider mb-1">{label}</div>

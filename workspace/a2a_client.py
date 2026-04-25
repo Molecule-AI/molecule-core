@@ -87,10 +87,35 @@ async def send_a2a_message(target_url: str, message: str) -> str:
                     return f"{_A2A_ERROR_PREFIX}{text}"
                 return text
             elif "error" in data:
-                return f"{_A2A_ERROR_PREFIX}{data['error'].get('message', 'unknown')}"
-            return str(data)
+                err = data["error"]
+                msg = (err.get("message") or "").strip()
+                code = err.get("code")
+                if msg and code is not None:
+                    detail = f"{msg} (code={code})"
+                elif msg:
+                    detail = msg
+                elif code is not None:
+                    detail = f"JSON-RPC error with no message (code={code})"
+                else:
+                    detail = "JSON-RPC error with no message"
+                return f"{_A2A_ERROR_PREFIX}{detail} [target={target_url}]"
+            return f"{_A2A_ERROR_PREFIX}unexpected response shape (no result, no error): {str(data)[:200]} [target={target_url}]"
         except Exception as e:
-            return f"{_A2A_ERROR_PREFIX}{e}"
+            # Some httpx exceptions stringify to empty (RemoteProtocolError,
+            # ConnectionReset variants) — the canvas would then render
+            # "[A2A_ERROR] " with no detail and the operator has no signal
+            # to act on. Always include the exception class name and the
+            # target URL so the activity log + Agent Comms panel have
+            # actionable information without a trip through container logs.
+            msg = str(e).strip()
+            type_name = type(e).__name__
+            if not msg:
+                detail = f"{type_name} (no message — likely connection reset or silent timeout)"
+            elif type_name in msg:
+                detail = msg
+            else:
+                detail = f"{type_name}: {msg}"
+            return f"{_A2A_ERROR_PREFIX}{detail} [target={target_url}]"
 
 
 async def get_peers() -> list[dict]:
