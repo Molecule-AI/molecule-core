@@ -141,6 +141,15 @@ test.describe("staging canvas tabs", () => {
     for (const tabId of TAB_IDS) {
       await test.step(`tab: ${tabId}`, async () => {
         const tabButton = page.locator(`#tab-${tabId}`);
+        // The TABS bar is `overflow-x-auto` (SidePanel.tsx:~tabs
+        // wrapper) — tabs after position ~3 are clipped behind the
+        // right-edge fade gradient on smaller viewports. Playwright's
+        // `toBeVisible()` returns false for clipped elements, so a
+        // bare visibility check fails on `skills` and later tabs in
+        // CI. scrollIntoViewIfNeeded brings the button into view
+        // before the visibility check, mirroring what SidePanel's own
+        // keyboard handler does on arrow-key navigation.
+        await tabButton.scrollIntoViewIfNeeded({ timeout: 5_000 });
         await expect(
           tabButton,
           `tab-${tabId} button missing — TABS list may have drifted`,
