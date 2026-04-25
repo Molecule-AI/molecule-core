@@ -87,6 +87,68 @@ _RETRYABLE_PATTERNS = (
     "try again",
 )
 
+# Module-level SDK-wedge flag. When claude_agent_sdk's `query.initialize()`
+# raises `Control request timeout: initialize`, the SDK's internal client-
+# process state is corrupted for the rest of the Python process — every
+# subsequent `_run_query()` call hits the same wedge and re-throws. The
+# executor itself can't auto-recover (the underlying CLI subprocess and
+# its read pipe are in an unrecoverable state); only a workspace restart
+# clears it.
+#
+# The heartbeat task reads these helpers and reports
+# `runtime_state="wedged"` to the platform, which flips the workspace to
+# `degraded` so the canvas surfaces a Restart hint instead of leaving
+# the user staring at a green dot while every chat hangs.
+#
+# Module scope (not instance scope) is deliberate: the wedge is a
+# property of the Python process, not the executor. A future per-org
+# multi-executor design could move this to a shared registry, but with
+# one executor per workspace process today the simplest lock-free
+# read+write fits.
+_sdk_wedged_reason: str | None = None
+
+
+def is_wedged() -> bool:
+    """True if the Claude SDK has hit a non-recoverable init wedge in
+    this process. Sticky until process restart."""
+    return _sdk_wedged_reason is not None
+
+
+def wedge_reason() -> str:
+    """Human-readable description of the wedge cause, or empty string
+    when not wedged. Surfaced to the canvas via heartbeat sample_error."""
+    return _sdk_wedged_reason or ""
+
+
+def _mark_sdk_wedged(reason: str) -> None:
+    """Internal — flag the SDK as wedged. Only the first call wins
+    (subsequent identical wedges shouldn't overwrite a more specific
+    reason). Tests use `_reset_sdk_wedge_for_test()` to clear."""
+    global _sdk_wedged_reason
+    if _sdk_wedged_reason is None:
+        _sdk_wedged_reason = reason
+        logger.error("SDK wedge detected: %s — workspace will report degraded until restart", reason)
+
+
+def _reset_sdk_wedge_for_test() -> None:
+    """Test-only escape hatch. Production code never resets the flag —
+    wedge clears via process restart, which naturally re-imports this
+    module with the flag at None."""
+    global _sdk_wedged_reason
+    _sdk_wedged_reason = None
+
+
+# Substring patterns that classify an exception as the specific
+# claude_agent_sdk init-timeout wedge (vs. a rate-limit, transient
+# subprocess crash, etc.). Match is case-insensitive on the formatted
+# error string. Adding a new pattern here MUST come with a test in
+# tests/test_claude_sdk_executor.py — the flag is sticky and false-
+# positives lock the workspace into degraded for the whole process
+# lifetime.
+_WEDGE_ERROR_PATTERNS = (
+    "control request timeout",
+)
+
 
 _SWALLOWED_STDERR_MARKER = "Check stderr output for details"
 
@@ -506,6 +568,19 @@ class ClaudeSDKExecutor(AgentExecutor):
                     # subprocess died.
                     logger.error("SDK agent error [claude-code]: %s", formatted)
                     logger.exception("SDK agent error [claude-code] — full traceback follows")
+                    # Detect the specific claude_agent_sdk init-wedge case
+                    # so the heartbeat task can flip the workspace to
+                    # `degraded`. Match on the lowercased formatted error;
+                    # `formatted` is whatever _format_process_error built,
+                    # which already includes both the message and the
+                    # exception class name.
+                    formatted_lc = formatted.lower()
+                    for pat in _WEDGE_ERROR_PATTERNS:
+                        if pat in formatted_lc:
+                            _mark_sdk_wedged(
+                                f"claude_agent_sdk wedge: {formatted[:200]} — restart workspace to recover"
+                            )
+                            break
                     response_text = sanitize_agent_error(exc)
                     break
         finally:

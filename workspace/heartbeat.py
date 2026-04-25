@@ -19,6 +19,30 @@ import httpx
 
 from platform_auth import auth_headers, refresh_cache, self_source_headers
 
+
+def _runtime_state_payload() -> dict:
+    """Build the {runtime_state, sample_error} portion of the heartbeat
+    body when the Claude SDK has hit a wedge. Returns an empty dict
+    when the runtime is healthy so the heartbeat payload doesn't grow
+    fields the platform doesn't need.
+
+    Imported lazily so workspaces running non-Claude runtimes (where
+    `claude_sdk_executor` may not be importable at all) keep working —
+    a missing import means "no Claude wedge possible here, healthy."
+    """
+    try:
+        from claude_sdk_executor import is_wedged, wedge_reason
+    except Exception:
+        return {}
+    if not is_wedged():
+        return {}
+    return {
+        "runtime_state": "wedged",
+        # sample_error doubles as the human-readable banner text on the
+        # canvas's degraded card — keep it short and actionable.
+        "sample_error": wedge_reason(),
+    }
+
 logger = logging.getLogger(__name__)
 
 HEARTBEAT_INTERVAL = 30  # seconds
@@ -85,16 +109,23 @@ class HeartbeatLoop:
                 while True:
                     # 1. Send heartbeat (Phase 30.1: include auth header if token known)
                     try:
+                        body = {
+                            "workspace_id": self.workspace_id,
+                            "error_rate": self.error_rate,
+                            "sample_error": self.sample_error,
+                            "active_tasks": self.active_tasks,
+                            "current_task": self.current_task,
+                            "uptime_seconds": int(time.time() - self.start_time),
+                        }
+                        # Layer the runtime-wedge fields on top so a
+                        # non-empty sample_error from the wedge wins
+                        # over the (typically empty) heartbeat
+                        # sample_error field. The platform reads
+                        # runtime_state to flip status → degraded.
+                        body.update(_runtime_state_payload())
                         await client.post(
                             f"{self.platform_url}/registry/heartbeat",
-                            json={
-                                "workspace_id": self.workspace_id,
-                                "error_rate": self.error_rate,
-                                "sample_error": self.sample_error,
-                                "active_tasks": self.active_tasks,
-                                "current_task": self.current_task,
-                                "uptime_seconds": int(time.time() - self.start_time),
-                            },
+                            json=body,
                             headers=auth_headers(),
                         )
                         self.error_count = 0
@@ -113,16 +144,18 @@ class HeartbeatLoop:
                             logger.warning("Heartbeat 401 for %s — refreshing token cache and retrying once", self.workspace_id)
                             refresh_cache()
                             try:
+                                retry_body = {
+                                    "workspace_id": self.workspace_id,
+                                    "error_rate": self.error_rate,
+                                    "sample_error": self.sample_error,
+                                    "active_tasks": self.active_tasks,
+                                    "current_task": self.current_task,
+                                    "uptime_seconds": int(time.time() - self.start_time),
+                                }
+                                retry_body.update(_runtime_state_payload())
                                 await client.post(
                                     f"{self.platform_url}/registry/heartbeat",
-                                    json={
-                                        "workspace_id": self.workspace_id,
-                                        "error_rate": self.error_rate,
-                                        "sample_error": self.sample_error,
-                                        "active_tasks": self.active_tasks,
-                                        "current_task": self.current_task,
-                                        "uptime_seconds": int(time.time() - self.start_time),
-                                    },
+                                    json=retry_body,
                                     headers=auth_headers(),
                                 )
                                 self._consecutive_failures = 0

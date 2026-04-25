@@ -1221,3 +1221,101 @@ def test_load_config_dict_empty_file_returns_empty(tmp_path):
     e = ClaudeSDKExecutor(system_prompt=None, config_path=str(tmp_path), heartbeat=None)
     result = e._load_config_dict()
     assert result == {}
+
+
+# ==================== SDK wedge detector ====================
+#
+# Exercises the module-level _sdk_wedged_reason flag set when the
+# claude_agent_sdk init handshake times out. The flag is sticky — the
+# heartbeat task reads it via is_wedged() / wedge_reason() and reports
+# runtime_state="wedged" so the platform flips status → degraded.
+
+import claude_sdk_executor as _executor_mod
+
+
+def test_wedge_helpers_default_clean():
+    """Fresh module: no wedge."""
+    _executor_mod._reset_sdk_wedge_for_test()
+    assert _executor_mod.is_wedged() is False
+    assert _executor_mod.wedge_reason() == ""
+
+
+def test_mark_sdk_wedged_sets_flag_and_reason():
+    """First mark wins and sets both is_wedged() and the reason text."""
+    _executor_mod._reset_sdk_wedge_for_test()
+    _executor_mod._mark_sdk_wedged("init timeout — restart")
+    try:
+        assert _executor_mod.is_wedged() is True
+        assert "init timeout" in _executor_mod.wedge_reason()
+    finally:
+        _executor_mod._reset_sdk_wedge_for_test()
+
+
+def test_mark_sdk_wedged_sticky_first_wins():
+    """A second wedge call with a different reason does NOT overwrite
+    the first. The first cause is the one the user needs to see; later
+    knock-on errors from the same wedge would otherwise mask it."""
+    _executor_mod._reset_sdk_wedge_for_test()
+    _executor_mod._mark_sdk_wedged("first cause — Control request timeout")
+    _executor_mod._mark_sdk_wedged("noise from a downstream symptom")
+    try:
+        assert _executor_mod.wedge_reason() == "first cause — Control request timeout"
+    finally:
+        _executor_mod._reset_sdk_wedge_for_test()
+
+
+@pytest.mark.asyncio
+async def test_execute_marks_wedge_on_control_request_timeout():
+    """End-to-end: when _run_query raises an exception whose formatted
+    error contains 'Control request timeout' (case-insensitive), the
+    executor's catch block flags the SDK as wedged. Subsequent
+    is_wedged() reads return True until process restart (or the
+    test-only reset)."""
+    _executor_mod._reset_sdk_wedge_for_test()
+    e = _make_executor()
+    ctx = _make_context(["test prompt"])
+    eq = _make_event_queue()
+
+    async def boom(prompt, options):
+        # Match the literal exception claude_agent_sdk raises in the
+        # observed wedge path.
+        raise Exception("Control request timeout: initialize")
+        yield  # pragma: no cover — make this an async generator
+
+    with patch("claude_sdk_executor.recall_memories", new=AsyncMock(return_value="")), \
+         patch("claude_sdk_executor.read_delegation_results", return_value=""), \
+         patch("claude_sdk_executor.commit_memory", new=AsyncMock()), \
+         patch("claude_sdk_executor.set_current_task", new=AsyncMock()), \
+         patch("claude_agent_sdk.query", new=boom):
+        try:
+            await e.execute(ctx, eq)
+            assert _executor_mod.is_wedged() is True, "wedge flag must be set"
+            assert "Control request timeout" in _executor_mod.wedge_reason()
+        finally:
+            _executor_mod._reset_sdk_wedge_for_test()
+
+
+@pytest.mark.asyncio
+async def test_execute_does_not_mark_wedge_on_unrelated_error():
+    """Sanity: a generic non-wedge exception (e.g. ValueError) MUST
+    NOT trigger the wedge flag. False-positives lock the workspace
+    into degraded for the whole process lifetime."""
+    _executor_mod._reset_sdk_wedge_for_test()
+    e = _make_executor()
+    ctx = _make_context(["test prompt"])
+    eq = _make_event_queue()
+
+    async def boom(prompt, options):
+        raise ValueError("ordinary tool failure, not a wedge")
+        yield  # pragma: no cover
+
+    with patch("claude_sdk_executor.recall_memories", new=AsyncMock(return_value="")), \
+         patch("claude_sdk_executor.read_delegation_results", return_value=""), \
+         patch("claude_sdk_executor.commit_memory", new=AsyncMock()), \
+         patch("claude_sdk_executor.set_current_task", new=AsyncMock()), \
+         patch("claude_agent_sdk.query", new=boom):
+        try:
+            await e.execute(ctx, eq)
+            assert _executor_mod.is_wedged() is False, "non-wedge error must not flip the flag"
+        finally:
+            _executor_mod._reset_sdk_wedge_for_test()
