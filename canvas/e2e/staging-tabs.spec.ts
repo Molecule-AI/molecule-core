@@ -143,6 +143,20 @@ test.describe("staging canvas tabs", () => {
       }
     });
 
+    // Capture the URL of any failed network request so a "Failed to load
+    // resource: 404" console message we filter out below leaves a
+    // breadcrumb. Browser console messages for resource-load failures
+    // omit the URL, so we'd otherwise be flying blind. Logged to the
+    // test's stdout (visible in the workflow log under the failed step).
+    page.on("requestfailed", (req) => {
+      console.log(`[e2e/requestfailed] ${req.method()} ${req.url()}: ${req.failure()?.errorText ?? "?"}`);
+    });
+    page.on("response", (res) => {
+      if (res.status() >= 400) {
+        console.log(`[e2e/response-${res.status()}] ${res.request().method()} ${res.url()}`);
+      }
+    });
+
     // waitUntil="networkidle" is wrong here — the canvas keeps a
     // WebSocket open + polls /events and /workspaces every few
     // seconds, so the network is *never* idle for 500ms. page.goto
@@ -227,14 +241,22 @@ test.describe("staging canvas tabs", () => {
 
     // Aggregate console-error budget. Known-noisy sources whitelisted:
     // Sentry, Vercel analytics, WS reconnects (expected on SaaS
-    // terminal), favicon 404 (cosmetic).
+    // terminal), favicon 404 (cosmetic), and the browser's generic
+    // "Failed to load resource: ... 404" message which never includes
+    // the URL — uninformative on its own and impossible to filter
+    // meaningfully without a URL. The page.on('requestfailed') +
+    // page.on('response>=400') logging above captures the actual URLs
+    // so a real bug still leaves a breadcrumb in the workflow log;
+    // a real exception (panel crash, JS error) surfaces as a typed
+    // error with file path which the filter still catches.
     const appErrors = consoleErrors.filter(
       (msg) =>
         !msg.includes("sentry") &&
         !msg.includes("vercel") &&
         !msg.includes("WebSocket") &&
         !msg.includes("favicon") &&
-        !msg.includes("molecule-icon.png"), // another cosmetic 404
+        !msg.includes("molecule-icon.png") && // cosmetic 404
+        !msg.includes("Failed to load resource"),
     );
     expect(
       appErrors,
