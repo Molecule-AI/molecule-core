@@ -138,6 +138,92 @@ def _reset_sdk_wedge_for_test() -> None:
     _sdk_wedged_reason = None
 
 
+# Per-tool-use summarizers. Reads the most-useful argument from each
+# tool's input dict so the canvas progress feed shows
+# `🛠 Read /tmp/foo` instead of the bare tool name. Anything not in the
+# table falls through to a generic "🛠 <tool>(…)" line. Order keys by
+# tool frequency so a future contributor can see the high-traffic
+# tools first.
+_TOOL_USE_SUMMARIZERS: "dict[str, callable[[dict], str]]" = {
+    "Read":  lambda i: f"📄 Read {i.get('file_path', '?')}",
+    "Write": lambda i: f"✍️  Write {i.get('file_path', '?')}",
+    "Edit":  lambda i: f"✏️  Edit {i.get('file_path', '?')}",
+    "Bash":  lambda i: f"⚡ Bash: {(i.get('command') or '')[:80]}",
+    "Glob":  lambda i: f"🔍 Glob {i.get('pattern', '?')}",
+    "Grep":  lambda i: f"🔍 Grep {i.get('pattern', '?')}",
+    "WebFetch": lambda i: f"🌐 WebFetch {i.get('url', '?')}",
+    "WebSearch": lambda i: f"🌐 WebSearch {i.get('query', '?')}",
+    "Task":  lambda i: f"🤖 Task: {(i.get('description') or '')[:60]}",
+    "TodoWrite": lambda _i: "📝 TodoWrite",
+}
+
+
+def _summarize_tool_use(tool_name: str, tool_input: dict) -> str:
+    summarizer = _TOOL_USE_SUMMARIZERS.get(tool_name)
+    if summarizer:
+        try:
+            return summarizer(tool_input or {})[:200]
+        except Exception:
+            pass
+    # Generic fallback. Truncated so a tool with a giant input dict
+    # doesn't write a 10kB activity row per call.
+    return f"🛠 {tool_name}(…)"[:200]
+
+
+async def _report_tool_use(block: Any) -> None:
+    """Fire-and-forget agent_log activity row per tool the SDK invoked,
+    so the canvas's MyChat live-progress feed can render each step
+    Claude is doing instead of staring at a single spinner.
+
+    Posts directly to /workspaces/:id/activity rather than through
+    a2a_tools.report_activity — that helper also pushes a current_task
+    heartbeat which would duplicate as a TASK_UPDATED line in the
+    chat feed. The workspace card's current_task is already set
+    once per turn by the executor's set_current_task(brief_summary)
+    call, so the per-tool telemetry stays a chat-only signal.
+
+    Best-effort — any failure (network blip, platform unreachable, the
+    block didn't have the attrs we expected) is swallowed silently.
+    The tool will still execute regardless; only the progress
+    telemetry is lost. Deliberately does NOT raise — a malformed
+    block must not abort the message-stream iteration in
+    `_run_query`.
+    """
+    try:
+        # Lazy imports to keep this helper non-essential — the
+        # executor must still run when the workspace's network/auth
+        # plumbing isn't fully set up (e.g. unit tests).
+        import httpx
+        from a2a_client import PLATFORM_URL, WORKSPACE_ID
+        from platform_auth import auth_headers
+    except Exception:
+        return
+    try:
+        tool_name = getattr(block, "name", "") or ""
+        tool_input = getattr(block, "input", {}) or {}
+        if not tool_name:
+            return
+        summary = _summarize_tool_use(tool_name, tool_input)
+        # 5s budget — long enough to absorb a single platform GC
+        # pause, short enough that a wedged platform doesn't slow
+        # the tool-iteration cadence beyond noticeable.
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(
+                f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/activity",
+                json={
+                    "activity_type": "agent_log",
+                    "source_id": WORKSPACE_ID,
+                    "summary": summary,
+                    "status": "ok",
+                    "method": tool_name,
+                },
+                headers=auth_headers(),
+            )
+    except Exception:
+        # Telemetry failures must not break the conversation.
+        return
+
+
 # Substring patterns that classify an exception as the specific
 # claude_agent_sdk init-timeout wedge (vs. a rate-limit, transient
 # subprocess crash, etc.). Match is case-insensitive on the formatted
@@ -408,6 +494,14 @@ class ClaudeSDKExecutor(AgentExecutor):
                     for block in message.content:
                         if isinstance(block, sdk.TextBlock):
                             assistant_chunks.append(block.text)
+                        else:
+                            # ToolUseBlock / ServerToolUseBlock are present
+                            # on the real SDK but not on the conftest stub —
+                            # check by class name to avoid an isinstance()
+                            # against a class the stub doesn't define.
+                            cls = type(block).__name__
+                            if cls in ("ToolUseBlock", "ServerToolUseBlock"):
+                                await _report_tool_use(block)
                 elif isinstance(message, sdk.ResultMessage):
                     sid = getattr(message, "session_id", None)
                     if sid:

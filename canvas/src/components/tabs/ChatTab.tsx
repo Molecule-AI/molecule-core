@@ -372,12 +372,21 @@ function MyChatPanel({ workspaceId, data }: Props) {
       try {
         const msg = JSON.parse(event.data);
         if (msg.event === "ACTIVITY_LOGGED") {
+          // Filter to events for THIS workspace. The platform's
+          // BroadcastOnly fires to every connected client, and
+          // without this guard a sibling workspace's a2a_send would
+          // surface as "→ Delegating to X..." inside the wrong
+          // chat panel. (workspace_id on the WS envelope is the
+          // workspace whose activity_log row we just wrote.)
+          if (msg.workspace_id !== workspaceId) return;
+
           const p = msg.payload || {};
           const type = p.activity_type as string;
           const method = (p.method as string) || "";
           const status = (p.status as string) || "";
           const targetId = (p.target_id as string) || "";
           const durationMs = p.duration_ms as number | undefined;
+          const summary = (p.summary as string) || "";
 
           let line = "";
           if (type === "a2a_receive" && method === "message/send") {
@@ -408,8 +417,14 @@ function MyChatPanel({ workspaceId, data }: Props) {
             const targetName = resolveWorkspaceName(targetId);
             line = `→ Delegating to ${targetName}...`;
           } else if (type === "task_update") {
-            const summary = (p.summary as string) || "";
             if (summary) line = `⟳ ${summary}`;
+          } else if (type === "agent_log") {
+            // Per-tool-use telemetry from claude_sdk_executor's
+            // _report_tool_use. The summary already carries an icon
+            // + human-readable args (📄 Read /path, ⚡ Bash: …)
+            // so we render it verbatim. No icon prefix here — the
+            // emoji at the start of summary is the visual marker.
+            if (summary) line = summary;
           }
 
           if (line) {
