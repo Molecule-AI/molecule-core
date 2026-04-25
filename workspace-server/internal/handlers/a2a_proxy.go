@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
 	"github.com/gin-gonic/gin"
@@ -123,6 +124,14 @@ func isUpstreamBusyError(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
+	// applyIdleTimeout cancels the request ctx via context.WithCancel
+	// when the broadcaster silence window elapses — that surfaces as
+	// context.Canceled (not DeadlineExceeded). Treat it as the same
+	// "upstream busy" class so the caller produces a 503 + Retry-After
+	// instead of a generic 500.
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
@@ -131,6 +140,7 @@ func isUpstreamBusyError(err error) bool {
 	// inner cause. Fall back to substring match for those.
 	msg := err.Error()
 	return strings.Contains(msg, "context deadline exceeded") ||
+		strings.Contains(msg, "context canceled") ||
 		strings.Contains(msg, "EOF") ||
 		strings.Contains(msg, "connection reset")
 }
@@ -286,7 +296,7 @@ func (h *WorkspaceHandler) proxyA2ARequest(ctx context.Context, workspaceID stri
 	body = normalizedBody
 
 	startTime := time.Now()
-	resp, cancelFwd, err := h.dispatchA2A(ctx, agentURL, body, callerID)
+	resp, cancelFwd, err := h.dispatchA2A(ctx, workspaceID, agentURL, body, callerID)
 	if cancelFwd != nil {
 		defer cancelFwd()
 	}
@@ -478,25 +488,59 @@ func normalizeA2APayload(body []byte) ([]byte, string, *proxyA2AError) {
 	return marshaledBody, a2aMethod, nil
 }
 
+// idleTimeoutDuration is the per-dispatch silence window: if the
+// platform's broadcaster emits no events for this workspace for the
+// full duration, the dispatch ctx is cancelled. Resets on every
+// ACTIVITY_LOGGED / TASK_UPDATED / A2A_RESPONSE event for the
+// workspace, so a chat that's actively reporting tool calls or
+// streaming status updates never trips it. Picked to be longer than
+// any reasonable single-tool-use cadence (Claude Code's slowest
+// observed silence between tools is ~30s) but short enough that a
+// truly wedged runtime fails in 1 minute, not 5.
+const idleTimeoutDuration = 60 * time.Second
+
 // dispatchA2A POSTs `body` to `agentURL`. Uses WithoutCancel so delegation
-// chains survive client disconnect (browser tab close). Default timeouts:
-// canvas (callerID == "") = 5 min, agent-to-agent = 30 min. Callers can
-// override via the X-Timeout header (applied to ctx upstream in ProxyA2A).
-func (h *WorkspaceHandler) dispatchA2A(ctx context.Context, agentURL string, body []byte, callerID string) (*http.Response, context.CancelFunc, error) {
+// chains survive client disconnect (browser tab close). Two layers of
+// timeout per dispatch:
+//
+//   - Idle timeout (always applied): cancels the dispatch when no
+//     broadcaster events for the workspace fire for
+//     idleTimeoutDuration. Any progress event resets the clock — so
+//     a long but actively-streaming reply runs forever, while a
+//     wedged runtime fails fast.
+//   - Absolute ceiling (agent-to-agent only): 30 min cap as a
+//     defence against runaway delegation loops. Canvas dispatches
+//     have no absolute ceiling — the user can wait as long as they
+//     want, the idle timer is the only hangup signal.
+//
+// Either layer is overridable by the X-Timeout header upstream in
+// ProxyA2A; X-Timeout: 0 explicitly disables the absolute ceiling.
+func (h *WorkspaceHandler) dispatchA2A(ctx context.Context, workspaceID, agentURL string, body []byte, callerID string) (*http.Response, context.CancelFunc, error) {
 	forwardCtx := context.WithoutCancel(ctx)
-	var cancel context.CancelFunc
+	var ceilingCancel context.CancelFunc
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		if callerID == "" {
-			forwardCtx, cancel = context.WithTimeout(forwardCtx, 5*time.Minute)
-		} else {
-			forwardCtx, cancel = context.WithTimeout(forwardCtx, 30*time.Minute)
+		if callerID != "" {
+			forwardCtx, ceilingCancel = context.WithTimeout(forwardCtx, 30*time.Minute)
+		}
+		// callerID == "" (canvas): no absolute ceiling. The idle
+		// timeout below is the only deadline.
+	}
+	// Idle timeout — cancels the dispatch ctx after
+	// idleTimeoutDuration of broadcaster silence for this workspace.
+	// Always applied (canvas + agent-to-agent both benefit; the
+	// ceiling above is a separate runaway-loop cap that only fires
+	// for agent traffic). Combines with the ceiling cancel into a
+	// single returned cancel func that the caller defers.
+	forwardCtx, idleCancel := applyIdleTimeout(forwardCtx, h.broadcaster, workspaceID, idleTimeoutDuration)
+	cancel := func() {
+		idleCancel()
+		if ceilingCancel != nil {
+			ceilingCancel()
 		}
 	}
 	req, err := http.NewRequestWithContext(forwardCtx, "POST", agentURL, bytes.NewReader(body))
 	if err != nil {
-		if cancel != nil {
-			cancel()
-		}
+		cancel()
 		// Wrap the construction failure so the caller can distinguish it
 		// from an upstream Do() error and produce the correct 500 response.
 		return nil, nil, &proxyDispatchBuildError{err: err}
@@ -504,4 +548,53 @@ func (h *WorkspaceHandler) dispatchA2A(ctx context.Context, agentURL string, bod
 	req.Header.Set("Content-Type", "application/json")
 	resp, doErr := a2aClient.Do(req)
 	return resp, cancel, doErr
+}
+
+// applyIdleTimeout returns a child ctx that gets cancelled when no
+// broadcaster events for `workspaceID` arrive for `idle` duration.
+// Any incoming event resets the clock. The returned cancel func
+// MUST be called to clean up the goroutine + subscription.
+//
+// nil broadcaster or non-positive idle returns the parent ctx
+// unchanged (and a no-op cancel) so test paths that don't wire a
+// broadcaster keep working.
+func applyIdleTimeout(parent context.Context, b *events.Broadcaster, workspaceID string, idle time.Duration) (context.Context, context.CancelFunc) {
+	if b == nil || idle <= 0 || workspaceID == "" {
+		return parent, func() {}
+	}
+	ctx, cancel := context.WithCancel(parent)
+	sub, unsub := b.SubscribeSSE(workspaceID)
+	go func() {
+		defer unsub()
+		timer := time.NewTimer(idle)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, ok := <-sub:
+				if !ok {
+					// Subscription channel closed — fall back to
+					// pure-timer mode. Don't cancel: another caller
+					// may have closed our sub but the request itself
+					// is still in flight. Let the timer or the
+					// caller's defer drive cleanup.
+					continue
+				}
+				// Stop+drain pattern so a fired-but-unread timer
+				// doesn't double-cancel after the Reset.
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(idle)
+			case <-timer.C:
+				cancel()
+				return
+			}
+		}
+	}()
+	return ctx, cancel
 }
