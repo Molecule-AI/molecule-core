@@ -59,9 +59,19 @@ export function useCanvasViewport() {
   // RF is behind a Suspense boundary) AND keeps clicks on the
   // toolbar / modals / side panel from stamping user-pan-intent.
   // Capture phase runs before target-phase `stopPropagation` so a
-  // handler elsewhere can't swallow the signal. `pointerdown` covers
-  // mouse + touch + pen on every modern browser — no separate
-  // `touchstart` listener needed (would double-stamp on mobile).
+  // handler elsewhere can't swallow the signal.
+  //
+  // Wheel only — NOT pointerdown. A pointerdown on the pane fires for
+  // ordinary clicks (deselect, click-near-a-card, modal-close-bubble)
+  // as well as the start of a drag-pan. Treating every pointerdown as
+  // "user wants to override auto-fit" meant a single accidental click
+  // before/during an org import locked out every subsequent fit, so
+  // the viewport stuck at whatever the first fit landed on while
+  // children kept materialising off-screen. Wheel is the canonical
+  // unambiguous gesture: scroll-to-pan and pinch-zoom both surface as
+  // wheel events. Drag-pans without an accompanying wheel are rare
+  // enough that letting them be overridden by a follow-up auto-fit is
+  // the right tradeoff.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const stamp = (e: Event) => {
@@ -70,14 +80,9 @@ export function useCanvasViewport() {
       userPannedAtRef.current = Date.now();
     };
     const opts: AddEventListenerOptions = { passive: true, capture: true };
-    const targets: Array<keyof DocumentEventMap> = ["wheel", "pointerdown"];
-    for (const ev of targets) {
-      document.addEventListener(ev, stamp, opts);
-    }
+    document.addEventListener("wheel", stamp, opts);
     return () => {
-      for (const ev of targets) {
-        document.removeEventListener(ev, stamp, opts);
-      }
+      document.removeEventListener("wheel", stamp, opts);
     };
   }, []);
 
@@ -189,17 +194,19 @@ export function useCanvasViewport() {
   // circuits: if the user moved after our last auto-fit, we never
   // fit again this deploy.
   const pendingFitRootRef = useRef<string | null>(null);
+  // Subtree size at the moment of the last successful auto-fit, keyed
+  // by root id. When a new event arrives and the subtree has GROWN,
+  // we re-fit even if the user has panned in the meantime — they've
+  // lost context, the new arrivals are off-screen, and the org-deploy
+  // animation is the user's primary reason for being on the canvas
+  // right now. When the subtree hasn't grown (status update on an
+  // already-positioned node), the user-pan respect still applies.
+  const lastFitSubtreeSizeRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     const runFit = () => {
       const rootCandidate = pendingFitRootRef.current;
       pendingFitRootRef.current = null;
       if (!rootCandidate) return;
-      if (
-        userPannedAtRef.current !== null &&
-        userPannedAtRef.current > lastAutoFitAtRef.current
-      ) {
-        return;
-      }
       const state = useCanvasStore.getState();
       // Climb to the true root — the event's rootId is the just-
       // landed child's direct parent, which may itself be nested.
@@ -221,6 +228,21 @@ export function useCanvasViewport() {
         }
       }
       if (subtree.length === 0) return;
+
+      // Growth check: if the subtree hasn't expanded since the last
+      // fit, fall back to the user-pan respect gate. If it HAS
+      // grown, force the fit through — the user's previous pan no
+      // longer reflects what's on screen and the deploy is the
+      // primary thing they want to watch.
+      const lastSize = lastFitSubtreeSizeRef.current.get(topId) ?? 0;
+      const grew = subtree.length > lastSize;
+      if (
+        !grew &&
+        userPannedAtRef.current !== null &&
+        userPannedAtRef.current > lastAutoFitAtRef.current
+      ) {
+        return;
+      }
       fitView({
         nodes: subtree.map((id) => ({ id })),
         // Short animation — server paces children ~2s apart, so a
@@ -244,6 +266,7 @@ export function useCanvasViewport() {
         minZoom: 0.25,
       });
       lastAutoFitAtRef.current = Date.now();
+      lastFitSubtreeSizeRef.current.set(topId, subtree.length);
     };
     const handler = (e: Event) => {
       const { rootId } = (e as CustomEvent<{ rootId: string }>).detail;
