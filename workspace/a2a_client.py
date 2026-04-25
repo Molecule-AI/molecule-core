@@ -10,7 +10,7 @@ import uuid
 
 import httpx
 
-from platform_auth import auth_headers
+from platform_auth import auth_headers, self_source_headers
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +56,15 @@ async def send_a2a_message(target_url: str, message: str) -> str:
         timeout=httpx.Timeout(connect=30.0, read=300.0, write=30.0, pool=30.0)
     ) as client:
         try:
+            # self_source_headers() includes X-Workspace-ID so the
+            # platform's a2a_receive logger records source_id =
+            # WORKSPACE_ID. Otherwise peer-A2A messages — including
+            # the case where target_url resolves to this workspace's
+            # own /a2a — get logged with source_id=NULL and surface
+            # in the recipient's My Chat tab as user-typed input.
             resp = await client.post(
                 target_url,
-                headers=auth_headers(),
+                headers=self_source_headers(WORKSPACE_ID),
                 json={
                     "jsonrpc": "2.0",
                     "id": str(uuid.uuid4()),

@@ -33,7 +33,7 @@ from initial_prompt import (
     mark_initial_prompt_attempted,
     resolve_initial_prompt_marker,
 )
-from platform_auth import auth_headers
+from platform_auth import auth_headers, self_source_headers
 
 
 def get_machine_ip() -> str:  # pragma: no cover
@@ -439,7 +439,15 @@ async def main():  # pragma: no cover
                 # silently rejected once any workspace has a live token on
                 # file. Without this, initial_prompt 401s in multi-tenant
                 # mode exactly like /registry/register did in #215.
-                headers = {"Content-Type": "application/json", **auth_headers()}
+                # X-Workspace-ID via self_source_headers() so the platform
+                # tags the row source=agent — without it the canvas's
+                # My Chat tab renders the initial_prompt as if the user
+                # had typed it. See platform_auth.py for the full
+                # explanation.
+                headers = {
+                    "Content-Type": "application/json",
+                    **self_source_headers(workspace_id),
+                }
 
                 # Retry with backoff — the platform proxy may not be able to
                 # reach us yet (container networking takes a moment to settle).
@@ -531,7 +539,13 @@ async def main():  # pragma: no cover
                     # actual outcome instead of a bare "post failed" line.
                     # #220: include auth_headers() on every idle fire. Without
                     # this, the idle loop 401s in multi-tenant mode.
-                    headers = {"Content-Type": "application/json", **auth_headers()}
+                    # self_source_headers() adds X-Workspace-ID so the
+                    # platform classifies the idle fire as source=agent
+                    # rather than user-typed canvas input.
+                    headers = {
+                        "Content-Type": "application/json",
+                        **self_source_headers(workspace_id),
+                    }
                     try:
                         req = _urlreq.Request(
                             f"{platform_url}/workspaces/{workspace_id}/a2a",

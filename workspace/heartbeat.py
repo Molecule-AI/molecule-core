@@ -17,7 +17,7 @@ from pathlib import Path
 
 import httpx
 
-from platform_auth import auth_headers, refresh_cache
+from platform_auth import auth_headers, refresh_cache, self_source_headers
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +284,9 @@ class HeartbeatLoop:
                 else:
                     self._last_self_message_time = now
                     try:
+                        # self_source_headers() adds X-Workspace-ID so the
+                        # platform tags this row source=agent, not canvas
+                        # — see platform_auth.py for the full rationale.
                         await client.post(
                             f"{self.platform_url}/workspaces/{self.workspace_id}/a2a",
                             json={
@@ -295,7 +298,7 @@ class HeartbeatLoop:
                                     },
                                 },
                             },
-                            headers=auth_headers(),
+                            headers=self_source_headers(self.workspace_id),
                             timeout=120.0,
                         )
                         logger.info("Heartbeat: self-message sent to process delegation results")
