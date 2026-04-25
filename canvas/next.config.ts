@@ -1,7 +1,88 @@
 import type { NextConfig } from "next";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+// Load NEXT_PUBLIC_* vars from the monorepo root .env so a fresh
+// `pnpm dev` works without a per-developer canvas/.env.local. Next.js
+// only auto-loads .env from the project root by default — but our
+// canonical config (NEXT_PUBLIC_PLATFORM_URL, NEXT_PUBLIC_WS_URL,
+// MOLECULE_ENV, etc.) lives at the monorepo root, gitignored, shared
+// by the Go platform binary. Without this, the canvas falls back to
+// `window.location` (`ws://localhost:3000/ws`) and the WS pill stays
+// "Reconnecting" forever because Next.js dev doesn't serve /ws.
+//
+// Mirrors workspace-server/cmd/server/dotenv.go's monorepo-rooted .env
+// loader. Both processes look for the SAME marker (`workspace-server/
+// go.mod`) so a developer renaming or relocating the repo only has to
+// update one heuristic. Production is unaffected: `output: "standalone"`
+// bakes resolved env into the build, and the marker file isn't shipped.
+loadMonorepoEnv();
 
 const nextConfig: NextConfig = {
   output: "standalone",
 };
 
 export default nextConfig;
+
+function loadMonorepoEnv() {
+  const root = findMonorepoRoot(__dirname);
+  if (!root) return;
+  const envPath = join(root, ".env");
+  if (!existsSync(envPath)) return;
+  const body = readFileSync(envPath, "utf8");
+  let loaded = 0;
+  let skipped = 0;
+  for (const line of body.split(/\r?\n/)) {
+    const kv = parseLine(line);
+    if (!kv) continue;
+    const [k, v] = kv;
+    if (process.env[k] !== undefined) {
+      skipped++;
+      continue;
+    }
+    process.env[k] = v;
+    loaded++;
+  }
+  // eslint-disable-next-line no-console
+  console.log(
+    `[next.config] loaded ${loaded} vars from ${envPath} (${skipped} already set in env)`,
+  );
+}
+
+function findMonorepoRoot(start: string): string | null {
+  let dir = start;
+  for (let i = 0; i < 6; i++) {
+    if (existsSync(join(dir, "workspace-server", "go.mod"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+// Mirror of workspace-server/cmd/server/dotenv.go's parseDotEnvLine
+// — same rules so the two loaders agree on every line in the shared
+// .env. If you change one parser, change the other.
+function parseLine(raw: string): [string, string] | null {
+  let line = raw.replace(/^﻿/, "").trim();
+  if (line === "" || line.startsWith("#")) return null;
+  if (line.startsWith("export ")) line = line.slice("export ".length).trimStart();
+  const eq = line.indexOf("=");
+  if (eq <= 0) return null;
+  const k = line.slice(0, eq).trim();
+  let v = line.slice(eq + 1).replace(/^[ \t]+/, "");
+  if (v.length >= 2 && (v[0] === '"' || v[0] === "'")) {
+    const quote = v[0];
+    const end = v.indexOf(quote, 1);
+    if (end >= 0) return [k, v.slice(1, end)];
+    // unterminated — fall through to bare-value handling
+  }
+  for (let i = 0; i < v.length; i++) {
+    if (v[i] !== "#") continue;
+    if (i === 0 || v[i - 1] === " " || v[i - 1] === "\t") {
+      v = v.slice(0, i);
+      break;
+    }
+  }
+  return [k, v.trim()];
+}
