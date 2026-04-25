@@ -87,6 +87,53 @@ test.describe("staging canvas tabs", () => {
       }),
     );
 
+    // Workspace-scoped 401 → 200 fallback.
+    //
+    // Several side-panel tabs (Peers/Skills/Channels/Memory/Audit and
+    // anything else workspace-scoped) hit endpoints under
+    // `/workspaces/<id>/*` that require a workspace-scoped token, NOT
+    // the tenant admin bearer this test uses. Those endpoints respond
+    // 401 in SaaS mode. canvas/src/lib/api.ts:62-74 reacts to ANY 401
+    // by setting `window.location.href` to the AuthKit login URL —
+    // which yanks the page off the tenant origin mid-test and breaks
+    // every locator assertion that runs after.
+    //
+    // For tab-render tests we don't need real data — the gate is
+    // "panel mounts without crashing, no Failed-to-load toast".
+    // Intercept the 401 and swap it for 200 + empty body. Body shape
+    // is best-effort by URL: list endpoints (collection paths that
+    // don't end in a UUID) get `[]`; single-resource endpoints get
+    // `{}`. Both are valid JSON, neither matches the real schema
+    // exactly, but well-written panels render an empty state for
+    // either rather than throwing.
+    //
+    // The two route patterns don't overlap (`/workspaces/...` vs
+    // `/cp/auth/me`) so handler order doesn't matter — the
+    // `/cp/auth/me` mock above is matched on its own path.
+    await context.route(/\/workspaces\//, async (route, request) => {
+      if (request.resourceType() !== "fetch") {
+        return route.fallback();
+      }
+      let resp;
+      try {
+        resp = await route.fetch();
+      } catch {
+        return route.fallback();
+      }
+      if (resp.status() !== 401) {
+        return route.fulfill({ response: resp });
+      }
+      // 401: swap for empty 200 keyed by URL shape.
+      const lastSeg =
+        new URL(request.url()).pathname.split("/").filter(Boolean).pop() || "";
+      const looksLikeList = !/^[0-9a-f-]{8,}$/.test(lastSeg);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: looksLikeList ? "[]" : "{}",
+      });
+    });
+
     const consoleErrors: string[] = [];
     page.on("console", (msg) => {
       if (msg.type() === "error") {
