@@ -87,31 +87,34 @@ test.describe("staging canvas tabs", () => {
       }),
     );
 
-    // Workspace-scoped 401 → 200 fallback.
+    // Universal 401 → empty-200 fallback for any fetch.
     //
-    // Several side-panel tabs (Peers/Skills/Channels/Memory/Audit and
-    // anything else workspace-scoped) hit endpoints under
-    // `/workspaces/<id>/*` that require a workspace-scoped token, NOT
-    // the tenant admin bearer this test uses. Those endpoints respond
-    // 401 in SaaS mode. canvas/src/lib/api.ts:62-74 reacts to ANY 401
-    // by setting `window.location.href` to the AuthKit login URL —
-    // which yanks the page off the tenant origin mid-test and breaks
-    // every locator assertion that runs after.
+    // The narrow first pass (#2073, scoped to /workspaces/<id>/*) didn't
+    // catch all the redirect triggers — SkillsTab.tsx alone fetches
+    // /plugins and /plugins/sources outside the /workspaces/ tree, and
+    // each of those 401s with the tenant admin bearer in SaaS mode.
+    // canvas/src/lib/api.ts:62-74 calls `redirectToLogin` on ANY 401,
+    // so a single non-workspace-scoped 401 yanks the page off the
+    // tenant origin and breaks every locator that runs after.
+    //
+    // Broaden the route to ALL fetches: pass-through real responses,
+    // swap 401s for 200 + empty body. Skip `/cp/auth/me` and the
+    // tenant-origin HTML/JS bundle requests (resourceType !== fetch);
+    // those are already handled or shouldn't be intercepted.
     //
     // For tab-render tests we don't need real data — the gate is
-    // "panel mounts without crashing, no Failed-to-load toast".
-    // Intercept the 401 and swap it for 200 + empty body. Body shape
-    // is best-effort by URL: list endpoints (collection paths that
-    // don't end in a UUID) get `[]`; single-resource endpoints get
-    // `{}`. Both are valid JSON, neither matches the real schema
-    // exactly, but well-written panels render an empty state for
-    // either rather than throwing.
-    //
-    // The two route patterns don't overlap (`/workspaces/...` vs
-    // `/cp/auth/me`) so handler order doesn't matter — the
-    // `/cp/auth/me` mock above is matched on its own path.
-    await context.route(/\/workspaces\//, async (route, request) => {
+    // "panel mounts without crashing, no Failed-to-load toast". Body
+    // shape is best-effort by URL: list endpoints (paths not ending
+    // in a UUID-shaped segment) get `[]`; single-resource endpoints
+    // get `{}`. Both are valid JSON; well-written panels render an
+    // empty state for either rather than throwing.
+    await context.route("**", async (route, request) => {
       if (request.resourceType() !== "fetch") {
+        return route.fallback();
+      }
+      // /cp/auth/me is mocked above with a fixed Session shape — let
+      // that handler win without us round-tripping the network.
+      if (request.url().includes("/cp/auth/me")) {
         return route.fallback();
       }
       let resp;
@@ -123,7 +126,6 @@ test.describe("staging canvas tabs", () => {
       if (resp.status() !== 401) {
         return route.fulfill({ response: resp });
       }
-      // 401: swap for empty 200 keyed by URL shape.
       const lastSeg =
         new URL(request.url()).pathname.split("/").filter(Boolean).pop() || "";
       const looksLikeList = !/^[0-9a-f-]{8,}$/.test(lastSeg);
