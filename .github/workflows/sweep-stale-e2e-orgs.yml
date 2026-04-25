@@ -1,0 +1,170 @@
+name: Sweep stale e2e-* orgs (staging)
+
+# Janitor for staging tenants left behind when E2E cleanup didn't run:
+# CI cancellations, runner crashes, transient AWS errors mid-cascade,
+# bash trap missed (signal 9), etc. Without this loop, every failed
+# teardown leaks an EC2 + DNS + DB row until manual ops cleanup —
+# 2026-04-23 staging hit the 64 vCPU AWS quota from ~27 such orphans.
+#
+# Why not rely on per-test-run teardown:
+#   - Per-run teardown is best-effort by definition. Any process death
+#     after the test starts but before the trap fires leaves debris.
+#   - GH Actions cancellation kills the runner without grace period.
+#     The workflow's `if: always()` step usually catches this, but it
+#     too can fail (CP transient 5xx, runner network issue at the
+#     wrong moment).
+#   - Even when teardown runs, the CP cascade is best-effort in places
+#     (cascadeTerminateWorkspaces logs+continues; DNS deletion same).
+#   - This sweep is the catch-all that converges staging back to clean
+#     regardless of which specific path leaked.
+#
+# The PROPER fix is making CP cleanup transactional + verify-after-
+# terminate (filed separately as cleanup-correctness work). This
+# workflow is the safety net that catches everything else AND any
+# future leak source we haven't yet identified.
+
+on:
+  schedule:
+    # Every hour on the hour. E2E orgs are short-lived (~10-25 min wall
+    # clock from create to teardown). Anything older than the
+    # MAX_AGE_MINUTES threshold below is presumed dead.
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      max_age_minutes:
+        description: "Delete e2e-* orgs older than N minutes (default 120)"
+        required: false
+        default: "120"
+      dry_run:
+        description: "Dry run only — list what would be deleted"
+        required: false
+        type: boolean
+        default: false
+
+# Don't let two sweeps fight. Cron + workflow_dispatch could overlap
+# on a manual trigger; queue rather than parallel-delete.
+concurrency:
+  group: sweep-stale-e2e-orgs
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    name: Sweep e2e orgs
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MOLECULE_CP_URL: https://staging-api.moleculesai.app
+      ADMIN_TOKEN: ${{ secrets.MOLECULE_STAGING_ADMIN_TOKEN }}
+      MAX_AGE_MINUTES: ${{ github.event.inputs.max_age_minutes || '120' }}
+      DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+      # Refuse to delete more than this many orgs in one tick. If the
+      # CP DB is briefly empty (or the admin endpoint goes weird and
+      # returns no created_at), every e2e- org would look stale.
+      # Bailing protects against runaway nukes.
+      SAFETY_CAP: 50
+
+    steps:
+      - name: Verify admin token present
+        run: |
+          if [ -z "$ADMIN_TOKEN" ]; then
+            echo "::error::MOLECULE_STAGING_ADMIN_TOKEN not set"
+            exit 2
+          fi
+          echo "Admin token present ✓"
+
+      - name: Identify stale e2e orgs
+        id: identify
+        run: |
+          set -euo pipefail
+          # Fetch into a file so the python step reads it via stdin —
+          # cleaner than embedding $(curl ...) into a heredoc.
+          curl -sS --fail-with-body --max-time 30 \
+            "$MOLECULE_CP_URL/cp/admin/orgs?limit=500" \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            > orgs.json
+
+          # Filter:
+          #   1. slug starts with 'e2e-' (covers e2e-, e2e-canary-,
+          #      e2e-canvas-* — all variants the test scripts mint)
+          #   2. created_at is older than MAX_AGE_MINUTES ago
+          # Output one slug per line to a file the next step reads.
+          python3 > stale_slugs.txt <<'PY'
+          import json, os
+          from datetime import datetime, timezone, timedelta
+          with open("orgs.json") as f:
+              data = json.load(f)
+          max_age = int(os.environ["MAX_AGE_MINUTES"])
+          cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age)
+          for o in data.get("orgs", []):
+              slug = o.get("slug", "")
+              if not slug.startswith("e2e-"):
+                  continue
+              created = o.get("created_at")
+              if not created:
+                  # Defensively skip rows without created_at — better
+                  # to leave one orphan than nuke a brand-new row
+                  # whose timestamp didn't render.
+                  continue
+              # Python 3.11+ handles RFC3339 with Z directly via
+              # fromisoformat; older runners need the trailing Z swap.
+              created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+              if created_dt < cutoff:
+                  print(slug)
+          PY
+
+          count=$(wc -l < stale_slugs.txt | tr -d ' ')
+          echo "Found $count stale e2e org(s) older than ${MAX_AGE_MINUTES}m"
+          if [ "$count" -gt 0 ]; then
+            echo "First 20:"
+            head -20 stale_slugs.txt | sed 's/^/  /'
+          fi
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Safety gate
+        if: steps.identify.outputs.count != '0'
+        run: |
+          count="${{ steps.identify.outputs.count }}"
+          if [ "$count" -gt "$SAFETY_CAP" ]; then
+            echo "::error::Refusing to delete $count orgs in one sweep (cap=$SAFETY_CAP). Investigate manually — this usually means the CP admin API returned no created_at or returned a degraded result. Re-run with workflow_dispatch + max_age_minutes if intentional."
+            exit 1
+          fi
+          echo "Within safety cap ($count ≤ $SAFETY_CAP) ✓"
+
+      - name: Delete stale orgs
+        if: steps.identify.outputs.count != '0' && env.DRY_RUN != 'true'
+        run: |
+          set -uo pipefail
+          deleted=0
+          failed=0
+          while IFS= read -r slug; do
+            [ -z "$slug" ] && continue
+            # The DELETE handler requires {"confirm": "<slug>"} matching
+            # the URL slug — fat-finger guard. Idempotent: re-issuing
+            # picks up via org_purges.last_step.
+            http_code=$(curl -sS -o /tmp/del_resp -w "%{http_code}" \
+              --max-time 60 \
+              -X DELETE "$MOLECULE_CP_URL/cp/admin/tenants/$slug" \
+              -H "Authorization: Bearer $ADMIN_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"confirm\":\"$slug\"}" || echo "000")
+            if [ "$http_code" = "200" ] || [ "$http_code" = "204" ]; then
+              deleted=$((deleted+1))
+              echo "  deleted: $slug"
+            else
+              failed=$((failed+1))
+              echo "  FAILED ($http_code): $slug — $(cat /tmp/del_resp 2>/dev/null | head -c 200)"
+            fi
+          done < stale_slugs.txt
+          echo ""
+          echo "Sweep summary: deleted=$deleted failed=$failed"
+          # Don't fail the workflow on per-org delete errors — the
+          # sweeper is best-effort. Next hourly tick re-attempts. We
+          # only fail loud at the safety-cap gate above.
+
+      - name: Dry-run summary
+        if: env.DRY_RUN == 'true'
+        run: |
+          echo "DRY RUN — would have deleted ${{ steps.identify.outputs.count }} org(s). Re-run with dry_run=false to actually delete."
