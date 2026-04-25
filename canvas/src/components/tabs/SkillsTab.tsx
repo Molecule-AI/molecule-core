@@ -235,13 +235,31 @@ export function SkillsTab({ workspaceId, data }: Props) {
       await api.post(`/workspaces/${workspaceId}/plugins`, { source });
       showToast(`Installed ${label} — restarting workspace`, "success");
       if (optimistic && mountedRef.current) {
+        // Push with `supported_on_runtime` left undefined — the
+        // server's ListInstalled annotates the real value (true /
+        // false) at refetch time. Forcing `true` here would hide the
+        // "inert on this runtime" badge for 15s if the user
+        // installed a plugin that doesn't actually support the
+        // workspace's runtime; the badge only renders on `=== false`,
+        // so undefined keeps it neutral until reconciliation arrives.
         setInstalled((prev) =>
           prev.some((p) => p.name === optimistic.name)
             ? prev
-            : [...prev, { ...optimistic, supported_on_runtime: true }],
+            : [...prev, { ...optimistic, supported_on_runtime: undefined }],
         );
-        setInstalledLoaded(true);
+        // Note: we intentionally do NOT set `installedLoaded` here.
+        // That flag means "the initial GET has succeeded at least
+        // once" and gates the auto-expand-registry effect. A fast
+        // optimistic install BEFORE the initial fetch returns must
+        // not flip the gate, or the auto-expand never fires and a
+        // followup loadInstalled racing with the optimistic write
+        // could overwrite our entry with [] mid-restart.
       }
+      // Drop any prior reload timer before scheduling a new one —
+      // back-to-back installs within PLUGIN_RELOAD_DELAY_MS would
+      // otherwise queue multiple loadInstalled() calls and the
+      // unmount cleanup only clears the latest handle.
+      clearTimeout(reloadTimerRef.current);
       reloadTimerRef.current = setTimeout(() => loadInstalled(), PLUGIN_RELOAD_DELAY_MS);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Install failed", "error");
@@ -268,6 +286,9 @@ export function SkillsTab({ workspaceId, data }: Props) {
       await api.del(`/workspaces/${workspaceId}/plugins/${pluginName}`);
       showToast(`Removed ${pluginName} — restarting workspace`, "success");
       setInstalled((prev) => prev.filter((p) => p.name !== pluginName));
+      // Drop any prior reload timer (see installFromSource for the
+      // back-to-back-action leak rationale).
+      clearTimeout(reloadTimerRef.current);
       reloadTimerRef.current = setTimeout(() => loadInstalled(), PLUGIN_RELOAD_DELAY_MS);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Uninstall failed", "error");
