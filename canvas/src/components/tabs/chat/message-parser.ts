@@ -99,22 +99,54 @@ export function extractRequestText(body: Record<string, unknown> | null): string
   return (parts?.[0]?.text as string) || "";
 }
 
-/** Extract text from an activity log response_body (multiple possible formats) */
+/** Extract text from an activity log response_body (multiple possible formats).
+ *
+ *  Collects from EVERY source — top-level `parts[].text`, `parts[].root.text`
+ *  (older nested shape), and `artifacts[].parts[].text` (task-shaped
+ *  replies) — and joins them with "\n". Two reasons to collect rather
+ *  than early-return:
+ *
+ *    1. Claude Code and other long-reply runtimes emit multiple text
+ *       parts in a single `parts` array. Returning just the first
+ *       silently truncates 15k-char briefs to their leading line
+ *       (observed UX A/B Lab Wave 1, 2026-04-25).
+ *
+ *    2. Some producers emit a summary in `parts[].text` AND details in
+ *       `artifacts[].parts[].text` (Hermes does this for tool calls).
+ *       The previous "first source wins" returned only the summary;
+ *       artifacts dropped silently. */
 export function extractResponseText(body: Record<string, unknown>): string {
   try {
     // {result: "text"} — from MCP server delegation logs
     if (typeof body.result === "string") return body.result;
 
-    // A2A JSON-RPC response: {result: {parts: [{kind: "text", text: "..."}]}}
     const result = body.result as Record<string, unknown> | undefined;
     if (result) {
+      const collected: string[] = [];
+
+      // A2A JSON-RPC: {result: {parts: [{kind: "text", text: "..."}]}}
+      const fromParts = extractTextsFromParts(result.parts);
+      if (fromParts) collected.push(fromParts);
+
+      // Older nested shape: {parts: [{root: {text: "..."}}]}
       const parts = (result.parts || []) as Array<Record<string, unknown>>;
+      const rootTexts: string[] = [];
       for (const p of parts) {
-        const t = (p.text as string) || "";
-        if (t) return t;
         const root = p.root as Record<string, unknown> | undefined;
-        if (root?.text) return root.text as string;
+        if (root?.text) rootTexts.push(root.text as string);
       }
+      if (rootTexts.length > 0) collected.push(rootTexts.join("\n"));
+
+      // Task shape: {result: {artifacts: [{parts: [...]}]}}
+      const artifacts = result.artifacts as Array<Record<string, unknown>> | undefined;
+      if (artifacts) {
+        for (const a of artifacts) {
+          const t = extractTextsFromParts(a.parts);
+          if (t) collected.push(t);
+        }
+      }
+
+      if (collected.length > 0) return collected.join("\n");
     }
 
     // {task: "text"} — request body format, shouldn't be in response but handle it

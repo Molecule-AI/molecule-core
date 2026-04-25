@@ -100,6 +100,67 @@ describe("extractResponseText", () => {
   it("returns empty when result has no parts", () => {
     expect(extractResponseText({ result: { other: true } })).toBe("");
   });
+
+  // Regression: Claude Code (and other long-reply runtimes) emits
+  // multi-part text replies. The previous implementation returned
+  // only the first part, silently truncating the rest. Observed
+  // 2026-04-25 on a 15k-char Wave 1 brief that rendered as just the
+  // markdown table header.
+  it("joins all text parts when result.parts has multiple", () => {
+    const body = {
+      result: {
+        parts: [
+          { kind: "text", text: "# Header" },
+          { kind: "text", text: "| Col |" },
+          { kind: "text", text: "| --- |" },
+          { kind: "text", text: "| Row |" },
+        ],
+      },
+    };
+    expect(extractResponseText(body)).toBe("# Header\n| Col |\n| --- |\n| Row |");
+  });
+
+  it("joins all text parts across multiple artifacts", () => {
+    const body = {
+      result: {
+        artifacts: [
+          { parts: [{ kind: "text", text: "First artifact" }] },
+          { parts: [{ kind: "text", text: "Second artifact" }] },
+        ],
+      },
+    };
+    expect(extractResponseText(body)).toBe("First artifact\nSecond artifact");
+  });
+
+  it("joins all .root.text variants when present", () => {
+    const body = {
+      result: {
+        parts: [
+          { root: { text: "alpha" } },
+          { root: { text: "beta" } },
+        ],
+      },
+    };
+    expect(extractResponseText(body)).toBe("alpha\nbeta");
+  });
+
+  // Regression: when a response carries BOTH parts and artifacts
+  // (Hermes tool-call replies do this — summary in parts, detail in
+  // artifacts), the early-return-on-parts implementation silently
+  // dropped the artifacts body. The collected-from-every-source
+  // implementation must surface both.
+  it("collects text from BOTH result.parts AND result.artifacts when both present", () => {
+    const body = {
+      result: {
+        parts: [{ kind: "text", text: "Summary" }],
+        artifacts: [
+          { parts: [{ kind: "text", text: "Detail block one" }] },
+          { parts: [{ kind: "text", text: "Detail block two" }] },
+        ],
+      },
+    };
+    expect(extractResponseText(body)).toBe("Summary\nDetail block one\nDetail block two");
+  });
 });
 
 describe("extractTextsFromParts", () => {

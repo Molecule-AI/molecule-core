@@ -280,6 +280,15 @@ export function computeAutoLayout(
  * Accepts an optional layoutOverrides map (from computeAutoLayout) to override
  * positions for workspaces that were at 0,0.
  *
+ * `currentParentSizes` carries the LIVE measured/grown dimensions of parent
+ * nodes from the existing client store. The auto-rescue heuristic below
+ * (line ~445) compares each child's stored relative position against its
+ * parent's bbox; without the live size, the bbox is whatever the
+ * grid-derived initial min-size formula produced. That falsely rescued
+ * children dragged into the user-grown area on every periodic rehydrate
+ * (socket.ts:87 fires every 30s if no WS events seen) — observed
+ * 2026-04-25 as "child jumps to weird location, then settles 30s later".
+ *
  * Parent/child rendering model: every workspace is a first-class React Flow
  * node (full card). When a workspace has parent_id set, its RF `parentId` is
  * set to the parent's id and its position is stored RELATIVE to the parent
@@ -290,7 +299,8 @@ export function computeAutoLayout(
  */
 export function buildNodesAndEdges(
   workspaces: WorkspaceData[],
-  layoutOverrides: Map<string, { x: number; y: number }> = new Map()
+  layoutOverrides: Map<string, { x: number; y: number }> = new Map(),
+  currentParentSizes: Map<string, { width: number; height: number }> = new Map(),
 ): {
   nodes: Node<WorkspaceNodeData>[];
   edges: Edge[];
@@ -439,7 +449,23 @@ export function buildNodesAndEdges(
       //     child.left = 500 < parent.right = 800 → overlaps → kept
       //   legacy huge positive (position.x = 50000):
       //     child.left = 50000 >= parent.right → no overlap → rescued
-      const psize = parentSize.get(ws.parent_id!)!;
+      const initialPsize = parentSize.get(ws.parent_id!)!;
+      // Use the larger of (initial min, currently grown) for the bbox
+      // test. Without this, a child the user dragged into the grown
+      // area appears "outside" the (smaller) initial bbox and the
+      // rescue below false-fires on every periodic rehydrate, jumping
+      // the child to a stale grid slot. Live grown dims arrive via
+      // currentParentSizes from hydrate(); on first load (empty
+      // store), the map is empty and we fall back to the initial min
+      // — preserving the original rescue semantics for genuinely
+      // detached legacy data.
+      const liveParentSize = currentParentSizes.get(ws.parent_id!);
+      const psize = liveParentSize
+        ? {
+            width: Math.max(initialPsize.width, liveParentSize.width),
+            height: Math.max(initialPsize.height, liveParentSize.height),
+          }
+        : initialPsize;
       const myW = subtreeSize.get(ws.id)?.width ?? CHILD_DEFAULT_WIDTH;
       const myH = subtreeSize.get(ws.id)?.height ?? CHILD_DEFAULT_HEIGHT;
       const overlapsX =

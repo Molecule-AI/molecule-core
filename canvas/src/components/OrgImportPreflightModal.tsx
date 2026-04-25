@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { createSecret } from "@/lib/api/secrets";
 
 /**
@@ -156,21 +157,39 @@ export function OrgImportPreflightModal({
   );
   const canProceed = missingRequired.length === 0;
 
+  // Synchronous in-flight gate. A ref (not state) so two clicks
+  // dispatched in the SAME microtask both see the gate flip — state
+  // commits don't help here because setState is async. The previous
+  // closure-based `current.saving` gate worked under React Testing
+  // Library's act() flushing but failed for true microtask-level
+  // double-fires (programmatic clicks, dblclick events, Enter-spam
+  // before React commits). Set is keyed by env var name so different
+  // rows can save concurrently.
+  const inFlightRef = useRef<Set<string>>(new Set());
+
+  // Latest-drafts ref so saveOne can read the current input value
+  // without taking `drafts` as a useCallback dep — that dep would
+  // re-create saveOne on every keystroke and re-bind every Save
+  // button's onClick handler, churn that scales with row count.
+  const draftsRef = useRef(drafts);
+  useEffect(() => {
+    draftsRef.current = drafts;
+  }, [drafts]);
+
   const saveOne = useCallback(
     async (key: string) => {
-      // Functional setter throughout so two near-simultaneous saves
-      // don't have the second one's call see a stale snapshot captured
-      // before the first save's setState landed. Read the current
-      // value AND write the `saving` flag in a single transition
-      // rather than reading from closure-scoped `drafts`.
-      let startValue = "";
-      setDrafts((d) => {
-        const current = d[key];
-        if (!current || !current.value.trim()) return d;
-        startValue = current.value;
-        return { ...d, [key]: { ...current, saving: true, error: null } };
-      });
-      if (!startValue.trim()) return;
+      // Microtask-safe gate: claim the slot synchronously BEFORE any
+      // await so a second click in the same tick bounces immediately.
+      if (inFlightRef.current.has(key)) return;
+      const current = draftsRef.current[key];
+      if (!current || !current.value.trim()) return;
+      inFlightRef.current.add(key);
+
+      const startValue = current.value;
+      setDrafts((d) => ({
+        ...d,
+        [key]: { ...d[key], saving: true, error: null },
+      }));
       try {
         await createSecret("global", key, startValue);
         setDrafts((d) => ({
@@ -189,6 +208,8 @@ export function OrgImportPreflightModal({
             error: e instanceof Error ? e.message : "Save failed",
           },
         }));
+      } finally {
+        inFlightRef.current.delete(key);
       }
     },
     [onSecretSaved],
@@ -196,7 +217,21 @@ export function OrgImportPreflightModal({
 
   if (!open) return null;
 
-  return (
+  // Portal the dialog to document.body so it escapes any ancestor
+  // containing block. TemplatePalette renders this modal inside a
+  // sidebar whose `fixed` container plus backdrop-filter together
+  // re-anchor descendants' `position: fixed` to the sidebar's own
+  // bounds instead of the viewport — the modal ends up glued to the
+  // sidebar's scrollable region and only becomes visible after the
+  // user scrolls the sidebar. Portal dodges that class of issue
+  // once and for all, regardless of what future wrappers do.
+  //
+  // SSR-safe guard: `document` is undefined on the server. Since
+  // the modal is gated by `if (!open) return null` above, this
+  // effectively only runs after open flips true on the client.
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
@@ -205,7 +240,7 @@ export function OrgImportPreflightModal({
       onClick={onCancel}
     >
       <div
-        className="w-[560px] max-h-[85vh] overflow-auto rounded-xl bg-zinc-900 border border-zinc-700 shadow-2xl"
+        className="w-[560px] max-h-[80vh] overflow-auto rounded-xl bg-zinc-900 border border-zinc-700 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="px-5 py-4 border-b border-zinc-800">
@@ -280,7 +315,8 @@ export function OrgImportPreflightModal({
           </div>
         </footer>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

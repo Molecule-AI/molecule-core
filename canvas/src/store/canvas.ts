@@ -791,7 +791,30 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   hydrate: (workspaces: WorkspaceData[]) => {
     const layoutOverrides = computeAutoLayout(workspaces);
-    const { nodes, edges } = buildNodesAndEdges(workspaces, layoutOverrides);
+    // Carry the live measured/grown parent sizes from the existing
+    // store into the rebuild. buildNodesAndEdges runs an auto-rescue
+    // pass on each child to detach orphans whose stored relative
+    // position falls outside the parent bbox — without the live
+    // size, the bbox is the initial grid-derived minimum, which
+    // false-flags any child the user has dragged into the
+    // user-grown area. Periodic rehydrate (socket.ts health check,
+    // 30s) was reasserting the rescue against legitimate user
+    // placements, causing the "child jumps to weird location, then
+    // settles" symptom.
+    const current = get().nodes;
+    const currentParentSizes = new Map<string, { width: number; height: number }>();
+    for (const n of current) {
+      const w = (n.measured?.width ?? n.width) as number | undefined;
+      const h = (n.measured?.height ?? n.height) as number | undefined;
+      if (typeof w === "number" && typeof h === "number") {
+        currentParentSizes.set(n.id, { width: w, height: h });
+      }
+    }
+    const { nodes, edges } = buildNodesAndEdges(
+      workspaces,
+      layoutOverrides,
+      currentParentSizes,
+    );
     set({ nodes, edges });
     for (const [nodeId, { x, y }] of layoutOverrides) {
       api.patch(`/workspaces/${nodeId}`, { x, y }).catch(() => {});

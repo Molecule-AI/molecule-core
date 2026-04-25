@@ -43,23 +43,73 @@ interface A2AResponse {
   };
 }
 
+/** Detect activity-log rows that the workspace's own runtime fired
+ *  against itself but were misclassified as canvas-source. The proper
+ *  fix is the X-Workspace-ID header from `self_source_headers()` in
+ *  workspace/platform_auth.py, which makes the platform record
+ *  source_id = workspace_id. But three failure modes still leak a
+ *  self-message into "My Chat":
+ *
+ *    1. Historical rows already in the DB with source_id=NULL.
+ *    2. Workspace containers running pre-fix heartbeat.py / main.py
+ *       (the fix only takes effect after an image rebuild + redeploy).
+ *    3. Future internal triggers added without the helper.
+ *
+ *  This client-side filter recognises the heartbeat trigger by its
+ *  exact prefix — the heartbeat assembles
+ *
+ *    "Delegation results are ready. Review them and take appropriate
+ *     action:\n" + summary_lines + report_instruction
+ *
+ *  in workspace/heartbeat.py. The prefix is template-fixed so a
+ *  string match is reliable. If the heartbeat copy ever changes,
+ *  update this constant in the same commit.
+ *
+ *  This is a backstop, not the primary defence — the X-Workspace-ID
+ *  header is. Filtering content is fragile to copy edits, so keep
+ *  the list narrow. */
+const INTERNAL_SELF_MESSAGE_PREFIXES = [
+  "Delegation results are ready. Review them and take appropriate action",
+];
+
+function isInternalSelfMessage(text: string): boolean {
+  return INTERNAL_SELF_MESSAGE_PREFIXES.some((p) => text.startsWith(p));
+}
+
 // extractReplyText pulls the agent's text reply out of an A2A response.
-// Mirrors the Go-side extractReplyText in workspace-server/internal/channels/manager.go.
+// Concatenates ALL text parts (joined with "\n") rather than returning
+// just the first. Claude Code and other runtimes commonly emit multi-
+// part text replies for long content (markdown tables, code blocks),
+// and the prior "first part wins" implementation silently truncated
+// the rest — observed on a 15k-char Wave 1 brief that rendered only
+// the table header. Mirrors extractTextsFromParts in message-parser.ts.
+//
+// Server-side counterpart in workspace-server/internal/channels/
+// manager.go has the same single-part bug; fix that too if/when a
+// channel-delivered reply (Slack, Lark, etc.) gets truncated.
 function extractReplyText(resp: A2AResponse): string {
+  const collect = (parts: A2APart[] | undefined): string => {
+    if (!parts) return "";
+    return parts
+      .filter((p) => p.kind === "text")
+      .map((p) => p.text ?? "")
+      .filter(Boolean)
+      .join("\n");
+  };
   const result = resp?.result;
-  if (result?.parts) {
-    for (const p of result.parts) {
-      if (p.kind === "text") return p.text ?? "";
-    }
-  }
+  const collected: string[] = [];
+  const fromParts = collect(result?.parts);
+  if (fromParts) collected.push(fromParts);
+  // Walk artifacts even if parts had text — some producers (Hermes
+  // tool calls) emit a summary in parts AND details in artifacts.
+  // Returning early on parts dropped the artifact body silently.
   if (result?.artifacts) {
     for (const a of result.artifacts) {
-      for (const p of a.parts || []) {
-        if (p.kind === "text") return p.text ?? "";
-      }
+      const t = collect(a.parts);
+      if (t) collected.push(t);
     }
   }
-  return "";
+  return collected.join("\n");
 }
 
 // Agent-returned files live on the same response shape as text —
@@ -87,7 +137,7 @@ async function loadMessagesFromDB(workspaceId: string): Promise<{ messages: Chat
     for (const a of [...activities].reverse()) {
       // Extract user message from request_body
       const userText = extractRequestText(a.request_body);
-      if (userText) {
+      if (userText && !isInternalSelfMessage(userText)) {
         messages.push(createMessage("user", userText));
       }
 
@@ -477,6 +527,17 @@ function MyChatPanel({ workspaceId, data }: Props) {
         sendInFlightRef.current = false;
       })
       .catch(() => {
+        // Same dedup guard as .then(): if a WS path (pendingAgentMsgs
+        // or ACTIVITY_LOGGED a2a_receive ok) already delivered the
+        // reply, sendingFromAPIRef is already false and there's
+        // nothing to roll back. Surfacing "Failed to send" here would
+        // contradict the agent reply the user is currently reading —
+        // exactly the false-positive observed when the HTTP request
+        // hung up (proxy idle / 502) after WS already won.
+        if (!sendingFromAPIRef.current) {
+          sendInFlightRef.current = false;
+          return;
+        }
         setSending(false);
         sendingFromAPIRef.current = false;
         sendInFlightRef.current = false;
@@ -498,6 +559,82 @@ function MyChatPanel({ workspaceId, data }: Props) {
 
   const removePendingFile = (index: number) =>
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+
+  // Monotonic counter so two paste events within the same wall-clock
+  // second still produce distinct filenames. Without this, on
+  // Firefox (where pasted images have an empty `file.name`), two
+  // pastes ~100ms apart could yield identical synthetic names AND
+  // identical sizes, collapsing into one attachment via the
+  // `name:size` dedup in onFilesPicked.
+  const pasteCounterRef = useRef(0);
+
+  /** Paste-from-clipboard image attachment.
+   *
+   *  Browser clipboard image items arrive as `File`s whose `name` is
+   *  often a generic "image.png" (Chrome) or empty (Firefox/Safari),
+   *  so two consecutive screenshot pastes collide on the name+size
+   *  dedup the file-picker uses. Re-tag each pasted image with a
+   *  per-paste unique name so dedup keeps them apart and the upload
+   *  pipeline (which expects a non-empty filename) is happy.
+   *
+   *  Falls through to onFilesPicked via direct File[] (NOT through
+   *  the DataTransfer constructor — that throws on Safari < 14.1
+   *  and old Edge, silently aborting the paste).
+   *
+   *  Only intercepts the paste when the clipboard has at least one
+   *  image; text-only pastes fall through to the textarea's default
+   *  behaviour. */
+  const mimeToExt = (mime: string): string => {
+    // Avoid raw `mime.split("/")[1]` — that yields `"svg+xml"`,
+    // `"jpeg"`, `"webp"` etc. which produce ugly filenames and may
+    // trip server-side extension allowlists. Map known types
+    // explicitly; unknown falls back to a safe default.
+    if (mime === "image/svg+xml") return "svg";
+    if (mime === "image/jpeg") return "jpg";
+    if (mime === "image/png") return "png";
+    if (mime === "image/gif") return "gif";
+    if (mime === "image/webp") return "webp";
+    if (mime === "image/heic") return "heic";
+    return "png";
+  };
+
+  const onPasteIntoComposer = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!dropEnabled) return;
+    const items = e.clipboardData?.items;
+    if (!items || items.length === 0) return;
+    const imageFiles: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item.type.startsWith("image/")) continue;
+      const file = item.getAsFile();
+      if (!file) continue;
+      const ext = mimeToExt(file.type);
+      const stamp = new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")
+        .slice(0, 19);
+      const seq = pasteCounterRef.current++;
+      const fname = `pasted-${stamp}-${seq}-${i}.${ext}`;
+      imageFiles.push(new File([file], fname, { type: file.type }));
+    }
+    if (imageFiles.length === 0) return;
+    e.preventDefault();
+    // Reuse the picker path so file-size guards, dedup, and pending-
+    // list state all run through the same code. Build a synthetic
+    // FileList-like object to avoid the DataTransfer constructor —
+    // that's missing on Safari < 14.1 / old Edge and would silently
+    // throw, leaving the paste a no-op.
+    addPastedFiles(imageFiles);
+  };
+
+  // Variant of onFilesPicked that accepts a File[] directly, sidestepping
+  // the DataTransfer-FileList round-trip. Same dedup + state shape.
+  const addPastedFiles = (files: File[]) => {
+    setPendingFiles((prev) => {
+      const keyed = new Set(prev.map((f) => `${f.name}:${f.size}`));
+      return [...prev, ...files.filter((f) => !keyed.has(`${f.name}:${f.size}`))];
+    });
+  };
 
   // Drag-and-drop staging. dragDepthRef counts enter vs leave events so
   // the overlay doesn't flicker when the cursor crosses nested children
@@ -719,7 +856,8 @@ function MyChatPanel({ workspaceId, data }: Props) {
                 sendMessage();
               }
             }}
-            placeholder={agentReachable ? "Send a message... (Shift+Enter for new line)" : `Agent is ${data.status}`}
+            onPaste={onPasteIntoComposer}
+            placeholder={agentReachable ? "Send a message... (Shift+Enter for new line, paste images to attach)" : `Agent is ${data.status}`}
             disabled={!agentReachable || sending}
             rows={1}
             className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500 resize-none disabled:opacity-50"

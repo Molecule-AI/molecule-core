@@ -175,9 +175,28 @@ describe("buildA2AEdges — edge properties", () => {
     expect((edge.style as React.CSSProperties).pointerEvents).toBe("none");
   });
 
-  it("sets pointerEvents: 'none' on labelStyle", () => {
+  it("tags the edge as type=a2a so React Flow renders the custom A2AEdge component", () => {
+    // The custom edge portals labels above the node layer and makes
+    // them clickable. Without type=a2a, RF falls back to the default
+    // edge whose label sits in the SVG group (hidden under nodes,
+    // pointerEvents:none). Regression guard for the hidden-label /
+    // unclickable-label bug observed 2026-04-25.
     const [edge] = buildA2AEdges([makeRow()], NOW);
-    expect((edge.labelStyle as React.CSSProperties).pointerEvents).toBe("none");
+    expect(edge.type).toBe("a2a");
+  });
+
+  it("populates edge.data with the fields the custom edge component reads", () => {
+    // A2AEdge reads count, lastAt, isHot, label from edge.data so the
+    // shape upstream must keep emitting them. A future buildA2AEdges
+    // refactor that drops any of these silently breaks the rendered
+    // pill (label disappears, hot/warm color swap fails, click handler
+    // can still fire but the label text vanishes).
+    const [edge] = buildA2AEdges([makeRow()], NOW);
+    const data = edge.data as Record<string, unknown>;
+    expect(data.count).toBe(1);
+    expect(typeof data.lastAt).toBe("number");
+    expect(typeof data.isHot).toBe("boolean");
+    expect(data.label).toMatch(/^1 call ·/);
   });
 
   it("label uses singular 'call' for count === 1", () => {

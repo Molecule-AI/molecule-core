@@ -29,7 +29,7 @@ const TABS: { id: PanelTab; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "◈" },
   { id: "activity", label: "Activity", icon: "⊙" },
   { id: "details", label: "Details", icon: "◉" },
-  { id: "skills", label: "Skills", icon: "✦" },
+  { id: "skills", label: "Plugins", icon: "✦" },
   { id: "terminal", label: "Terminal", icon: "▸" },
   { id: "config", label: "Config", icon: "⚙" },
   { id: "schedule", label: "Schedule", icon: "⏲" },

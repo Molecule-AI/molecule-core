@@ -57,6 +57,17 @@ export function SkillsTab({ data }: Props) {
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
+    // Re-init `mountedRef.current = true` on every mount. React 18
+    // StrictMode (Next.js dev) double-invokes effects: mount →
+    // cleanup → mount. Without this re-init, the first cleanup sets
+    // mountedRef.current = false, the re-mount runs the effect body
+    // again but never restores the flag, so every subsequent
+    // `if (mountedRef.current) setX(...)` guard skips and the
+    // component appears wedged: fetches complete, state never
+    // updates, "Loading…" sits forever. Production doesn't double-
+    // invoke so the bug only surfaces in dev — but dev is where we
+    // see it, and the cost of being explicit is one assignment.
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       clearTimeout(reloadTimerRef.current);
@@ -65,24 +76,98 @@ export function SkillsTab({ data }: Props) {
 
   const workspaceId = data.id;
 
+  // Tracks whether loadInstalled has completed at least once (success
+  // or empty-array success — NOT failure). Without this the auto-
+  // expand effect below would fire on the initial render where
+  // `installed.length === 0` simply because the fetch hasn't returned
+  // yet, and worse, would also fire if the fetch throws (network
+  // blip, auth failure) — both cases falsely look like "no plugins
+  // installed". Gating on a separate "loaded" flag avoids the false
+  // positive.
+  const [installedLoaded, setInstalledLoaded] = useState(false);
+
   const loadInstalled = useCallback(async () => {
     try {
       const result = await api.get<PluginInfo[]>(`/workspaces/${workspaceId}/plugins`);
-      if (mountedRef.current) setInstalled(Array.isArray(result) ? result : []);
+      if (mountedRef.current) {
+        setInstalled(Array.isArray(result) ? result : []);
+        setInstalledLoaded(true);
+      }
     } catch (e) {
       console.warn("SkillsTab: installed plugins load failed", e);
     }
   }, [workspaceId]);
 
-  const loadRegistry = useCallback(async () => {
+  // registry-load lifecycle so the UI can show "Loading…" / error /
+  // retry instead of an indistinguishable "No plugins in registry"
+  // banner whether the fetch is in-flight, errored, or genuinely
+  // returned []. The previous silent console.warn-only path made
+  // an auth failure or CORS blip look identical to an empty
+  // registry — exactly the diagnosis dead-end observed when the
+  // server returned 20 plugins via curl but the canvas showed 0.
+  const [registryLoading, setRegistryLoading] = useState(false);
+  const [registryError, setRegistryError] = useState<string | null>(null);
+
+  // Synchronous gate against concurrent loadRegistry runs. Refs survive
+  // Fast Refresh re-renders (ref objects persist across re-runs of
+  // the function body), so a previously-stranded fetch can pin this
+  // ref at true and block every subsequent loadRegistry call. The
+  // `force` parameter on loadRegistry below provides the user-driven
+  // escape hatch for that wedge.
+  const registryFetchInFlight = useRef(false);
+
+  // Reset the in-flight gate on unmount so a Fast Refresh that
+  // tears down + recreates the component without a full page reload
+  // doesn't carry the stuck-true value into the new instance via
+  // dev-server-preserved module state.
+  useEffect(() => {
+    return () => {
+      registryFetchInFlight.current = false;
+    };
+  }, []);
+
+  const loadRegistry = useCallback(async (force = false) => {
+    // Default callers (mount effect, button while not loading) honour
+    // the gate. Explicit force=true callers (Retry button) bypass it
+    // — the user is signalling "forget whatever you thought was in
+    // flight, fetch again now".
+    if (!force && registryFetchInFlight.current) return;
+    registryFetchInFlight.current = true;
+    setRegistryLoading(true);
+    setRegistryError(null);
     try {
-      const result = await api.get<PluginInfo[]>("/plugins");
+      // 10s timeout — tighter than the 15s default. Plugin registry
+      // is local-disk-backed on the platform host (server reads
+      // pluginsDir entries) so a 10s budget is generous. Without
+      // an explicit timeout the UI's "Loading registry…" can sit
+      // for the full 15s + any browser hop time when a Fast
+      // Refresh strands an in-flight promise.
+      const result = await api.get<PluginInfo[]>("/plugins", { timeoutMs: 10_000 });
       if (mountedRef.current) setRegistry(Array.isArray(result) ? result : []);
     } catch (e) {
-      // Registry is the AVAILABLE PLUGINS list. Silent failure here
-      // left the user seeing "No plugins in registry" with no clue
-      // it was a fetch error — log it so devtools shows the cause.
       console.warn("SkillsTab: registry load failed", e);
+      if (mountedRef.current) {
+        // Detect timeout/abort by DOMException.name first — that's
+        // the canonical signal across browsers. Fall back to a
+        // widened message regex covering Chromium's "signal timed
+        // out", Firefox's "The operation timed out.", Safari's
+        // "Aborted". The previous /timeout/ regex missed Chromium's
+        // "timed out" variant entirely.
+        const name = (e as { name?: string })?.name ?? "";
+        const msg = e instanceof Error ? e.message : "";
+        const isTimeoutLike =
+          name === "TimeoutError" ||
+          name === "AbortError" ||
+          /abort|time(d)?\s*out/i.test(msg);
+        setRegistryError(
+          isTimeoutLike
+            ? "Registry fetch timed out (10s). The platform server may be slow or unreachable."
+            : msg || "Failed to load registry",
+        );
+      }
+    } finally {
+      registryFetchInFlight.current = false;
+      if (mountedRef.current) setRegistryLoading(false);
     }
   }, []);
 
@@ -101,6 +186,21 @@ export function SkillsTab({ data }: Props) {
     loadRegistry();
     loadSourceSchemes();
   }, [loadInstalled, loadRegistry, loadSourceSchemes]);
+
+  // First-time experience: if the workspace has zero plugins
+  // installed but the platform's registry has options to choose
+  // from, expand the registry by default so the user sees what's
+  // available without an extra click. Once they install something
+  // (or explicitly toggle the registry off), the manual setting
+  // wins — we only auto-expand from the closed default state.
+  const hasAutoExpandedRef = useRef(false);
+  useEffect(() => {
+    if (hasAutoExpandedRef.current) return;
+    if (installedLoaded && installed.length === 0 && registry.length > 0) {
+      setShowRegistry(true);
+      hasAutoExpandedRef.current = true;
+    }
+  }, [installedLoaded, installed.length, registry.length]);
 
   const installedNames = useMemo(() => new Set(installed.map((p) => p.name)), [installed]);
 
@@ -264,9 +364,53 @@ export function SkillsTab({ data }: Props) {
                 Local registry plugins below; paste any scheme URL above for GitHub or other sources.
               </div>
             </div>
-            <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-2">Available plugins</div>
-            {registry.length === 0 ? (
-              <div className="text-[10px] text-zinc-600">No plugins in registry</div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-600">Available plugins</div>
+              {/* Retry visible whenever registry is empty — including
+                  the loading state — so a stuck fetch (Fast Refresh
+                  stranded promise, slow server, browser quirk) has a
+                  user-driven escape hatch. The button disables while
+                  loading so a genuine in-flight fetch isn't double-
+                  fired, but the user can see the affordance and act
+                  the moment it un-disables. */}
+              {registry.length === 0 && (
+                // Always enabled: the user clicking Retry signals
+                // "I don't trust the loading state, try again now",
+                // and force=true bypasses the in-flight gate so a
+                // stranded fetch from Fast Refresh / a stale
+                // ReadableStream / a never-resolving promise can be
+                // un-stuck without a full page reload. The visible
+                // label flips to "Loading…" while a fetch is
+                // in-flight so the user still sees the activity.
+                <button
+                  type="button"
+                  onClick={() => loadRegistry(true)}
+                  className="text-[10px] text-violet-300 hover:text-violet-200 underline-offset-2 hover:underline"
+                >
+                  {registryLoading ? "Loading… click to retry" : "Retry"}
+                </button>
+              )}
+            </div>
+            {registryLoading && registry.length === 0 ? (
+              <div className="text-[10px] text-zinc-500">Loading registry…</div>
+            ) : registryError ? (
+              <div className="rounded-lg border border-red-800/40 bg-red-950/20 px-2 py-1.5">
+                <div className="text-[10px] text-red-300 font-semibold mb-0.5">
+                  Couldn't load the plugin registry
+                </div>
+                <div className="text-[10px] text-red-400/80">{registryError}</div>
+                <div className="mt-1 text-[10px] text-zinc-500">
+                  Check the platform server is reachable at /plugins. The Retry button is in the header above.
+                </div>
+              </div>
+            ) : registry.length === 0 ? (
+              <div className="rounded-lg border border-zinc-800/40 bg-zinc-950/40 px-2 py-1.5">
+                <div className="text-[10px] text-zinc-400 mb-0.5">Registry returned 0 plugins.</div>
+                <div className="text-[10px] text-zinc-600">
+                  This usually means the platform's plugins/ directory is empty.
+                  Run scripts/clone-manifest.sh to populate it from the standalone repos.
+                </div>
+              </div>
             ) : (
               <div className="space-y-1.5">
                 {registry.map((p) => {

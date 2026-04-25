@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
-// Mock the canvas store before importing socket.ts
+// Mock the canvas store and api before importing socket.ts
 // ---------------------------------------------------------------------------
 vi.mock("../canvas", () => ({
   useCanvasStore: {
@@ -12,6 +12,7 @@ vi.mock("../canvas", () => ({
     })),
   },
 }));
+
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket
@@ -76,7 +77,6 @@ function getLastWS(): MockWebSocket {
 beforeEach(() => {
   MockWebSocket.instances = [];
   vi.useFakeTimers();
-
   // Reset mocked store state
   vi.mocked(useCanvasStore.getState).mockReturnValue({
     applyEvent: vi.fn(),
@@ -326,5 +326,47 @@ describe("health check", () => {
     // clearInterval must have been called at least once (stopHealthCheck inside startHealthCheck)
     expect(clearIntervalSpy).toHaveBeenCalled();
     clearIntervalSpy.mockRestore();
+  });
+});
+
+// Rehydrate dedup logic itself is exercised by `RehydrateDedup` unit
+// tests in this file (below). End-to-end coupling through the
+// dynamic-imported `@/lib/api` was non-trivial under our existing
+// fake-timer setup; isolating the gate in a pure helper keeps
+// regression coverage without that mocking complexity.
+
+import { RehydrateDedup } from "../socket";
+
+describe("RehydrateDedup", () => {
+  it("first call passes the gate (no prior fetch)", () => {
+    const d = new RehydrateDedup(1500);
+    expect(d.shouldSkip(0)).toBe(false);
+  });
+
+  it("blocks while a fetch is in flight", () => {
+    const d = new RehydrateDedup(1500);
+    d.beginFetch();
+    expect(d.shouldSkip(100)).toBe(true);
+  });
+
+  it("blocks within the post-completion window", () => {
+    const d = new RehydrateDedup(1500);
+    d.beginFetch();
+    d.completeFetch(1_000);
+    // 1100 - 1000 = 100 < 1500 → skip
+    expect(d.shouldSkip(1_100)).toBe(true);
+    // 2600 - 1000 = 1600 > 1500 → allow
+    expect(d.shouldSkip(2_600)).toBe(false);
+  });
+
+  it("a completed fetch followed by another beginFetch blocks for the new in-flight", () => {
+    const d = new RehydrateDedup(1500);
+    d.beginFetch();
+    d.completeFetch(1_000);
+    // First wait out the dedup window
+    expect(d.shouldSkip(2_600)).toBe(false);
+    d.beginFetch();
+    // Now a second fetch is in flight; further calls block again
+    expect(d.shouldSkip(2_700)).toBe(true);
   });
 });

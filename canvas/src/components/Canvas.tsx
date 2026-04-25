@@ -36,9 +36,20 @@ import { DropTargetBadge } from "./canvas/DropTargetBadge";
 import { useDragHandlers } from "./canvas/useDragHandlers";
 import { useKeyboardShortcuts } from "./canvas/useKeyboardShortcuts";
 import { useCanvasViewport } from "./canvas/useCanvasViewport";
+import { A2AEdge } from "./canvas/A2AEdge";
 
 const nodeTypes = {
   workspaceNode: WorkspaceNode,
+};
+
+// Custom edge types. The default React Flow edge renders its label
+// inside the SVG group (always under nodes) with pointerEvents: none
+// inherited from the path. A2AEdge portals the label to a sibling
+// DOM layer so it renders above nodes and accepts clicks. Keep the
+// reference stable (module-scope const) so React Flow doesn't see a
+// new edgeTypes object on every render and warn about prop churn.
+const edgeTypes = {
+  a2a: A2AEdge,
 };
 
 const defaultEdgeOptions: Partial<Edge> = {
@@ -248,6 +259,7 @@ function CanvasInner() {
           onPaneClick={onPaneClick}
           onMoveEnd={onMoveEnd}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           defaultEdgeOptions={defaultEdgeOptions}
           defaultViewport={defaultViewport}
           fitView={viewport.x === 0 && viewport.y === 0 && viewport.zoom === 1}

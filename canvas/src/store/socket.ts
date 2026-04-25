@@ -12,6 +12,50 @@ export interface WSMessage {
   payload: Record<string, unknown>;
 }
 
+/** Window during which a freshly-completed rehydrate is reused
+ *  instead of firing a new GET. Picked to absorb the connect→health-
+ *  check sequence (rehydrate runs once on onopen, then the first
+ *  health-check tick fires immediately after — both should share the
+ *  same fetch) without holding back legitimately-spaced rehydrates
+ *  triggered by genuine WS silence later. */
+const REHYDRATE_DEDUP_WINDOW_MS = 1_500;
+
+/** Pure dedup gate for rehydrate(). Tracks two states:
+ *
+ *    - in-flight (between beginFetch and completeFetch): every
+ *      shouldSkip returns true.
+ *    - post-completion window (now < completedAt + windowMs):
+ *      shouldSkip returns true.
+ *
+ *  Extracted from ReconnectingSocket so the gate is unit-testable
+ *  without mocking dynamic imports or fake timers. The class itself
+ *  is stateful but tiny — instances are not shared across sockets. */
+export class RehydrateDedup {
+  private inFlight = false;
+  // -Infinity so the very first shouldSkip(now) call always passes
+  // (now - (-Infinity) > windowMs). Initializing to 0 would false-
+  // trip on test runs where now is also 0 (vi.useFakeTimers default
+  // clock) AND on real runs in the first 1.5s after epoch on
+  // clock-skewed systems.
+  private completedAt = Number.NEGATIVE_INFINITY;
+  constructor(private readonly windowMs: number) {}
+
+  shouldSkip(now: number): boolean {
+    if (this.inFlight) return true;
+    if (now - this.completedAt < this.windowMs) return true;
+    return false;
+  }
+
+  beginFetch(): void {
+    this.inFlight = true;
+  }
+
+  completeFetch(now: number = Date.now()): void {
+    this.inFlight = false;
+    this.completedAt = now;
+  }
+}
+
 class ReconnectingSocket {
   private ws: WebSocket | null = null;
   private attempt = 0;
@@ -25,6 +69,18 @@ class ReconnectingSocket {
   // effect double-invoke (and any future intentional disconnect)
   // leaves a zombie WebSocket alive forever.
   private disposed = false;
+  // In-flight singleton + dedup window for rehydrate. Two reasons to
+  // collapse rapid calls:
+  //   1. connect.onopen fires rehydrate immediately, and the very next
+  //      health-check tick may fire it again before the first GET
+  //      returns — wasted round trip + rebuild churn that resets the
+  //      mid-flight UI state (auto-rescue heuristics, grow passes).
+  //   2. Future call sites (a manual "Refresh" button, post-import
+  //      hydrate, error-recovery rehydrate) might pile up.
+  // Keeping rehydrate idempotent at the call-site level means each
+  // caller can fire-and-forget without coordinating.
+  private rehydrateInFlight: Promise<void> | null = null;
+  private rehydrateDedup = new RehydrateDedup(REHYDRATE_DEDUP_WINDOW_MS);
 
   constructor(url: string) {
     this.url = url;
@@ -101,14 +157,35 @@ class ReconnectingSocket {
     }
   }
 
-  private async rehydrate() {
-    try {
-      const { api } = await import("@/lib/api");
-      const workspaces = await api.get<WorkspaceData[]>("/workspaces");
-      useCanvasStore.getState().hydrate(workspaces);
-    } catch {
-      // Rehydration failed — will retry on next health check cycle
+  private rehydrate(): Promise<void> {
+    // Reuse an in-flight fetch — a second caller during the GET
+    // shouldn't kick off a parallel one.
+    if (this.rehydrateInFlight) return this.rehydrateInFlight;
+    if (this.rehydrateDedup.shouldSkip(Date.now())) {
+      return Promise.resolve();
     }
+
+    // beginFetch lives INSIDE the IIFE's try so any future code added
+    // between gate-check and IIFE-construction can't throw and leave
+    // the gate stuck at inFlight=true forever. Today there's nothing
+    // that can throw here, but the cost of being defensive is one
+    // extra microtask of "in flight" status — negligible.
+    const promise = (async () => {
+      this.rehydrateDedup.beginFetch();
+      try {
+        const { api } = await import("@/lib/api");
+        const workspaces = await api.get<WorkspaceData[]>("/workspaces");
+        if (this.disposed) return;
+        useCanvasStore.getState().hydrate(workspaces);
+      } catch {
+        // Rehydration failed — will retry on next health check cycle.
+      } finally {
+        this.rehydrateDedup.completeFetch(Date.now());
+        this.rehydrateInFlight = null;
+      }
+    })();
+    this.rehydrateInFlight = promise;
+    return promise;
   }
 
   disconnect() {
