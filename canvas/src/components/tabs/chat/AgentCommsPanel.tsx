@@ -151,22 +151,45 @@ export function AgentCommsPanel({ workspaceId }: { workspaceId: string }) {
     setLoading(true);
     api.get<ActivityEntry[]>(`/workspaces/${workspaceId}/activity?source=agent&limit=50`)
       .then((entries) => {
-        const filtered = entries
+        const filtered = (entries ?? [])
           .filter((e) => e.activity_type === "a2a_send" || e.activity_type === "a2a_receive")
           .reverse();
         const msgs: CommMessage[] = [];
         for (const e of filtered) {
-          const m = toCommMessage(e, workspaceId);
-          if (m) {
-            const key = `${m.timestamp}:${m.flow}:${m.peerId}`;
-            msgs.push(m);
-            seenKeys.current.add(key);
+          // Per-row try/catch so a single malformed activity row
+          // (e.g. unexpected request_body shape) doesn't kill the
+          // batch — the previous code threw out of the for-loop and
+          // setMessages([3 items]) never ran, leaving the panel
+          // stuck on the empty state with no diagnostic in the
+          // console because the outer .catch silently swallowed
+          // everything.
+          try {
+            const m = toCommMessage(e, workspaceId);
+            if (m) {
+              const key = `${m.timestamp}:${m.flow}:${m.peerId}`;
+              msgs.push(m);
+              seenKeys.current.add(key);
+            }
+          } catch (rowErr) {
+            console.warn(
+              "AgentCommsPanel: failed to map activity row",
+              { id: e.id, type: e.activity_type, err: rowErr },
+            );
           }
         }
         setMessages(msgs);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((err) => {
+        // Surface the failure in the console so a stuck panel is
+        // diagnosable without a debugger. Previous bare
+        // `.catch(() => setLoading(false))` swallowed every load
+        // failure (network errors, JSON parse errors, throws inside
+        // the .then body) — the panel just sat on the empty state
+        // with zero signal.
+        console.warn("AgentCommsPanel: load activity failed", err);
+        setLoading(false);
+      });
   }, [workspaceId]);
 
   // Live updates via WebSocket
