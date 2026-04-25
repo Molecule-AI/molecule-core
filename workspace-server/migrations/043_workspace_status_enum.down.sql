@@ -5,6 +5,11 @@
 
 BEGIN;
 
+-- Symmetric with the up migration: a rollback under the same load
+-- that motivated the up-file's 5s lock_timeout would otherwise stall
+-- writers indefinitely.
+SET LOCAL lock_timeout = '5s';
+
 ALTER TABLE workspaces
     ALTER COLUMN status DROP DEFAULT;
 

@@ -541,7 +541,15 @@ class ClaudeSDKExecutor(AgentExecutor):
         # cleanly, the SDK clearly works again. Clear so the next
         # heartbeat reports runtime_state empty and the platform flips
         # status degraded → online without a manual restart.
-        _clear_sdk_wedge_on_success()
+        #
+        # Gate on actual content from the stream so a degenerate
+        # "iterator returned without raising but emitted nothing"
+        # case (possible from a partial stream or a stub SDK) doesn't
+        # falsely advertise recovery. A real successful query yields
+        # at least a ResultMessage (sets result_text) or one
+        # AssistantMessage TextBlock (populates assistant_chunks).
+        if result_text is not None or assistant_chunks:
+            _clear_sdk_wedge_on_success()
         return QueryResult(text=text, session_id=session_id)
 
     # ------------------------------------------------------------------

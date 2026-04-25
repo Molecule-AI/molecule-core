@@ -121,27 +121,26 @@ func isUpstreamBusyError(err error) bool {
 	if err == nil {
 		return false
 	}
+	// Typed sentinels propagate cleanly through *url.Error.Unwrap
+	// since Go 1.13, so errors.Is is the primary check for both
+	// DeadlineExceeded and Canceled. The substring fallbacks below
+	// stay only for shapes net/http does NOT type — bare "EOF" /
+	// "connection reset" can arrive as plain *net.OpError with no
+	// errors.Is hook to the stdlib sentinels.
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	// applyIdleTimeout cancels via context.WithCancel when the
-	// broadcaster silence window elapses — context.Canceled
-	// propagates cleanly through errors.Is, no substring fallback
-	// needed (and a substring on "context canceled" would also match
-	// healthy client-side aborts which we don't want to label busy).
+	// applyIdleTimeout uses context.WithCancel; surfaces here as
+	// Canceled, distinct from DeadlineExceeded but the same "upstream
+	// busy" class — caller produces a 503 + Retry-After.
 	if errors.Is(err, context.Canceled) {
 		return true
 	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
-	// url.Error wraps "read tcp … EOF" and "Post …: context deadline
-	// exceeded" strings from the stdlib HTTP client without typing the
-	// inner cause. Fall back to substring match for those specific
-	// shapes only.
 	msg := err.Error()
-	return strings.Contains(msg, "context deadline exceeded") ||
-		strings.Contains(msg, "EOF") ||
+	return strings.Contains(msg, "EOF") ||
 		strings.Contains(msg, "connection reset")
 }
 

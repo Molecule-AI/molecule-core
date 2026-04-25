@@ -601,9 +601,21 @@ func TestIsUpstreamBusyError(t *testing.T) {
 	}{
 		{"nil", nil, false},
 		{"context.DeadlineExceeded", context.DeadlineExceeded, true},
+		// applyIdleTimeout cancels its child ctx via context.WithCancel
+		// when the broadcaster silence window elapses — surfaces here
+		// as context.Canceled. Same "upstream busy" classification.
+		{"context.Canceled", context.Canceled, true},
+		{"wrapped context.Canceled", fmt.Errorf("dispatch wrapped: %w", context.Canceled), true},
 		{"io.EOF", io.EOF, true},
 		{"io.ErrUnexpectedEOF", io.ErrUnexpectedEOF, true},
-		{"wrapped context deadline string", fmt.Errorf(`Post "http://ws-foo:8000": context deadline exceeded`), true},
+		// Real net/http wraps context.DeadlineExceeded via *url.Error.Unwrap,
+		// so errors.Is(err, context.DeadlineExceeded) catches it. The
+		// pre-892de784 substring "context deadline exceeded" fallback
+		// also accepted a string-only error like
+		// `fmt.Errorf("Post: context deadline exceeded")`; that fallback
+		// was dropped because errors.Is handles the real shape and the
+		// substring was indistinguishable from a user-content match.
+		{"wrapped context deadline (errors.Is path)", fmt.Errorf("Post: %w", context.DeadlineExceeded), true},
 		{"wrapped EOF string", fmt.Errorf(`Post "http://ws-foo:8000": EOF`), true},
 		{"connection reset", fmt.Errorf("read tcp 127.0.0.1:8080->127.0.0.1:12345: connection reset by peer"), true},
 		{"generic dns error", fmt.Errorf("no such host"), false},
