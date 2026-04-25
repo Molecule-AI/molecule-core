@@ -183,7 +183,7 @@ function CanvasInner() {
   // outside-click handler.
   const pendingDelete = useCanvasStore((s) => s.pendingDelete);
   const setPendingDelete = useCanvasStore((s) => s.setPendingDelete);
-  const removeNode = useCanvasStore((s) => s.removeNode);
+  const removeSubtree = useCanvasStore((s) => s.removeSubtree);
   const confirmDelete = useCallback(async () => {
     if (!pendingDelete) return;
     const { id } = pendingDelete;
@@ -207,12 +207,13 @@ function CanvasInner() {
     state.beginDelete(subtree);
     try {
       await api.del(`/workspaces/${id}?confirm=true`);
-      removeNode(id);
-      // Server-side cascade will emit WORKSPACE_REMOVED per node;
-      // handleCanvasEvent drops each from the store. Clear the
-      // deleting set in one shot once the DELETE resolves so any
-      // node that lags the WS (or is preserved locally, e.g. an
-      // external workspace) doesn't stay dimmed forever.
+      // Mirror the server-side cascade locally — drop the parent AND
+      // every descendant in one atomic update. The per-descendant
+      // WORKSPACE_REMOVED WS events still arrive (and are no-ops
+      // because the nodes are already gone), but we no longer depend
+      // on them: a wedged WS used to leave orphan child cards on the
+      // canvas until the user refreshed the page.
+      removeSubtree(id);
       state.endDelete(subtree);
     } catch (e) {
       // Network or server error — restore the subtree to normal
@@ -220,7 +221,7 @@ function CanvasInner() {
       state.endDelete(subtree);
       showToast(e instanceof Error ? e.message : "Delete failed", "error");
     }
-  }, [pendingDelete, setPendingDelete, removeNode]);
+  }, [pendingDelete, setPendingDelete, removeSubtree]);
 
   const onPaneClick = useCallback(() => {
     selectNode(null);

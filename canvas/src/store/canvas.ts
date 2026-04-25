@@ -132,6 +132,16 @@ interface CanvasState {
   updateNodeData: (id: string, data: Partial<WorkspaceNodeData>) => void;
   restartWorkspace: (id: string) => Promise<void>;
   removeNode: (id: string) => void;
+  /** Remove a node AND every descendant in one atomic update. Mirrors
+   *  the server-side cascade — `DELETE /workspaces/:id?confirm=true`
+   *  drops the row plus every descendant in one transaction. The
+   *  caller (Canvas / DetailsTab delete handlers) used to call
+   *  `removeNode(rootId)` and rely on per-descendant WORKSPACE_REMOVED
+   *  WS events to clear the rest. When the WS is unhealthy those
+   *  events never arrive and the children orphan to the root until a
+   *  manual page refresh — `removeSubtree` makes the cascade
+   *  WS-independent. */
+  removeSubtree: (rootId: string) => void;
   setDragOverNode: (id: string | null) => void;
   nestNode: (draggedId: string, targetId: string | null) => Promise<void>;
   isDescendant: (ancestorId: string, nodeId: string) => boolean;
@@ -786,6 +796,43 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         ),
       edges: edges.filter((e) => e.source !== id && e.target !== id),
       selectedNodeId: selectedNodeId === id ? null : selectedNodeId,
+    });
+  },
+
+  removeSubtree: (rootId) => {
+    const { nodes, edges, selectedNodeId } = get();
+    // Build a parentId → childIds index once so the descent is O(N),
+    // not O(N · depth). The store typically holds <500 nodes; even
+    // doing a linear scan per parent would be fine, but the index
+    // keeps the cost predictable as orgs grow.
+    const childrenByParent = new Map<string, string[]>();
+    for (const n of nodes) {
+      const p = n.data.parentId ?? null;
+      if (p === null) continue;
+      const arr = childrenByParent.get(p);
+      if (arr) arr.push(n.id);
+      else childrenByParent.set(p, [n.id]);
+    }
+    const removed = new Set<string>([rootId]);
+    const stack = [rootId];
+    while (stack.length) {
+      const cur = stack.pop()!;
+      const kids = childrenByParent.get(cur);
+      if (!kids) continue;
+      for (const k of kids) {
+        if (!removed.has(k)) {
+          removed.add(k);
+          stack.push(k);
+        }
+      }
+    }
+    set({
+      nodes: nodes.filter((n) => !removed.has(n.id)),
+      edges: edges.filter((e) => !removed.has(e.source) && !removed.has(e.target)),
+      selectedNodeId:
+        selectedNodeId !== null && removed.has(selectedNodeId)
+          ? null
+          : selectedNodeId,
     });
   },
 
