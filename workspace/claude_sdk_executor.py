@@ -29,7 +29,7 @@ import asyncio
 import logging
 import os
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -160,7 +160,7 @@ def _reset_sdk_wedge_for_test() -> None:
 # table falls through to a generic "🛠 <tool>(…)" line. Order keys by
 # tool frequency so a future contributor can see the high-traffic
 # tools first.
-_TOOL_USE_SUMMARIZERS: "dict[str, callable[[dict], str]]" = {
+_TOOL_USE_SUMMARIZERS: dict[str, Callable[[dict], str]] = {
     "Read":  lambda i: f"📄 Read {i.get('file_path', '?')}",
     "Write": lambda i: f"✍️  Write {i.get('file_path', '?')}",
     "Edit":  lambda i: f"✏️  Edit {i.get('file_path', '?')}",

@@ -1354,3 +1354,38 @@ async def test_execute_clears_wedge_on_successful_query():
             assert _executor_mod.wedge_reason() == ""
         finally:
             _executor_mod._reset_sdk_wedge_for_test()
+
+
+@pytest.mark.asyncio
+async def test_execute_does_not_clear_wedge_on_empty_stream():
+    """Regression for the gate added in 3c4eef49: a stream that
+    iterates without raising but emits NEITHER an AssistantMessage
+    NOR a ResultMessage (degenerate or stub-driven shape) must NOT
+    clear the wedge flag. A real successful query yields at least
+    one of those; treating an empty stream as "recovered" would
+    falsely flip the workspace back to online without any evidence
+    the SDK is actually working."""
+    _executor_mod._reset_sdk_wedge_for_test()
+    _executor_mod._mark_sdk_wedged("pre-existing wedge — must not clear on empty stream")
+    assert _executor_mod.is_wedged() is True
+
+    e = _make_executor()
+    ctx = _make_context(["test prompt"])
+    eq = _make_event_queue()
+
+    async def empty_query(prompt, options):
+        # Iterator returns without yielding — the degenerate case.
+        if False:
+            yield  # pragma: no cover
+
+    with patch("claude_sdk_executor.recall_memories", new=AsyncMock(return_value="")), \
+         patch("claude_sdk_executor.read_delegation_results", return_value=""), \
+         patch("claude_sdk_executor.commit_memory", new=AsyncMock()), \
+         patch("claude_sdk_executor.set_current_task", new=AsyncMock()), \
+         patch("claude_agent_sdk.query", new=empty_query):
+        try:
+            await e.execute(ctx, eq)
+            assert _executor_mod.is_wedged() is True, \
+                "wedge must persist when the stream emitted no content"
+        finally:
+            _executor_mod._reset_sdk_wedge_for_test()
