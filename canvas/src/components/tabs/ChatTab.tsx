@@ -12,6 +12,7 @@ import { uploadChatFiles, downloadChatFile } from "./chat/uploads";
 import { AttachmentChip, PendingAttachmentPill } from "./chat/AttachmentViews";
 import { extractResponseText, extractRequestText, extractFilesFromTask } from "./chat/message-parser";
 import { AgentCommsPanel } from "./chat/AgentCommsPanel";
+import { appendActivityLine } from "./chat/activityLog";
 import { runtimeDisplayName } from "@/lib/runtime-names";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 
@@ -428,12 +429,12 @@ function MyChatPanel({ workspaceId, data }: Props) {
           }
 
           if (line) {
-            setActivityLog((prev) => [...prev.slice(-8), line]);
+            setActivityLog((prev) => appendActivityLine(prev, line));
           }
         } else if (msg.event === "TASK_UPDATED" && msg.workspace_id === workspaceId) {
           const task = (msg.payload?.current_task as string) || "";
           if (task) {
-            setActivityLog((prev) => [...prev.slice(-8), `⟳ ${task}`]);
+            setActivityLog((prev) => appendActivityLine(prev, `⟳ ${task}`));
           }
         }
         // A2A_RESPONSE is already consumed by the store and its text is

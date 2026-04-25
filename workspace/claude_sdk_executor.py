@@ -127,13 +127,29 @@ def _mark_sdk_wedged(reason: str) -> None:
     global _sdk_wedged_reason
     if _sdk_wedged_reason is None:
         _sdk_wedged_reason = reason
-        logger.error("SDK wedge detected: %s — workspace will report degraded until restart", reason)
+        logger.error("SDK wedge detected: %s — workspace will report degraded until a successful query clears it", reason)
+
+
+def _clear_sdk_wedge_on_success() -> None:
+    """Auto-recovery — called from _run_query after a successful
+    completion. The original wedge could be transient (a single network
+    blip during the SDK's first-message handshake), and a sticky-only
+    flag would lock the workspace into degraded forever even after the
+    SDK started working again. Clearing on observed success means the
+    next heartbeat after a working query reports `runtime_state` empty
+    and the platform flips status back to online.
+
+    No-op when not wedged (the common case)."""
+    global _sdk_wedged_reason
+    if _sdk_wedged_reason is not None:
+        logger.info("SDK wedge cleared after successful query — workspace will recover to online on next heartbeat")
+        _sdk_wedged_reason = None
 
 
 def _reset_sdk_wedge_for_test() -> None:
-    """Test-only escape hatch. Production code never resets the flag —
-    wedge clears via process restart, which naturally re-imports this
-    module with the flag at None."""
+    """Test-only escape hatch. Production code clears the wedge via
+    `_clear_sdk_wedge_on_success` when a query succeeds; this helper
+    is for unit tests that need to reset between cases."""
     global _sdk_wedged_reason
     _sdk_wedged_reason = None
 
@@ -213,6 +229,12 @@ async def _report_tool_use(block: Any) -> None:
                 json={
                     "activity_type": "agent_log",
                     "source_id": WORKSPACE_ID,
+                    # target_id == source for self-actions. Matches the
+                    # convention other self-logged activity rows use
+                    # (a2a_receive when the workspace logs its own
+                    # outbound reply) so DB consumers joining on
+                    # target_id see a well-defined value.
+                    "target_id": WORKSPACE_ID,
                     "summary": summary,
                     "status": "ok",
                     "method": tool_name,
@@ -228,11 +250,15 @@ async def _report_tool_use(block: Any) -> None:
 # claude_agent_sdk init-timeout wedge (vs. a rate-limit, transient
 # subprocess crash, etc.). Match is case-insensitive on the formatted
 # error string. Adding a new pattern here MUST come with a test in
-# tests/test_claude_sdk_executor.py — the flag is sticky and false-
-# positives lock the workspace into degraded for the whole process
-# lifetime.
+# tests/test_claude_sdk_executor.py — false-positives lock the
+# workspace into degraded until the next successful query clears it.
+#
+# `:initialize` suffix-anchored — the SDK can theoretically time out
+# on later control messages (in-flight tool callbacks), but those
+# don't leave the SDK in the unrecoverable post-init state we're
+# trying to detect. Limit the pattern to the specific wedge.
 _WEDGE_ERROR_PATTERNS = (
-    "control request timeout",
+    "control request timeout: initialize",
 )
 
 
@@ -510,6 +536,12 @@ class ClaudeSDKExecutor(AgentExecutor):
         finally:
             self._active_stream = None
         text = result_text if result_text is not None else "".join(assistant_chunks)
+        # Auto-recover the wedge flag — if a previous query() left this
+        # process in `_sdk_wedged` and THIS query just completed
+        # cleanly, the SDK clearly works again. Clear so the next
+        # heartbeat reports runtime_state empty and the platform flips
+        # status degraded → online without a manual restart.
+        _clear_sdk_wedge_on_success()
         return QueryResult(text=text, session_id=session_id)
 
     # ------------------------------------------------------------------

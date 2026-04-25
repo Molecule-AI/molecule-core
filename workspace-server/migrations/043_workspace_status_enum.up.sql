@@ -23,13 +23,30 @@
 --                   itself failed via bundle import / runtime crash
 --   removed       — soft-delete tombstone; the row stays so foreign-
 --                   key references survive but no operations target it
+--   paused        — operator-initiated suspend via workspace_restart's
+--                   pause path (workspace_restart.go:406)
+--   hibernated    — auto-suspended after idle threshold; container
+--                   stopped but row preserved (workspace_restart.go:283,
+--                   introduced by migration 029_workspace_hibernation)
 --
--- Verified before writing this migration that production code in
--- workspace-server/internal/{handlers,registry,bundle} writes only
--- values from this list (test fixtures may write others; tests run
--- against an isolated fixture DB so the cast doesn't affect them).
+-- Sweep of every `UPDATE workspaces SET status = 'X'` in the
+-- workspace-server/internal/ tree (excluding tests) verified the
+-- value set. Adding a new state in the future requires both updating
+-- this enum (a separate `ALTER TYPE … ADD VALUE` migration) AND any
+-- writers — the enum will reject unknown strings at insert/update
+-- time, which is the exact failure mode this migration is meant to
+-- give us.
+--
+-- Deployment: `ALTER TABLE … ALTER COLUMN TYPE` takes ACCESS
+-- EXCLUSIVE on workspaces. A long-running SELECT against the table
+-- will block the migration; the migration will then block every
+-- writer behind it. `SET lock_timeout` aborts the migration in 5s
+-- if it can't acquire the lock — preferable to stalling the whole
+-- workspace fleet behind one slow query.
 
 BEGIN;
+
+SET LOCAL lock_timeout = '5s';
 
 CREATE TYPE workspace_status AS ENUM (
     'provisioning',
@@ -37,7 +54,9 @@ CREATE TYPE workspace_status AS ENUM (
     'offline',
     'degraded',
     'failed',
-    'removed'
+    'removed',
+    'paused',
+    'hibernated'
 );
 
 -- The two-step ALTER (DROP DEFAULT then change type then SET DEFAULT)

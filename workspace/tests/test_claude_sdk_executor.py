@@ -1319,3 +1319,38 @@ async def test_execute_does_not_mark_wedge_on_unrelated_error():
             assert _executor_mod.is_wedged() is False, "non-wedge error must not flip the flag"
         finally:
             _executor_mod._reset_sdk_wedge_for_test()
+
+
+@pytest.mark.asyncio
+async def test_execute_clears_wedge_on_successful_query():
+    """Auto-recovery: a process that previously hit a wedge should be
+    able to recover when the SDK starts working again. _run_query
+    calls _clear_sdk_wedge_on_success at the end of a clean
+    completion; the flag flips back to None and the next heartbeat
+    reports runtime_state empty so the platform recovers status →
+    online without forcing the user to restart the workspace."""
+    # Pre-set the wedge as if a prior call had tripped it.
+    _executor_mod._reset_sdk_wedge_for_test()
+    _executor_mod._mark_sdk_wedged("transient: Control request timeout: initialize")
+    assert _executor_mod.is_wedged() is True
+
+    e = _make_executor()
+    ctx = _make_context(["test prompt"])
+    eq = _make_event_queue()
+
+    async def good_query(prompt, options):
+        # Working SDK — yield one normal assistant message + result.
+        yield _FakeAssistantMessage([_FakeTextBlock("hello back")])
+        yield _FakeResultMessage(session_id="recovered-sess")
+
+    with patch("claude_sdk_executor.recall_memories", new=AsyncMock(return_value="")), \
+         patch("claude_sdk_executor.read_delegation_results", return_value=""), \
+         patch("claude_sdk_executor.commit_memory", new=AsyncMock()), \
+         patch("claude_sdk_executor.set_current_task", new=AsyncMock()), \
+         patch("claude_agent_sdk.query", new=good_query):
+        try:
+            await e.execute(ctx, eq)
+            assert _executor_mod.is_wedged() is False, "wedge flag must clear after a successful query"
+            assert _executor_mod.wedge_reason() == ""
+        finally:
+            _executor_mod._reset_sdk_wedge_for_test()

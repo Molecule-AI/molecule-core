@@ -124,11 +124,11 @@ func isUpstreamBusyError(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	// applyIdleTimeout cancels the request ctx via context.WithCancel
-	// when the broadcaster silence window elapses — that surfaces as
-	// context.Canceled (not DeadlineExceeded). Treat it as the same
-	// "upstream busy" class so the caller produces a 503 + Retry-After
-	// instead of a generic 500.
+	// applyIdleTimeout cancels via context.WithCancel when the
+	// broadcaster silence window elapses — context.Canceled
+	// propagates cleanly through errors.Is, no substring fallback
+	// needed (and a substring on "context canceled" would also match
+	// healthy client-side aborts which we don't want to label busy).
 	if errors.Is(err, context.Canceled) {
 		return true
 	}
@@ -137,10 +137,10 @@ func isUpstreamBusyError(err error) bool {
 	}
 	// url.Error wraps "read tcp … EOF" and "Post …: context deadline
 	// exceeded" strings from the stdlib HTTP client without typing the
-	// inner cause. Fall back to substring match for those.
+	// inner cause. Fall back to substring match for those specific
+	// shapes only.
 	msg := err.Error()
 	return strings.Contains(msg, "context deadline exceeded") ||
-		strings.Contains(msg, "context canceled") ||
 		strings.Contains(msg, "EOF") ||
 		strings.Contains(msg, "connection reset")
 }
