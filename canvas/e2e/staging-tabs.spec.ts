@@ -63,6 +63,30 @@ test.describe("staging canvas tabs", () => {
       Authorization: `Bearer ${tenantToken}`,
     });
 
+    // canvas/src/components/AuthGate.tsx fetches /cp/auth/me on mount
+    // and redirects to the login page on 401. The bearer header above
+    // is for platform API calls — it does NOT satisfy /cp/auth/me,
+    // which is cookie-based (WorkOS session). Without this mock, the
+    // canvas page mounts AuthGate, sees 401 from /cp/auth/me, and
+    // redirects away from the tenant URL before the React Flow root
+    // ever renders. The [aria-label] selector wait then times out.
+    //
+    // Intercept /cp/auth/me + return a fake Session shape so AuthGate
+    // resolves to "authenticated" and renders {children}. The session
+    // contents are cosmetic — the canvas only inspects org_id/user_id
+    // in a few places that don't fail when these are dummy values.
+    await context.route("**/cp/auth/me", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          user_id: `e2e-test-user-${workspaceId}`,
+          org_id: "e2e-test-org",
+          email: "e2e@test.local",
+        }),
+      }),
+    );
+
     const consoleErrors: string[] = [];
     page.on("console", (msg) => {
       if (msg.type() === "error") {
