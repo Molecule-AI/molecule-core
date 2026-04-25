@@ -52,6 +52,13 @@ func loadDotEnvIfPresent() {
 		if !ok {
 			continue
 		}
+		// Existing env wins. NOTE: an explicitly-set empty string
+		// (`KEY=` exported from a parent shell) counts as "set" — we
+		// keep the empty value rather than backfilling from the file.
+		// Matches Node's `process.env[k] !== undefined` check in the
+		// canvas's next.config.ts loader so both processes treat the
+		// same input identically. Operators who want the file value
+		// to win must `unset KEY` in the launching shell.
 		if _, exists := os.LookupEnv(k); exists {
 			skipped++
 			continue
@@ -133,9 +140,12 @@ func parseDotEnvLine(line string) (string, string, bool) {
 	if line == "" || strings.HasPrefix(line, "#") {
 		return "", "", false
 	}
-	// Drop a leading `export ` so lines like `export FOO=bar` (the
-	// form direnv and many `.env` templates emit) don't end up as a
-	// junk key with an embedded space.
+	// Drop a leading `export ` (literal space — `export\tFOO=bar`
+	// with a tab is intentionally rejected, matching the TS mirror in
+	// canvas/next.config.ts. shells emit `export ` with a space; tabs
+	// would only appear in hand-mangled files.) so lines like
+	// `export FOO=bar` (the form direnv and many `.env` templates
+	// emit) don't end up as a junk key with an embedded space.
 	line = strings.TrimPrefix(line, "export ")
 	line = strings.TrimLeft(line, " \t") // re-trim in case `export` itself had trailing space
 	eq := strings.IndexByte(line, '=')

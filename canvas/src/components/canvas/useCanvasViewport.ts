@@ -10,6 +10,37 @@ import {
 } from "@/store/canvas-topology";
 
 /**
+ * Decide whether the deploy-time auto-fit should run. Pure function so
+ * the gate logic is unit-testable in isolation — the surrounding
+ * useEffect tangle of refs, timers, and React Flow handles is awkward
+ * to exercise directly.
+ *
+ * Returns true when the auto-fit SHOULD fire:
+ *   - the subtree contains an id that wasn't in the previous snapshot
+ *     (a new node arrived → user has lost context, force the fit
+ *     through regardless of any user-pan in between), OR
+ *   - the user has not panned since the last successful fit (so the
+ *     auto-fit isn't fighting their override).
+ *
+ * `prevSubtreeIds === undefined` means no fit has ever run for this
+ * root — treat every id as "new" and fit. `userPannedAt === null`
+ * means the user has never panned at all in this session — fit.
+ */
+export function shouldFitGrowing(
+  currentSubtreeIds: readonly string[],
+  prevSubtreeIds: ReadonlySet<string> | undefined,
+  userPannedAt: number | null,
+  lastAutoFitAt: number,
+): boolean {
+  if (!prevSubtreeIds || prevSubtreeIds.size === 0) return true;
+  for (const id of currentSubtreeIds) {
+    if (!prevSubtreeIds.has(id)) return true;
+  }
+  if (userPannedAt === null) return true;
+  return userPannedAt <= lastAutoFitAt;
+}
+
+/**
  * Wires the two canvas-wide CustomEvent listeners and the viewport
  * save/restore bookkeeping so Canvas.tsx doesn't have to.
  *
@@ -194,14 +225,21 @@ export function useCanvasViewport() {
   // circuits: if the user moved after our last auto-fit, we never
   // fit again this deploy.
   const pendingFitRootRef = useRef<string | null>(null);
-  // Subtree size at the moment of the last successful auto-fit, keyed
-  // by root id. When a new event arrives and the subtree has GROWN,
-  // we re-fit even if the user has panned in the meantime — they've
-  // lost context, the new arrivals are off-screen, and the org-deploy
-  // animation is the user's primary reason for being on the canvas
-  // right now. When the subtree hasn't grown (status update on an
-  // already-positioned node), the user-pan respect still applies.
-  const lastFitSubtreeSizeRef = useRef<Map<string, number>>(new Map());
+  // Membership snapshot of the subtree at the moment of the last
+  // successful auto-fit, keyed by root id. When a new event arrives,
+  // we compute growth as "any id in the current subtree that wasn't
+  // in the snapshot". An id-set rather than just a count handles the
+  // delete-then-add case correctly: subtree of 6 → delete one → 5 →
+  // a different child arrives → 6 again. A length-only comparison
+  // would call this "no growth" and skip the fit even though a
+  // brand-new node landed off-screen. The id-set sees the new id
+  // wasn't in the snapshot and forces the fit.
+  //
+  // Map is keyed by root id and never pruned. Acceptable today because
+  // org roots are UUIDs (no collisions on retry / template re-import),
+  // canvas sessions are per-tab, and entries are tiny. Worth a sweep
+  // if long-lived sessions ever start importing hundreds of orgs.
+  const lastFitSubtreeIdsRef = useRef<Map<string, Set<string>>>(new Map());
   useEffect(() => {
     const runFit = () => {
       const rootCandidate = pendingFitRootRef.current;
@@ -229,18 +267,19 @@ export function useCanvasViewport() {
       }
       if (subtree.length === 0) return;
 
-      // Growth check: if the subtree hasn't expanded since the last
-      // fit, fall back to the user-pan respect gate. If it HAS
-      // grown, force the fit through — the user's previous pan no
-      // longer reflects what's on screen and the deploy is the
-      // primary thing they want to watch.
-      const lastSize = lastFitSubtreeSizeRef.current.get(topId) ?? 0;
-      const grew = subtree.length > lastSize;
-      if (
-        !grew &&
-        userPannedAtRef.current !== null &&
-        userPannedAtRef.current > lastAutoFitAtRef.current
-      ) {
+      // Growth check: did any id in the current subtree NOT appear
+      // in the snapshot from the last fit? If yes, fit through
+      // regardless of the user-pan timestamp — the user has lost
+      // context, the new arrival is off-screen, and the deploy is
+      // the primary thing they want to watch. If no, fall back to
+      // the user-pan respect gate so post-deploy exploration isn't
+      // yanked back.
+      if (!shouldFitGrowing(
+        subtree,
+        lastFitSubtreeIdsRef.current.get(topId),
+        userPannedAtRef.current,
+        lastAutoFitAtRef.current,
+      )) {
         return;
       }
       fitView({
@@ -266,7 +305,7 @@ export function useCanvasViewport() {
         minZoom: 0.25,
       });
       lastAutoFitAtRef.current = Date.now();
-      lastFitSubtreeSizeRef.current.set(topId, subtree.length);
+      lastFitSubtreeIdsRef.current.set(topId, new Set(subtree));
     };
     const handler = (e: Event) => {
       const { rootId } = (e as CustomEvent<{ rootId: string }>).detail;

@@ -36,6 +36,14 @@ function loadMonorepoEnv() {
     const kv = parseLine(line);
     if (!kv) continue;
     const [k, v] = kv;
+    // Existing env wins. NOTE: an explicitly-set empty string
+    // (`KEY=` exported from a parent shell, where Node represents it
+    // as `""` not `undefined`) counts as "set" — we keep the empty
+    // value rather than backfilling from the file. Matches Go's
+    // os.LookupEnv check in workspace-server/cmd/server/dotenv.go so
+    // both processes treat the same input identically. Operators who
+    // want the file value to win must `unset KEY` in the launching
+    // shell.
     if (process.env[k] !== undefined) {
       skipped++;
       continue;
@@ -66,6 +74,10 @@ function findMonorepoRoot(start: string): string | null {
 function parseLine(raw: string): [string, string] | null {
   let line = raw.replace(/^﻿/, "").trim();
   if (line === "" || line.startsWith("#")) return null;
+  // `export ` prefix uses a literal space — `export\tFOO=bar` with a
+  // tab is intentionally rejected, matching the Go mirror in
+  // workspace-server/cmd/server/dotenv.go. Shells emit the prefix
+  // with a space; tabs would only appear in hand-mangled files.
   if (line.startsWith("export ")) line = line.slice("export ".length).trimStart();
   const eq = line.indexOf("=");
   if (eq <= 0) return null;
