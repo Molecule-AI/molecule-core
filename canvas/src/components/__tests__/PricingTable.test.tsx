@@ -50,14 +50,14 @@ describe("PricingTable", () => {
   it("renders all three plans with their CTAs", () => {
     render(<PricingTable />);
     expect(screen.getByRole("heading", { name: "Free" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Starter" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Pro" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Team" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Growth" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Get started" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Upgrade to Starter" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Upgrade to Pro" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Upgrade to Team" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Upgrade to Growth" })).toBeTruthy();
   });
 
-  it("shows the 'Most popular' badge only on the starter card", () => {
+  it("shows the 'Most popular' badge only on the Team card", () => {
     render(<PricingTable />);
     const badges = screen.getAllByText("Most popular");
     expect(badges.length).toBe(1);
@@ -74,7 +74,7 @@ describe("PricingTable", () => {
   it("Paid CTA + anonymous → bounces to signup (no checkout call)", async () => {
     mockedFetchSession.mockResolvedValue(null);
     render(<PricingTable />);
-    fireEvent.click(screen.getByRole("button", { name: "Upgrade to Starter" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upgrade to Team" }));
     await waitFor(() => expect(mockedRedirectToLogin).toHaveBeenCalledWith("sign-up"));
     expect(mockedStartCheckout).not.toHaveBeenCalled();
   });
@@ -91,7 +91,7 @@ describe("PricingTable", () => {
     });
 
     render(<PricingTable />);
-    fireEvent.click(screen.getByRole("button", { name: "Upgrade to Pro" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upgrade to Growth" }));
 
     await waitFor(() =>
       expect(mockedStartCheckout).toHaveBeenCalledWith("pro", "acme"),
@@ -111,7 +111,7 @@ describe("PricingTable", () => {
     mockedGetTenantSlug.mockReturnValue("");
 
     render(<PricingTable />);
-    fireEvent.click(screen.getByRole("button", { name: "Upgrade to Starter" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upgrade to Team" }));
 
     await waitFor(() => {
       const alert = screen.getByRole("alert");
@@ -129,7 +129,7 @@ describe("PricingTable", () => {
     mockedStartCheckout.mockRejectedValue(new Error("checkout: 500 boom"));
 
     render(<PricingTable />);
-    fireEvent.click(screen.getByRole("button", { name: "Upgrade to Pro" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upgrade to Growth" }));
 
     await waitFor(() => {
       const alert = screen.getByRole("alert");
@@ -140,7 +140,7 @@ describe("PricingTable", () => {
   it("treats fetchSession network errors as anonymous (fail-closed to signup)", async () => {
     mockedFetchSession.mockRejectedValue(new Error("network down"));
     render(<PricingTable />);
-    fireEvent.click(screen.getByRole("button", { name: "Upgrade to Starter" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upgrade to Team" }));
     await waitFor(() => expect(mockedRedirectToLogin).toHaveBeenCalledWith("sign-up"));
     expect(mockedStartCheckout).not.toHaveBeenCalled();
   });
@@ -155,7 +155,7 @@ describe("PricingTable", () => {
     mockedStartCheckout.mockReturnValue(new Promise(() => {}));
 
     render(<PricingTable />);
-    const button = screen.getByRole("button", { name: "Upgrade to Pro" });
+    const button = screen.getByRole("button", { name: "Upgrade to Growth" });
     fireEvent.click(button);
 
     await waitFor(() => {
