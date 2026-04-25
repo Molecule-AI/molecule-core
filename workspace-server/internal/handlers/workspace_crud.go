@@ -5,12 +5,14 @@ package handlers
 // Delete (cascade + purge), and input validation helpers.
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
@@ -388,25 +390,47 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 	// Now stop containers + remove volumes for all descendants (any depth).
 	// Any concurrent heartbeat / registration / liveness-triggered restart
 	// will see status='removed' and bail out early.
-	for _, descID := range descendantIDs {
-		if h.provisioner != nil {
-			h.provisioner.Stop(ctx, descID)
-			if err := h.provisioner.RemoveVolume(ctx, descID); err != nil {
-				log.Printf("Delete descendant %s volume removal warning: %v", descID, err)
-			}
+	//
+	// IMPORTANT: detach from the request ctx via WithoutCancel so that
+	// when the canvas's `api.del` resolves on our 200 (and gin cancels
+	// `c.Request.Context()`), in-flight Docker stop/remove calls don't
+	// get cancelled mid-operation. The previous shape leaked containers
+	// every time the canvas hung up promptly: Stop returned
+	// `context canceled`, the container stayed up, and the next
+	// RemoveVolume call failed with `volume in use`. The 30s bound is
+	// generous for Docker daemon round-trips (typical: <2s) and keeps
+	// a stuck daemon from holding a goroutine forever.
+	cleanupCtx, cleanupCancel := context.WithTimeout(
+		context.WithoutCancel(ctx), 30*time.Second)
+	defer cleanupCancel()
+
+	stopAndRemove := func(wsID string) {
+		if h.provisioner == nil {
+			return
 		}
-		db.ClearWorkspaceKeys(ctx, descID)
+		// Check Stop's error before attempting RemoveVolume — the
+		// previous code discarded it and immediately tried the
+		// volume remove, which always fails with "volume in use"
+		// when Stop didn't actually kill the container. The orphan
+		// sweeper (registry/orphan_sweeper.go) catches what we
+		// skip here on the next reconcile pass.
+		if err := h.provisioner.Stop(cleanupCtx, wsID); err != nil {
+			log.Printf("Delete %s container stop failed: %v — leaving volume for orphan sweeper", wsID, err)
+			return
+		}
+		if err := h.provisioner.RemoveVolume(cleanupCtx, wsID); err != nil {
+			log.Printf("Delete %s volume removal warning: %v", wsID, err)
+		}
+	}
+
+	for _, descID := range descendantIDs {
+		stopAndRemove(descID)
+		db.ClearWorkspaceKeys(cleanupCtx, descID)
 		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_REMOVED", descID, map[string]interface{}{})
 	}
 
-	// Stop + remove volume for the workspace itself
-	if h.provisioner != nil {
-		h.provisioner.Stop(ctx, id)
-		if err := h.provisioner.RemoveVolume(ctx, id); err != nil {
-			log.Printf("Delete %s volume removal warning: %v", id, err)
-		}
-	}
-	db.ClearWorkspaceKeys(ctx, id)
+	stopAndRemove(id)
+	db.ClearWorkspaceKeys(cleanupCtx, id)
 
 	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_REMOVED", id, map[string]interface{}{
 		"cascade_deleted": len(descendantIDs),

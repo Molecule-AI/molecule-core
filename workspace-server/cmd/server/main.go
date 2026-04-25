@@ -229,6 +229,18 @@ func main() {
 		})
 	}
 
+	// Orphan-container reconcile sweep — finds running containers
+	// whose workspace row is already status='removed' and stops
+	// them. Defence in depth on top of the inline cleanup in
+	// handlers/workspace_crud.go: any Docker hiccup that left a
+	// container alive after the user clicked delete heals on the
+	// next sweep instead of leaking forever.
+	if prov != nil {
+		go supervised.RunWithRecover(ctx, "orphan-sweeper", func(c context.Context) {
+			registry.StartOrphanSweeper(c, prov)
+		})
+	}
+
 	// Provision-timeout sweep — flips workspaces that have been stuck in
 	// status='provisioning' past the timeout window to 'failed' and emits
 	// WORKSPACE_PROVISION_TIMEOUT. Without this the UI banner is cosmetic
