@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { flushSync } from "react-dom";
 import { api } from "@/lib/api";
 import { useCanvasStore } from "@/store/canvas";
 import type { WorkspaceData } from "@/store/socket";
@@ -326,7 +327,18 @@ export function OrgTemplatesSection() {
           onSecretSaved={refreshConfiguredKeys}
           onProceed={() => {
             const org = preflight.org;
-            setPreflight(null);
+            // flushSync guarantees the modal unmounts BEFORE we kick
+            // off the import network call. Without it, React batches
+            // setPreflight(null) with the setImporting(...) from
+            // doImport's synchronous prefix, both commit at the end
+            // of this handler, AND the await import() POST may yield
+            // a microtask before React schedules the paint. Net
+            // effect: the modal backdrop sat over the canvas during
+            // the first wave of WORKSPACE_PROVISIONING WS events,
+            // hiding the spawn animation. Force the close to land
+            // first so the user sees the canvas reveal + agents
+            // popping into place.
+            flushSync(() => setPreflight(null));
             void doImport(org);
           }}
           onCancel={() => setPreflight(null)}

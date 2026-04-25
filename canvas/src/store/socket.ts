@@ -56,6 +56,15 @@ export class RehydrateDedup {
   }
 }
 
+/** Cadence for the HTTP fallback rehydrate that runs while the WS is
+ *  in connecting/disconnected limbo. 10s is short enough that the user
+ *  sees STARTING → ONLINE within one tick after the platform finishes
+ *  provisioning, but long enough to not pound /workspaces if the
+ *  network truly is down. The dedup gate inside rehydrate() collapses
+ *  this against the post-onopen rehydrate, so reconnect doesn't pay
+ *  for a duplicate fetch. */
+const FALLBACK_POLL_MS = 10_000;
+
 class ReconnectingSocket {
   private ws: WebSocket | null = null;
   private attempt = 0;
@@ -63,6 +72,13 @@ class ReconnectingSocket {
   private lastEventTime = 0;
   private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // Polls /workspaces while the WS is unhealthy so the canvas reflects
+  // truth even when realtime events aren't arriving. Without this the
+  // store can stay frozen for minutes — e.g. workspaces transition
+  // STARTING → ONLINE on the platform but the canvas keeps showing
+  // STARTING until the WS finally reconnects, triggering false
+  // "Provisioning Timeout" banners on already-online workspaces.
+  private fallbackPollTimer: ReturnType<typeof setInterval> | null = null;
   // disposed signals that disconnect() has been called. Any in-flight
   // reconnect / handshake must abort early rather than attach to a
   // socket the caller no longer owns — otherwise React StrictMode's
@@ -102,6 +118,7 @@ class ReconnectingSocket {
       this.attempt = 0;
       this.lastEventTime = Date.now();
       useCanvasStore.getState().setWsStatus("connected");
+      this.stopFallbackPoll();
       this.rehydrate();
       this.startHealthCheck();
     };
@@ -125,6 +142,7 @@ class ReconnectingSocket {
       if (this.disposed || this.ws !== ws) return;
       this.stopHealthCheck();
       useCanvasStore.getState().setWsStatus("connecting");
+      this.startFallbackPoll();
       const delay = Math.min(1000 * 2 ** this.attempt, 30000);
       this.attempt++;
       this.reconnectTimer = setTimeout(() => this.connect(), delay);
@@ -154,6 +172,28 @@ class ReconnectingSocket {
     if (this.healthCheckTimer) {
       clearInterval(this.healthCheckTimer);
       this.healthCheckTimer = null;
+    }
+  }
+
+  /** While the WS is in connecting/disconnected limbo, poll /workspaces
+   *  so the store stays fresh. The reconnect attempts continue in
+   *  parallel; whichever recovers first wins. rehydrate()'s own dedup
+   *  gate prevents this from racing with the open-time rehydrate. */
+  private startFallbackPoll() {
+    if (this.fallbackPollTimer) return;
+    this.fallbackPollTimer = setInterval(() => {
+      if (this.disposed) {
+        this.stopFallbackPoll();
+        return;
+      }
+      void this.rehydrate();
+    }, FALLBACK_POLL_MS);
+  }
+
+  private stopFallbackPoll() {
+    if (this.fallbackPollTimer) {
+      clearInterval(this.fallbackPollTimer);
+      this.fallbackPollTimer = null;
     }
   }
 
@@ -191,6 +231,7 @@ class ReconnectingSocket {
   disconnect() {
     this.disposed = true;
     this.stopHealthCheck();
+    this.stopFallbackPoll();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

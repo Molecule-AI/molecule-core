@@ -263,10 +263,56 @@ describe("WebSocket onclose – auto-reconnect", () => {
     const ws = getLastWS();
     ws.triggerClose();
 
-    // Fast-forward timers to trigger the reconnect
-    vi.runAllTimers();
+    // First reconnect attempt is scheduled at 1s (Math.min(1000 * 2^0,
+    // 30000)). Advance just past that — vi.runAllTimers() would
+    // additionally re-fire the fallback poll setInterval forever and
+    // hit the 10000-timer abort.
+    vi.advanceTimersByTime(1100);
 
     expect(MockWebSocket.instances.length).toBeGreaterThan(1);
+  });
+});
+
+describe("HTTP fallback poll while WS unhealthy", () => {
+  it("starts a setInterval after onclose so /workspaces stays fresh", () => {
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+    connectSocket();
+    const ws = getLastWS();
+    ws.triggerClose();
+    // The fallback poll runs at 10s; the reconnect uses setTimeout, so
+    // any setInterval registered between connect and close must be the
+    // fallback poll.
+    const fallbackCalls = setIntervalSpy.mock.calls.filter(
+      ([, delay]) => delay === 10_000,
+    );
+    expect(fallbackCalls.length).toBeGreaterThan(0);
+    setIntervalSpy.mockRestore();
+  });
+
+  it("clears the fallback poll once the WS reconnects (onopen)", () => {
+    const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
+    connectSocket();
+    const ws = getLastWS();
+    ws.triggerClose(); // starts fallback poll
+    clearIntervalSpy.mockClear();
+    // Advance past the first reconnect delay so a fresh ws exists,
+    // then trigger its open.
+    vi.advanceTimersByTime(1100);
+    const ws2 = getLastWS();
+    ws2.triggerOpen();
+    expect(clearIntervalSpy).toHaveBeenCalled();
+    clearIntervalSpy.mockRestore();
+  });
+
+  it("clears the fallback poll on disconnect", () => {
+    const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
+    connectSocket();
+    const ws = getLastWS();
+    ws.triggerClose(); // starts fallback poll
+    clearIntervalSpy.mockClear();
+    disconnectSocket();
+    expect(clearIntervalSpy).toHaveBeenCalled();
+    clearIntervalSpy.mockRestore();
   });
 });
 
