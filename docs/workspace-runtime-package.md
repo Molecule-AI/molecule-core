@@ -101,7 +101,9 @@ git push origin runtime-v0.1.6
 The `publish-runtime` workflow takes over — checks out the tag, runs
 `scripts/build_runtime_package.py --version 0.1.6`, builds wheel + sdist,
 runs a smoke import to catch broken rewrites, and uploads to PyPI via
-the `PYPI_TOKEN` repo secret.
+the PyPA Trusted Publisher action (OIDC). No static API token is stored
+in this repo — PyPI verifies the workflow's OIDC claim against the
+trusted-publisher config registered for `molecule-ai-workspace-runtime`.
 
 For dev/test releases without tagging, dispatch the workflow manually
 with an explicit version (e.g. `0.1.6.dev1` — PEP 440 dev/rc/post forms
@@ -145,11 +147,18 @@ command. SaaS deployments typically wire step 5 into their normal deploy
 pipeline (every release pulls fresh images on every host); local dev fires
 it manually after a runtime release lands.
 
+### Auth
+
+PyPI publishing uses **Trusted Publisher (OIDC)** — no static token in the
+monorepo. The trusted-publisher config on PyPI binds the
+`molecule-ai-workspace-runtime` project to this repo's
+`publish-runtime.yml` workflow + `pypi-publish` environment. Rotation is
+moot: there is no shared secret to rotate.
+
 ### Required secrets
 
 | Secret | Where | Why |
 |---|---|---|
-| `PYPI_TOKEN` | molecule-core repo | Twine upload auth (PyPI) |
 | `TEMPLATE_DISPATCH_TOKEN` | molecule-core repo | Fine-grained PAT with `actions:write` on the 8 template repos. Without it the `cascade` job warns and exits clean — PyPI still publishes; templates just don't auto-rebuild. |
 
 ### Step 5 specifics
