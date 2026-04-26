@@ -102,6 +102,19 @@ func discoverHostPeer(ctx context.Context, c *gin.Context, targetID string) {
 		return
 	}
 
+	// #1484 SSRF defense-in-depth: the URL came from the workspaces table
+	// without any per-write validation (workspace runtimes register their
+	// own URLs via /registry/register, and a misbehaving / compromised
+	// runtime could register a 169.254.169.254 metadata URL). Validate
+	// before handing it to the caller, who might dispatch HTTP against it.
+	// Currently gated by the bearer-required Discover handler, but this
+	// guard makes discoverHostPeer safe regardless of upstream auth shape.
+	if err := isSafeURL(url.String); err != nil {
+		log.Printf("Discovery: rejecting unsafe registered URL for %s (#1484): %v", resolvedID, err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "workspace URL failed safety check", "status": status})
+		return
+	}
+
 	db.CacheURL(ctx, resolvedID, url.String)
 	c.JSON(http.StatusOK, gin.H{
 		"id":     resolvedID,
@@ -172,6 +185,18 @@ func writeExternalWorkspaceURL(ctx context.Context, c *gin.Context, callerID, ta
 		outURL = strings.Replace(outURL, "127.0.0.1", "host.docker.internal", 1)
 		outURL = strings.Replace(outURL, "localhost", "host.docker.internal", 1)
 	}
+
+	// #1484 SSRF defense-in-depth — same rationale as discoverHostPeer.
+	// We validate the post-rewrite URL because the rewrite changes which
+	// host the caller would dispatch against (host.docker.internal is
+	// only reachable inside a docker network; isSafeURL accepts it but
+	// blocks a metadata IP that survived the rewrite untouched).
+	if err := isSafeURL(outURL); err != nil {
+		log.Printf("Discovery: rejecting unsafe external workspace URL for %s (#1484): %v", targetID, err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "workspace URL failed safety check"})
+		return true
+	}
+
 	c.JSON(http.StatusOK, gin.H{"id": targetID, "url": outURL, "name": wsName})
 	return true
 }
