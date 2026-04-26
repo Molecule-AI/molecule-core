@@ -120,15 +120,18 @@ export PROD_SLUGS STAGING_SLUGS EC2_NAMES TOTAL_CF
 DECISIONS=$(echo "$CF_JSON" | python3 -c '
 import json, os, re, sys
 d = json.load(sys.stdin)
-prod = set(os.environ["PROD_SLUGS"].split())
-staging = set(os.environ["STAGING_SLUGS"].split())
-all_slugs = prod | staging
+prod_slugs = set(os.environ["PROD_SLUGS"].split())
+staging_slugs = set(os.environ["STAGING_SLUGS"].split())
 ec2_names = set(n for n in os.environ["EC2_NAMES"].split() if n)
 
-def decide(r):
+# CANONICAL DECIDE BEGIN
+# Edits inside this block must mirror scripts/ops/sweep_cf_decide.py — the
+# parity test in test_sweep_cf_decide.py asserts they match byte-for-byte.
+def decide(r, prod_slugs, staging_slugs, ec2_names):
     n = r["name"]
     rid = r["id"]
     typ = r["type"]
+    all_slugs = prod_slugs | staging_slugs
 
     # Rule 1: platform core — leave alone
     if n == "moleculesai.app":
@@ -170,9 +173,10 @@ def decide(r):
         return ("keep", "unknown-subdomain-kept-for-safety", rid, n, typ)
 
     return ("keep", "not-a-pattern-we-sweep", rid, n, typ)
+# CANONICAL DECIDE END
 
 for r in d["result"]:
-    action, reason, rid, name, typ = decide(r)
+    action, reason, rid, name, typ = decide(r, prod_slugs, staging_slugs, ec2_names)
     print(json.dumps({"action": action, "reason": reason, "id": rid, "name": name, "type": typ}))
 ')
 
