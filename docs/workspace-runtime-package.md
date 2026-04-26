@@ -183,6 +183,20 @@ needs Docker socket access (the compose stack mounts
 (`docker login ghcr.io` once per host). On a fresh host without GHCR auth,
 the pull step warns per runtime and the response surfaces the failures.
 
+**Fully hands-off (opt-in image auto-refresh):**
+
+Set `IMAGE_AUTO_REFRESH=true` on the platform process. A watcher polls
+GHCR every 5 minutes for digest changes on each `workspace-template-*:latest`
+tag and invokes the same refresh logic the admin endpoint exposes —
+no operator action required between "runtime PR merged" and
+"containers running new code". Disabled by default because SaaS deploy
+pipelines that already pull on every release would do redundant work.
+
+Optional companion env (same as the admin endpoint):
+
+- `GHCR_USER` + `GHCR_TOKEN` — required for private template images;
+  unused for the current public set, but harmless if set.
+
 ## Local dev (build the package without publishing)
 
 ```bash
