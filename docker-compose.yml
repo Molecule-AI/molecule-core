@@ -126,6 +126,13 @@ services:
       REDIS_URL: redis://redis:6379
       PORT: "${PLATFORM_PORT:-8080}"
       PLATFORM_URL: "http://platform:${PLATFORM_PORT:-8080}"
+      # Default MOLECULE_ENV=development so the WorkspaceAuth / AdminAuth
+      # middleware fail-open path activates when ADMIN_TOKEN is unset —
+      # otherwise the canvas (which runs without a bearer in pure local
+      # dev) gets 401 "missing workspace auth token" on every request.
+      # Override to "production" for SaaS/staged deploys; in those modes
+      # ADMIN_TOKEN must also be set or every request rejects.
+      MOLECULE_ENV: "${MOLECULE_ENV:-development}"
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:${CANVAS_PUBLISH_PORT:-3000},http://127.0.0.1:${CANVAS_PUBLISH_PORT:-3000},http://localhost:3001}
       RATE_LIMIT: "${RATE_LIMIT:-1000}"
       CONFIGS_DIR: /configs
@@ -153,6 +160,24 @@ services:
       HIBERNATION_IDLE_MINUTES: "${HIBERNATION_IDLE_MINUTES:-}"
       # Plugin supply chain hardening (issue #768 / PR #775). Never set in production.
       PLUGIN_ALLOW_UNPINNED: "${PLUGIN_ALLOW_UNPINNED:-}"
+      # Force ImagePull/ContainerCreate to request linux/amd64 manifests
+      # for the workspace-template-* images. The templates ship single-arch
+      # amd64 today; without this override, an arm64 host (Apple Silicon)
+      # asks the daemon for linux/arm64/v8, which doesn't match the manifest
+      # and the pull fails with "no matching manifest". Apple Silicon will
+      # run the amd64 image under Rosetta — slower (~2-3×) but functional.
+      # Override to "" or another platform when the templates start shipping
+      # multi-arch (then this hardcoded amd64 becomes unnecessary).
+      MOLECULE_IMAGE_PLATFORM: "${MOLECULE_IMAGE_PLATFORM:-linux/amd64}"
+      # GHCR auth for the workspace-images refresh endpoint
+      # (POST /admin/workspace-images/refresh). When set, the platform's
+      # Docker SDK ImagePull on private workspace-template-* images
+      # succeeds without per-host `docker login`. GHCR_USER is the GitHub
+      # username; GHCR_TOKEN is a fine-grained PAT with `read:packages`
+      # on the Molecule-AI org. Both unset → endpoint can only pull
+      # public images (current state for all 8 templates).
+      GHCR_USER: "${GHCR_USER:-}"
+      GHCR_TOKEN: "${GHCR_TOKEN:-}"
     volumes:
       - ./workspace-configs-templates:/configs
       - ./org-templates:/org-templates:ro
