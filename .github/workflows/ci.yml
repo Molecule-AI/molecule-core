@@ -283,7 +283,9 @@ jobs:
           cache: pip
           cache-dependency-path: workspace/requirements.txt
       - run: pip install -r requirements.txt pytest pytest-asyncio pytest-cov
-      - run: python -m pytest --tb=short -q --cov=. --cov-report=term-missing
+      # Coverage flags + fail-under floor moved into workspace/pytest.ini
+      # (issue #1817) so local `pytest` and CI use identical config.
+      - run: python -m pytest --tb=short
 
       # SDK + plugin validation moved to standalone repo:
       # github.com/Molecule-AI/molecule-sdk-python
