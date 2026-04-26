@@ -1,27 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import { useCanvasStore } from "@/store/canvas";
 import { OrgTemplatesSection } from "./TemplatePalette";
+import { type Template } from "@/lib/deploy-preflight";
+import { useTemplateDeploy } from "@/hooks/useTemplateDeploy";
 import { Spinner } from "./Spinner";
 import { TIER_CONFIG } from "@/lib/design-tokens";
-
-interface Template {
-  id: string;
-  name: string;
-  description: string;
-  tier: number;
-  model: string;
-  skills: string[];
-  skill_count: number;
-}
 
 export function EmptyState() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
-  const [deploying, setDeploying] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [blankCreating, setBlankCreating] = useState(false);
+  const [blankError, setBlankError] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -31,47 +23,55 @@ export function EmptyState() {
       .finally(() => setLoading(false));
   }, []);
 
-  const deploy = async (template: Template) => {
-    setDeploying(template.id);
-    setError(null);
-    try {
-      const ws = await api.post<{ id: string }>("/workspaces", {
-        name: template.name,
-        template: template.id,
-        tier: template.tier,
-        canvas: { x: 200, y: 150 },
-      });
-      // Auto-select the new workspace and open chat
-      setTimeout(() => {
-        useCanvasStore.getState().selectNode(ws.id);
-        useCanvasStore.getState().setPanelTab("chat");
-      }, 500);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Deploy failed");
-    } finally {
-      setDeploying(null);
-    }
-  };
+  // Canvas fills in a visible "center-ish" spot on a fresh tenant so
+  // the user doesn't have to pan to find their new workspace. Fixed
+  // (200, 150) instead of the sidebar's random placement because the
+  // canvas is guaranteed empty when this component mounts.
+  const firstDeployCoords = useCallback(() => ({ x: 200, y: 150 }), []);
 
+  // After the POST succeeds, auto-select the new workspace and flip
+  // the panel to Chat. This is a UX flourish that only makes sense
+  // on first deploy (the canvas is empty so the selection can't
+  // surprise anyone); the sidebar intentionally skips this step.
+  // 500 ms delay so React Flow has a frame to render the new node
+  // before it receives focus.
+  const handleDeployed = useCallback((workspaceId: string) => {
+    setTimeout(() => {
+      useCanvasStore.getState().selectNode(workspaceId);
+      useCanvasStore.getState().setPanelTab("chat");
+    }, 500);
+  }, []);
+
+  const { deploy, deploying, error, modal } = useTemplateDeploy({
+    canvasCoords: firstDeployCoords,
+    onDeployed: handleDeployed,
+  });
+
+  // "Create blank" bypasses templates entirely — no preflight, no
+  // modal, just POST /workspaces with a default name and tier.
+  // Deliberately NOT routed through useTemplateDeploy because it
+  // has no `template.id` to deploy against.
   const createBlank = async () => {
-    setDeploying("blank");
-    setError(null);
+    setBlankCreating(true);
+    setBlankError(null);
     try {
       const ws = await api.post<{ id: string }>("/workspaces", {
         name: "My First Agent",
         tier: 2,
-        canvas: { x: 200, y: 150 },
+        canvas: firstDeployCoords(),
       });
-      setTimeout(() => {
-        useCanvasStore.getState().selectNode(ws.id);
-        useCanvasStore.getState().setPanelTab("chat");
-      }, 500);
+      handleDeployed(ws.id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Create failed");
+      setBlankError(e instanceof Error ? e.message : "Create failed");
     } finally {
-      setDeploying(null);
+      setBlankCreating(false);
     }
   };
+
+  // Any active gesture locks every button so the user can't fire a
+  // second POST while the first is still in flight.
+  const anyDeploying = !!deploying || blankCreating;
+  const displayError = error ?? blankError;
 
   return (
     <div className="absolute inset-0 flex items-start justify-center pointer-events-none z-[1] overflow-y-auto py-8">
@@ -112,8 +112,8 @@ export function EmptyState() {
                 <button
                   type="button"
                   key={t.id}
-                  onClick={() => deploy(t)}
-                  disabled={!!deploying}
+                  onClick={() => void deploy(t)}
+                  disabled={anyDeploying}
                   className="group rounded-xl border border-zinc-800/60 bg-zinc-900/50 px-3.5 py-3 hover:border-blue-500/40 hover:bg-zinc-900/80 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-zinc-800/60 disabled:hover:bg-zinc-900/50 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
                 >
                   <div className="flex items-center gap-2 mb-1">
@@ -143,10 +143,10 @@ export function EmptyState() {
         <button
           type="button"
           onClick={createBlank}
-          disabled={!!deploying}
+          disabled={anyDeploying}
           className="w-full rounded-xl border border-dashed border-zinc-700/60 bg-zinc-900/30 px-4 py-3 text-sm text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 hover:bg-zinc-900/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-zinc-400 disabled:hover:border-zinc-700/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70"
         >
-          {deploying === "blank" ? "Creating..." : "+ Create blank workspace"}
+          {blankCreating ? "Creating..." : "+ Create blank workspace"}
         </button>
 
         {/* Org templates — instantiate a whole team in one click */}
@@ -154,11 +154,16 @@ export function EmptyState() {
           <OrgTemplatesSection />
         </div>
 
-        {error && (
+        {displayError && (
           <div role="alert" className="mt-3 px-3 py-2 bg-red-950/40 border border-red-800/50 rounded-lg text-xs text-red-400">
-            {error}
+            {displayError}
           </div>
         )}
+
+        {/* Missing-keys preflight modal — owned by useTemplateDeploy,
+            shared with TemplatePalette. Rendered inline here so it
+            overlays this card naturally. */}
+        {modal}
 
         {/* Tips */}
         <div className="mt-5 pt-4 border-t border-zinc-800/50">

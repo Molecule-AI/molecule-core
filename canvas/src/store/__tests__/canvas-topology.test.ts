@@ -149,6 +149,75 @@ describe("buildNodesAndEdges – parent + child workspaces", () => {
   });
 });
 
+describe("buildNodesAndEdges – auto-rescue respects live grown parent size", () => {
+  // Regression: child the user dragged into a user-grown area was
+  // false-rescued by every periodic rehydrate (socket health check
+  // every 30s) because the rescue heuristic used the initial
+  // grid-derived parent bbox, not the currently-grown size. Result:
+  // child snapped to a stale grid slot, then settled back ~1 frame
+  // later when growParentsToFitChildren re-ran. Observed 2026-04-25
+  // as "child jumps to weird location, then 30s later it's fine".
+
+  it("does NOT rescue a child placed inside the user-grown parent area", () => {
+    // Parent's initial grid-derived size is small; user has since grown it
+    // to 800×600. Child sits at relative (700, 400) — inside the grown
+    // bbox but outside the initial bbox. Without currentParentSizes,
+    // the rescue would re-place the child into a default grid slot.
+    const parentAbs = { x: 100, y: 100 };
+    const childAbs = { x: parentAbs.x + 700, y: parentAbs.y + 400 };
+    const workspaces = [
+      makeWS({ id: "parent", x: parentAbs.x, y: parentAbs.y }),
+      makeWS({ id: "child", parent_id: "parent", x: childAbs.x, y: childAbs.y }),
+    ];
+    const grownDims = new Map([
+      ["parent", { width: 800, height: 600 }],
+    ]);
+
+    const { nodes } = buildNodesAndEdges(workspaces, new Map(), grownDims);
+    const child = nodes.find((n) => n.id === "child")!;
+    // Child's relative position should match what we passed in.
+    expect(child.position).toEqual({ x: 700, y: 400 });
+  });
+
+  it("DOES rescue a child whose stored position is outside even the grown parent", () => {
+    // Same parent but child is way outside (relative 5000, 5000).
+    // The rescue must still fire — the heuristic isn't "always trust
+    // the user", it's "trust the user up to the current parent bbox".
+    const parentAbs = { x: 100, y: 100 };
+    const childAbs = { x: parentAbs.x + 5000, y: parentAbs.y + 5000 };
+    const workspaces = [
+      makeWS({ id: "parent", x: parentAbs.x, y: parentAbs.y }),
+      makeWS({ id: "child", parent_id: "parent", x: childAbs.x, y: childAbs.y }),
+    ];
+    const grownDims = new Map([
+      ["parent", { width: 800, height: 600 }],
+    ]);
+
+    const { nodes } = buildNodesAndEdges(workspaces, new Map(), grownDims);
+    const child = nodes.find((n) => n.id === "child")!;
+    // Rescued: NOT the original (5000, 5000); some grid slot instead.
+    expect(child.position.x).toBeLessThan(5000);
+    expect(child.position.y).toBeLessThan(5000);
+  });
+
+  it("falls back to initial-min bbox when no live size is provided (preserves legacy behavior)", () => {
+    // Empty currentParentSizes — first hydrate or test without store
+    // priming. Child outside the initial bbox should still be rescued.
+    const parentAbs = { x: 100, y: 100 };
+    const childAbs = { x: parentAbs.x + 700, y: parentAbs.y + 400 };
+    const workspaces = [
+      makeWS({ id: "parent", x: parentAbs.x, y: parentAbs.y }),
+      makeWS({ id: "child", parent_id: "parent", x: childAbs.x, y: childAbs.y }),
+    ];
+
+    const { nodes } = buildNodesAndEdges(workspaces);
+    const child = nodes.find((n) => n.id === "child")!;
+    // Without a live size hint, the initial bbox applies — rescue
+    // fires, child gets a fresh slot, NOT the user-supplied (700,400).
+    expect(child.position).not.toEqual({ x: 700, y: 400 });
+  });
+});
+
 describe("buildNodesAndEdges – deeply nested hierarchy", () => {
   it("handles three levels of nesting", () => {
     const workspaces = [

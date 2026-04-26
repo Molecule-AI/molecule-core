@@ -29,7 +29,7 @@ import asyncio
 import logging
 import os
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -47,7 +47,9 @@ from executor_helpers import (
     WORKSPACE_MOUNT,
     auto_push_hook,
     brief_summary,
+    collect_outbound_files,
     commit_memory,
+    extract_attached_files,
     extract_message_text,
     get_a2a_instructions,
     get_hma_instructions,
@@ -83,6 +85,180 @@ _RETRYABLE_PATTERNS = (
     "capacity",
     "exit code 1",
     "try again",
+)
+
+# Module-level SDK-wedge flag. When claude_agent_sdk's `query.initialize()`
+# raises `Control request timeout: initialize`, the SDK's internal client-
+# process state is corrupted for the rest of the Python process — every
+# subsequent `_run_query()` call hits the same wedge and re-throws. The
+# executor itself can't auto-recover (the underlying CLI subprocess and
+# its read pipe are in an unrecoverable state); only a workspace restart
+# clears it.
+#
+# The heartbeat task reads these helpers and reports
+# `runtime_state="wedged"` to the platform, which flips the workspace to
+# `degraded` so the canvas surfaces a Restart hint instead of leaving
+# the user staring at a green dot while every chat hangs.
+#
+# Module scope (not instance scope) is deliberate: the wedge is a
+# property of the Python process, not the executor. A future per-org
+# multi-executor design could move this to a shared registry, but with
+# one executor per workspace process today the simplest lock-free
+# read+write fits.
+_sdk_wedged_reason: str | None = None
+
+
+def is_wedged() -> bool:
+    """True if the Claude SDK has hit a non-recoverable init wedge in
+    this process. Sticky until process restart."""
+    return _sdk_wedged_reason is not None
+
+
+def wedge_reason() -> str:
+    """Human-readable description of the wedge cause, or empty string
+    when not wedged. Surfaced to the canvas via heartbeat sample_error."""
+    return _sdk_wedged_reason or ""
+
+
+def _mark_sdk_wedged(reason: str) -> None:
+    """Internal — flag the SDK as wedged. Only the first call wins
+    (subsequent identical wedges shouldn't overwrite a more specific
+    reason). Tests use `_reset_sdk_wedge_for_test()` to clear."""
+    global _sdk_wedged_reason
+    if _sdk_wedged_reason is None:
+        _sdk_wedged_reason = reason
+        logger.error("SDK wedge detected: %s — workspace will report degraded until a successful query clears it", reason)
+
+
+def _clear_sdk_wedge_on_success() -> None:
+    """Auto-recovery — called from _run_query after a successful
+    completion. The original wedge could be transient (a single network
+    blip during the SDK's first-message handshake), and a sticky-only
+    flag would lock the workspace into degraded forever even after the
+    SDK started working again. Clearing on observed success means the
+    next heartbeat after a working query reports `runtime_state` empty
+    and the platform flips status back to online.
+
+    No-op when not wedged (the common case)."""
+    global _sdk_wedged_reason
+    if _sdk_wedged_reason is not None:
+        logger.info("SDK wedge cleared after successful query — workspace will recover to online on next heartbeat")
+        _sdk_wedged_reason = None
+
+
+def _reset_sdk_wedge_for_test() -> None:
+    """Test-only escape hatch. Production code clears the wedge via
+    `_clear_sdk_wedge_on_success` when a query succeeds; this helper
+    is for unit tests that need to reset between cases."""
+    global _sdk_wedged_reason
+    _sdk_wedged_reason = None
+
+
+# Per-tool-use summarizers. Reads the most-useful argument from each
+# tool's input dict so the canvas progress feed shows
+# `🛠 Read /tmp/foo` instead of the bare tool name. Anything not in the
+# table falls through to a generic "🛠 <tool>(…)" line. Order keys by
+# tool frequency so a future contributor can see the high-traffic
+# tools first.
+_TOOL_USE_SUMMARIZERS: dict[str, Callable[[dict], str]] = {
+    "Read":  lambda i: f"📄 Read {i.get('file_path', '?')}",
+    "Write": lambda i: f"✍️  Write {i.get('file_path', '?')}",
+    "Edit":  lambda i: f"✏️  Edit {i.get('file_path', '?')}",
+    "Bash":  lambda i: f"⚡ Bash: {(i.get('command') or '')[:80]}",
+    "Glob":  lambda i: f"🔍 Glob {i.get('pattern', '?')}",
+    "Grep":  lambda i: f"🔍 Grep {i.get('pattern', '?')}",
+    "WebFetch": lambda i: f"🌐 WebFetch {i.get('url', '?')}",
+    "WebSearch": lambda i: f"🌐 WebSearch {i.get('query', '?')}",
+    "Task":  lambda i: f"🤖 Task: {(i.get('description') or '')[:60]}",
+    "TodoWrite": lambda _i: "📝 TodoWrite",
+}
+
+
+def _summarize_tool_use(tool_name: str, tool_input: dict) -> str:
+    summarizer = _TOOL_USE_SUMMARIZERS.get(tool_name)
+    if summarizer:
+        try:
+            return summarizer(tool_input or {})[:200]
+        except Exception:
+            pass
+    # Generic fallback. Truncated so a tool with a giant input dict
+    # doesn't write a 10kB activity row per call.
+    return f"🛠 {tool_name}(…)"[:200]
+
+
+async def _report_tool_use(block: Any) -> None:
+    """Fire-and-forget agent_log activity row per tool the SDK invoked,
+    so the canvas's MyChat live-progress feed can render each step
+    Claude is doing instead of staring at a single spinner.
+
+    Posts directly to /workspaces/:id/activity rather than through
+    a2a_tools.report_activity — that helper also pushes a current_task
+    heartbeat which would duplicate as a TASK_UPDATED line in the
+    chat feed. The workspace card's current_task is already set
+    once per turn by the executor's set_current_task(brief_summary)
+    call, so the per-tool telemetry stays a chat-only signal.
+
+    Best-effort — any failure (network blip, platform unreachable, the
+    block didn't have the attrs we expected) is swallowed silently.
+    The tool will still execute regardless; only the progress
+    telemetry is lost. Deliberately does NOT raise — a malformed
+    block must not abort the message-stream iteration in
+    `_run_query`.
+    """
+    try:
+        # Lazy imports to keep this helper non-essential — the
+        # executor must still run when the workspace's network/auth
+        # plumbing isn't fully set up (e.g. unit tests).
+        import httpx
+        from a2a_client import PLATFORM_URL, WORKSPACE_ID
+        from platform_auth import auth_headers
+    except Exception:
+        return
+    try:
+        tool_name = getattr(block, "name", "") or ""
+        tool_input = getattr(block, "input", {}) or {}
+        if not tool_name:
+            return
+        summary = _summarize_tool_use(tool_name, tool_input)
+        # 5s budget — long enough to absorb a single platform GC
+        # pause, short enough that a wedged platform doesn't slow
+        # the tool-iteration cadence beyond noticeable.
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(
+                f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/activity",
+                json={
+                    "activity_type": "agent_log",
+                    "source_id": WORKSPACE_ID,
+                    # target_id == source for self-actions. Matches the
+                    # convention other self-logged activity rows use
+                    # (a2a_receive when the workspace logs its own
+                    # outbound reply) so DB consumers joining on
+                    # target_id see a well-defined value.
+                    "target_id": WORKSPACE_ID,
+                    "summary": summary,
+                    "status": "ok",
+                    "method": tool_name,
+                },
+                headers=auth_headers(),
+            )
+    except Exception:
+        # Telemetry failures must not break the conversation.
+        return
+
+
+# Substring patterns that classify an exception as the specific
+# claude_agent_sdk init-timeout wedge (vs. a rate-limit, transient
+# subprocess crash, etc.). Match is case-insensitive on the formatted
+# error string. Adding a new pattern here MUST come with a test in
+# tests/test_claude_sdk_executor.py — false-positives lock the
+# workspace into degraded until the next successful query clears it.
+#
+# `:initialize` suffix-anchored — the SDK can theoretically time out
+# on later control messages (in-flight tool callbacks), but those
+# don't leave the SDK in the unrecoverable post-init state we're
+# trying to detect. Limit the pattern to the specific wedge.
+_WEDGE_ERROR_PATTERNS = (
+    "control request timeout: initialize",
 )
 
 
@@ -344,6 +520,14 @@ class ClaudeSDKExecutor(AgentExecutor):
                     for block in message.content:
                         if isinstance(block, sdk.TextBlock):
                             assistant_chunks.append(block.text)
+                        else:
+                            # ToolUseBlock / ServerToolUseBlock are present
+                            # on the real SDK but not on the conftest stub —
+                            # check by class name to avoid an isinstance()
+                            # against a class the stub doesn't define.
+                            cls = type(block).__name__
+                            if cls in ("ToolUseBlock", "ServerToolUseBlock"):
+                                await _report_tool_use(block)
                 elif isinstance(message, sdk.ResultMessage):
                     sid = getattr(message, "session_id", None)
                     if sid:
@@ -352,6 +536,20 @@ class ClaudeSDKExecutor(AgentExecutor):
         finally:
             self._active_stream = None
         text = result_text if result_text is not None else "".join(assistant_chunks)
+        # Auto-recover the wedge flag — if a previous query() left this
+        # process in `_sdk_wedged` and THIS query just completed
+        # cleanly, the SDK clearly works again. Clear so the next
+        # heartbeat reports runtime_state empty and the platform flips
+        # status degraded → online without a manual restart.
+        #
+        # Gate on actual content from the stream so a degenerate
+        # "iterator returned without raising but emitted nothing"
+        # case (possible from a partial stream or a stub SDK) doesn't
+        # falsely advertise recovery. A real successful query yields
+        # at least a ResultMessage (sets result_text) or one
+        # AssistantMessage TextBlock (populates assistant_chunks).
+        if result_text is not None or assistant_chunks:
+            _clear_sdk_wedge_on_success()
         return QueryResult(text=text, session_id=session_id)
 
     # ------------------------------------------------------------------
@@ -365,6 +563,18 @@ class ClaudeSDKExecutor(AgentExecutor):
         workspace queue rather than racing on `_session_id` / `_active_stream`.
         """
         user_input = extract_message_text(context.message)
+        # Surface attached files to claude-code via a manifest in the prompt.
+        # Claude Code reads files through its own Read/Glob tools by path —
+        # as long as the prompt names the path, the CLI will open them on
+        # demand. Same contract every platform runtime uses so the UX is
+        # identical across hermes / langgraph / claude-code.
+        attached = extract_attached_files(context.message)
+        if attached:
+            manifest = "\n\nAttached files:\n" + "\n".join(
+                f"- {f['name']} ({f['mime_type'] or 'unknown type'}) at {f['path']}"
+                for f in attached
+            )
+            user_input = (user_input + manifest) if user_input else manifest.lstrip()
         if not user_input:
             await event_queue.enqueue_event(new_agent_text_message(_NO_TEXT_MSG))
             return
@@ -375,7 +585,26 @@ class ClaudeSDKExecutor(AgentExecutor):
         # Enqueue outside the lock so the next queued turn can start
         # preparing its prompt while this turn's response ships. Event
         # ordering is preserved per-queue by the A2A server, so no races.
-        await event_queue.enqueue_event(new_agent_text_message(response_text))
+        # If the response mentions /workspace/... files, stage each and
+        # emit FileParts alongside the text so the canvas can download.
+        outbound = collect_outbound_files(response_text)
+        if outbound:
+            from a2a.types import FilePart, FileWithUri, Message, Part, Role, TextPart
+            import uuid as _uuid
+            parts: list = [Part(root=TextPart(text=response_text))] if response_text else []
+            for f in outbound:
+                parts.append(Part(root=FilePart(file=FileWithUri(
+                    uri="workspace:" + f["path"],
+                    name=f["name"],
+                    mimeType=f["mime_type"],
+                ))))
+            await event_queue.enqueue_event(Message(
+                messageId=_uuid.uuid4().hex,
+                role=Role.agent,
+                parts=parts,
+            ))
+        else:
+            await event_queue.enqueue_event(new_agent_text_message(response_text))
 
     @staticmethod
     def _is_retryable(exc: BaseException) -> bool:
@@ -473,6 +702,19 @@ class ClaudeSDKExecutor(AgentExecutor):
                     # subprocess died.
                     logger.error("SDK agent error [claude-code]: %s", formatted)
                     logger.exception("SDK agent error [claude-code] — full traceback follows")
+                    # Detect the specific claude_agent_sdk init-wedge case
+                    # so the heartbeat task can flip the workspace to
+                    # `degraded`. Match on the lowercased formatted error;
+                    # `formatted` is whatever _format_process_error built,
+                    # which already includes both the message and the
+                    # exception class name.
+                    formatted_lc = formatted.lower()
+                    for pat in _WEDGE_ERROR_PATTERNS:
+                        if pat in formatted_lc:
+                            _mark_sdk_wedged(
+                                f"claude_agent_sdk wedge: {formatted[:200]} — restart workspace to recover"
+                            )
+                            break
                     response_text = sanitize_agent_error(exc)
                     break
         finally:

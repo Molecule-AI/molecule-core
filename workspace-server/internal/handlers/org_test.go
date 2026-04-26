@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -648,5 +649,430 @@ func TestOrgImport_ScheduleComputeError(t *testing.T) {
 					tc.cronExpr, tc.tz)
 			}
 		})
+	}
+}
+
+// ============================================================================
+// Org env-preflight aggregation (collectOrgEnv)
+// ============================================================================
+
+// strictReq builds a slice of single-name EnvRequirements for test
+// fixtures. Equivalent to the old []string literal but wrapped in
+// the new union shape.
+func strictReq(names ...string) []EnvRequirement {
+	out := make([]EnvRequirement, 0, len(names))
+	for _, n := range names {
+		out = append(out, EnvRequirement{Name: n})
+	}
+	return out
+}
+
+// anyOfReq builds a single any-of EnvRequirement for test fixtures.
+func anyOfReq(names ...string) EnvRequirement {
+	return EnvRequirement{AnyOf: append([]string(nil), names...)}
+}
+
+// reqNames flattens a slice of EnvRequirements into a single comparable
+// slice: single-name reqs contribute their Name, any-of reqs contribute
+// "anyOf(A|B|C)" with members sorted for deterministic output. Lets
+// tests assert against a string form regardless of which kind each
+// entry takes.
+func reqNames(reqs []EnvRequirement) []string {
+	out := make([]string, 0, len(reqs))
+	for _, r := range reqs {
+		if r.Name != "" {
+			out = append(out, r.Name)
+			continue
+		}
+		members := append([]string(nil), r.AnyOf...)
+		sort.Strings(members)
+		out = append(out, "anyOf("+strings.Join(members, "|")+")")
+	}
+	return out
+}
+
+func TestCollectOrgEnv_UnionAcrossLevels(t *testing.T) {
+	tmpl := &OrgTemplate{
+		RequiredEnv:    strictReq("ANTHROPIC_API_KEY"),
+		RecommendedEnv: strictReq("SLACK_WEBHOOK_URL"),
+		Workspaces: []OrgWorkspace{
+			{
+				Name:        "Root",
+				RequiredEnv: strictReq("GITHUB_TOKEN"),
+				Children: []OrgWorkspace{
+					{
+						Name:           "Leaf",
+						RequiredEnv:    strictReq("OPENROUTER_API_KEY"),
+						RecommendedEnv: strictReq("DISCORD_WEBHOOK_URL"),
+					},
+				},
+			},
+		},
+	}
+	req, rec := collectOrgEnv(tmpl)
+	// Required is the union of top-level + root + leaf.
+	wantReq := []string{"ANTHROPIC_API_KEY", "GITHUB_TOKEN", "OPENROUTER_API_KEY"}
+	if !stringSlicesEqual(reqNames(req), wantReq) {
+		t.Errorf("required mismatch: got %v, want %v", reqNames(req), wantReq)
+	}
+	wantRec := []string{"DISCORD_WEBHOOK_URL", "SLACK_WEBHOOK_URL"}
+	if !stringSlicesEqual(reqNames(rec), wantRec) {
+		t.Errorf("recommended mismatch: got %v, want %v", reqNames(rec), wantRec)
+	}
+}
+
+func TestCollectOrgEnv_RequiredWinsOverRecommended(t *testing.T) {
+	// Same key declared at one layer as recommended and another as
+	// required MUST surface only on the required side — a required
+	// declaration is strictly stricter than a recommended one, and
+	// listing it in both tiers would confuse the preflight modal.
+	tmpl := &OrgTemplate{
+		RecommendedEnv: strictReq("API_KEY"),
+		Workspaces: []OrgWorkspace{
+			{Name: "X", RequiredEnv: strictReq("API_KEY")},
+		},
+	}
+	req, rec := collectOrgEnv(tmpl)
+	if len(req) != 1 || req[0].Name != "API_KEY" {
+		t.Errorf("required should contain API_KEY, got %v", reqNames(req))
+	}
+	for _, r := range rec {
+		if r.Name == "API_KEY" {
+			t.Errorf("API_KEY must not appear in recommended once required elsewhere")
+		}
+	}
+}
+
+func TestCollectOrgEnv_Dedup(t *testing.T) {
+	// Same key declared twice at different levels should appear once.
+	tmpl := &OrgTemplate{
+		RequiredEnv: strictReq("K", "K"),
+		Workspaces: []OrgWorkspace{
+			{Name: "A", RequiredEnv: strictReq("K")},
+			{Name: "B", RequiredEnv: strictReq("K"), Children: []OrgWorkspace{
+				{Name: "C", RequiredEnv: strictReq("K")},
+			}},
+		},
+	}
+	req, _ := collectOrgEnv(tmpl)
+	if len(req) != 1 || req[0].Name != "K" {
+		t.Errorf("dedup failed: got %v, want [K]", reqNames(req))
+	}
+}
+
+func TestCollectOrgEnv_Empty(t *testing.T) {
+	tmpl := &OrgTemplate{}
+	req, rec := collectOrgEnv(tmpl)
+	if len(req) != 0 || len(rec) != 0 {
+		t.Errorf("empty template should produce empty slices, got req=%v rec=%v", reqNames(req), reqNames(rec))
+	}
+}
+
+// stringSlicesEqual checks ordered equality — collectOrgEnv sorts its
+// output so callers can do deterministic comparisons.
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestCollectOrgEnv_RequiredWinsOnSameStruct(t *testing.T) {
+	// The same key declared required AND recommended on the SAME
+	// workspace node (rare but legal to parse) must still dedup
+	// correctly and end up required-only.
+	tmpl := &OrgTemplate{
+		Workspaces: []OrgWorkspace{
+			{
+				Name:           "X",
+				RequiredEnv:    strictReq("API_KEY"),
+				RecommendedEnv: strictReq("API_KEY"),
+			},
+		},
+	}
+	req, rec := collectOrgEnv(tmpl)
+	if len(req) != 1 || req[0].Name != "API_KEY" {
+		t.Errorf("required should contain API_KEY once, got %v", reqNames(req))
+	}
+	for _, r := range rec {
+		if r.Name == "API_KEY" {
+			t.Errorf("API_KEY must not appear in recommended when also required on same struct")
+		}
+	}
+}
+
+func TestCollectOrgEnv_RejectsInvalidNames(t *testing.T) {
+	// Names failing envVarNamePattern (lowercase, traversal, whitespace,
+	// shell metachars) must be dropped silently — the log line is not
+	// asserted here; the output slice assertion is enough to prove the
+	// filter fires.
+	tmpl := &OrgTemplate{
+		RequiredEnv: strictReq(
+			"VALID_ONE",
+			"lowercase_bad",
+			"../../etc/passwd",
+			"name with spaces",
+			"WITH-DASH",
+			"'; DROP TABLE users;--",
+			"",
+			"A", // single char — still valid per regex
+		),
+	}
+	req, _ := collectOrgEnv(tmpl)
+	if !stringSlicesEqual(reqNames(req), []string{"A", "VALID_ONE"}) {
+		t.Errorf("expected only valid names, got %v", reqNames(req))
+	}
+}
+
+// TestOrgTemplate_ClaudeAnyOfAuthPreflight exercises the shape the
+// ux-ab-lab template ships with: a single any-of group at the org
+// level covering ANTHROPIC_API_KEY vs. CLAUDE_CODE_OAUTH_TOKEN, plus
+// two strict recommended entries (SERPER_API_KEY, VERCEL_TOKEN).
+// Proves the end-to-end YAML → OrgTemplate → collectOrgEnv → IsSatisfied
+// pipeline works for the canonical "Claude sub OR API key" pattern
+// without depending on the on-disk template file (org-templates/ is
+// populated by the clone-manifest, not tracked in this monorepo).
+func TestOrgTemplate_ClaudeAnyOfAuthPreflight(t *testing.T) {
+	src := `
+name: UX A/B Lab
+required_env:
+  - any_of:
+      - ANTHROPIC_API_KEY
+      - CLAUDE_CODE_OAUTH_TOKEN
+recommended_env:
+  - SERPER_API_KEY
+  - VERCEL_TOKEN
+workspaces:
+  - name: Design Director
+    children:
+      - name: UX Researcher
+      - name: Visual Designer
+      - name: React Engineer
+      - name: Deploy Engineer
+      - name: A11y + SEO Auditor
+      - name: Perf Auditor
+`
+	var tmpl OrgTemplate
+	if err := yaml.Unmarshal([]byte(src), &tmpl); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(tmpl.Workspaces) != 1 || len(tmpl.Workspaces[0].Children) != 6 {
+		t.Fatalf("expected 1 root with 6 children, got shape %+v", tmpl.Workspaces)
+	}
+
+	required, recommended := collectOrgEnv(&tmpl)
+	if len(required) != 1 {
+		t.Fatalf("expected 1 required requirement (the any-of group), got %d: %v", len(required), reqNames(required))
+	}
+	if required[0].Name != "" {
+		t.Errorf("expected any-of group, got strict name %q", required[0].Name)
+	}
+	wantMembers := []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"}
+	got := append([]string(nil), required[0].AnyOf...)
+	sort.Strings(got)
+	if !stringSlicesEqual(got, wantMembers) {
+		t.Errorf("any-of members mismatch: got %v, want %v", got, wantMembers)
+	}
+
+	// Either member should independently satisfy the group.
+	if !required[0].IsSatisfied(map[string]struct{}{"ANTHROPIC_API_KEY": {}}) {
+		t.Errorf("ANTHROPIC_API_KEY alone should satisfy the group")
+	}
+	if !required[0].IsSatisfied(map[string]struct{}{"CLAUDE_CODE_OAUTH_TOKEN": {}}) {
+		t.Errorf("CLAUDE_CODE_OAUTH_TOKEN alone should satisfy the group")
+	}
+	if required[0].IsSatisfied(map[string]struct{}{"OPENAI_API_KEY": {}}) {
+		t.Errorf("unrelated key should NOT satisfy the group")
+	}
+
+	wantRec := []string{"SERPER_API_KEY", "VERCEL_TOKEN"}
+	if !stringSlicesEqual(reqNames(recommended), wantRec) {
+		t.Errorf("recommended mismatch: got %v, want %v", reqNames(recommended), wantRec)
+	}
+}
+
+// TestEnvRequirement_UnmarshalYAML proves the on-disk YAML shape
+// (scalar OR `{any_of: [...]}` block) round-trips into EnvRequirement
+// correctly. The preflight pipeline reads user-authored org.yaml
+// files; a regression here would silently drop requirements.
+func TestEnvRequirement_UnmarshalYAML(t *testing.T) {
+	src := `
+required_env:
+  - GITHUB_TOKEN
+  - any_of:
+      - ANTHROPIC_API_KEY
+      - CLAUDE_CODE_OAUTH_TOKEN
+`
+	var parsed struct {
+		RequiredEnv []EnvRequirement `yaml:"required_env"`
+	}
+	if err := yaml.Unmarshal([]byte(src), &parsed); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if len(parsed.RequiredEnv) != 2 {
+		t.Fatalf("want 2 requirements, got %d", len(parsed.RequiredEnv))
+	}
+	if parsed.RequiredEnv[0].Name != "GITHUB_TOKEN" {
+		t.Errorf("first should be strict GITHUB_TOKEN, got %+v", parsed.RequiredEnv[0])
+	}
+	if parsed.RequiredEnv[1].Name != "" || len(parsed.RequiredEnv[1].AnyOf) != 2 {
+		t.Errorf("second should be any-of group, got %+v", parsed.RequiredEnv[1])
+	}
+}
+
+// TestEnvRequirement_UnmarshalYAML_RejectsEmptyAnyOf guards against a
+// template that ships `any_of: []` — ambiguous semantics (impossible
+// to satisfy), so the parser must fail loudly rather than silently
+// pass a never-satisfiable requirement through the preflight.
+func TestEnvRequirement_UnmarshalYAML_RejectsEmptyAnyOf(t *testing.T) {
+	src := `
+required_env:
+  - any_of: []
+`
+	var parsed struct {
+		RequiredEnv []EnvRequirement `yaml:"required_env"`
+	}
+	err := yaml.Unmarshal([]byte(src), &parsed)
+	if err == nil {
+		t.Errorf("expected error for empty any_of, got nil: %+v", parsed)
+	}
+}
+
+// ---------------------------------------------------------------------
+// any_of group tests — the new EnvRequirement union shape allows a
+// single requirement to be satisfied by any of a list of members (e.g.
+// ANTHROPIC_API_KEY OR CLAUDE_CODE_OAUTH_TOKEN). collectOrgEnv +
+// IsSatisfied together must handle this correctly.
+// ---------------------------------------------------------------------
+
+func TestEnvRequirement_IsSatisfied(t *testing.T) {
+	configured := map[string]struct{}{
+		"ANTHROPIC_API_KEY": {},
+		"GITHUB_TOKEN":      {},
+	}
+	tests := []struct {
+		name string
+		req  EnvRequirement
+		want bool
+	}{
+		{"strict present", EnvRequirement{Name: "ANTHROPIC_API_KEY"}, true},
+		{"strict absent", EnvRequirement{Name: "MISSING_KEY"}, false},
+		{"any-of first member present", anyOfReq("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"), true},
+		{"any-of second member present", anyOfReq("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"), true},
+		{"any-of none present", anyOfReq("OPENAI_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"), false},
+		{"any-of single member present", anyOfReq("GITHUB_TOKEN"), true},
+	}
+	for _, tt := range tests {
+		if got := tt.req.IsSatisfied(configured); got != tt.want {
+			t.Errorf("%s: got %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestCollectOrgEnv_AnyOfGroupPreserved(t *testing.T) {
+	// A group with two alternatives should come through as a single
+	// EnvRequirement carrying both members.
+	tmpl := &OrgTemplate{
+		RequiredEnv: []EnvRequirement{
+			anyOfReq("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"),
+		},
+	}
+	req, _ := collectOrgEnv(tmpl)
+	if len(req) != 1 {
+		t.Fatalf("expected 1 requirement, got %d: %v", len(req), reqNames(req))
+	}
+	if req[0].Name != "" {
+		t.Errorf("expected any-of group, got strict name %q", req[0].Name)
+	}
+	wantMembers := []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"}
+	got := append([]string(nil), req[0].AnyOf...)
+	sort.Strings(got)
+	if !stringSlicesEqual(got, wantMembers) {
+		t.Errorf("any-of members mismatch: got %v, want %v", got, wantMembers)
+	}
+}
+
+func TestCollectOrgEnv_AnyOfGroupDedup(t *testing.T) {
+	// Two identical groups (members in different order) declared at
+	// different levels must collapse to one.
+	tmpl := &OrgTemplate{
+		RequiredEnv: []EnvRequirement{
+			anyOfReq("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"),
+		},
+		Workspaces: []OrgWorkspace{
+			{
+				Name: "Root",
+				RequiredEnv: []EnvRequirement{
+					anyOfReq("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"),
+				},
+			},
+		},
+	}
+	req, _ := collectOrgEnv(tmpl)
+	if len(req) != 1 {
+		t.Errorf("expected 1 requirement after dedup, got %d: %v", len(req), reqNames(req))
+	}
+}
+
+func TestCollectOrgEnv_StrictDominatesGroup(t *testing.T) {
+	// If a strict requirement X is declared anywhere, any-of groups
+	// that CONTAIN X are redundant — the strict requirement will force
+	// X to be configured, which satisfies any group mentioning it too.
+	// Same-tier pruning drops the group.
+	tmpl := &OrgTemplate{
+		RequiredEnv: []EnvRequirement{
+			{Name: "ANTHROPIC_API_KEY"},
+			anyOfReq("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"),
+		},
+	}
+	req, _ := collectOrgEnv(tmpl)
+	if len(req) != 1 || req[0].Name != "ANTHROPIC_API_KEY" {
+		t.Errorf("strict should dominate group, got %v", reqNames(req))
+	}
+}
+
+func TestCollectOrgEnv_StrictRequiredDominatesRecommendedGroup(t *testing.T) {
+	// Cross-tier: a strict required X drops any-of groups in the
+	// recommended tier that mention X.
+	tmpl := &OrgTemplate{
+		RequiredEnv: strictReq("ANTHROPIC_API_KEY"),
+		RecommendedEnv: []EnvRequirement{
+			anyOfReq("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"),
+			{Name: "SLACK_WEBHOOK_URL"},
+		},
+	}
+	req, rec := collectOrgEnv(tmpl)
+	if len(req) != 1 || req[0].Name != "ANTHROPIC_API_KEY" {
+		t.Errorf("required mismatch: got %v", reqNames(req))
+	}
+	// The any-of group should have been pruned; only SLACK remains.
+	if len(rec) != 1 || rec[0].Name != "SLACK_WEBHOOK_URL" {
+		t.Errorf("recommended mismatch: got %v, want [SLACK_WEBHOOK_URL]", reqNames(rec))
+	}
+}
+
+func TestCollectOrgEnv_AnyOfWithInvalidMemberKeepsValidOnes(t *testing.T) {
+	// A group with one valid + one invalid member should keep the
+	// valid one (group carried by any remaining legitimate name). A
+	// group where ALL members are invalid is dropped entirely.
+	tmpl := &OrgTemplate{
+		RequiredEnv: []EnvRequirement{
+			anyOfReq("VALID_ONE", "lowercase_bad"),
+			anyOfReq("'; DROP TABLE;--", ""),
+		},
+	}
+	req, _ := collectOrgEnv(tmpl)
+	if len(req) != 1 {
+		t.Fatalf("expected 1 requirement, got %d: %v", len(req), reqNames(req))
+	}
+	// The remaining group has only one valid member, so it gets
+	// promoted to a single-name requirement (len(members)==1 path).
+	if req[0].Name != "VALID_ONE" && !stringSlicesEqual(req[0].AnyOf, []string{"VALID_ONE"}) {
+		t.Errorf("expected VALID_ONE to survive, got %v", reqNames(req))
 	}
 }

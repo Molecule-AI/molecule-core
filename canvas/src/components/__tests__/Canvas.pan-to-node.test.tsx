@@ -16,7 +16,9 @@ afterEach(() => {
 // ── Shared fitView spy — must be set up before vi.mock hoisting ──────────────
 const mockFitView = vi.fn();
 const mockFitBounds = vi.fn();
-const mockGetIntersectingNodes = vi.fn(() => []);
+const mockGetIntersectingNodes = vi.fn(
+  (): Array<{ id: string; position: { x: number; y: number } }> => [],
+);
 
 vi.mock("@xyflow/react", () => {
   const ReactFlow = ({
@@ -83,6 +85,12 @@ const mockStoreState = {
   selectedNodeIds: new Set<string>(),
   clearSelection: vi.fn(),
   toggleNodeSelection: vi.fn(),
+  // Cascade-delete / deploy animation state (added in the multilevel-
+  // layout-UX bundle). Canvas.tsx reads deletingIds.size to decide
+  // whether to apply the "locked during delete" class on each node;
+  // an empty Set mirrors the idle canvas and doesn't interact with
+  // any pan/fit behaviour under test here.
+  deletingIds: new Set<string>(),
 };
 
 vi.mock("@/store/canvas", () => ({

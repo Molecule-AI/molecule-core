@@ -72,6 +72,7 @@ const mockStoreState = {
   selectedNodeIds: new Set<string>(),
   clearSelection: vi.fn(),
   toggleNodeSelection: vi.fn(),
+  deletingIds: new Set<string>(),
 };
 
 vi.mock("@/store/canvas", () => ({

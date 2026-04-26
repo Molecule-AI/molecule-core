@@ -298,6 +298,163 @@ func TestHeartbeatHandler_OnlineStaysOnline(t *testing.T) {
 	}
 }
 
+// ==================== Heartbeat — runtime wedge (claude_agent_sdk init timeout) ====================
+
+// TestHeartbeatHandler_RuntimeWedged_FlipsOnlineToDegraded verifies the
+// runtime_state="wedged" path. Heartbeat task in the workspace lives in
+// its own asyncio task and keeps reporting online while the Claude SDK
+// is wedged on Control request timeout; the workspace tells us about
+// the wedge via this field, and we honor it by flipping status →
+// degraded with the wedge reason in last_sample_error.
+func TestHeartbeatHandler_RuntimeWedged_FlipsOnlineToDegraded(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewRegistryHandler(broadcaster)
+
+	wedgeMsg := "claude_agent_sdk wedge: Control request timeout: initialize — restart workspace to recover"
+
+	mock.ExpectQuery("SELECT COALESCE\\(current_task").
+		WithArgs("ws-wedged").
+		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
+
+	// Heartbeat UPDATE — sample_error carries the wedge reason from the
+	// workspace's _runtime_state_payload() helper.
+	mock.ExpectExec("UPDATE workspaces SET").
+		WithArgs("ws-wedged", 0.0, wedgeMsg, 0, 600, "").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// evaluateStatus: currentStatus = online
+	mock.ExpectQuery("SELECT status FROM workspaces WHERE id =").
+		WithArgs("ws-wedged").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("online"))
+
+	// The wedge-handling branch fires the degraded UPDATE with the
+	// `AND status = 'online'` guard (race-safe against concurrent
+	// removal). Match the SQL with the guard included.
+	mock.ExpectExec("UPDATE workspaces SET status = 'degraded'.*status = 'online'").
+		WithArgs("ws-wedged").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// RecordAndBroadcast for WORKSPACE_DEGRADED
+	mock.ExpectExec("INSERT INTO structure_events").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	body := `{"workspace_id":"ws-wedged","error_rate":0.0,"sample_error":"` + wedgeMsg + `","active_tasks":0,"uptime_seconds":600,"runtime_state":"wedged"}`
+	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Heartbeat(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestHeartbeatHandler_DegradedRecoversOnlyAfterWedgeClears verifies that
+// the degraded → online recovery path requires BOTH error_rate < 0.1
+// AND runtime_state cleared. A workspace still reporting wedged stays
+// degraded even when error_rate happens to be 0 (no calls have been
+// recorded as errors yet — the wedge is captured as a runtime state,
+// not an error count).
+func TestHeartbeatHandler_DegradedRecoversOnlyAfterWedgeClears(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewRegistryHandler(broadcaster)
+
+	mock.ExpectQuery("SELECT COALESCE\\(current_task").
+		WithArgs("ws-still-wedged").
+		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
+
+	mock.ExpectExec("UPDATE workspaces SET").
+		WithArgs("ws-still-wedged", 0.0, "still broken", 0, 800, "").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// currentStatus = degraded
+	mock.ExpectQuery("SELECT status FROM workspaces WHERE id =").
+		WithArgs("ws-still-wedged").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("degraded"))
+
+	// No additional UPDATE expected — the recovery branch's
+	// `runtime_state == ""` guard blocks the flip back to online.
+	// (sqlmock fails the test if any unmocked Exec runs.)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	body := `{"workspace_id":"ws-still-wedged","error_rate":0.0,"sample_error":"still broken","active_tasks":0,"uptime_seconds":800,"runtime_state":"wedged"}`
+	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Heartbeat(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestHeartbeatHandler_DegradedToOnline_AfterWedgeClears verifies the
+// happy-path recovery: a workspace previously marked degraded is
+// post-restart, error_rate is back to 0, and runtime_state is empty
+// (the new process re-imported claude_sdk_executor with the flag
+// fresh). Status flips back to online and a WORKSPACE_ONLINE event
+// fires.
+func TestHeartbeatHandler_DegradedToOnline_AfterWedgeClears(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewRegistryHandler(broadcaster)
+
+	mock.ExpectQuery("SELECT COALESCE\\(current_task").
+		WithArgs("ws-recovered").
+		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow(""))
+
+	mock.ExpectExec("UPDATE workspaces SET").
+		WithArgs("ws-recovered", 0.0, "", 0, 30, "").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	mock.ExpectQuery("SELECT status FROM workspaces WHERE id =").
+		WithArgs("ws-recovered").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("degraded"))
+
+	// Recovery UPDATE fires (degraded → online).
+	mock.ExpectExec("UPDATE workspaces SET status = 'online'").
+		WithArgs("ws-recovered").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	mock.ExpectExec("INSERT INTO structure_events").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	// runtime_state intentionally absent (== ""); error_rate = 0; this
+	// is exactly what a freshly-restarted workspace's first heartbeat
+	// looks like.
+	body := `{"workspace_id":"ws-recovered","error_rate":0.0,"sample_error":"","active_tasks":0,"uptime_seconds":30}`
+	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Heartbeat(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 // ==================== UpdateCard ====================
 
 func TestUpdateCard_Success(t *testing.T) {

@@ -269,6 +269,19 @@ async def test_check_delegations_sends_self_message(tmp_path):
     a2a_call = post_calls[0]
     assert "/a2a" in str(a2a_call)
 
+    # Regression: the self-message MUST include X-Workspace-ID set to
+    # the workspace's own id, so the platform's a2a_receive logger
+    # records source_id = workspace_id (not NULL). Without this header
+    # the canvas's My Chat tab (which filters source_id IS NULL) would
+    # render the internal "Delegation results are ready..." trigger
+    # as a user-typed message. Bug observed 2026-04-25 on UX A/B Lab
+    # Design Director chat.
+    a2a_headers = a2a_call.kwargs.get("headers") or {}
+    assert a2a_headers.get("X-Workspace-ID") == "ws-abc", (
+        f"self-message must self-identify via X-Workspace-ID header, "
+        f"got headers={a2a_headers!r}"
+    )
+
 
 @pytest.mark.asyncio
 async def test_check_delegations_cooldown():

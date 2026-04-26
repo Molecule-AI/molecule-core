@@ -199,10 +199,34 @@ class TestSendA2AMessage:
             result = await a2a_client.send_a2a_message("http://target/a2a", "task")
 
         assert result.startswith(a2a_client._A2A_ERROR_PREFIX)
-        assert "unknown" in result
+        # The error includes the JSON-RPC code so the operator can look it
+        # up; "no message" surfaces the missing-message condition explicitly
+        # instead of the previous opaque "unknown".
+        assert "code=-32600" in result
+        assert "no message" in result.lower()
+        # Target URL is included so chained delegations are traceable.
+        assert "target=http://target/a2a" in result
 
-    async def test_neither_result_nor_error_returns_str_of_data(self):
-        """Response with neither 'result' nor 'error' → str(data)."""
+    async def test_jsonrpc_error_with_code_zero_includes_code_in_detail(self):
+        """JSON-RPC error code=0 is technically not valid in the spec,
+        but a malformed peer can still send it — make sure the code is
+        preserved in the detail rather than collapsing into the
+        no-code path. Locks in the `code is not None` semantics over
+        the truthy-check shortcut."""
+        import a2a_client
+
+        resp = _make_response(200, {"error": {"code": 0, "message": "weird"}})
+        mock_client = _make_mock_client(post_resp=resp)
+
+        with patch("a2a_client.httpx.AsyncClient", return_value=mock_client):
+            result = await a2a_client.send_a2a_message("http://target/a2a", "task")
+
+        assert result.startswith(a2a_client._A2A_ERROR_PREFIX)
+        assert "code=0" in result
+        assert "weird" in result
+
+    async def test_neither_result_nor_error_returns_a2a_error_with_payload(self):
+        """Response with neither 'result' nor 'error' → A2A_ERROR + payload context."""
         import a2a_client
 
         payload = {"jsonrpc": "2.0", "id": "abc123"}
@@ -212,7 +236,14 @@ class TestSendA2AMessage:
         with patch("a2a_client.httpx.AsyncClient", return_value=mock_client):
             result = await a2a_client.send_a2a_message("http://target/a2a", "task")
 
-        assert result == str(payload)
+        # Pre-fix this returned bare str(payload) which the canvas
+        # rendered as a confusing "looks like a successful response"
+        # block. Now it's tagged so downstream UI / delegate_task
+        # routes it through the error path.
+        assert result.startswith(a2a_client._A2A_ERROR_PREFIX)
+        assert "unexpected response shape" in result
+        assert "abc123" in result  # snippet of payload included for context
+        assert "target=http://target/a2a" in result
 
     async def test_exception_returns_error_prefix_and_message(self):
         """Network exception → returns _A2A_ERROR_PREFIX + exception text."""
@@ -225,6 +256,39 @@ class TestSendA2AMessage:
 
         assert result.startswith(a2a_client._A2A_ERROR_PREFIX)
         assert "connection refused" in result
+        # Exception class name is prepended when the message doesn't
+        # already include it — gives the operator a typed handle to
+        # search for in container logs.
+        assert "ConnectionError" in result
+        assert "target=http://target/a2a" in result
+
+    async def test_empty_stringifying_exception_falls_back_to_class_name(self):
+        """The user's reported bug: httpx.RemoteProtocolError and similar
+        exceptions can stringify to "" — pre-fix the canvas rendered
+        "[A2A_ERROR] " with no detail. Verify the empty path now
+        produces an actionable message including the exception type
+        and the target URL."""
+        import a2a_client
+
+        # Subclass Exception with __str__ → "" to simulate the
+        # silent-exception variants without depending on a specific
+        # httpx version's behavior.
+        class _SilentRemoteProtocolError(Exception):
+            def __str__(self) -> str:
+                return ""
+
+        mock_client = _make_mock_client(post_exc=_SilentRemoteProtocolError())
+
+        with patch("a2a_client.httpx.AsyncClient", return_value=mock_client):
+            result = await a2a_client.send_a2a_message("http://target/a2a", "task")
+
+        # Must NOT be just the bare prefix — that's the regression.
+        assert result != a2a_client._A2A_ERROR_PREFIX.strip()
+        assert result != f"{a2a_client._A2A_ERROR_PREFIX}"
+        # Must include the class name + something explanatory.
+        assert "_SilentRemoteProtocolError" in result
+        assert "no message" in result.lower()
+        assert "target=http://target/a2a" in result
 
     async def test_result_text_part_missing_text_key_returns_empty(self):
         """Part dict without 'text' key → falls back to '' (empty string returned)."""

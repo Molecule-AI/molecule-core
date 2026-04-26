@@ -308,6 +308,7 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		wsAuth.PUT("/secrets", sech.Set)
 		wsAuth.DELETE("/secrets/:key", sech.Delete)
 		wsAuth.GET("/model", sech.GetModel)
+		wsAuth.PUT("/model", sech.SetModel)
 
 		// Token usage metrics — cost transparency (#593).
 		// WorkspaceAuth middleware (on wsAuth) binds the bearer to :id.
@@ -480,6 +481,14 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	wsAuth.GET("/files/*path", tmplh.ReadFile)
 	wsAuth.PUT("/files/*path", tmplh.WriteFile)
 	wsAuth.DELETE("/files/*path", tmplh.DeleteFile)
+
+	// Chat attachments — file upload (user → agent) and binary-safe
+	// streaming download (agent → user). Namespaced under /chat/ so
+	// the security model is obviously distinct from /files/* (which
+	// handles workspace config/templates and has a different caller).
+	chatfh := handlers.NewChatFilesHandler(tmplh)
+	wsAuth.POST("/chat/uploads", chatfh.Upload)
+	wsAuth.GET("/chat/download", chatfh.Download)
 
 	// Plugins
 	pluginsDir := findPluginsDir(configsDir)

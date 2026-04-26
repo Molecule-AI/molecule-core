@@ -36,9 +36,20 @@ import { DropTargetBadge } from "./canvas/DropTargetBadge";
 import { useDragHandlers } from "./canvas/useDragHandlers";
 import { useKeyboardShortcuts } from "./canvas/useKeyboardShortcuts";
 import { useCanvasViewport } from "./canvas/useCanvasViewport";
+import { A2AEdge } from "./canvas/A2AEdge";
 
 const nodeTypes = {
   workspaceNode: WorkspaceNode,
+};
+
+// Custom edge types. The default React Flow edge renders its label
+// inside the SVG group (always under nodes) with pointerEvents: none
+// inherited from the path. A2AEdge portals the label to a sibling
+// DOM layer so it renders above nodes and accepts clicks. Keep the
+// reference stable (module-scope const) so React Flow doesn't see a
+// new edgeTypes object on every render and warn about prop churn.
+const edgeTypes = {
+  a2a: A2AEdge,
 };
 
 const defaultEdgeOptions: Partial<Edge> = {
@@ -58,14 +69,95 @@ export function Canvas() {
 }
 
 function CanvasInner() {
-  const nodes = useCanvasStore((s) => s.nodes);
+  const rawNodes = useCanvasStore((s) => s.nodes);
   const edges = useCanvasStore((s) => s.edges);
   const a2aEdges = useCanvasStore((s) => s.a2aEdges);
   const showA2AEdges = useCanvasStore((s) => s.showA2AEdges);
+  const deletingIds = useCanvasStore((s) => s.deletingIds);
   const allEdges = useMemo(
     () => (showA2AEdges ? [...edges, ...a2aEdges] : edges),
     [edges, a2aEdges, showA2AEdges],
   );
+  // Drag-lock during a system-owned operation (deploy OR delete).
+  // React Flow respects Node.draggable, which stops the gesture
+  // before it starts — preventDefault() on the drag-start callback
+  // isn't authoritative in v12. We project `draggable: false` onto
+  // each locked node before handing the array to ReactFlow; the
+  // drag-start handler in useDragHandlers remains as a belt-and-
+  // braces check.
+  //
+  // Perf: short-circuit when nothing is provisioning so the memo
+  // passes rawNodes through unchanged (identity-stable → RF
+  // reconciles nothing). When a deploy IS active, build an O(n)
+  // root index once and re-use it. Critically, do NOT spread every
+  // node — only mutate the locked ones — so unmodified nodes keep
+  // their object identity and RF's per-node memo short-circuits.
+  const nodes = useMemo(() => {
+    const anyProvisioning = rawNodes.some((n) => n.data.status === "provisioning");
+    const anyDeleting = deletingIds.size > 0;
+    if (!anyProvisioning && !anyDeleting) return rawNodes;
+
+    const byId = new Map<string, typeof rawNodes[number]>();
+    for (const n of rawNodes) byId.set(n.id, n);
+    const rootOf = new Map<string, string>();
+    const resolveRoot = (id: string): string => {
+      // Iterative walk guards against a pathological cycle (hostile
+      // data) — recursion would hit the stack limit on a deep tree.
+      const visited = new Set<string>();
+      let cursor: string | null = id;
+      while (cursor) {
+        if (visited.has(cursor)) break;
+        visited.add(cursor);
+        const cached = rootOf.get(cursor);
+        if (cached) {
+          for (const seenId of visited) rootOf.set(seenId, cached);
+          return cached;
+        }
+        const n = byId.get(cursor);
+        if (!n) break;
+        if (!n.data.parentId) {
+          for (const seenId of visited) rootOf.set(seenId, cursor);
+          return cursor;
+        }
+        cursor = n.data.parentId;
+      }
+      return id;
+    };
+
+    const provisioningByRoot = new Map<string, number>();
+    for (const n of rawNodes) {
+      if (n.data.status !== "provisioning") continue;
+      const rootId = resolveRoot(n.id);
+      provisioningByRoot.set(rootId, (provisioningByRoot.get(rootId) ?? 0) + 1);
+    }
+
+    let touched = false;
+    const next = rawNodes.map((n) => {
+      const rootId = resolveRoot(n.id);
+      const deployLocked = n.id !== rootId && (provisioningByRoot.get(rootId) ?? 0) > 0;
+      // Delete-locked: nothing in a subtree whose DELETE is in
+      // flight should be draggable, INCLUDING the root of that
+      // subtree (unlike deploy, there's no cancel — the delete
+      // is irrevocable at this point).
+      const deleteLocked = deletingIds.has(n.id);
+      const shouldLock = deployLocked || deleteLocked;
+      if (shouldLock && n.draggable !== false) {
+        touched = true;
+        return { ...n, draggable: false };
+      }
+      if (!shouldLock && n.draggable === false) {
+        // Node was locked in a prior render; deploy cancelled /
+        // completed, or delete failed and was reverted. Restore
+        // default dragability.
+        touched = true;
+        const { draggable: _d, ...rest } = n;
+        void _d;
+        return rest as typeof n;
+      }
+      return n; // identity-preserved
+    });
+    return touched ? next : rawNodes;
+  }, [rawNodes, deletingIds]);
   const onNodesChange = useCanvasStore((s) => s.onNodesChange);
   const selectNode = useCanvasStore((s) => s.selectNode);
   const selectedNodeId = useCanvasStore((s) => s.selectedNodeId);
@@ -91,18 +183,45 @@ function CanvasInner() {
   // outside-click handler.
   const pendingDelete = useCanvasStore((s) => s.pendingDelete);
   const setPendingDelete = useCanvasStore((s) => s.setPendingDelete);
-  const removeNode = useCanvasStore((s) => s.removeNode);
+  const removeSubtree = useCanvasStore((s) => s.removeSubtree);
   const confirmDelete = useCallback(async () => {
     if (!pendingDelete) return;
     const { id } = pendingDelete;
     setPendingDelete(null);
+    // Compute the full subtree and mark it as "deleting" so every
+    // node in the chain renders dim + non-draggable during the
+    // network round-trip + the server-side cascade. Matches the
+    // deploy-lock UX: once a system-initiated operation owns this
+    // subtree, the user shouldn't be able to move its pieces
+    // around until it resolves.
+    const state = useCanvasStore.getState();
+    const subtree = new Set<string>();
+    const stack = [id];
+    while (stack.length) {
+      const nid = stack.pop()!;
+      subtree.add(nid);
+      for (const n of state.nodes) {
+        if (n.data.parentId === nid) stack.push(n.id);
+      }
+    }
+    state.beginDelete(subtree);
     try {
       await api.del(`/workspaces/${id}?confirm=true`);
-      removeNode(id);
+      // Mirror the server-side cascade locally — drop the parent AND
+      // every descendant in one atomic update. The per-descendant
+      // WORKSPACE_REMOVED WS events still arrive (and are no-ops
+      // because the nodes are already gone), but we no longer depend
+      // on them: a wedged WS used to leave orphan child cards on the
+      // canvas until the user refreshed the page.
+      removeSubtree(id);
+      state.endDelete(subtree);
     } catch (e) {
+      // Network or server error — restore the subtree to normal
+      // interaction and surface the error.
+      state.endDelete(subtree);
       showToast(e instanceof Error ? e.message : "Delete failed", "error");
     }
-  }, [pendingDelete, setPendingDelete, removeNode]);
+  }, [pendingDelete, setPendingDelete, removeSubtree]);
 
   const onPaneClick = useCallback(() => {
     selectNode(null);
@@ -141,6 +260,7 @@ function CanvasInner() {
           onPaneClick={onPaneClick}
           onMoveEnd={onMoveEnd}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           defaultEdgeOptions={defaultEdgeOptions}
           defaultViewport={defaultViewport}
           fitView={viewport.x === 0 && viewport.y === 0 && viewport.zoom === 1}
