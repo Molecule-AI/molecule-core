@@ -168,12 +168,15 @@ func sweepOnce(parent context.Context, reaper OrphanReaper) {
 	for _, id := range orphanIDs {
 		log.Printf("Orphan sweeper: stopping leaked container for removed workspace %s", id)
 		if stopErr := reaper.Stop(ctx, id); stopErr != nil {
-			// Stop() itself returns nil even when container is
-			// gone, but a future change could surface real errors.
-			// Keep the volume around for the next sweep so we
-			// don't fall into the same Stop-failed-then-volume-
-			// in-use trap that motivated this sweeper.
-			log.Printf("Orphan sweeper: Stop failed for %s: %v — leaving volume", id, stopErr)
+			// Stop returns the wrapped Docker error (treating
+			// "container not found" as nil-success via
+			// isContainerNotFound), so a non-nil here means the
+			// container is genuinely still alive — daemon timeout,
+			// ctx cancellation, or a transient socket EOF.
+			// Skip RemoveVolume so we don't fall into the same
+			// Stop-failed-then-volume-in-use trap that motivated
+			// this sweeper. The next cycle (60s out) retries Stop.
+			log.Printf("Orphan sweeper: Stop failed for %s: %v — leaving volume for next cycle", id, stopErr)
 			continue
 		}
 		if rmErr := reaper.RemoveVolume(ctx, id); rmErr != nil {
