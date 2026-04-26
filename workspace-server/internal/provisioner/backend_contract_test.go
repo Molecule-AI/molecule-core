@@ -38,6 +38,7 @@ package provisioner
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -138,23 +139,90 @@ func runBackendContract(t *testing.T, backend Backend) {
 }
 
 // TestDockerBackend_Contract feeds the Docker backend through the
-// shared runner. Skipped pending hardening: the scaffold exposed a
-// real bug — neither backend's Stop/IsRunning handles a nil underlying
-// client gracefully (both panic). Filing that as a separate issue;
-// once both backends return (*, error) instead of panicking, flip this
-// to t.Run and the contract scenarios exercise the fix.
+// shared runner. Was Skip'd pending hardening of Provisioner.{Stop,
+// IsRunning} against nil Docker client — that hardening landed in
+// fix/provisioner-nil-guards-1813, so the scenarios run now. A
+// zero-valued *Provisioner returns ErrNoBackend from each method
+// instead of panicking, satisfying the no-panic contract.
 func TestDockerBackend_Contract(t *testing.T) {
-	t.Skip("scaffolding only — unblock by hardening Provisioner.{Stop,IsRunning} against nil Docker client; see docs/architecture/backends.md drift risk #6")
 	var p Provisioner
 	runBackendContract(t, &p)
 }
 
 // TestCPProvisionerBackend_Contract — same story as the Docker variant.
-// CPProvisioner panics on nil httpClient today; once that's hardened,
-// remove the Skip and this runner exercises both backends through a
-// single contract.
+// Hardening landed in fix/provisioner-nil-guards-1813; zero-valued
+// *CPProvisioner returns ErrNoBackend from Stop/IsRunning instead of
+// panicking on nil httpClient.
 func TestCPProvisionerBackend_Contract(t *testing.T) {
-	t.Skip("scaffolding only — unblock by hardening CPProvisioner.{Stop,IsRunning} against nil httpClient; see docs/architecture/backends.md drift risk #6")
 	var p CPProvisioner
 	runBackendContract(t, &p)
+}
+
+// TestZeroValuedBackends_NoPanic pins the contract that motivated #1813:
+// a Backend with no underlying client wired up must return cleanly,
+// never panic. The orphan sweeper and shutdown paths both call these
+// methods speculatively where the receiver could be unset.
+//
+// The exact error shape varies between backends:
+//   - Docker Provisioner has no DB-lookup layer; zero-valued always
+//     returns ErrNoBackend.
+//   - CPProvisioner threads through a package-level resolveInstanceID
+//     lookup; when the DB has no row for the workspace (or db.DB
+//     itself is nil), instance_id comes back empty and the method
+//     short-circuits to (false, nil). Only when there's a real
+//     instance_id to query does the missing-httpClient case surface
+//     as ErrNoBackend.
+//
+// Both shapes are acceptable — the contract is "no panic, error is
+// nil or ErrNoBackend." Anything else is a bug.
+func TestZeroValuedBackends_NoPanic(t *testing.T) {
+	acceptableErr := func(err error) bool {
+		return err == nil || errors.Is(err, ErrNoBackend)
+	}
+	t.Run("Provisioner.Stop", func(t *testing.T) {
+		var p Provisioner
+		if err := p.Stop(context.Background(), "any"); !errors.Is(err, ErrNoBackend) {
+			t.Errorf("zero-valued Provisioner.Stop: got %v, want ErrNoBackend", err)
+		}
+	})
+	t.Run("Provisioner.IsRunning", func(t *testing.T) {
+		var p Provisioner
+		running, err := p.IsRunning(context.Background(), "any")
+		if !errors.Is(err, ErrNoBackend) {
+			t.Errorf("zero-valued Provisioner.IsRunning: got err=%v, want ErrNoBackend", err)
+		}
+		if running {
+			t.Errorf("zero-valued Provisioner.IsRunning: got running=true, want false")
+		}
+	})
+	t.Run("CPProvisioner.Stop", func(t *testing.T) {
+		var p CPProvisioner
+		if err := p.Stop(context.Background(), "any"); !acceptableErr(err) {
+			t.Errorf("zero-valued CPProvisioner.Stop: got %v, want nil or ErrNoBackend", err)
+		}
+	})
+	t.Run("CPProvisioner.IsRunning", func(t *testing.T) {
+		var p CPProvisioner
+		_, err := p.IsRunning(context.Background(), "any")
+		if !acceptableErr(err) {
+			t.Errorf("zero-valued CPProvisioner.IsRunning: got err=%v, want nil or ErrNoBackend", err)
+		}
+	})
+	// Nil receivers must also be safe. The orphan sweeper code path can
+	// hit Stop on a *Provisioner that's nil (not just zero-valued) when
+	// the wiring path hasn't initialized at all. For nil receivers we
+	// always expect ErrNoBackend (the nil-check at the top fires before
+	// any DB lookup could absorb the case).
+	t.Run("nil_Provisioner.Stop", func(t *testing.T) {
+		var p *Provisioner
+		if err := p.Stop(context.Background(), "any"); !errors.Is(err, ErrNoBackend) {
+			t.Errorf("nil *Provisioner.Stop: got %v, want ErrNoBackend", err)
+		}
+	})
+	t.Run("nil_CPProvisioner.Stop", func(t *testing.T) {
+		var p *CPProvisioner
+		if err := p.Stop(context.Background(), "any"); !errors.Is(err, ErrNoBackend) {
+			t.Errorf("nil *CPProvisioner.Stop: got %v, want ErrNoBackend", err)
+		}
+	})
 }
