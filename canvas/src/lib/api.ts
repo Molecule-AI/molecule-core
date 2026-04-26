@@ -60,15 +60,45 @@ async function request<T>(
     return request<T>(method, path, body, retryCount + 1, options);
   }
   if (res.status === 401) {
-    // Session expired or credentials lost. On SaaS (tenant subdomain)
-    // the login page lives at /cp/auth/login and is mounted by the
-    // control-plane reverse proxy — redirect. On self-hosted / local
-    // dev / Vercel preview there IS no /cp/* mount, so redirecting
-    // would navigate to a 404 ("404 page not found") instead of the
-    // real error the user should see. In that case, throw instead
-    // and let the caller render a meaningful failure (retry button,
-    // error banner, etc.).
-    if (slug) {
+    // Distinguish "session is dead" from "this endpoint refused this
+    // token." Old behaviour blanket-redirected on every 401, so a
+    // single transient 401 from a workspace-scoped endpoint
+    // (/workspaces/:id/peers, /plugins, etc. that need a workspace
+    // token rather than the tenant admin bearer) yanked the user
+    // back to AuthKit even when their session was perfectly fine.
+    // That broke the staging-tabs E2E for the entire 2026-04-25
+    // night; #2073/#2074 worked around the symptom in the test by
+    // mocking 401→200 for every fetch, but the user-facing bug
+    // stayed.
+    //
+    // The canonical "session is dead" signal is /cp/auth/me
+    // returning 401. For any 401 on a non-auth path, probe
+    // /cp/auth/me before deciding to redirect:
+    //   - probe 401 → session is actually dead → redirect
+    //   - probe 200 → session is fine, the endpoint just refused
+    //                 our specific token → throw a real error,
+    //                 caller renders an error state
+    //   - probe network error → assume session-fine (conservative;
+    //                 better to throw than to redirect on a
+    //                 transient probe failure)
+    //
+    // Self-hosted / localhost / reserved subdomains still throw
+    // without redirecting (slug is empty in those cases) — same
+    // policy as before.
+    const isAuthPath = path.startsWith("/cp/auth/");
+    let sessionDead = isAuthPath;
+    if (!isAuthPath && slug) {
+      try {
+        const probe = await fetch(`${PLATFORM_URL}/cp/auth/me`, {
+          credentials: "include",
+          signal: AbortSignal.timeout(5000),
+        });
+        sessionDead = probe.status === 401;
+      } catch {
+        // Probe failed (network/timeout) — fall through to throw.
+      }
+    }
+    if (sessionDead && slug) {
       const { redirectToLogin } = await import("./auth");
       redirectToLogin("sign-in");
       throw new Error("Session expired — redirecting to login");

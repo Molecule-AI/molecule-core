@@ -5,7 +5,7 @@
  * the per-tenant admin token, provisions one hermes workspace, waits
  * for online, then exports:
  *
- *   STAGING_TENANT_URL     https://<slug>.moleculesai.app
+ *   STAGING_TENANT_URL     https://<slug>.staging.moleculesai.app
  *   STAGING_WORKSPACE_ID   UUID of the hermes workspace
  *   STAGING_TENANT_TOKEN   per-tenant admin bearer (for spec requests)
  *   STAGING_SLUG           org slug (used by teardown)
@@ -16,6 +16,11 @@
  *                          CP_ADMIN_API_TOKEN). Drives provision +
  *                          tenant-token retrieval + teardown via a
  *                          single credential.
+ *   STAGING_TENANT_DOMAIN  default: staging.moleculesai.app — the
+ *                          DNS suffix the CP provisioner writes for
+ *                          staging tenants. Override only when
+ *                          running this harness against a non-default
+ *                          zone.
  */
 
 import type { FullConfig } from "@playwright/test";
@@ -25,6 +30,14 @@ import { join } from "path";
 const CP_URL = process.env.MOLECULE_CP_URL || "https://staging-api.moleculesai.app";
 const ADMIN_TOKEN = process.env.MOLECULE_ADMIN_TOKEN;
 const STAGING = process.env.CANVAS_E2E_STAGING === "1";
+// Tenant DNS zone for staging. CP provisioner registers DNS as
+// `<slug>.staging.moleculesai.app` (see internal/provisioner/ec2.go's
+// EC2 provisioner: DNS log line). The previous default of plain
+// `moleculesai.app` matched prod tenant naming and silently broke
+// every staging E2E at the TLS readiness step — DNS literally didn't
+// resolve, fetch threw NXDOMAIN, waitFor saw null on every poll, and
+// the harness wedged at TLS_TIMEOUT_MS instead of failing loud.
+const TENANT_DOMAIN = process.env.STAGING_TENANT_DOMAIN || "staging.moleculesai.app";
 
 // Tenant cold boot on staging regularly takes 12-15 min when the
 // workspace-server Docker image isn't already cached on the AMI. Raised
@@ -105,22 +118,44 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   }
   console.log(`[staging-setup] Org created: ${slug}`);
 
-  // 2. Wait for tenant running (admin-orgs list is the status source)
+  // 2. Wait for tenant running (admin-orgs list is the status source).
+  //
+  // The CP /cp/admin/orgs endpoint returns each org with an
+  // `instance_status` field (handlers/admin.go:adminOrgSummary,
+  // sourced from `org_instances.status`). NOT `status` — there's no
+  // top-level `status` on the row at all. A previous version of this
+  // test polled `row.status`, which was always undefined, so this
+  // waitFor never resolved truthy and the harness invariably timed
+  // out at 1200s — masking real CP bugs (see #242 chain) AND
+  // surviving real CP fixes alike.
+  // Capture the org UUID alongside the running check — every request
+  // we send to the tenant URL after this point needs an
+  // X-Molecule-Org-Id header (see workspace-server middleware/tenant_guard.go).
+  // Without it, TenantGuard returns 404 ("must not be inferable by
+  // probing other orgs' machines"). The CP returns the id on the
+  // admin-orgs row; capture it here while we're already polling.
+  let orgID = "";
   await waitFor<boolean>(
     async () => {
       const r = await jsonFetch(`${CP_URL}/cp/admin/orgs`, { headers: adminAuth });
       if (r.status !== 200) return null;
       const row = (r.body?.orgs || []).find((o: any) => o.slug === slug);
       if (!row) return null;
-      if (row.status === "running") return true;
-      if (row.status === "failed") throw new Error(`provision failed: ${slug}`);
+      if (row.instance_status === "running") {
+        orgID = row.id;
+        return true;
+      }
+      if (row.instance_status === "failed") throw new Error(`provision failed: ${slug}`);
       return null;
     },
     PROVISION_TIMEOUT_MS,
     15_000,
     "tenant provision",
   );
-  console.log(`[staging-setup] Tenant running`);
+  if (!orgID) {
+    throw new Error(`expected admin-orgs row to carry id, got empty for slug=${slug}`);
+  }
+  console.log(`[staging-setup] Tenant running (org_id=${orgID})`);
 
   // 3. Fetch per-tenant admin token
   const tokRes = await jsonFetch(
@@ -133,7 +168,7 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
     );
   }
   const tenantToken: string = tokRes.body.admin_token;
-  const tenantURL = `https://${slug}.moleculesai.app`;
+  const tenantURL = `https://${slug}.${TENANT_DOMAIN}`;
   console.log(`[staging-setup] Tenant URL: ${tenantURL}`);
 
   // 4. TLS readiness
@@ -154,7 +189,17 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   );
 
   // 5. Provision workspace
-  const tenantAuth = { Authorization: `Bearer ${tenantToken}` };
+  //
+  // tenantAuth carries TWO headers, both required:
+  //   - Authorization: Bearer <admin-token>  — wsAdmin middleware gate
+  //   - X-Molecule-Org-Id: <uuid>           — TenantGuard cross-org gate
+  // Missing the org-id header silently 404s every non-allowlisted
+  // route, with no body and no security headers. The 404 is intentional
+  // (existence-non-inference) which makes it look like a missing route.
+  const tenantAuth = {
+    "Authorization": `Bearer ${tenantToken}`,
+    "X-Molecule-Org-Id": orgID,
+  };
   const ws = await jsonFetch(`${tenantURL}/workspaces`, {
     method: "POST",
     headers: tenantAuth,

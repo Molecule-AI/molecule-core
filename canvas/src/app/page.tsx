@@ -74,6 +74,11 @@ export default function Home() {
       {hydrationError && (
         <div
           role="alert"
+          // Stable testid so the staging E2E (canvas/e2e/staging-tabs.spec.ts)
+          // can detect this banner without depending on the role="alert"
+          // selector that's used by other transient toasts. Don't rename
+          // without updating that spec.
+          data-testid="hydration-error"
           className="fixed inset-0 flex flex-col items-center justify-center bg-zinc-950 text-zinc-300 gap-4 z-[9999]"
         >
           <p className="text-zinc-400 text-sm">{hydrationError}</p>
