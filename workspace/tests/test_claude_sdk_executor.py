@@ -30,6 +30,17 @@ from claude_sdk_executor import (  # noqa: E402
     wedge_reason,
 )
 
+# Module alias used by the wedge tests below — they read
+# `_executor_mod.<helper>` to make the module-state vs function-state
+# distinction explicit at the call site, separate from the names
+# imported above. Hoisted to the top-of-file imports because the late
+# binding (originally at line ~1248) was invisible to @pytest.mark.asyncio
+# wrappers under coverage instrumentation (--cov, added by #1817):
+# sys.settrace + the asyncio wrapper combination caused a
+# `NameError: name '_executor_mod' is not defined` on every async wedge
+# test. Hoisting the alias fixes that scope-resolution issue.
+import claude_sdk_executor as _executor_mod  # noqa: E402
+
 
 # ---------- Helpers ----------
 
