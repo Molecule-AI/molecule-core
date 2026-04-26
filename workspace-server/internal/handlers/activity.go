@@ -286,6 +286,37 @@ func (h *ActivityHandler) Notify(c *gin.Context) {
 		"name":         wsName,
 	})
 
+	// Persist to activity_logs so the chat history loader restores this
+	// message after a page reload. Pre-fix, send_message_to_user pushes
+	// were broadcast-only — survived the WebSocket session but vanished
+	// when the user refreshed because nothing wrote them to the DB.
+	//
+	// Shape chosen to match the existing loader query
+	// (`type=a2a_receive&source=canvas`):
+	//   - activity_type='a2a_receive' so it joins the same query path
+	//   - source_id=NULL so the canvas-source filter accepts it
+	//   - method='notify' to distinguish from real A2A receives in audits
+	//   - request_body=NULL so the loader doesn't append a duplicate
+	//     "user message" bubble for it
+	//   - response_body={"result": "<text>"} matches extractResponseText's
+	//     simplest branch ({result: string} → take verbatim)
+	//
+	// Errors are logged-only — broadcast already succeeded, the user
+	// sees the message; persistence failure just means the message
+	// won't survive reload (pre-fix behavior). Don't fail the whole
+	// notify on a DB hiccup.
+	respJSON, _ := json.Marshal(map[string]interface{}{"result": body.Message})
+	preview := body.Message
+	if len(preview) > 80 {
+		preview = preview[:80] + "…"
+	}
+	if _, err := db.DB.ExecContext(c.Request.Context(), `
+		INSERT INTO activity_logs (workspace_id, activity_type, method, summary, response_body, status)
+		VALUES ($1, 'a2a_receive', 'notify', $2, $3::jsonb, 'ok')
+	`, workspaceID, "Agent message: "+preview, string(respJSON)); err != nil {
+		log.Printf("Notify: failed to persist message for %s: %v", workspaceID, err)
+	}
+
 	c.JSON(http.StatusOK, gin.H{"status": "sent"})
 }
 
@@ -373,7 +404,9 @@ func (h *ActivityHandler) Report(c *gin.Context) {
 }
 
 // LogActivity inserts an activity log and optionally broadcasts via WebSocket.
-func LogActivity(ctx context.Context, broadcaster *events.Broadcaster, params ActivityParams) {
+// Takes events.EventEmitter (#1814) so callers passing a stub broadcaster
+// in tests no longer need to construct the full *events.Broadcaster.
+func LogActivity(ctx context.Context, broadcaster events.EventEmitter, params ActivityParams) {
 	reqJSON, reqErr := json.Marshal(params.RequestBody)
 	if reqErr != nil {
 		log.Printf("LogActivity: failed to marshal request_body for %s: %v", params.WorkspaceID, reqErr)

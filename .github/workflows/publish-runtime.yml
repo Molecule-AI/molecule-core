@@ -1,0 +1,161 @@
+name: publish-runtime
+
+# Publishes molecule-ai-workspace-runtime to PyPI from monorepo workspace/.
+# Monorepo workspace/ is the only source-of-truth for runtime code; this
+# workflow is the bridge from monorepo edits to the PyPI artifact that
+# the 8 workspace-template-* repos depend on.
+#
+# Triggered by:
+#   - Pushing a tag matching `runtime-vX.Y.Z` (the version is derived from
+#     the tag — `runtime-v0.1.6` publishes `0.1.6`).
+#   - Manual workflow_dispatch with an explicit `version` input (useful for
+#     dev/test releases without tagging the repo).
+#
+# The workflow:
+#   1. Runs scripts/build_runtime_package.py to copy workspace/ →
+#      build/molecule_runtime/ with imports rewritten (`a2a_client` →
+#      `molecule_runtime.a2a_client`).
+#   2. Builds wheel + sdist with `python -m build`.
+#   3. Publishes to PyPI via twine + repo secret PYPI_TOKEN.
+#
+# After publish: the 8 template repos pick up the new version on their
+# next image rebuild (their requirements.txt pin
+# `molecule-ai-workspace-runtime>=0.1.0`, so any new release is eligible).
+# To force-pull immediately, bump the pin in each template repo's
+# requirements.txt and merge — that triggers their own publish-image.yml.
+
+on:
+  push:
+    tags:
+      - "runtime-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.1.6). Required for manual dispatch."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi-publish
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Derive version from tag or input
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            # Tag is `runtime-vX.Y.Z` — strip the prefix.
+            VERSION="${GITHUB_REF_NAME#runtime-v}"
+          fi
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(\.dev[0-9]+|rc[0-9]+|a[0-9]+|b[0-9]+|\.post[0-9]+)?$'; then
+            echo "::error::version $VERSION does not match PEP 440"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing molecule-ai-workspace-runtime $VERSION"
+
+      - name: Install build tooling
+        run: pip install build twine
+
+      - name: Build package from workspace/
+        run: |
+          python scripts/build_runtime_package.py \
+            --version "${{ steps.version.outputs.version }}" \
+            --out "${{ runner.temp }}/runtime-build"
+
+      - name: Build wheel + sdist
+        working-directory: ${{ runner.temp }}/runtime-build
+        run: python -m build
+
+      - name: Verify package contents (sanity)
+        working-directory: ${{ runner.temp }}/runtime-build
+        run: |
+          python -m twine check dist/*
+          # Smoke-import the built wheel to catch import-rewrite mistakes
+          # before they hit PyPI. The package depends on a2a-sdk + httpx
+          # via pyproject; install those so the smoke import resolves.
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --quiet dist/*.whl
+          WORKSPACE_ID=00000000-0000-0000-0000-000000000000 \
+          PLATFORM_URL=http://localhost:8080 \
+            /tmp/smoke/bin/python -c "
+          from molecule_runtime import a2a_client, a2a_tools
+          from molecule_runtime.builtin_tools import memory
+          from molecule_runtime.adapters import get_adapter, BaseAdapter, AdapterConfig
+          assert a2a_client._A2A_QUEUED_PREFIX, 'queued prefix missing — chat-leak fix not in build'
+          print('✓ smoke import passed')
+          "
+
+      - name: Publish to PyPI
+        working-directory: ${{ runner.temp }}/runtime-build
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: python -m twine upload dist/*
+
+  cascade:
+    # After PyPI accepts the upload, fan out a repository_dispatch to each
+    # template repo so they rebuild their image against the new runtime.
+    # Each template's `runtime-published.yml` receiver picks up the event,
+    # pulls the new PyPI version (their requirements.txt pin is `>=`), and
+    # republishes ghcr.io/molecule-ai/workspace-template-<runtime>:latest.
+    #
+    # Soft-fail per repo: if one template's dispatch fails (perms missing,
+    # repo archived, etc.) we still try the others and surface the failures
+    # in the workflow summary instead of aborting the whole cascade.
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fan out repository_dispatch
+        env:
+          # Fine-grained PAT with `actions:write` on the 8 template repos.
+          # GITHUB_TOKEN can't fire dispatches across repos — needs an explicit
+          # token. Stored as a repo secret; rotate per the standard schedule.
+          DISPATCH_TOKEN: ${{ secrets.TEMPLATE_DISPATCH_TOKEN }}
+          RUNTIME_VERSION: ${{ needs.publish.outputs.version || steps.version.outputs.version }}
+        run: |
+          set +e   # don't abort on a single repo failure — collect them all
+          if [ -z "$DISPATCH_TOKEN" ]; then
+            echo "::warning::TEMPLATE_DISPATCH_TOKEN secret not set — skipping cascade. PyPI was published; templates will pick up the new version on their own next rebuild."
+            exit 0
+          fi
+          # Re-derive version from the tag here too (in case publish job
+          # didn't expose an output the previous step's reference reads).
+          VERSION="${GITHUB_REF_NAME#runtime-v}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          fi
+          TEMPLATES="claude-code langgraph crewai autogen deepagents hermes gemini-cli openclaw"
+          FAILED=""
+          for tpl in $TEMPLATES; do
+            REPO="Molecule-AI/molecule-ai-workspace-template-$tpl"
+            STATUS=$(curl -sS -o /tmp/dispatch.out -w "%{http_code}" \
+              -X POST "https://api.github.com/repos/$REPO/dispatches" \
+              -H "Authorization: Bearer $DISPATCH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              -d "{\"event_type\":\"runtime-published\",\"client_payload\":{\"runtime_version\":\"$VERSION\"}}")
+            if [ "$STATUS" = "204" ]; then
+              echo "✓ dispatched $tpl ($VERSION)"
+            else
+              echo "::warning::✗ failed to dispatch $tpl: HTTP $STATUS — $(cat /tmp/dispatch.out)"
+              FAILED="$FAILED $tpl"
+            fi
+          done
+          if [ -n "$FAILED" ]; then
+            echo "::warning::Cascade incomplete. Failed templates:$FAILED"
+            # Don't fail the whole job — PyPI publish already succeeded;
+            # operators can retry the failed templates manually.
+          fi

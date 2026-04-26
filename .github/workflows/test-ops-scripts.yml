@@ -1,0 +1,36 @@
+name: Ops Scripts Tests
+
+# Runs the unittest suite for scripts/ops/ on every PR + push that touches
+# the directory. Kept separate from the main CI so a script-only change
+# doesn't trigger the heavier Go/Canvas/Python pipelines.
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      - 'scripts/ops/**'
+      - '.github/workflows/test-ops-scripts.yml'
+  pull_request:
+    branches: [main, staging]
+    paths:
+      - 'scripts/ops/**'
+      - '.github/workflows/test-ops-scripts.yml'
+  merge_group:
+    types: [checks_requested]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Ops scripts (unittest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run unittest
+        working-directory: scripts/ops
+        run: python -m unittest discover -p 'test_*.py' -v

@@ -402,6 +402,17 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		r.POST("/admin/a2a-queue/drop-stale", middleware.AdminAuth(db.DB), qH.DropStale)
 	}
 
+	// Admin — workspace template image refresh. Pulls latest images from GHCR
+	// and recreates running ws-* containers so they adopt the new image.
+	// Final step of the runtime CD chain — see docs/workspace-runtime-package.md.
+	// Operators (or post-publish automation) hit this after a runtime release.
+	// Reuses the provisioner's Docker client; no-op when prov is nil
+	// (test / non-Docker deploy).
+	if prov != nil {
+		imgH := handlers.NewAdminWorkspaceImagesHandler(prov.DockerClient())
+		r.POST("/admin/workspace-images/refresh", middleware.AdminAuth(db.DB), imgH.Refresh)
+	}
+
 	// Admin — test token minting (issue #6). Hidden in production via TestTokensEnabled().
 	// NOT behind AdminAuth — this is the bootstrap endpoint E2E tests and
 	// fresh installs use to obtain their first admin bearer. Adding AdminAuth

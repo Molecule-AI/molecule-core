@@ -71,15 +71,22 @@ export function ProvisioningTimeout({
   // Runtime included so the timeout threshold can be resolved per-node
   // (hermes cold-boot legitimately takes 8-13 min vs 30-90s for docker
   //  runtimes — a single threshold would false-alarm on one or the other).
-  // Separator: `|` between fields, `,` between nodes. Names may contain
-  // anything the user typed; strip `|` and `,` so serialization round-trips.
+  // provisionTimeoutMs added by #2054 — server-declared per-workspace
+  // override that wins over the runtime profile when present.
+  // Separator: `|` between fields, `,` between nodes. Only `name` is
+  // user-typed (gets sanitized below); the other fields are
+  // primitive-typed (id is a UUID, runtime is a [a-z-]+ slug,
+  // provisionTimeoutMs is numeric). If a future field is string-typed,
+  // extend the sanitize step to strip `|` + `,` from it too.
+  // Empty-string sentinels for missing values so split/index stays positional.
   const provisioningNodes = useCanvasStore((s) => {
     const result = s.nodes
       .filter((n) => n.data.status === "provisioning")
       .map((n) => {
         const safeName = (n.data.name ?? "").replace(/[|,]/g, " ");
         const runtime = n.data.runtime ?? "";
-        return `${n.id}|${safeName}|${runtime}`;
+        const provisionTimeoutMs = n.data.provisionTimeoutMs ?? "";
+        return `${n.id}|${safeName}|${runtime}|${provisionTimeoutMs}`;
       });
     return result.join(",");
   });
@@ -87,8 +94,14 @@ export function ProvisioningTimeout({
     () =>
       provisioningNodes
         ? provisioningNodes.split(",").map((entry) => {
-            const [id, name, runtime] = entry.split("|");
-            return { id, name, runtime };
+            const [id, name, runtime, provisionTimeoutMs] = entry.split("|");
+            const ptms = provisionTimeoutMs ? Number(provisionTimeoutMs) : undefined;
+            return {
+              id,
+              name,
+              runtime,
+              provisionTimeoutMs: Number.isFinite(ptms) ? ptms : undefined,
+            };
           })
         : [],
     [provisioningNodes],
@@ -138,10 +151,19 @@ export function ProvisioningTimeout({
       // default), then scales by concurrent-provisioning count. A
       // hermes workspace in a batch alongside two langgraph workspaces
       // gets hermes's 12-min base, not langgraph's 2-min base.
+      //
+      // Resolution priority (most specific wins):
+      //   1. node.provisionTimeoutMs — server-declared per-workspace
+      //      override (#2054, sourced from template manifest)
+      //   2. timeoutMs prop — single-threshold test override
+      //   3. runtime profile in @/lib/runtimeProfiles
+      //   4. DEFAULT_RUNTIME_PROFILE
       for (const node of parsedProvisioningNodes) {
         const startedAt = tracking.get(node.id);
         if (!startedAt) continue;
-        const base = timeoutMs ?? provisionTimeoutForRuntime(node.runtime);
+        const base = provisionTimeoutForRuntime(node.runtime, {
+          provisionTimeoutMs: node.provisionTimeoutMs ?? timeoutMs,
+        });
         const effective = effectiveTimeoutMs(
           base,
           parsedProvisioningNodes.length,

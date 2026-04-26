@@ -387,6 +387,37 @@ func TestIsSafeURL_SaaSMode_StillBlocksMetadataEtAl(t *testing.T) {
 	}
 }
 
+// TestIsSafeURL_DevMode_AllowsRFC1918 pins the dev-mode RFC-1918 + ULA
+// relaxation that #2103 widened. The dev-host docker-compose pattern
+// puts the platform + workspaces on the same docker bridge (172.18.0.0/16),
+// so workspace registration via 172.18.x.x must NOT be rejected in dev.
+// SaaS already allowed this; dev mode now matches via
+// `saas := saasMode() || devModeAllowsLoopback()` in isPrivateOrMetadataIP.
+//
+// Without this test, a future refactor that quietly drops the
+// `|| devModeAllowsLoopback()` from line 130 wouldn't trip any test —
+// the existing `TestIsSafeURL_DevMode_StillBlocksOtherRanges` only
+// pins the security floor (metadata / TEST-NET / CGNAT), not the
+// behavior change.
+func TestIsSafeURL_DevMode_AllowsRFC1918(t *testing.T) {
+	// Make sure saasMode() returns false so the test exercises the
+	// devModeAllowsLoopback() branch specifically — not a SaaS-mode pass.
+	t.Setenv("MOLECULE_DEPLOY_MODE", "self-hosted")
+	t.Setenv("MOLECULE_ORG_ID", "")
+	t.Setenv("MOLECULE_ENV", "development")
+
+	for _, url := range []string{
+		"http://10.1.2.3/agent",
+		"http://172.18.0.42:8000/a2a",       // the docker-compose case from the issue
+		"http://192.168.1.100/agent",
+		"http://[fd00::1]/agent",            // IPv6 ULA fd00::/8 also relaxed
+	} {
+		if err := isSafeURL(url); err != nil {
+			t.Errorf("isSafeURL(%q) in dev mode: got %v, want nil", url, err)
+		}
+	}
+}
+
 // TestIsSafeURL_StrictMode_BlocksRFC1918 is the strict-mode counterpart to
 // TestIsSafeURL_SaaSMode_AllowsRFC1918.  In self-hosted / single-container
 // deployments there is no legitimate reason to reach RFC-1918 agents, so the

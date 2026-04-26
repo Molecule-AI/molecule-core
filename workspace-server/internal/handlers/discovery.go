@@ -102,6 +102,19 @@ func discoverHostPeer(ctx context.Context, c *gin.Context, targetID string) {
 		return
 	}
 
+	// #1484 SSRF defense-in-depth: the URL came from the workspaces table
+	// without any per-write validation (workspace runtimes register their
+	// own URLs via /registry/register, and a misbehaving / compromised
+	// runtime could register a 169.254.169.254 metadata URL). Validate
+	// before handing it to the caller, who might dispatch HTTP against it.
+	// Currently gated by the bearer-required Discover handler, but this
+	// guard makes discoverHostPeer safe regardless of upstream auth shape.
+	if err := isSafeURL(url.String); err != nil {
+		log.Printf("Discovery: rejecting unsafe registered URL for %s (#1484): %v", resolvedID, err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "workspace URL failed safety check", "status": status})
+		return
+	}
+
 	db.CacheURL(ctx, resolvedID, url.String)
 	c.JSON(http.StatusOK, gin.H{
 		"id":     resolvedID,
@@ -172,11 +185,31 @@ func writeExternalWorkspaceURL(ctx context.Context, c *gin.Context, callerID, ta
 		outURL = strings.Replace(outURL, "127.0.0.1", "host.docker.internal", 1)
 		outURL = strings.Replace(outURL, "localhost", "host.docker.internal", 1)
 	}
+
+	// #1484 SSRF defense-in-depth — same rationale as discoverHostPeer.
+	// We validate the post-rewrite URL because the rewrite changes which
+	// host the caller would dispatch against (host.docker.internal is
+	// only reachable inside a docker network; isSafeURL accepts it but
+	// blocks a metadata IP that survived the rewrite untouched).
+	if err := isSafeURL(outURL); err != nil {
+		log.Printf("Discovery: rejecting unsafe external workspace URL for %s (#1484): %v", targetID, err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "workspace URL failed safety check"})
+		return true
+	}
+
 	c.JSON(http.StatusOK, gin.H{"id": targetID, "url": outURL, "name": wsName})
 	return true
 }
 
 // Peers handles GET /registry/:id/peers
+//
+// Optional ``?q=<substring>`` filters the result by case-insensitive
+// substring match against ``name`` or ``role`` (#1038). Filtering is done
+// in Go after the DB read — keeps the SQL identical to the no-filter path
+// (no injection risk, no DB-driver collation surprises) at the cost of
+// loading the unfiltered set first. Acceptable because the peer set is
+// always bounded by the small fanout of a single workspace's parent +
+// children + siblings (typically <50 rows).
 func (h *DiscoveryHandler) Peers(c *gin.Context) {
 	workspaceID := c.Param("id")
 	ctx := c.Request.Context()
@@ -241,10 +274,32 @@ func (h *DiscoveryHandler) Peers(c *gin.Context) {
 		peers = append(peers, parent...)
 	}
 
+	peers = filterPeersByQuery(peers, c.Query("q"))
+
 	if peers == nil {
 		peers = make([]map[string]interface{}, 0)
 	}
 	c.JSON(http.StatusOK, peers)
+}
+
+// filterPeersByQuery returns peers whose name or role case-insensitively
+// contains q. Whitespace-trimmed empty q is a no-op (returns input unchanged).
+func filterPeersByQuery(peers []map[string]interface{}, q string) []map[string]interface{} {
+	q = strings.TrimSpace(q)
+	if q == "" {
+		return peers
+	}
+	needle := strings.ToLower(q)
+	out := make([]map[string]interface{}, 0, len(peers))
+	for _, p := range peers {
+		name := p["name"].(string)
+		role := p["role"].(string)
+		if strings.Contains(strings.ToLower(name), needle) ||
+			strings.Contains(strings.ToLower(role), needle) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // queryPeerMaps returns clean JSON-serializable maps instead of Workspace structs.

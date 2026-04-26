@@ -27,7 +27,13 @@ import (
 )
 
 type WorkspaceHandler struct {
-	broadcaster *events.Broadcaster
+	// broadcaster narrowed from `*events.Broadcaster` to the
+	// events.EventEmitter interface (#1814) so tests can substitute a
+	// capture-only stub without standing up the real Redis + WS-hub
+	// topology. Production callers still pass *events.Broadcaster, which
+	// satisfies the interface — see the compile-time assertion in
+	// internal/events/broadcaster.go.
+	broadcaster events.EventEmitter
 	provisioner *provisioner.Provisioner
 	cpProv      *provisioner.CPProvisioner
 	platformURL string
@@ -41,9 +47,13 @@ type WorkspaceHandler struct {
 	// calls made by HibernateWorkspace without requiring a running Docker daemon.
 	// Always nil in production; the real provisioner path is used when nil.
 	stopFnOverride func(ctx context.Context, workspaceID string)
+	// provisionTimeouts caches per-runtime provision-timeout values from
+	// template manifests (#2054 phase 2). Lazy-init on first scan; see
+	// runtime_provision_timeouts.go for the loader contract.
+	provisionTimeouts runtimeProvisionTimeoutsCache
 }
 
-func NewWorkspaceHandler(b *events.Broadcaster, p *provisioner.Provisioner, platformURL, configsDir string) *WorkspaceHandler {
+func NewWorkspaceHandler(b events.EventEmitter, p *provisioner.Provisioner, platformURL, configsDir string) *WorkspaceHandler {
 	return &WorkspaceHandler{
 		broadcaster: b,
 		provisioner: p,
@@ -410,6 +420,17 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 	})
 }
 
+// addProvisionTimeoutMs decorates a workspace response map with the
+// per-runtime provision-timeout override (#2054 phase 2) when one is
+// declared in the runtime's template manifest. No-op when the runtime
+// has no declared timeout — the canvas-side resolver falls through to
+// its runtime-profile default.
+func (h *WorkspaceHandler) addProvisionTimeoutMs(ws map[string]interface{}, runtime string) {
+	if secs := h.provisionTimeouts.get(h.configsDir, runtime); secs > 0 {
+		ws["provision_timeout_ms"] = secs * 1000
+	}
+}
+
 // scanWorkspaceRow is a helper to scan workspace+layout rows into a clean JSON map.
 func scanWorkspaceRow(rows interface {
 	Scan(dest ...interface{}) error
@@ -508,6 +529,13 @@ func (h *WorkspaceHandler) List(c *gin.Context) {
 			log.Printf("List scan error: %v", err)
 			continue
 		}
+		// #2054 phase 2: surface per-runtime provision-timeout for
+		// canvas's ProvisioningTimeout banner. Decorating per-row
+		// (vs map-once-and-reuse) keeps the helper self-contained;
+		// the cache hit is sub-microsecond.
+		if rt, _ := ws["runtime"].(string); rt != "" {
+			h.addProvisionTimeoutMs(ws, rt)
+		}
 		workspaces = append(workspaces, ws)
 	}
 	if err := rows.Err(); err != nil {
@@ -573,6 +601,12 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 		ws["last_outbound_at"] = lastOutbound.Time
 	} else {
 		ws["last_outbound_at"] = nil
+	}
+
+	// #2054 phase 2: per-runtime provision-timeout for canvas's
+	// ProvisioningTimeout banner.
+	if rt, _ := ws["runtime"].(string); rt != "" {
+		h.addProvisionTimeoutMs(ws, rt)
 	}
 
 	c.JSON(http.StatusOK, ws)

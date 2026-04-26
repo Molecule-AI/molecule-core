@@ -483,6 +483,16 @@ func normalizeA2APayload(body []byte) ([]byte, string, *proxyA2AError) {
 // canvas (callerID == "") = 5 min, agent-to-agent = 30 min. Callers can
 // override via the X-Timeout header (applied to ctx upstream in ProxyA2A).
 func (h *WorkspaceHandler) dispatchA2A(ctx context.Context, agentURL string, body []byte, callerID string) (*http.Response, context.CancelFunc, error) {
+	// #1483 SSRF defense-in-depth: the primary call path through
+	// proxyA2ARequest → resolveAgentURL already validates via isSafeURL
+	// (a2a_proxy.go:424), but adding the check here closes the gap for
+	// any future code path that calls dispatchA2A directly without
+	// going through resolveAgentURL. Wrapping as proxyDispatchBuildError
+	// keeps the caller's error-classification path unchanged — the same
+	// shape it already produces a 500 for.
+	if err := isSafeURL(agentURL); err != nil {
+		return nil, nil, &proxyDispatchBuildError{err: err}
+	}
 	forwardCtx := context.WithoutCancel(ctx)
 	var cancel context.CancelFunc
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {

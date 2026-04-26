@@ -15,6 +15,29 @@ import (
 
 const broadcastChannel = "events:broadcast"
 
+// EventEmitter is the contract handler code needs from a broadcaster.
+// Defining it here lets tests substitute a capture-only stub instead
+// of standing up the full Redis + WebSocket hub topology that the
+// concrete *Broadcaster builds (and that previously blocked
+// TestProvisionWorkspace_* regression tests on issue #1814).
+//
+// Includes BroadcastOnly because the activity-log + A2A-response paths
+// inside the handler package fan out via that method — narrowing
+// further would force production callers back to the concrete type.
+//
+// *Broadcaster satisfies this interface trivially. Production code that
+// needs the wider surface (SubscribeSSE, Subscribe) keeps using the
+// concrete *Broadcaster type — sse.go + cmd/server/main.go are the
+// only such call sites today.
+type EventEmitter interface {
+	RecordAndBroadcast(ctx context.Context, eventType string, workspaceID string, payload interface{}) error
+	BroadcastOnly(workspaceID string, eventType string, payload interface{})
+}
+
+// Compile-time assertion: a renamed/reshaped Broadcaster method that
+// silently broke this interface would fail to build here.
+var _ EventEmitter = (*Broadcaster)(nil)
+
 // sseSubscription is a single in-process SSE subscriber.
 // deliverToSSE writes to ch; StreamEvents reads from it.
 type sseSubscription struct {
