@@ -63,7 +63,7 @@ export class RehydrateDedup {
  *  network truly is down. The dedup gate inside rehydrate() collapses
  *  this against the post-onopen rehydrate, so reconnect doesn't pay
  *  for a duplicate fetch. */
-const FALLBACK_POLL_MS = 10_000;
+export const FALLBACK_POLL_MS = 10_000;
 
 class ReconnectingSocket {
   private ws: WebSocket | null = null;

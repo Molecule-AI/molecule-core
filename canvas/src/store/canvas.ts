@@ -833,10 +833,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         }
       }
     }
-    // Mark every removed id with a tombstone so an in-flight GET
-    // /workspaces response that lands AFTER this can't resurrect them
-    // via hydrate (#2069). Tombstones expire after the WS-fallback
-    // poll cadence so legitimate re-imports flow normally.
+    // Tombstone removed ids so an in-flight GET /workspaces can't
+    // resurrect them via hydrate (#2069).
     markDeleted(removed);
     set({
       nodes: nodes.filter((n) => !removed.has(n.id)),
@@ -849,10 +847,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   hydrate: (workspaces: WorkspaceData[]) => {
-    // Filter out workspaces whose ids match a fresh tombstone — they
-    // were just deleted locally and this snapshot is stale (#2069).
-    workspaces = workspaces.filter((w) => !wasRecentlyDeleted(w.id));
-    const layoutOverrides = computeAutoLayout(workspaces);
+    // Drop ids tombstoned by a recent removeSubtree (#2069 — stale
+    // in-flight GET /workspaces).
+    const live = workspaces.filter((w) => !wasRecentlyDeleted(w.id));
+    const layoutOverrides = computeAutoLayout(live);
     // Carry the live measured/grown parent sizes from the existing
     // store into the rebuild. buildNodesAndEdges runs an auto-rescue
     // pass on each child to detach orphans whose stored relative
@@ -873,7 +871,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       }
     }
     const { nodes, edges } = buildNodesAndEdges(
-      workspaces,
+      live,
       layoutOverrides,
       currentParentSizes,
     );

@@ -1,34 +1,19 @@
 /**
- * Transient "recently deleted" map used by canvas.ts to short-circuit
- * the hydrate-races-cascade-delete window described in #2069.
+ * Transient "recently deleted" map keyed by workspace id.
  *
- * Problem
- * -------
- * `removeSubtree(rootId)` drops a parent + descendants locally after
- * `DELETE /workspaces/:id?confirm=true` returns 200. `hydrate()` is
- * server-authoritative and rebuilds the entire node array from whatever
- * `/workspaces` returns. If a `GET /workspaces` was IN-FLIGHT before the
- * DELETE completed, its response (still containing the deleted subtree)
- * can land AFTER our local `removeSubtree`, hydrate the store with the
- * stale snapshot, and re-introduce the deleted nodes on the canvas.
+ * `removeSubtree` calls `markDeleted(ids)` on every removal; `hydrate`
+ * calls `wasRecentlyDeleted(id)` to filter out incoming workspaces
+ * whose ids match a fresh tombstone — prevents an in-flight
+ * GET /workspaces from resurrecting just-deleted nodes via hydrate.
  *
- * Fix
- * ---
- * `removeSubtree` calls `markDeleted(ids)` to record a tombstone for every
- * removed id. `hydrate` calls `wasRecentlyDeleted(id)` to filter out any
- * incoming workspace whose id matches a fresh tombstone. After
- * `TOMBSTONE_TTL_MS`, the entry expires and a legitimately-recreated id
- * (template re-import, undo, manual recreate) flows through normally.
- *
- * GC happens lazily at every read AND at write time so the map stays
- * bounded — no separate timer / interval / unmount plumbing.
- *
- * Module-level (not store state) so it doesn't trigger React Flow
- * re-renders and isn't part of the public store surface. The store is a
- * singleton, so module identity ≡ store identity for this purpose.
+ * TTL is shared with the WS-fallback poll cadence so a single
+ * round-trip is covered. Module-level (not store state) so it doesn't
+ * trigger React Flow re-renders. (#2069)
  */
 
-const TOMBSTONE_TTL_MS = 10_000; // matches the 10s WS-fallback poll cadence
+import { FALLBACK_POLL_MS } from "./socket";
+
+const TOMBSTONE_TTL_MS = FALLBACK_POLL_MS;
 
 const tombstones = new Map<string, number>();
 

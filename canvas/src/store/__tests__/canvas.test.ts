@@ -552,11 +552,7 @@ describe("removeSubtree", () => {
     }
   });
 
-  // #2069: a `GET /workspaces` that was IN-FLIGHT before the DELETE
-  // completed can land AFTER removeSubtree, hydrate the store with a
-  // stale snapshot, and resurrect deleted nodes. The tombstone path
-  // (deleteTombstones.ts) makes hydrate skip ids deleted within the
-  // last 10s. Lock the contract end-to-end.
+  // #2069: lock the tombstone path end-to-end at the store level.
   it("hydrate cannot resurrect ids that removeSubtree just dropped (#2069)", () => {
     useCanvasStore.getState().removeSubtree("root");
     expect(useCanvasStore.getState().nodes.map((n) => n.id).sort())
