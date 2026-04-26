@@ -40,6 +40,10 @@ on:
         description: "Override safety gate (default 50, set higher only for major cleanup)"
         required: false
         default: "50"
+  # Required-check support: scheduled-only today, but include merge_group
+  # so a future branch-protection wire-in doesn't need a workflow edit.
+  merge_group:
+    types: [checks_requested]
 
 # Don't let two sweeps race the same zone. workflow_dispatch during a
 # scheduled run would otherwise issue duplicate DELETE calls.
@@ -54,7 +58,11 @@ jobs:
   sweep:
     name: Sweep CF orphans
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 3 min surfaces hangs (CF API stall, AWS describe-instances stuck)
+    # within one cron interval instead of burning a full tick. Realistic
+    # worst case is ~2 min: 4 sequential curls + 1 aws + N×CF-DELETE
+    # each individually capped at 10s by the script's curl -m flag.
+    timeout-minutes: 3
     env:
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
@@ -85,13 +93,16 @@ jobs:
           fi
           echo "All required secrets present ✓"
 
-      - name: Install AWS CLI
-        # The script shells out to `aws ec2 describe-instances`; the
-        # ubuntu-latest runner has aws v2 preinstalled but we re-check
-        # to surface a clear error if a future runner image drops it.
-        run: aws --version
-
       - name: Run sweep
+        # Schedule-vs-dispatch dry-run asymmetry (intentional):
+        #   - Scheduled runs: github.event.inputs.dry_run is empty →
+        #     defaults to "false" below → script runs with --execute
+        #     (the whole point of an hourly janitor).
+        #   - Manual workflow_dispatch: input default is true (line 38)
+        #     so an ad-hoc operator-triggered run is dry-run by default;
+        #     they have to flip the toggle to actually delete.
+        # The script's MAX_DELETE_PCT gate (default 50%) is the second
+        # line of defense regardless of mode.
         run: |
           set -euo pipefail
           if [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ]; then
