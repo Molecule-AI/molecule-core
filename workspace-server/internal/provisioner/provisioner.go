@@ -5,6 +5,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -23,6 +24,15 @@ import (
 	"github.com/docker/go-connections/nat"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
+
+// ErrNoBackend is returned by lifecycle methods (Stop, IsRunning) when
+// the receiver is zero-valued — i.e. no Docker daemon connection has
+// been wired up. The orphan sweeper and the contract-test scaffolding
+// both speculatively call these methods on a possibly-nil receiver;
+// returning a typed error rather than panicking lets callers reason
+// about the case explicitly. See docs/architecture/backends.md
+// drift-risk #6.
+var ErrNoBackend = errors.New("provisioner: no backend configured (zero-valued receiver)")
 
 // RuntimeImages maps runtime names to their Docker image refs on GHCR.
 // Each standalone template repo publishes its image via the reusable
@@ -823,6 +833,9 @@ func (p *Provisioner) RemoveVolume(ctx context.Context, workspaceID string) erro
 // respawn the container before ContainerRemove runs, leaving a zombie
 // that re-registers via heartbeat after deletion.
 func (p *Provisioner) Stop(ctx context.Context, workspaceID string) error {
+	if p == nil || p.cli == nil {
+		return ErrNoBackend
+	}
 	name := ContainerName(workspaceID)
 
 	// Force-remove kills and removes in one atomic operation, bypassing
@@ -856,6 +869,9 @@ func (p *Provisioner) Stop(ctx context.Context, workspaceID string) error {
 // so a real crash still surfaces via exec heartbeat or TTL, both of which
 // have narrower false-positive windows than daemon-inspect RPC.
 func (p *Provisioner) IsRunning(ctx context.Context, workspaceID string) (bool, error) {
+	if p == nil || p.cli == nil {
+		return false, ErrNoBackend
+	}
 	name := ContainerName(workspaceID)
 	info, err := p.cli.ContainerInspect(ctx, name)
 	if err != nil {
