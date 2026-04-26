@@ -110,18 +110,45 @@ _read_cache() {
 }
 
 # _write_cache — atomically persist token + expiry.
+#
+# Hardened per #1552:
+#  - umask 077 around the writes so .tmp files are 600 from creation,
+#    closing the TOCTOU window where a concurrent reader could read
+#    the token while it was still mode 644 (between the create-with-
+#    default-umask and the later chmod 600).
+#  - Don't swallow chmod errors with `|| true`. A chmod failure leaves
+#    tokens potentially world-readable; surface it as a WARN line so
+#    ops can grep `[molecule-git-token-helper] WARN` and see real
+#    permission failures instead of silent 644 files.
 _write_cache() {
     local token="$1"
     mkdir -p "${CACHE_DIR}"
-    chmod 700 "${CACHE_DIR}" 2>/dev/null || true
+    if ! chmod 700 "${CACHE_DIR}" 2>/dev/null; then
+        echo "[molecule-git-token-helper] WARN: failed to chmod 700 ${CACHE_DIR} — cache dir may be world-readable" >&2
+    fi
     now=$(_now_epoch)
     expiry=$((now + TOKEN_CACHE_TTL_SEC))
+
+    # Restrictive umask so the .tmp files are 600 from creation. Restored
+    # before return so callers' umask isn't perturbed.
+    local prev_umask
+    prev_umask=$(umask)
+    umask 077
+
     # Write atomically via tmp + mv to avoid partial reads.
     printf '%s' "${token}" > "${CACHE_TOKEN_FILE}.tmp"
     printf '%s' "${expiry}" > "${CACHE_EXPIRY_FILE}.tmp"
     mv -f "${CACHE_TOKEN_FILE}.tmp" "${CACHE_TOKEN_FILE}"
     mv -f "${CACHE_EXPIRY_FILE}.tmp" "${CACHE_EXPIRY_FILE}"
-    chmod 600 "${CACHE_TOKEN_FILE}" "${CACHE_EXPIRY_FILE}" 2>/dev/null || true
+
+    umask "${prev_umask}"
+
+    # Belt-and-suspenders chmod — umask 077 should make the files 600
+    # already, but a chmod that fails on the post-rename file is itself
+    # a real signal worth surfacing.
+    if ! chmod 600 "${CACHE_TOKEN_FILE}" "${CACHE_EXPIRY_FILE}" 2>/dev/null; then
+        echo "[molecule-git-token-helper] WARN: chmod 600 failed on cache files — token may be world-readable" >&2
+    fi
 }
 
 # _fetch_token_from_api — hit the platform endpoint.
@@ -230,10 +257,21 @@ case "${ACTION}" in
             echo "[molecule-git-token-helper] _refresh_gh: gh auth login failed (non-fatal)" >&2
         }
         # Also update GH_TOKEN file for scripts that source it.
+        # Same #1552 hardening as _write_cache — umask 077 around the
+        # write so the .tmp file is 600 from creation, and surface a
+        # WARN on chmod failure instead of swallowing it.
         gh_token_file="${HOME}/.gh_token"
+        # `local` is illegal here (top-level case branch, not a
+        # function); shadow with a uniquely-named global instead.
+        _gh_prev_umask=$(umask)
+        umask 077
         printf '%s' "${api_token}" > "${gh_token_file}.tmp"
         mv -f "${gh_token_file}.tmp" "${gh_token_file}"
-        chmod 600 "${gh_token_file}" 2>/dev/null || true
+        umask "${_gh_prev_umask}"
+        unset _gh_prev_umask
+        if ! chmod 600 "${gh_token_file}" 2>/dev/null; then
+            echo "[molecule-git-token-helper] WARN: chmod 600 failed on ${gh_token_file} — token may be world-readable" >&2
+        fi
         echo "[molecule-git-token-helper] _refresh_gh: token refreshed successfully" >&2
         ;;
     _invalidate_cache)
