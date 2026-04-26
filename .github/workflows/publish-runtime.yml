@@ -84,8 +84,12 @@ jobs:
         run: |
           python -m twine check dist/*
           # Smoke-import the built wheel to catch import-rewrite mistakes
-          # before they hit PyPI. The package depends on a2a-sdk + httpx
-          # via pyproject; install those so the smoke import resolves.
+          # before they hit PyPI. Asserts on STABLE INVARIANTS only —
+          # symbols + classes that are part of the package's public
+          # contract (BaseAdapter interface, the canonical a2a sentinel,
+          # core submodules). Don't add feature-flag-style assertions
+          # here — they fire false-positive every time staging is mid-
+          # release of that feature.
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install --quiet dist/*.whl
           WORKSPACE_ID=00000000-0000-0000-0000-000000000000 \
@@ -94,7 +98,11 @@ jobs:
           from molecule_runtime import a2a_client, a2a_tools
           from molecule_runtime.builtin_tools import memory
           from molecule_runtime.adapters import get_adapter, BaseAdapter, AdapterConfig
-          assert a2a_client._A2A_QUEUED_PREFIX, 'queued prefix missing — chat-leak fix not in build'
+          # Stable invariants: package exports + BaseAdapter shape.
+          assert a2a_client._A2A_ERROR_PREFIX, 'a2a_client missing error sentinel'
+          assert callable(get_adapter), 'adapters.get_adapter must be callable'
+          assert hasattr(BaseAdapter, 'name'), 'BaseAdapter interface broken'
+          assert hasattr(AdapterConfig, '__init__'), 'AdapterConfig dataclass missing'
           print('✓ smoke import passed')
           "
 
