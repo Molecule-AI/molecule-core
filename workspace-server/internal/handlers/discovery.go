@@ -257,13 +257,8 @@ func (h *DiscoveryHandler) Peers(c *gin.Context) {
 	c.JSON(http.StatusOK, peers)
 }
 
-// filterPeersByQuery returns the subset of peers whose name or role
-// case-insensitively contains q. An empty/whitespace-only q is a no-op
-// (returns the input slice unchanged) so the no-filter path stays free
-// of allocations. Map values come from queryPeerMaps which always
-// stringifies name + role, so the type asserts here cannot fail in
-// practice — the comma-ok form belt-and-braces against future shape
-// changes upstream.
+// filterPeersByQuery returns peers whose name or role case-insensitively
+// contains q. Whitespace-trimmed empty q is a no-op (returns input unchanged).
 func filterPeersByQuery(peers []map[string]interface{}, q string) []map[string]interface{} {
 	q = strings.TrimSpace(q)
 	if q == "" {
@@ -272,8 +267,8 @@ func filterPeersByQuery(peers []map[string]interface{}, q string) []map[string]i
 	needle := strings.ToLower(q)
 	out := make([]map[string]interface{}, 0, len(peers))
 	for _, p := range peers {
-		name, _ := p["name"].(string)
-		role, _ := p["role"].(string)
+		name := p["name"].(string)
+		role := p["role"].(string)
 		if strings.Contains(strings.ToLower(name), needle) ||
 			strings.Contains(strings.ToLower(role), needle) {
 			out = append(out, p)

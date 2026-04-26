@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -260,9 +261,10 @@ func TestPeers_RootWorkspace_NoPeers(t *testing.T) {
 
 // ==================== Peers — ?q= filter (#1038) ====================
 
-// peersFilterFixture mocks all 3 SQL reads with a known 3-peer set so each
-// q-filter test can focus on the post-fetch substring-match behaviour
-// without re-stating the full query expectations.
+// peersFilterFixture mocks the 4 SQL reads (parent_id lookup + siblings +
+// children + parent) with a known 3-peer set so each q-filter test can
+// focus on the post-fetch substring-match behaviour. Returns the handler
+// and the live mock so callers can assert ExpectationsWereMet at the end.
 func peersFilterFixture(t *testing.T) (*DiscoveryHandler, sqlmock.Sqlmock) {
 	t.Helper()
 	mock := setupTestDB(t)
@@ -292,7 +294,13 @@ func peersFilterFixture(t *testing.T) (*DiscoveryHandler, sqlmock.Sqlmock) {
 	return NewDiscoveryHandler(), mock
 }
 
-func runPeersWithQuery(t *testing.T, handler *DiscoveryHandler, q string) []map[string]interface{} {
+// runPeersWithQuery invokes Peers and returns BOTH the parsed peers and
+// the raw response body. The raw body is needed by TestPeers_Q_NoMatches
+// to distinguish JSON `[]` (intended) from `null` (regression of the
+// nil-guard at line 254-256) — once unmarshalled, both collapse to
+// len==0 and re-marshal to `[]`, so checking only the parsed value is
+// tautological.
+func runPeersWithQuery(t *testing.T, handler *DiscoveryHandler, q string) ([]map[string]interface{}, []byte) {
 	t.Helper()
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -306,98 +314,90 @@ func runPeersWithQuery(t *testing.T, handler *DiscoveryHandler, q string) []map[
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+	body := w.Body.Bytes()
 	var peers []map[string]interface{}
-	if err := json.Unmarshal(w.Body.Bytes(), &peers); err != nil {
+	if err := json.Unmarshal(body, &peers); err != nil {
 		t.Fatalf("parse response: %v", err)
 	}
-	return peers
+	return peers, body
 }
 
-// TestPeers_NoQ_ReturnsAll locks in the regression baseline: without ?q,
-// the handler returns the full 3-peer fixture (alpha + beta + pm).
-func TestPeers_NoQ_ReturnsAll(t *testing.T) {
-	handler, mock := peersFilterFixture(t)
-	peers := runPeersWithQuery(t, handler, "")
-	if len(peers) != 3 {
-		t.Errorf("no-q: expected 3 peers, got %d (%v)", len(peers), peerNames(peers))
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
-	}
-}
-
-// TestPeers_Q_FiltersByName covers the primary CWE-862 fix path.
-func TestPeers_Q_FiltersByName(t *testing.T) {
-	handler, mock := peersFilterFixture(t)
-	peers := runPeersWithQuery(t, handler, "alpha")
-	if len(peers) != 1 || peers[0]["id"] != "ws-alpha" {
-		t.Errorf("q=alpha: expected just ws-alpha, got %v", peerNames(peers))
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
-	}
-}
-
-// TestPeers_Q_CaseInsensitive guards against a future strings.Contains
-// without ToLower regression.
-func TestPeers_Q_CaseInsensitive(t *testing.T) {
-	handler, mock := peersFilterFixture(t)
-	peers := runPeersWithQuery(t, handler, "ALPHA")
-	if len(peers) != 1 || peers[0]["id"] != "ws-alpha" {
-		t.Errorf("q=ALPHA: expected ws-alpha, got %v", peerNames(peers))
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
-	}
-}
-
-// TestPeers_Q_FiltersByRole — role-based match (designer is the role of
-// ws-beta; the substring "design" must surface beta and only beta).
-func TestPeers_Q_FiltersByRole(t *testing.T) {
-	handler, mock := peersFilterFixture(t)
-	peers := runPeersWithQuery(t, handler, "design")
-	if len(peers) != 1 || peers[0]["id"] != "ws-beta" {
-		t.Errorf("q=design: expected ws-beta, got %v", peerNames(peers))
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
-	}
-}
-
-// TestPeers_Q_NoMatches returns an empty array, not null.
-func TestPeers_Q_NoMatches(t *testing.T) {
-	handler, mock := peersFilterFixture(t)
-	peers := runPeersWithQuery(t, handler, "nonexistent")
-	if len(peers) != 0 {
-		t.Errorf("q=nonexistent: expected 0 peers, got %d (%v)", len(peers), peerNames(peers))
-	}
-	// JSON should serialize as `[]` not `null` — re-encode and inspect.
-	if got, _ := json.Marshal(peers); string(got) != "[]" {
-		t.Errorf("expected JSON [], got %s", string(got))
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
-	}
-}
-
-// TestPeers_Q_WhitespaceOnly is treated as an empty filter.
-func TestPeers_Q_WhitespaceOnly(t *testing.T) {
-	handler, mock := peersFilterFixture(t)
-	peers := runPeersWithQuery(t, handler, "%20%20")
-	if len(peers) != 3 {
-		t.Errorf("q=whitespace: expected unfiltered 3 peers, got %d", len(peers))
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet sqlmock expectations: %v", err)
-	}
-}
-
-func peerNames(peers []map[string]interface{}) []string {
-	out := make([]string, 0, len(peers))
+// peerIDSet returns the set of peer ids — order-independent comparison
+// avoids fragile peers[0]["id"] asserts that would silently mask a future
+// sort/order change.
+func peerIDSet(peers []map[string]interface{}) map[string]struct{} {
+	out := make(map[string]struct{}, len(peers))
 	for _, p := range peers {
-		if id, ok := p["id"].(string); ok {
-			out = append(out, id)
-		}
+		out[p["id"].(string)] = struct{}{}
+	}
+	return out
+}
+
+// TestPeers_QFilter covers the rule classifier — append-order
+// independent (uses set membership) so a future sort regression on the
+// production code can't slip through. NoMatches has its own raw-body
+// check (see TestPeers_Q_NoMatches_RawBodyIsArrayNotNull below) because
+// the `[]` vs `null` distinction collapses after json.Unmarshal.
+func TestPeers_QFilter(t *testing.T) {
+	cases := []struct {
+		name    string
+		q       string
+		wantIDs []string
+	}{
+		{"no-q returns all", "", []string{"ws-alpha", "ws-beta", "ws-pm"}},
+		{"name match", "alpha", []string{"ws-alpha"}},
+		{"name match case-insensitive", "ALPHA", []string{"ws-alpha"}},
+		{"role match", "design", []string{"ws-beta"}},
+		{"no matches", "nonexistent", nil},
+		{"whitespace-only is no-op", "%20%20", []string{"ws-alpha", "ws-beta", "ws-pm"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, mock := peersFilterFixture(t)
+			peers, _ := runPeersWithQuery(t, handler, tc.q)
+
+			got := peerIDSet(peers)
+			want := make(map[string]struct{}, len(tc.wantIDs))
+			for _, id := range tc.wantIDs {
+				want[id] = struct{}{}
+			}
+			if len(got) != len(want) {
+				t.Fatalf("len: got %d %v, want %d %v", len(got), keysOf(got), len(want), tc.wantIDs)
+			}
+			for id := range want {
+				if _, ok := got[id]; !ok {
+					t.Errorf("missing id %q (got %v, want %v)", id, keysOf(got), tc.wantIDs)
+				}
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unmet sqlmock expectations: %v", err)
+			}
+		})
+	}
+}
+
+// TestPeers_Q_NoMatches_RawBodyIsArrayNotNull verifies the `peers = make(...)`
+// nil-guard at the end of Peers — when filtering reduces the slice to
+// non-nil-but-empty AND the original was nil, JSON must be `[]` not `null`.
+// This is the assertion the previous TestPeers_Q_NoMatches falsely claimed
+// to make: re-encoding an unmarshalled []map collapses null and [] both
+// to []. The fix here checks the recorder body bytes BEFORE unmarshal.
+func TestPeers_Q_NoMatches_RawBodyIsArrayNotNull(t *testing.T) {
+	handler, mock := peersFilterFixture(t)
+	_, body := runPeersWithQuery(t, handler, "nonexistent")
+	got := strings.TrimSpace(string(body))
+	if got != "[]" {
+		t.Errorf("raw body: got %q, want []", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func keysOf(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
 	}
 	return out
 }
