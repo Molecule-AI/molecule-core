@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useCanvasStore, type WorkspaceNodeData } from "@/store/canvas";
+import { pruneStaleKeys } from "./canvas/useCanvasViewport";
 import { api } from "@/lib/api";
 import { showToast } from "./Toaster";
 import { ConsoleModal } from "./ConsoleModal";
@@ -65,6 +66,12 @@ export function ProvisioningTimeout({
   // banner even if they stay in provisioning. Cleared when the
   // workspace leaves provisioning (status changes).
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  // Watch the live WS health. While it's not "connected", local node
+  // status reflects the last event we received before the drop —
+  // workspaces may have actually transitioned to online minutes ago.
+  // Suppress the banner until WS recovers + rehydrate confirms each
+  // workspace is genuinely still provisioning.
+  const wsStatus = useCanvasStore((s) => s.wsStatus);
 
   // Subscribe to provisioning nodes — use shallow compare to avoid infinite re-render
   // (filter+map creates new array reference on every store update).
@@ -119,11 +126,7 @@ export function ProvisioningTimeout({
 
     // Remove tracking for nodes that are no longer provisioning
     const activeIds = new Set(parsedProvisioningNodes.map((n) => n.id));
-    for (const id of tracking.keys()) {
-      if (!activeIds.has(id)) {
-        tracking.delete(id);
-      }
-    }
+    pruneStaleKeys(tracking, activeIds);
 
     // Also remove from timedOut list if no longer provisioning, and
     // clear `dismissed` entries for workspaces that finished so a
@@ -273,8 +276,11 @@ export function ProvisioningTimeout({
   }, []);
 
   const visibleTimedOut = useMemo(
-    () => timedOut.filter((e) => !dismissed.has(e.workspaceId)),
-    [timedOut, dismissed],
+    () =>
+      wsStatus === "connected"
+        ? timedOut.filter((e) => !dismissed.has(e.workspaceId))
+        : [],
+    [timedOut, dismissed, wsStatus],
   );
 
   if (visibleTimedOut.length === 0) return null;

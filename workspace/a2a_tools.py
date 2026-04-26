@@ -112,7 +112,7 @@ def _auth_headers_for_heartbeat() -> dict[str, str]:
 
 async def report_activity(
     activity_type: str, target_id: str = "", summary: str = "", status: str = "ok",
-    task_text: str = "", response_text: str = "",
+    task_text: str = "", response_text: str = "", error_detail: str = "",
 ):
     """Report activity to the platform for live progress tracking."""
     try:
@@ -129,6 +129,13 @@ async def report_activity(
                 payload["request_body"] = {"task": task_text}
             if response_text:
                 payload["response_body"] = {"result": response_text}
+            if error_detail:
+                # error_detail is a top-level activity row column on the
+                # platform (handlers/activity.go). Surfacing the cleaned
+                # exception string here lets the Activity tab render a
+                # red error chip + the cause without forcing the user
+                # to scroll into the raw response_body JSON.
+                payload["error_detail"] = error_detail
             await client.post(
                 f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/activity",
                 json=payload,
@@ -178,11 +185,23 @@ async def tool_delegate_task(workspace_id: str, task: str) -> str:
     # Detect delegation failures — wrap them clearly so the calling agent
     # can decide to retry, use another peer, or handle the task itself.
     is_error = result.startswith(_A2A_ERROR_PREFIX)
+    # Strip the sentinel prefix so error_detail is the human-readable
+    # cause directly. The Activity tab's red error chip surfaces this
+    # without the user having to scroll into the raw response JSON.
+    #
+    # Cap at 4096 chars before sending — the platform's
+    # activity_logs.error_detail column is unbounded TEXT and a
+    # malicious or buggy peer could otherwise stream an arbitrarily
+    # large error message into the caller's activity log. 4096 is
+    # comfortably above any real exception traceback we've seen and
+    # well below an obvious-DoS threshold.
+    error_detail = result[len(_A2A_ERROR_PREFIX):].strip()[:4096] if is_error else ""
     await report_activity(
         "a2a_receive", workspace_id,
-        f"{peer_name} responded ({len(result)} chars)" if not is_error else f"{peer_name} failed",
+        f"{peer_name} responded ({len(result)} chars)" if not is_error else f"{peer_name} failed: {error_detail[:120]}",
         task_text=task, response_text=result,
         status="error" if is_error else "ok",
+        error_detail=error_detail,
     )
     if is_error:
         return (

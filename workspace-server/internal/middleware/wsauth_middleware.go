@@ -14,6 +14,30 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// abortAuthLookupError is the single response shape for "the auth
+// middleware tried to validate a token but the underlying datastore
+// lookup failed." Returns 503 (not 500) because the right semantic
+// is "platform infrastructure unavailable, retry shortly" — not
+// "internal server error in our application logic". The structured
+// `code` lets the canvas distinguish this from generic 5xx and
+// surface a dedicated diagnostic ("Postgres/Redis unreachable —
+// check local services") instead of a confusing
+// `auth check failed` toast.
+//
+// `where` is included in the log line so the operator can grep
+// which call site fired (WorkspaceAuth vs AdminAuth, the
+// HasAnyLiveTokenGlobal probe vs orgtoken.Validate). The
+// user-visible body deliberately does NOT include the underlying
+// error string — that could leak DB hostnames, connection-string
+// fragments, or internal code paths.
+func abortAuthLookupError(c *gin.Context, where string, err error) {
+	log.Printf("wsauth: %s: datastore lookup failed (returning 503): %v", where, err)
+	c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+		"error": "platform datastore unavailable — retry shortly",
+		"code":  "platform_unavailable",
+	})
+}
+
 // WorkspaceAuth returns a Gin middleware that enforces per-workspace bearer-token
 // authentication on /workspaces/:id/* sub-routes.
 //
@@ -73,8 +97,7 @@ func WorkspaceAuth(database *sql.DB) gin.HandlerFunc {
 				c.Next()
 				return
 			} else if !errors.Is(err, orgtoken.ErrInvalidToken) {
-				log.Printf("wsauth: WorkspaceAuth: orgtoken.Validate: %v", err)
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "auth check failed"})
+				abortAuthLookupError(c, "WorkspaceAuth: orgtoken.Validate", err)
 				return
 			}
 			// Per-workspace token — narrowest scope, bound to this :id.
@@ -136,8 +159,7 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 
 		hasLive, err := wsauth.HasAnyLiveTokenGlobal(ctx, database)
 		if err != nil {
-			log.Printf("wsauth: AdminAuth: HasAnyLiveTokenGlobal failed: %v", err)
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "auth check failed"})
+			abortAuthLookupError(c, "AdminAuth: HasAnyLiveTokenGlobal", err)
 			return
 		}
 		if !hasLive {
@@ -214,8 +236,7 @@ func AdminAuth(database *sql.DB) gin.HandlerFunc {
 			return
 		} else if !errors.Is(err, orgtoken.ErrInvalidToken) {
 			// DB error — fail closed and log. Don't expose DB text.
-			log.Printf("wsauth: AdminAuth: orgtoken.Validate: %v", err)
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "auth check failed"})
+			abortAuthLookupError(c, "AdminAuth: orgtoken.Validate", err)
 			return
 		}
 

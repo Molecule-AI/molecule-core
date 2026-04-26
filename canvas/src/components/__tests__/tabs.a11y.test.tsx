@@ -123,7 +123,7 @@ describe("SkillsTab — aria-label on bare source input (WCAG 1.3.1)", () => {
   });
 
   it('install source input has aria-label="Install from source URL"', async () => {
-    render(<SkillsTab data={makeSkillsData() as never} />);
+    render(<SkillsTab workspaceId="ws-test-id" data={makeSkillsData() as never} />);
 
     // The source input is inside the registry section (showRegistry=false initially).
     // Click the "+ Install Plugin" button to reveal it.
@@ -138,7 +138,7 @@ describe("SkillsTab — aria-label on bare source input (WCAG 1.3.1)", () => {
   });
 
   it("install source input is a text input (not hidden)", async () => {
-    render(<SkillsTab data={makeSkillsData() as never} />);
+    render(<SkillsTab workspaceId="ws-test-id" data={makeSkillsData() as never} />);
 
     const installBtn = screen.getByRole("button", { name: /install plugin/i });
     fireEvent.click(installBtn);

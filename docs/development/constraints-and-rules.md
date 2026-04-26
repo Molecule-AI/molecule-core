@@ -56,7 +56,7 @@ Direct A2A calls between workspaces are unauthenticated in MVP. Access control i
 
 ## 11. Secrets in Postgres, Encrypted
 
-Workspace secrets (API keys, credentials) are stored in Postgres with AES-256 encryption at the application layer. The encryption key comes from the `SECRETS_ENCRYPTION_KEY` environment variable. Secrets are never included in bundles, never logged, never exposed via API responses.
+Workspace secrets (API keys, credentials) are stored in Postgres with AES-256-GCM encryption at the application layer. The tenant's `SECRETS_ENCRYPTION_KEY` is provisioned at boot by the control plane, which holds the master key material in AWS KMS (envelope encryption, dual-mode with a static-key fallback for dev). Full custody chain in [secrets-key-custody.md](../architecture/secrets-key-custody.md). Secrets are never included in bundles, never logged, never exposed via API responses.
 
 ## 12. Last-Write-Wins for MVP
 

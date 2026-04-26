@@ -107,9 +107,37 @@ async function request<T>(
   }
   if (!res.ok) {
     const text = await res.text();
+    // Recognise the platform's structured "datastore unreachable"
+    // shape (returned by wsauth_middleware.abortAuthLookupError when
+    // Postgres/Redis is down). Surface as a typed error so callers
+    // can render a dedicated diagnostic instead of a generic toast.
+    if (res.status === 503 && text) {
+      try {
+        const parsed = JSON.parse(text) as { code?: string; error?: string };
+        if (parsed.code === "platform_unavailable") {
+          throw new PlatformUnavailableError(parsed.error || "platform datastore unavailable");
+        }
+      } catch (err) {
+        // Re-throw the typed error if that's what we just constructed.
+        // JSON.parse failures fall through to the generic Error below.
+        if (err instanceof PlatformUnavailableError) throw err;
+      }
+    }
     throw new Error(`API ${method} ${path}: ${res.status} ${text}`);
   }
   return res.json();
+}
+
+/** Thrown when the platform reports its datastore (Postgres/Redis) is
+ *  unreachable. Surface with a dedicated diagnostic UI rather than a
+ *  generic API-error toast — the user's next action is to check local
+ *  services, not to retry the API call. */
+export class PlatformUnavailableError extends Error {
+  readonly code = "platform_unavailable" as const;
+  constructor(message: string) {
+    super(message);
+    this.name = "PlatformUnavailableError";
+  }
 }
 
 export const api = {

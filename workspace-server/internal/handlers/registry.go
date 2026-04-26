@@ -441,6 +441,26 @@ func (h *RegistryHandler) Heartbeat(c *gin.Context) {
 		})
 	}
 
+	// Always emit a lightweight heartbeat broadcast — load-bearing for
+	// the a2a-proxy's per-dispatch idle timeout (a2a_proxy.go:applyIdleTimeout).
+	// Before this, the proxy's idle timer reset on TASK_UPDATED but
+	// TASK_UPDATED only fires when current_task CHANGES. A long-running
+	// agent that keeps the same task value for >idleTimeoutDuration
+	// (claude-code packaging a ZIP, slow tool call, model thinking time)
+	// hit no broadcast → idle timer fired → user's message got cancelled
+	// mid-flight with "context canceled". Symptom users hit on the
+	// 2026-04-26 director-bypass investigation: 15+ failures in 1hr
+	// across 6 workspaces, all silent during the gap.
+	//
+	// Cost: BroadcastOnly skips the DB write (no activity_logs row),
+	// so per-heartbeat cost is one in-memory channel send per active
+	// SSE subscriber and one WS hub fan-out. At 30s heartbeat cadence
+	// this is far below any noise floor on either path.
+	h.broadcaster.BroadcastOnly(payload.WorkspaceID, "WORKSPACE_HEARTBEAT", map[string]interface{}{
+		"active_tasks":   payload.ActiveTasks,
+		"uptime_seconds": payload.UptimeSeconds,
+	})
+
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
@@ -454,6 +474,29 @@ func (h *RegistryHandler) evaluateStatus(c *gin.Context, payload models.Heartbea
 		return
 	}
 
+	// Self-reported runtime wedge: takes precedence over the error_rate
+	// path. The heartbeat task lives in its own asyncio task and keeps
+	// firing 200s even after claude_agent_sdk locks up on
+	// `Control request timeout: initialize` — so error_rate stays at 0
+	// (no calls have been recorded as errors yet) while every actual
+	// /a2a POST hangs. The workspace tells us about that case via
+	// runtime_state="wedged"; we honor it directly. Sample_error from
+	// the heartbeat carries the human-readable reason ("SDK init
+	// timeout — restart workspace"), which the canvas surfaces in the
+	// degraded card without the operator scraping container logs.
+	if payload.RuntimeState == "wedged" && currentStatus == "online" {
+		_, err := db.DB.ExecContext(ctx,
+			`UPDATE workspaces SET status = 'degraded', updated_at = now() WHERE id = $1 AND status = 'online'`,
+			payload.WorkspaceID)
+		if err != nil {
+			log.Printf("Heartbeat: failed to mark %s degraded (wedged): %v", payload.WorkspaceID, err)
+		}
+		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_DEGRADED", payload.WorkspaceID, map[string]interface{}{
+			"runtime_state": "wedged",
+			"sample_error":  payload.SampleError,
+		})
+	}
+
 	if currentStatus == "online" && payload.ErrorRate >= 0.5 {
 		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'degraded', updated_at = now() WHERE id = $1`, payload.WorkspaceID); err != nil {
 			log.Printf("Heartbeat: failed to mark %s degraded: %v", payload.WorkspaceID, err)
@@ -464,7 +507,13 @@ func (h *RegistryHandler) evaluateStatus(c *gin.Context, payload models.Heartbea
 		})
 	}
 
-	if currentStatus == "degraded" && payload.ErrorRate < 0.1 {
+	// Recovery from degraded → online when BOTH the error rate has
+	// fallen back AND the workspace is no longer reporting a wedge.
+	// The wedge condition is sticky for the process lifetime
+	// (claude_sdk_executor only clears it on restart), so when the
+	// container restarts and starts heartbeating fresh — RuntimeState
+	// is empty, error_rate is 0 — this branch flips us back to online.
+	if currentStatus == "degraded" && payload.ErrorRate < 0.1 && payload.RuntimeState == "" {
 		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'online', updated_at = now() WHERE id = $1`, payload.WorkspaceID); err != nil {
 			log.Printf("Heartbeat: failed to recover %s to online: %v", payload.WorkspaceID, err)
 		}

@@ -67,7 +67,19 @@ describe("canvas-events – molecule:pan-to-node dispatch", () => {
     vi.restoreAllMocks();
   });
 
-  it("dispatches molecule:pan-to-node with the new nodeId for a NEW provision", () => {
+  it("dispatches both molecule:pan-to-node AND molecule:fit-deploying-org for a NEW root-level provision", () => {
+    // Two custom events are dispatched on NEW root-level provision:
+    //   1. molecule:fit-deploying-org — tells useCanvasViewport to
+    //      frame the whole deploying subtree. Fires for root nodes
+    //      too (commit 5adc8a74) so the canvas centers the just-
+    //      landed root immediately instead of waiting for the
+    //      first child to arrive.
+    //   2. molecule:pan-to-node — pans/zooms to the single node;
+    //      only for standalone creates (no parent), so org-import
+    //      children don't chase the spawn animation.
+    // A previous version of this test expected only #2 and failed
+    // when #1 was added for roots. If only one of these ever fires
+    // again, this test should flag the regression.
     const { get, set } = makeStore([]);
     const dispatched: Event[] = [];
     const spy = vi.spyOn(window, "dispatchEvent").mockImplementation((e) => {
@@ -81,9 +93,15 @@ describe("canvas-events – molecule:pan-to-node dispatch", () => {
       set
     );
 
-    expect(dispatched).toHaveLength(1);
-    expect(dispatched[0].type).toBe("molecule:pan-to-node");
-    expect((dispatched[0] as CustomEvent).detail?.nodeId).toBe("ws-new");
+    expect(dispatched).toHaveLength(2);
+    const panEvent = dispatched.find((e) => e.type === "molecule:pan-to-node");
+    const fitEvent = dispatched.find((e) => e.type === "molecule:fit-deploying-org");
+    expect(panEvent, "molecule:pan-to-node should fire for standalone create").toBeDefined();
+    expect(fitEvent, "molecule:fit-deploying-org should fire so the viewport frames the root").toBeDefined();
+    expect((panEvent as CustomEvent).detail?.nodeId).toBe("ws-new");
+    expect((fitEvent as CustomEvent).detail?.rootId).toBe("ws-new");
+
+    spy.mockRestore();
   });
 
   it("does NOT dispatch molecule:pan-to-node when restarting an existing node", () => {

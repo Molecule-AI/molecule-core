@@ -33,7 +33,7 @@ from initial_prompt import (
     mark_initial_prompt_attempted,
     resolve_initial_prompt_marker,
 )
-from platform_auth import auth_headers
+from platform_auth import auth_headers, self_source_headers
 
 
 def get_machine_ip() -> str:  # pragma: no cover
@@ -68,6 +68,15 @@ async def main():  # pragma: no cover
 
     # 0. Initialise OpenTelemetry (no-op if packages not installed)
     setup_telemetry(service_name=workspace_id)
+
+    # 0a. Fix /workspace perms before any agent code runs. Docker ships
+    # named volumes as root:root 755 — without this the non-root agent
+    # user can't write files the user asked it to produce, and the
+    # "agent → file → user downloads" flow dead-ends at a bash "permission
+    # denied". Best-effort: no-ops silently if molecule-runtime itself
+    # isn't root (template's own start.sh should have handled it there).
+    from executor_helpers import ensure_workspace_writable
+    ensure_workspace_writable()
 
     # 1. Load config
     config = load_config(config_path)
@@ -430,7 +439,15 @@ async def main():  # pragma: no cover
                 # silently rejected once any workspace has a live token on
                 # file. Without this, initial_prompt 401s in multi-tenant
                 # mode exactly like /registry/register did in #215.
-                headers = {"Content-Type": "application/json", **auth_headers()}
+                # X-Workspace-ID via self_source_headers() so the platform
+                # tags the row source=agent — without it the canvas's
+                # My Chat tab renders the initial_prompt as if the user
+                # had typed it. See platform_auth.py for the full
+                # explanation.
+                headers = {
+                    "Content-Type": "application/json",
+                    **self_source_headers(workspace_id),
+                }
 
                 # Retry with backoff — the platform proxy may not be able to
                 # reach us yet (container networking takes a moment to settle).
@@ -522,7 +539,13 @@ async def main():  # pragma: no cover
                     # actual outcome instead of a bare "post failed" line.
                     # #220: include auth_headers() on every idle fire. Without
                     # this, the idle loop 401s in multi-tenant mode.
-                    headers = {"Content-Type": "application/json", **auth_headers()}
+                    # self_source_headers() adds X-Workspace-ID so the
+                    # platform classifies the idle fire as source=agent
+                    # rather than user-typed canvas input.
+                    headers = {
+                        "Content-Type": "application/json",
+                        **self_source_headers(workspace_id),
+                    }
                     try:
                         req = _urlreq.Request(
                             f"{platform_url}/workspaces/{workspace_id}/a2a",

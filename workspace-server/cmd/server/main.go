@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/handlers"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/imagewatch"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/router"
@@ -33,6 +35,14 @@ import (
 )
 
 func main() {
+	// .env auto-load: in dev, the operator keeps MOLECULE_ENV /
+	// DATABASE_URL / etc. in the monorepo's .env file. Loading it here
+	// — before any code reads env — means a fresh `/tmp/molecule-server`
+	// run picks up dev config without `set -a && source .env`. No-op
+	// in production (Docker image doesn't ship a .env, and existing env
+	// always wins over file values, so container env stays dominant).
+	loadDotEnvIfPresent()
+
 	// CP self-refresh: pull any operator-rotated config (e.g. a new
 	// MOLECULE_CP_SHARED_SECRET) before any other code reads env.
 	// Best-effort — if the CP is unreachable we keep booting with the
@@ -221,6 +231,18 @@ func main() {
 		})
 	}
 
+	// Orphan-container reconcile sweep — finds running containers
+	// whose workspace row is already status='removed' and stops
+	// them. Defence in depth on top of the inline cleanup in
+	// handlers/workspace_crud.go: any Docker hiccup that left a
+	// container alive after the user clicked delete heals on the
+	// next sweep instead of leaking forever.
+	if prov != nil {
+		go supervised.RunWithRecover(ctx, "orphan-sweeper", func(c context.Context) {
+			registry.StartOrphanSweeper(c, prov)
+		})
+	}
+
 	// Provision-timeout sweep — flips workspaces that have been stuck in
 	// status='provisioning' past the timeout window to 'failed' and emits
 	// WORKSPACE_PROVISION_TIMEOUT. Without this the UI banner is cosmetic
@@ -244,6 +266,18 @@ func main() {
 	// Channel Manager — social channel integrations (Telegram, Slack, etc.)
 	channelMgr := channels.NewManager(wh, broadcaster)
 	go supervised.RunWithRecover(ctx, "channel-manager", channelMgr.Start)
+
+	// Image auto-refresh — closes the runtime CD chain to "merge → containers
+	// running new code" with no human in between. Polls GHCR for digest
+	// changes on workspace-template-* :latest tags and invokes the same
+	// refresh logic /admin/workspace-images/refresh exposes. Opt-in:
+	// SaaS deploys whose pipeline already pulls every release should leave
+	// it off (would be redundant work). Self-hosters get true zero-touch.
+	if prov != nil && strings.EqualFold(os.Getenv("IMAGE_AUTO_REFRESH"), "true") {
+		svc := handlers.NewWorkspaceImageService(prov.DockerClient())
+		watcher := imagewatch.New(svc)
+		go supervised.RunWithRecover(ctx, "image-auto-refresh", watcher.Run)
+	}
 
 	// Wire channel manager into scheduler for auto-posting cron output to Slack
 	cronSched.SetChannels(channelMgr)

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/registry"
 	"github.com/gin-gonic/gin"
@@ -120,18 +121,26 @@ func isUpstreamBusyError(err error) bool {
 	if err == nil {
 		return false
 	}
+	// Typed sentinels propagate cleanly through *url.Error.Unwrap
+	// since Go 1.13, so errors.Is is the primary check for both
+	// DeadlineExceeded and Canceled. The substring fallbacks below
+	// stay only for shapes net/http does NOT type — bare "EOF" /
+	// "connection reset" can arrive as plain *net.OpError with no
+	// errors.Is hook to the stdlib sentinels.
 	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	// applyIdleTimeout uses context.WithCancel; surfaces here as
+	// Canceled, distinct from DeadlineExceeded but the same "upstream
+	// busy" class — caller produces a 503 + Retry-After.
+	if errors.Is(err, context.Canceled) {
 		return true
 	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
-	// url.Error wraps "read tcp … EOF" and "Post …: context deadline
-	// exceeded" strings from the stdlib HTTP client without typing the
-	// inner cause. Fall back to substring match for those.
 	msg := err.Error()
-	return strings.Contains(msg, "context deadline exceeded") ||
-		strings.Contains(msg, "EOF") ||
+	return strings.Contains(msg, "EOF") ||
 		strings.Contains(msg, "connection reset")
 }
 
@@ -286,7 +295,7 @@ func (h *WorkspaceHandler) proxyA2ARequest(ctx context.Context, workspaceID stri
 	body = normalizedBody
 
 	startTime := time.Now()
-	resp, cancelFwd, err := h.dispatchA2A(ctx, agentURL, body, callerID)
+	resp, cancelFwd, err := h.dispatchA2A(ctx, workspaceID, agentURL, body, callerID)
 	if cancelFwd != nil {
 		defer cancelFwd()
 	}
@@ -478,11 +487,71 @@ func normalizeA2APayload(body []byte) ([]byte, string, *proxyA2AError) {
 	return marshaledBody, a2aMethod, nil
 }
 
+// idleTimeoutDuration is the per-dispatch silence window: if the
+// platform's broadcaster emits no events for this workspace for the
+// full duration, the dispatch ctx is cancelled. Resets on every
+// broadcaster event for the workspace — including the WORKSPACE_HEARTBEAT
+// fired by the registry's /heartbeat handler every 30s, so a runtime
+// that's just thinking silently between tool calls keeps the connection
+// alive without having to emit ACTIVITY_LOGGED noise.
+//
+// Pre-2026-04-26 this was 60s, picked when the platform only broadcast
+// on TASK_UPDATED (which itself only fires when current_task CHANGES).
+// A claude-code agent doing a long packaging step or a slow model thought
+// kept the same current_task for >60s, fired no broadcast, got cancelled
+// mid-flight. Bumped to 5min as a safety net AND the heartbeat handler
+// now broadcasts unconditionally — together either one alone closes the
+// gap, both together is defence in depth.
+//
+// Override via A2A_IDLE_TIMEOUT_SECONDS for ops who want to tune (e.g.
+// shorter for canary/test runners that want fail-fast on wedge, longer
+// for prod tenants running unusually slow plugins).
+var idleTimeoutDuration = parseIdleTimeoutEnv(os.Getenv("A2A_IDLE_TIMEOUT_SECONDS"))
+
+// defaultIdleTimeoutDuration is what parseIdleTimeoutEnv returns when
+// the env var is unset or invalid. Pulled out as a const so tests can
+// reference it without re-deriving the value.
+const defaultIdleTimeoutDuration = 5 * time.Minute
+
+// parseIdleTimeoutEnv parses the A2A_IDLE_TIMEOUT_SECONDS value, falling
+// back to defaultIdleTimeoutDuration on empty / non-numeric / non-positive
+// input. Bad-input cases LOG so an operator who set the wrong value
+// doesn't silently get the default and waste hours debugging "why is my
+// override not working." Without the log line, A2A_IDLE_TIMEOUT_SECONDS=foo
+// or =-30 produces identical observable behaviour to leaving it unset.
+func parseIdleTimeoutEnv(v string) time.Duration {
+	if v == "" {
+		return defaultIdleTimeoutDuration
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		log.Printf("A2A_IDLE_TIMEOUT_SECONDS=%q is not a valid integer; using default %s", v, defaultIdleTimeoutDuration)
+		return defaultIdleTimeoutDuration
+	}
+	if n <= 0 {
+		log.Printf("A2A_IDLE_TIMEOUT_SECONDS=%d must be > 0; using default %s", n, defaultIdleTimeoutDuration)
+		return defaultIdleTimeoutDuration
+	}
+	return time.Duration(n) * time.Second
+}
+
 // dispatchA2A POSTs `body` to `agentURL`. Uses WithoutCancel so delegation
-// chains survive client disconnect (browser tab close). Default timeouts:
-// canvas (callerID == "") = 5 min, agent-to-agent = 30 min. Callers can
-// override via the X-Timeout header (applied to ctx upstream in ProxyA2A).
-func (h *WorkspaceHandler) dispatchA2A(ctx context.Context, agentURL string, body []byte, callerID string) (*http.Response, context.CancelFunc, error) {
+// chains survive client disconnect (browser tab close). Two layers of
+// timeout per dispatch:
+//
+//   - Idle timeout (always applied): cancels the dispatch when no
+//     broadcaster events for the workspace fire for
+//     idleTimeoutDuration. Any progress event resets the clock — so
+//     a long but actively-streaming reply runs forever, while a
+//     wedged runtime fails fast.
+//   - Absolute ceiling (agent-to-agent only): 30 min cap as a
+//     defence against runaway delegation loops. Canvas dispatches
+//     have no absolute ceiling — the user can wait as long as they
+//     want, the idle timer is the only hangup signal.
+//
+// Either layer is overridable by the X-Timeout header upstream in
+// ProxyA2A; X-Timeout: 0 explicitly disables the absolute ceiling.
+func (h *WorkspaceHandler) dispatchA2A(ctx context.Context, workspaceID, agentURL string, body []byte, callerID string) (*http.Response, context.CancelFunc, error) {
 	// #1483 SSRF defense-in-depth: the primary call path through
 	// proxyA2ARequest → resolveAgentURL already validates via isSafeURL
 	// (a2a_proxy.go:424), but adding the check here closes the gap for
@@ -494,19 +563,41 @@ func (h *WorkspaceHandler) dispatchA2A(ctx context.Context, agentURL string, bod
 		return nil, nil, &proxyDispatchBuildError{err: err}
 	}
 	forwardCtx := context.WithoutCancel(ctx)
-	var cancel context.CancelFunc
+	var ceilingCancel context.CancelFunc
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		if callerID == "" {
-			forwardCtx, cancel = context.WithTimeout(forwardCtx, 5*time.Minute)
-		} else {
-			forwardCtx, cancel = context.WithTimeout(forwardCtx, 30*time.Minute)
+		if callerID != "" {
+			forwardCtx, ceilingCancel = context.WithTimeout(forwardCtx, 30*time.Minute)
+		}
+		// callerID == "" (canvas): no absolute ceiling. The idle
+		// timeout below is the only deadline.
+	}
+	// Idle timeout — cancels the dispatch ctx after
+	// idleTimeoutDuration of broadcaster silence for this workspace.
+	// Always applied (canvas + agent-to-agent both benefit; the
+	// ceiling above is a separate runaway-loop cap that only fires
+	// for agent traffic). Combines with the ceiling cancel into a
+	// single returned cancel func that the caller defers.
+	// applyIdleTimeout needs SubscribeSSE which only lives on the
+	// concrete *Broadcaster, not on the EventEmitter interface the
+	// handler now stores. Type-assert + fall through to a no-op idle
+	// timer if the broadcaster doesn't support subscriptions (the
+	// EventEmitter mock used by some tests, e.g.). Production wires
+	// the concrete *Broadcaster, so the assertion always succeeds in
+	// real deploys.
+	var b *events.Broadcaster
+	if concrete, ok := h.broadcaster.(*events.Broadcaster); ok {
+		b = concrete
+	}
+	forwardCtx, idleCancel := applyIdleTimeout(forwardCtx, b, workspaceID, idleTimeoutDuration)
+	cancel := func() {
+		idleCancel()
+		if ceilingCancel != nil {
+			ceilingCancel()
 		}
 	}
 	req, err := http.NewRequestWithContext(forwardCtx, "POST", agentURL, bytes.NewReader(body))
 	if err != nil {
-		if cancel != nil {
-			cancel()
-		}
+		cancel()
 		// Wrap the construction failure so the caller can distinguish it
 		// from an upstream Do() error and produce the correct 500 response.
 		return nil, nil, &proxyDispatchBuildError{err: err}
@@ -514,4 +605,53 @@ func (h *WorkspaceHandler) dispatchA2A(ctx context.Context, agentURL string, bod
 	req.Header.Set("Content-Type", "application/json")
 	resp, doErr := a2aClient.Do(req)
 	return resp, cancel, doErr
+}
+
+// applyIdleTimeout returns a child ctx that gets cancelled when no
+// broadcaster events for `workspaceID` arrive for `idle` duration.
+// Any incoming event resets the clock. The returned cancel func
+// MUST be called to clean up the goroutine + subscription.
+//
+// nil broadcaster or non-positive idle returns the parent ctx
+// unchanged (and a no-op cancel) so test paths that don't wire a
+// broadcaster keep working.
+func applyIdleTimeout(parent context.Context, b *events.Broadcaster, workspaceID string, idle time.Duration) (context.Context, context.CancelFunc) {
+	if b == nil || idle <= 0 || workspaceID == "" {
+		return parent, func() {}
+	}
+	ctx, cancel := context.WithCancel(parent)
+	sub, unsub := b.SubscribeSSE(workspaceID)
+	go func() {
+		defer unsub()
+		timer := time.NewTimer(idle)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, ok := <-sub:
+				if !ok {
+					// Subscription channel closed — fall back to
+					// pure-timer mode. Don't cancel: another caller
+					// may have closed our sub but the request itself
+					// is still in flight. Let the timer or the
+					// caller's defer drive cleanup.
+					continue
+				}
+				// Stop+drain pattern so a fired-but-unread timer
+				// doesn't double-cancel after the Reset.
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(idle)
+			case <-timer.C:
+				cancel()
+				return
+			}
+		}
+	}()
+	return ctx, cancel
 }

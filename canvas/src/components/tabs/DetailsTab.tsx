@@ -36,7 +36,7 @@ export function DetailsTab({ workspaceId, data }: Props) {
   const [restartError, setRestartError] = useState<string | null>(null);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
-  const removeNode = useCanvasStore((s) => s.removeNode);
+  const removeSubtree = useCanvasStore((s) => s.removeSubtree);
   const selectNode = useCanvasStore((s) => s.selectNode);
   // Ref for the "Delete Workspace" trigger — Cancel returns focus here
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
@@ -94,7 +94,11 @@ export function DetailsTab({ workspaceId, data }: Props) {
     setDeleteError(null);
     try {
       await api.del(`/workspaces/${workspaceId}?confirm=true`);
-      removeNode(workspaceId);
+      // Mirror the server-side cascade — drop the row + every
+      // descendant locally so the canvas reflects the deletion
+      // immediately, even when the WS is dead and the per-descendant
+      // WORKSPACE_REMOVED events never arrive.
+      removeSubtree(workspaceId);
       selectNode(null);
     } catch (e) {
       setDeleteError(e instanceof Error ? e.message : "Failed to delete");

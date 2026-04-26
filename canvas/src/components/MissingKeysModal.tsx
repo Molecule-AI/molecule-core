@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
 import { getKeyLabel, type ProviderChoice } from "@/lib/deploy-preflight";
 
@@ -196,6 +197,12 @@ function ProviderPickerModal({
   );
 
   if (!open) return null;
+  // Portal to document.body for the same reason as
+  // OrgImportPreflightModal — several callers (TemplatePalette,
+  // EmptyState) render the modal inside their own fixed+filtered
+  // containers, which re-anchor the "fixed" positioning to the
+  // wrapper's bounds instead of the viewport.
+  if (typeof document === "undefined") return null;
 
   const allSaved = entries.length > 0 && entries.every((e) => e.saved);
   const anySaving = entries.some((e) => e.saving);
@@ -203,8 +210,14 @@ function ProviderPickerModal({
     .replace(/[-_]/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+  return createPortal(
+    // z-[60] so this stacks ABOVE OrgImportPreflightModal (z-50).
+    // Both can be on screen at once during an org import: the org-
+    // preflight is open while the user clicks a per-workspace deploy
+    // that triggers MissingKeys. Without the explicit z-order the
+    // backdrop click might dismiss the wrong modal depending on
+    // React's commit ordering.
+    <div className="fixed inset-0 z-[60] flex items-center justify-center">
       <div
         aria-hidden="true"
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
@@ -215,7 +228,7 @@ function ProviderPickerModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="missing-keys-title"
-        className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl shadow-black/50 max-w-[480px] w-full mx-4 overflow-hidden"
+        className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl shadow-black/50 max-w-[480px] w-full mx-4 max-h-[80vh] overflow-auto"
       >
         <div className="px-5 py-4 border-b border-zinc-800">
           <div className="flex items-center gap-2 mb-1">
@@ -360,7 +373,8 @@ function ProviderPickerModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -474,6 +488,7 @@ function AllKeysModal({
   }, [open]);
 
   if (!open) return null;
+  if (typeof document === "undefined") return null;
 
   const allSaved = entries.length > 0 && entries.every((e) => e.saved);
   const anySaving = entries.some((e) => e.saving);
@@ -481,8 +496,14 @@ function AllKeysModal({
     .replace(/[-_]/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+  return createPortal(
+    // z-[60] so this stacks ABOVE OrgImportPreflightModal (z-50).
+    // Both can be on screen at once during an org import: the org-
+    // preflight is open while the user clicks a per-workspace deploy
+    // that triggers MissingKeys. Without the explicit z-order the
+    // backdrop click might dismiss the wrong modal depending on
+    // React's commit ordering.
+    <div className="fixed inset-0 z-[60] flex items-center justify-center">
       <div
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         aria-hidden="true"
@@ -493,7 +514,7 @@ function AllKeysModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="missing-keys-title"
-        className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl shadow-black/50 max-w-[440px] w-full mx-4 overflow-hidden"
+        className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl shadow-black/50 max-w-[440px] w-full mx-4 max-h-[80vh] overflow-auto"
       >
         <div className="px-5 py-4 border-b border-zinc-800">
           <div className="flex items-center gap-2 mb-1">
@@ -608,6 +629,7 @@ function AllKeysModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

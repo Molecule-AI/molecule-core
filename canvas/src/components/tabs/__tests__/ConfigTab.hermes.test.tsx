@@ -128,7 +128,13 @@ describe("ConfigTab — hermes workspace", () => {
     });
   });
 
-  it("shows hermes-specific info banner pointing to Terminal tab (#1894)", async () => {
+  it("does NOT show the hermes-specific info banner (removed in #2061)", async () => {
+    // Banner-text inversion: the multilevel-layout-UX PR drops "hermes"
+    // from RUNTIMES_WITH_OWN_CONFIG (now {"external"} only). Hermes now
+    // shows the normal Config form — the banner "Hermes manages its own
+    // config" is reserved for the "external" runtime, not hermes itself.
+    // If this ever flips back, revisit the banner/error UX before
+    // unpinning this assertion.
     wireApi({
       workspaceRuntime: "hermes",
       configYamlContent: null,
@@ -137,9 +143,11 @@ describe("ConfigTab — hermes workspace", () => {
 
     render(<ConfigTab workspaceId="ws-test" />);
 
-    await waitFor(() => {
-      expect(screen.getByText(/Hermes manages its own config/i)).toBeTruthy();
-    });
+    // Wait for the render+loads to settle (template list drives the runtime combobox).
+    await waitFor(() =>
+      screen.getByRole("combobox", { name: /runtime/i }),
+    );
+    expect(screen.queryByText(/Hermes manages its own config/i)).toBeNull();
   });
 
   it("DOES show 'No config.yaml found' error for langgraph workspace (default runtime)", async () => {
@@ -161,14 +169,28 @@ describe("ConfigTab — hermes workspace", () => {
 });
 
 describe("ConfigTab — config.yaml on disk", () => {
-  it("config.yaml runtime/model wins when present, workspace metadata is fallback", async () => {
-    // If the workspace DB has runtime=langgraph but config.yaml declares
-    // runtime: crewai, the form should show crewai (config.yaml wins).
-    // Prevents silent runtime drift across reads.
+  it("workspace metadata (DB) wins over config.yaml when both are present (#2061)", async () => {
+    // Priority inversion in #2061: previously config.yaml overrode DB, so
+    // the tier-on-node badge and runtime-in-form could drift when the
+    // user edited config.yaml on disk. The multilevel-layout-UX PR made
+    // the DB authoritative — config.yaml is read for non-DB keys (tools,
+    // MCP server list, etc.) but runtime/model/tier come from the
+    // workspace row so the node badge matches the form.
+    //
+    // Scenario: DB says "hermes", config.yaml says "crewai". The form
+    // must show hermes (DB wins).
+    //
+    // We pick hermes (not langgraph) on the DB side because "langgraph"
+    // is collapsed to the empty-string "LangGraph (default)" option in
+    // the runtime dropdown — so a "langgraph" DB value would render as
+    // the empty-valued option and obscure whether the DB-wins logic
+    // actually fired. Hermes has its own non-empty option value and
+    // gives the assertion a clean signal.
     wireApi({
-      workspaceRuntime: "langgraph", // DB
+      workspaceRuntime: "hermes", // DB — authoritative
       configYamlContent: 'runtime: crewai\nmodel: "claude-opus"\n',
       templates: [
+        { id: "t-hermes", name: "Hermes", runtime: "hermes", models: [] },
         { id: "t-crewai", name: "CrewAI", runtime: "crewai", models: [] },
       ],
     });
@@ -176,6 +198,6 @@ describe("ConfigTab — config.yaml on disk", () => {
     render(<ConfigTab workspaceId="ws-test" />);
 
     const select = await waitFor(() => screen.getByRole("combobox", { name: /runtime/i }));
-    expect((select as HTMLSelectElement).value).toBe("crewai");
+    expect((select as HTMLSelectElement).value).toBe("hermes");
   });
 });

@@ -176,20 +176,33 @@ func (h *WorkspaceHandler) provisionWorkspaceOpts(workspaceID, templatePath stri
 			// Try to recover by applying the runtime-default template. payload.Runtime
 			// is populated by the caller (Restart handler / Create handler) from the
 			// DB row — same source of truth the apply_template=true path uses.
+			// Try `<runtime>-default` first (historical naming), then plain
+			// `<runtime>` (current naming in workspace-configs-templates/).
+			// Only claude-code has the `-default` suffix; every other
+			// runtime directory uses the bare name. Without the bare-name
+			// fallback, recovery only worked for claude-code and blank
+			// workspaces on every other runtime bricked on first start.
 			recovered := false
 			if payload.Runtime != "" {
-				runtimeTemplate := filepath.Join(h.configsDir, payload.Runtime+"-default")
-				if _, statErr := os.Stat(runtimeTemplate); statErr == nil {
-					log.Printf("Provisioner: auto-recover for %s — config volume empty, applying %s-default template (#1858)",
-						workspaceID, payload.Runtime)
-					templatePath = runtimeTemplate
-					// Rebuild cfg with the recovered template path so Start() sees it.
-					cfg = h.buildProvisionerConfig(workspaceID, templatePath, configFiles, payload, envVars, pluginsPath, awarenessNamespace)
-					cfg.ResetClaudeSession = resetClaudeSession
-					recovered = true
-				} else {
-					log.Printf("Provisioner: auto-recover for %s — runtime template %s not found: %v",
-						workspaceID, runtimeTemplate, statErr)
+				candidates := []string{
+					filepath.Join(h.configsDir, payload.Runtime+"-default"),
+					filepath.Join(h.configsDir, payload.Runtime),
+				}
+				for _, runtimeTemplate := range candidates {
+					if _, statErr := os.Stat(runtimeTemplate); statErr == nil {
+						log.Printf("Provisioner: auto-recover for %s — config volume empty, applying %s template (#1858)",
+							workspaceID, filepath.Base(runtimeTemplate))
+						templatePath = runtimeTemplate
+						// Rebuild cfg with the recovered template path so Start() sees it.
+						cfg = h.buildProvisionerConfig(workspaceID, templatePath, configFiles, payload, envVars, pluginsPath, awarenessNamespace)
+						cfg.ResetClaudeSession = resetClaudeSession
+						recovered = true
+						break
+					}
+				}
+				if !recovered {
+					log.Printf("Provisioner: auto-recover for %s — no template found under %s for runtime=%s",
+						workspaceID, h.configsDir, payload.Runtime)
 				}
 			}
 
@@ -626,6 +639,17 @@ func (h *WorkspaceHandler) ensureDefaultConfig(workspaceID string, payload model
 // payload.Model at boot), this is a no-op — no harm in the switch
 // being empty for those cases.
 func applyRuntimeModelEnv(envVars map[string]string, runtime, model string) {
+	// Fall back to the MODEL_PROVIDER workspace secret when the caller
+	// didn't pass one explicitly. This is the path that "Save+Restart"
+	// hits — Restart builds its payload from the workspaces row (no model
+	// column there) so payload.Model is always empty, but the user's
+	// canvas selection was stored as MODEL_PROVIDER via PUT /model and
+	// is already loaded into envVars here. Without this fallback hermes
+	// silently boots with the template default and errors "No LLM
+	// provider configured" even though the user picked a valid model.
+	if model == "" {
+		model = envVars["MODEL_PROVIDER"]
+	}
 	if model == "" {
 		return
 	}
