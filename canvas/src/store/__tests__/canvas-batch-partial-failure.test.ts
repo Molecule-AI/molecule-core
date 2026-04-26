@@ -5,27 +5,34 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 global.fetch = vi.fn();
 
 import { useCanvasStore } from "../canvas";
-import type { WorkspaceData } from "../socket";
+import type { WorkspaceNodeData } from "../canvas";
 
-function makeWS(overrides: Partial<WorkspaceData> & { id: string }): WorkspaceData {
+function makeWS(
+  overrides: Partial<WorkspaceNodeData> & { id: string },
+): WorkspaceNodeData {
+  // makeWS builds a minimal WorkspaceNodeData for tests that set state
+  // directly on the store (bypassing hydrate). The `id` override is
+  // ignored — node IDs live on the outer Node<> wrapper, not inside
+  // `data`. It's accepted here so callers can keep their existing
+  // `makeWS({ id: "ws-foo" })` call sites even though the id is only
+  // used on the Node<> wrapper at the call site.
+  void overrides.id;
   return {
     name: "WS",
     role: "agent",
     tier: 1,
     status: "online",
-    agent_card: null,
+    agentCard: null,
     url: "http://localhost:9000",
-    parent_id: null,
-    active_tasks: 0,
-    last_error_rate: 0,
-    last_sample_error: "",
-    uptime_seconds: 60,
-    current_task: "",
-    x: 0,
-    y: 0,
+    parentId: null,
+    activeTasks: 0,
+    lastErrorRate: 0,
+    lastSampleError: "",
+    currentTask: "",
     collapsed: false,
     runtime: "",
-    budget_limit: null,
+    needsRestart: false,
+    budgetLimit: null,
     ...overrides,
   };
 }
@@ -148,13 +155,13 @@ describe("batchRestart — partial failure", () => {
           id: "ws-ok",
           type: "workspace",
           position: { x: 0, y: 0 },
-          data: { ...makeWS({ id: "ws-ok" }), needsRestart: true } as WorkspaceData & { needsRestart: boolean },
+          data: { ...makeWS({ id: "ws-ok" }), needsRestart: true } as WorkspaceNodeData,
         },
         {
           id: "ws-fail",
           type: "workspace",
           position: { x: 0, y: 0 },
-          data: { ...makeWS({ id: "ws-fail" }), needsRestart: true } as WorkspaceData & { needsRestart: boolean },
+          data: { ...makeWS({ id: "ws-fail" }), needsRestart: true } as WorkspaceNodeData,
         },
       ],
       selectedNodeIds: new Set(["ws-ok", "ws-fail"]),
@@ -166,7 +173,7 @@ describe("batchRestart — partial failure", () => {
     });
 
     const byId = Object.fromEntries(
-      useCanvasStore.getState().nodes.map((n) => [n.id, n.data as WorkspaceData & { needsRestart?: boolean }])
+      useCanvasStore.getState().nodes.map((n) => [n.id, n.data as WorkspaceNodeData])
     );
     expect(byId["ws-ok"].needsRestart).toBe(false);
     expect(byId["ws-fail"].needsRestart).toBe(true);
@@ -179,7 +186,7 @@ describe("batchRestart — partial failure", () => {
           id: "ws-fail",
           type: "workspace",
           position: { x: 0, y: 0 },
-          data: { ...makeWS({ id: "ws-fail" }), needsRestart: true } as WorkspaceData & { needsRestart: boolean },
+          data: { ...makeWS({ id: "ws-fail" }), needsRestart: true } as WorkspaceNodeData,
         },
       ],
       selectedNodeIds: new Set(["ws-fail"]),

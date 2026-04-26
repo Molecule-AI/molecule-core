@@ -74,7 +74,11 @@ export function buildA2AEdges(
     });
   }
 
-  // 3. Build React Flow Edge objects
+  // 3. Build React Flow Edge objects. We tag every overlay edge with
+  //    type: "a2a" so React Flow renders it via our custom A2AEdge
+  //    component (canvas/A2AEdge.tsx). The custom component portals
+  //    its label out of the SVG layer so it (a) doesn't get hidden
+  //    behind workspace cards and (b) is clickable.
   return Array.from(map.values()).map(({ source, target, count, lastAt }) => {
     const isHot = now - lastAt < A2A_HOT_MS;
     const stroke = isHot ? "#8b5cf6" : "#3b82f6"; // violet-500 : blue-500
@@ -84,6 +88,7 @@ export function buildA2AEdges(
 
     return {
       id: `a2a-${source}-${target}`,
+      type: "a2a",
       source,
       target,
       animated: isHot,
@@ -96,22 +101,22 @@ export function buildA2AEdges(
       style: {
         stroke,
         strokeWidth: 2,
-        // Non-blocking: label overlay never intercepts pointer events
+        // Path itself stays non-interactive so node drags through
+        // the line still work. The clickable target is the label
+        // pill, which sets pointerEvents: all on its own div.
         pointerEvents: "none" as React.CSSProperties["pointerEvents"],
       },
+      // `label` keeps the same string for back-compat with any test
+      // that asserts on it (e.g. buildA2AEdges output shape). Custom
+      // edge reads the rich data from `data` so the label visual is
+      // not constrained to a string anymore.
       label,
-      labelStyle: {
-        fill: "#a1a1aa",   // zinc-400
-        fontSize: 10,
-        pointerEvents: "none" as React.CSSProperties["pointerEvents"],
+      data: {
+        count,
+        lastAt,
+        isHot,
+        label,
       },
-      labelBgStyle: {
-        fill: "#18181b",   // zinc-900
-        fillOpacity: 0.9,
-        pointerEvents: "none" as React.CSSProperties["pointerEvents"],
-      },
-      labelBgPadding: [4, 6] as [number, number],
-      labelBgBorderRadius: 4,
     };
   });
 }

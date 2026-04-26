@@ -5,6 +5,7 @@ package handlers
 // Delete (cascade + purge), and input validation helpers.
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/db"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/wsauth"
@@ -390,44 +392,69 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 	// Any concurrent heartbeat / registration / liveness-triggered restart
 	// will see status='removed' and bail out early.
 	//
-	// #1843: Stop() errors used to be silently swallowed. On the CP/EC2
-	// backend, Stop() calls the control plane's DELETE workspaces endpoint
-	// to terminate the EC2; if that errors (CP transient 5xx, network),
-	// the EC2 stays running with no DB row to track it — the
-	// "14 orphan workspace EC2s on a 0-customer account" scenario.
-	// Aggregate Stop failures and surface them as 500 so the client can
-	// retry. The retry replays Stop with the same instance_id (still
-	// readable from the row even after status='removed') — idempotent on
-	// the CP side. RemoveVolume errors stay log-and-continue: those are
-	// local cleanup of /var/data, not infra-leak class.
+	// Combines two concerns:
+	//
+	//  1. Detach cleanup from the request ctx via WithoutCancel + a 30s
+	//     timeout, so when the canvas's `api.del` resolves on our 200
+	//     (and gin cancels c.Request.Context()), in-flight Docker
+	//     stop/remove calls don't get cancelled mid-operation. The
+	//     previous shape leaked containers every time the canvas hung
+	//     up promptly: Stop returned "context canceled", the container
+	//     stayed up, and the next RemoveVolume failed with
+	//     "volume in use". 30s is generous for Docker daemon round-
+	//     trips (typical: <2s) and bounds a stuck daemon.
+	//
+	//  2. #1843: aggregate Stop() failures into stopErrs so the
+	//     post-deletion block surfaces them as 500. On the CP/EC2
+	//     backend, Stop() calls control plane's DELETE endpoint to
+	//     terminate the EC2; if that errors (transient 5xx, network),
+	//     the EC2 stays running with no DB row to track it (the
+	//     "orphan EC2 on a 0-customer account" scenario). Loud-fail
+	//     instead of silent-leak — clients retry, Stop's instance_id
+	//     lookup is idempotent against status='removed'. RemoveVolume
+	//     errors stay log-and-continue (local cleanup, not infra-leak).
+	cleanupCtx, cleanupCancel := context.WithTimeout(
+		context.WithoutCancel(ctx), 30*time.Second)
+	defer cleanupCancel()
+
 	var stopErrs []error
+	stopAndRemove := func(wsID string) {
+		if h.provisioner == nil {
+			return
+		}
+		// Check Stop's error before attempting RemoveVolume — the
+		// previous code discarded it and immediately tried the
+		// volume remove, which always fails with "volume in use"
+		// when Stop didn't actually kill the container. The orphan
+		// sweeper (registry/orphan_sweeper.go) catches what we
+		// skip here on the next reconcile pass.
+		if err := h.provisioner.Stop(cleanupCtx, wsID); err != nil {
+			log.Printf("Delete %s container stop failed: %v — leaving volume for orphan sweeper", wsID, err)
+			stopErrs = append(stopErrs, fmt.Errorf("stop %s: %w", wsID, err))
+			return
+		}
+		if err := h.provisioner.RemoveVolume(cleanupCtx, wsID); err != nil {
+			log.Printf("Delete %s volume removal warning: %v", wsID, err)
+		}
+	}
+
 	for _, descID := range descendantIDs {
-		if h.provisioner != nil {
-			if err := h.provisioner.Stop(ctx, descID); err != nil {
-				log.Printf("Delete descendant %s stop error: %v", descID, err)
-				stopErrs = append(stopErrs, fmt.Errorf("stop descendant %s: %w", descID, err))
-			}
-			if err := h.provisioner.RemoveVolume(ctx, descID); err != nil {
-				log.Printf("Delete descendant %s volume removal warning: %v", descID, err)
-			}
-		}
-		db.ClearWorkspaceKeys(ctx, descID)
-		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_REMOVED", descID, map[string]interface{}{})
+		stopAndRemove(descID)
+		db.ClearWorkspaceKeys(cleanupCtx, descID)
+		// Detach broadcaster ctx for the same reason as the cleanup
+		// above — RecordAndBroadcast does an INSERT INTO
+		// structure_events + Redis Publish. If the canvas hangs up,
+		// a request-ctx-bound INSERT can be cancelled mid-write,
+		// leaving other WS clients ignorant of the cascade. The DB
+		// row is already 'removed' so it's recoverable, but the
+		// inconsistency is avoidable.
+		h.broadcaster.RecordAndBroadcast(cleanupCtx, "WORKSPACE_REMOVED", descID, map[string]interface{}{})
 	}
 
-	// Stop + remove volume for the workspace itself
-	if h.provisioner != nil {
-		if err := h.provisioner.Stop(ctx, id); err != nil {
-			log.Printf("Delete %s stop error: %v", id, err)
-			stopErrs = append(stopErrs, fmt.Errorf("stop %s: %w", id, err))
-		}
-		if err := h.provisioner.RemoveVolume(ctx, id); err != nil {
-			log.Printf("Delete %s volume removal warning: %v", id, err)
-		}
-	}
-	db.ClearWorkspaceKeys(ctx, id)
+	stopAndRemove(id)
+	db.ClearWorkspaceKeys(cleanupCtx, id)
 
-	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_REMOVED", id, map[string]interface{}{
+	h.broadcaster.RecordAndBroadcast(cleanupCtx, "WORKSPACE_REMOVED", id, map[string]interface{}{
 		"cascade_deleted": len(descendantIDs),
 	})
 

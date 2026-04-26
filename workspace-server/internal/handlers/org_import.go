@@ -10,6 +10,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,7 +30,13 @@ import (
 // parent.abs + childSlotInGrid(index, siblingSizes) computed by the
 // caller. Storing already-absolute coords means a child that is itself
 // a parent can simply compound the grid without any per-call math.
-func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, absX, absY float64, defaults OrgDefaults, orgBaseDir string, results *[]map[string]interface{}, provisionSem chan struct{}) error {
+// relX / relY are THIS workspace's position RELATIVE to its parent's
+// absolute origin (i.e. childSlotInGrid output for children; 0,0 for
+// roots since a root's absolute IS its relative). The broadcast
+// payload ships relative coords so the canvas can drop the node
+// straight into the parent's child-coordinate space without doing a
+// canvas-wide absolute-position walk.
+func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, absX, absY, relX, relY float64, defaults OrgDefaults, orgBaseDir string, results *[]map[string]interface{}, provisionSem chan struct{}) error {
 	// Apply defaults
 	runtime := ws.Runtime
 	if runtime == "" {
@@ -132,10 +140,23 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, absX
 	}
 
 	// Broadcast — include runtime so the canvas pill renders the right
-	// badge immediately instead of "unknown".
-	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, map[string]interface{}{
+	// badge immediately instead of "unknown". parent_id + x/y let the
+	// canvas's org-deploy animation spawn the child from the parent's
+	// current coords and tween into its reserved slot, instead of
+	// landing in a default grid position first and snapping on the
+	// next hydrate.
+	payload := map[string]interface{}{
 		"name": ws.Name, "tier": tier, "runtime": runtime,
-	})
+		// Parent-relative coords — the canvas's React Flow node uses
+		// these as the node's position when parent_id is set (React
+		// Flow treats node.position as parent-relative when the node
+		// has a parentId). For roots, relX/relY == absX/absY.
+		"x": relX, "y": relY,
+	}
+	if parentID != nil {
+		payload["parent_id"] = *parentID
+	}
+	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_PROVISIONING", id, payload)
 
 	// Seed initial memories from workspace config or defaults (issue #1050).
 	// Per-workspace initial_memories override defaults; if workspace has none,
@@ -513,7 +534,9 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, absX
 			slotX, slotY := childSlotInGrid(i, siblingSizes)
 			childAbsX := absX + slotX
 			childAbsY := absY + slotY
-			if err := h.createWorkspaceTree(child, &id, childAbsX, childAbsY, defaults, orgBaseDir, results, provisionSem); err != nil {
+			// slotX/slotY are already parent-relative — that's
+			// exactly what childSlotInGrid returns.
+			if err := h.createWorkspaceTree(child, &id, childAbsX, childAbsY, slotX, slotY, defaults, orgBaseDir, results, provisionSem); err != nil {
 				return err
 			}
 			time.Sleep(workspaceCreatePacingMs * time.Millisecond)
@@ -521,6 +544,213 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, absX
 	}
 
 	return nil
+}
+
+// envVarNamePattern guards template-supplied env var names against
+// pathological inputs. A malicious template could ship
+// required_env: ["'; DROP …"] or whitespace-only entries that would
+// flow through collectOrgEnv → into the 412 response body and,
+// worse, into the modal's PUT /settings/secrets input. Schema
+// already has `key TEXT NOT NULL UNIQUE` and our queries are
+// parameterised so SQL injection isn't the threat — the real risks
+// are UI rendering weirdness (newlines, NUL bytes, zero-width chars)
+// and downstream env-var semantics (POSIX requires uppercase +
+// underscore + digit). A strict regex filters both classes of
+// problem at a single choke point.
+var envVarNamePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
+
+// sanitizeEnvMembers filters a requirement's member list through the
+// name-validation regex, logging rejections. Returns the filtered
+// list and a boolean indicating whether any valid members remain.
+// Used so a group containing one valid + one bogus name is kept
+// (valid member carries the group) rather than silently dropped.
+func sanitizeEnvMembers(members []string, where string) ([]string, bool) {
+	out := make([]string, 0, len(members))
+	for _, k := range members {
+		if !envVarNamePattern.MatchString(k) {
+			if k != "" {
+				log.Printf("collectOrgEnv: rejecting invalid env var name %q from %s (must match %s)", k, where, envVarNamePattern)
+			}
+			continue
+		}
+		out = append(out, k)
+	}
+	return out, len(out) > 0
+}
+
+// envRequirementKey canonicalises a requirement for dedup — sorted
+// member list joined with NUL so `any_of: [A, B]` and `any_of: [B, A]`
+// collapse to the same key. Single requirements are length-1 groups.
+func envRequirementKey(members []string) string {
+	cp := append([]string(nil), members...)
+	sort.Strings(cp)
+	return strings.Join(cp, "\x00")
+}
+
+// collectOrgEnv walks the whole template tree and returns the union of
+// required_env and recommended_env declared anywhere — at the org
+// level, on root workspaces, or on any nested child. Deduplicates by
+// group membership (same set of members = same requirement) and
+// sorts deterministically so the canvas sees a stable order.
+//
+// "Required wins" rules:
+//
+//   - A requirement that appears in BOTH required and recommended
+//     (same members) surfaces only as required.
+//   - A single-name requirement (e.g. "API_KEY") and a group that
+//     contains that same name (e.g. {any_of: [API_KEY, OTHER]}) are
+//     NOT deduplicated — they're semantically different (strict vs
+//     satisfiable-by-alternative) and the stricter "single" one wins,
+//     so the any-of group is dropped when its members overlap with a
+//     strict requirement declared elsewhere.
+//
+// Invalid names fail envVarNamePattern; the filter is applied per
+// group so a group with one bogus entry keeps the rest. A group
+// whose ALL members are invalid is dropped entirely with a log.
+func collectOrgEnv(tmpl *OrgTemplate) (required, recommended []EnvRequirement) {
+	reqByKey := map[string]EnvRequirement{}
+	recByKey := map[string]EnvRequirement{}
+	// Names covered by strict (single) required entries. A group in
+	// EITHER tier whose any-of contains ONE of these names is
+	// dominated by the strict requirement and gets dropped on the
+	// second pass.
+	strictRequiredNames := map[string]struct{}{}
+
+	accept := func(into map[string]EnvRequirement, src []EnvRequirement, where string, markStrict bool) {
+		for _, req := range src {
+			members, ok := sanitizeEnvMembers(req.Members(), where)
+			if !ok {
+				continue
+			}
+			key := envRequirementKey(members)
+			if _, exists := into[key]; exists {
+				continue
+			}
+			if req.Name != "" && len(members) == 1 {
+				into[key] = EnvRequirement{Name: members[0]}
+				if markStrict {
+					strictRequiredNames[members[0]] = struct{}{}
+				}
+			} else {
+				into[key] = EnvRequirement{AnyOf: members}
+			}
+		}
+	}
+	accept(reqByKey, tmpl.RequiredEnv, "template root", true)
+	accept(recByKey, tmpl.RecommendedEnv, "template root", false)
+	var walk func([]OrgWorkspace)
+	walk = func(ws []OrgWorkspace) {
+		for _, w := range ws {
+			accept(reqByKey, w.RequiredEnv, "workspace "+w.Name, true)
+			accept(recByKey, w.RecommendedEnv, "workspace "+w.Name, false)
+			walk(w.Children)
+		}
+	}
+	walk(tmpl.Workspaces)
+
+	// Required wins across tiers: any requirement whose members
+	// overlap with a strict required name gets dropped from
+	// recommended. Keeps the canvas modal from showing the same
+	// key in both sections.
+	prune := func(from map[string]EnvRequirement) {
+		for k, r := range from {
+			for _, m := range r.Members() {
+				if _, strict := strictRequiredNames[m]; strict {
+					delete(from, k)
+					break
+				}
+			}
+		}
+	}
+	prune(recByKey)
+
+	// Same-tier: a strict required X dominates any-of groups in
+	// required that CONTAIN X (a group saying "any of X, Y" is
+	// automatically satisfied when X is required anyway, so it's
+	// redundant). Same logic applied to recommended.
+	pruneSameTier := func(tier map[string]EnvRequirement) {
+		strictInTier := map[string]struct{}{}
+		for _, r := range tier {
+			if r.Name != "" {
+				strictInTier[r.Name] = struct{}{}
+			}
+		}
+		for k, r := range tier {
+			if len(r.AnyOf) == 0 {
+				continue
+			}
+			for _, m := range r.AnyOf {
+				if _, strict := strictInTier[m]; strict {
+					delete(tier, k)
+					break
+				}
+			}
+		}
+	}
+	pruneSameTier(reqByKey)
+	pruneSameTier(recByKey)
+
+	required = flattenAndSortRequirements(reqByKey)
+	recommended = flattenAndSortRequirements(recByKey)
+	return required, recommended
+}
+
+func flattenAndSortRequirements(by map[string]EnvRequirement) []EnvRequirement {
+	out := make([]EnvRequirement, 0, len(by))
+	for _, r := range by {
+		out = append(out, r)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		// Sort singles first by name; groups after, ordered by
+		// joined-member string. Gives the canvas a deterministic
+		// render order so the same template always produces the
+		// same modal layout.
+		iSingle := out[i].Name != ""
+		jSingle := out[j].Name != ""
+		if iSingle != jSingle {
+			return iSingle
+		}
+		if iSingle {
+			return out[i].Name < out[j].Name
+		}
+		return envRequirementKey(out[i].AnyOf) < envRequirementKey(out[j].AnyOf)
+	})
+	return out
+}
+
+// loadConfiguredGlobalSecretKeys returns the set of key names present
+// in global_secrets WHERE the encrypted_value is non-empty. Filtering
+// on the payload size catches the failure mode where a row was
+// upserted with an empty value (historical rows predating the
+// binding:"required" guard on SetGlobal, or a future direct SQL
+// path that skips it) — the preflight would otherwise report the
+// key as "configured" and the per-container preflight would still
+// fail at start time, defeating the whole feature.
+// The LIMIT is a sanity cap: at realistic tenant sizes (< 1k
+// secrets) it's a no-op; at pathological sizes it stops one slow
+// query from wedging org imports. A hit gets logged so operators
+// can investigate.
+const globalSecretsPreflightLimit = 10000
+
+func loadConfiguredGlobalSecretKeys(ctx context.Context) (map[string]struct{}, error) {
+	rows, err := db.DB.QueryContext(ctx,
+		`SELECT key FROM global_secrets WHERE octet_length(encrypted_value) > 0 LIMIT $1`,
+		globalSecretsPreflightLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]struct{}{}
+	for rows.Next() {
+		var k string
+		if scanErr := rows.Scan(&k); scanErr == nil && k != "" {
+			out[k] = struct{}{}
+		}
+	}
+	if len(out) == globalSecretsPreflightLimit {
+		log.Printf("loadConfiguredGlobalSecretKeys: hit LIMIT %d — org-import preflight may be incomplete", globalSecretsPreflightLimit)
+	}
+	return out, rows.Err()
 }
 
 func countWorkspaces(workspaces []OrgWorkspace) int {

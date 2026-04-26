@@ -57,6 +57,19 @@ type HeartbeatPayload struct {
 	// a previously-reported spend value. Any non-zero value is clamped to
 	// [0, maxMonthlySpend] before the DB write. (#615)
 	MonthlySpend int64 `json:"monthly_spend"`
+	// RuntimeState is a self-reported runtime health flag separate from
+	// "is the heartbeat task firing at all". The heartbeat task lives in
+	// its own asyncio task and keeps pinging even when the agent runtime
+	// is wedged (e.g. claude_agent_sdk's `Control request timeout:
+	// initialize` leaves the SDK in a permanent error state for the
+	// process lifetime). RuntimeState is how the workspace tells the
+	// platform "I'm alive but my Claude runtime is broken — flip me to
+	// degraded so the canvas can show a Restart hint."
+	//
+	// Empty string = healthy / no signal. The only currently-recognised
+	// non-empty value is "wedged"; future values can extend this without
+	// migration.
+	RuntimeState string `json:"runtime_state"`
 }
 
 type UpdateCardPayload struct {

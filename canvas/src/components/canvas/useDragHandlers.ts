@@ -113,6 +113,18 @@ export function useDragHandlers(): DragHandlers {
 
   const onNodeDragStart: OnNodeDrag<WorkspaceNode> = useCallback(
     (event, node) => {
+      // Belt-and-braces drag-lock: the primary mechanism is the
+      // `draggable: false` projection in Canvas.tsx — React Flow
+      // won't invoke this callback for locked nodes. But a future
+      // change to the projection that forgets a locked subtree
+      // would silently allow dragging, and locked drags mid-deploy
+      // corrupt the spawn animation. Fall through to a state-based
+      // check here so the invariant stays enforced in both places.
+      if (node.draggable === false) {
+        dragStartStateRef.current = null;
+        return;
+      }
+
       dragModifiersRef.current = {
         alt: event.altKey,
         meta: event.metaKey || event.ctrlKey,

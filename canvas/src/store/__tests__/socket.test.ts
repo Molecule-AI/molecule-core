@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
-// Mock the canvas store before importing socket.ts
+// Mock the canvas store and api before importing socket.ts
 // ---------------------------------------------------------------------------
 vi.mock("../canvas", () => ({
   useCanvasStore: {
@@ -12,6 +12,7 @@ vi.mock("../canvas", () => ({
     })),
   },
 }));
+
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket
@@ -76,7 +77,6 @@ function getLastWS(): MockWebSocket {
 beforeEach(() => {
   MockWebSocket.instances = [];
   vi.useFakeTimers();
-
   // Reset mocked store state
   vi.mocked(useCanvasStore.getState).mockReturnValue({
     applyEvent: vi.fn(),
@@ -263,10 +263,56 @@ describe("WebSocket onclose – auto-reconnect", () => {
     const ws = getLastWS();
     ws.triggerClose();
 
-    // Fast-forward timers to trigger the reconnect
-    vi.runAllTimers();
+    // First reconnect attempt is scheduled at 1s (Math.min(1000 * 2^0,
+    // 30000)). Advance just past that — vi.runAllTimers() would
+    // additionally re-fire the fallback poll setInterval forever and
+    // hit the 10000-timer abort.
+    vi.advanceTimersByTime(1100);
 
     expect(MockWebSocket.instances.length).toBeGreaterThan(1);
+  });
+});
+
+describe("HTTP fallback poll while WS unhealthy", () => {
+  it("starts a setInterval after onclose so /workspaces stays fresh", () => {
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+    connectSocket();
+    const ws = getLastWS();
+    ws.triggerClose();
+    // The fallback poll runs at 10s; the reconnect uses setTimeout, so
+    // any setInterval registered between connect and close must be the
+    // fallback poll.
+    const fallbackCalls = setIntervalSpy.mock.calls.filter(
+      ([, delay]) => delay === 10_000,
+    );
+    expect(fallbackCalls.length).toBeGreaterThan(0);
+    setIntervalSpy.mockRestore();
+  });
+
+  it("clears the fallback poll once the WS reconnects (onopen)", () => {
+    const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
+    connectSocket();
+    const ws = getLastWS();
+    ws.triggerClose(); // starts fallback poll
+    clearIntervalSpy.mockClear();
+    // Advance past the first reconnect delay so a fresh ws exists,
+    // then trigger its open.
+    vi.advanceTimersByTime(1100);
+    const ws2 = getLastWS();
+    ws2.triggerOpen();
+    expect(clearIntervalSpy).toHaveBeenCalled();
+    clearIntervalSpy.mockRestore();
+  });
+
+  it("clears the fallback poll on disconnect", () => {
+    const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
+    connectSocket();
+    const ws = getLastWS();
+    ws.triggerClose(); // starts fallback poll
+    clearIntervalSpy.mockClear();
+    disconnectSocket();
+    expect(clearIntervalSpy).toHaveBeenCalled();
+    clearIntervalSpy.mockRestore();
   });
 });
 
@@ -326,5 +372,47 @@ describe("health check", () => {
     // clearInterval must have been called at least once (stopHealthCheck inside startHealthCheck)
     expect(clearIntervalSpy).toHaveBeenCalled();
     clearIntervalSpy.mockRestore();
+  });
+});
+
+// Rehydrate dedup logic itself is exercised by `RehydrateDedup` unit
+// tests in this file (below). End-to-end coupling through the
+// dynamic-imported `@/lib/api` was non-trivial under our existing
+// fake-timer setup; isolating the gate in a pure helper keeps
+// regression coverage without that mocking complexity.
+
+import { RehydrateDedup } from "../socket";
+
+describe("RehydrateDedup", () => {
+  it("first call passes the gate (no prior fetch)", () => {
+    const d = new RehydrateDedup(1500);
+    expect(d.shouldSkip(0)).toBe(false);
+  });
+
+  it("blocks while a fetch is in flight", () => {
+    const d = new RehydrateDedup(1500);
+    d.beginFetch();
+    expect(d.shouldSkip(100)).toBe(true);
+  });
+
+  it("blocks within the post-completion window", () => {
+    const d = new RehydrateDedup(1500);
+    d.beginFetch();
+    d.completeFetch(1_000);
+    // 1100 - 1000 = 100 < 1500 → skip
+    expect(d.shouldSkip(1_100)).toBe(true);
+    // 2600 - 1000 = 1600 > 1500 → allow
+    expect(d.shouldSkip(2_600)).toBe(false);
+  });
+
+  it("a completed fetch followed by another beginFetch blocks for the new in-flight", () => {
+    const d = new RehydrateDedup(1500);
+    d.beginFetch();
+    d.completeFetch(1_000);
+    // First wait out the dedup window
+    expect(d.shouldSkip(2_600)).toBe(false);
+    d.beginFetch();
+    // Now a second fetch is in flight; further calls block again
+    expect(d.shouldSkip(2_700)).toBe(true);
   });
 });

@@ -4,6 +4,7 @@ import {
   extractResponseText,
   extractAgentText,
   extractTextsFromParts,
+  extractFilesFromTask,
 } from "../message-parser";
 
 describe("extractRequestText", () => {
@@ -99,6 +100,67 @@ describe("extractResponseText", () => {
   it("returns empty when result has no parts", () => {
     expect(extractResponseText({ result: { other: true } })).toBe("");
   });
+
+  // Regression: Claude Code (and other long-reply runtimes) emits
+  // multi-part text replies. The previous implementation returned
+  // only the first part, silently truncating the rest. Observed
+  // 2026-04-25 on a 15k-char Wave 1 brief that rendered as just the
+  // markdown table header.
+  it("joins all text parts when result.parts has multiple", () => {
+    const body = {
+      result: {
+        parts: [
+          { kind: "text", text: "# Header" },
+          { kind: "text", text: "| Col |" },
+          { kind: "text", text: "| --- |" },
+          { kind: "text", text: "| Row |" },
+        ],
+      },
+    };
+    expect(extractResponseText(body)).toBe("# Header\n| Col |\n| --- |\n| Row |");
+  });
+
+  it("joins all text parts across multiple artifacts", () => {
+    const body = {
+      result: {
+        artifacts: [
+          { parts: [{ kind: "text", text: "First artifact" }] },
+          { parts: [{ kind: "text", text: "Second artifact" }] },
+        ],
+      },
+    };
+    expect(extractResponseText(body)).toBe("First artifact\nSecond artifact");
+  });
+
+  it("joins all .root.text variants when present", () => {
+    const body = {
+      result: {
+        parts: [
+          { root: { text: "alpha" } },
+          { root: { text: "beta" } },
+        ],
+      },
+    };
+    expect(extractResponseText(body)).toBe("alpha\nbeta");
+  });
+
+  // Regression: when a response carries BOTH parts and artifacts
+  // (Hermes tool-call replies do this — summary in parts, detail in
+  // artifacts), the early-return-on-parts implementation silently
+  // dropped the artifacts body. The collected-from-every-source
+  // implementation must surface both.
+  it("collects text from BOTH result.parts AND result.artifacts when both present", () => {
+    const body = {
+      result: {
+        parts: [{ kind: "text", text: "Summary" }],
+        artifacts: [
+          { parts: [{ kind: "text", text: "Detail block one" }] },
+          { parts: [{ kind: "text", text: "Detail block two" }] },
+        ],
+      },
+    };
+    expect(extractResponseText(body)).toBe("Summary\nDetail block one\nDetail block two");
+  });
 });
 
 describe("extractTextsFromParts", () => {
@@ -131,5 +193,73 @@ describe("extractTextsFromParts", () => {
       { kind: "text", text: "Only text" },
     ];
     expect(extractTextsFromParts(parts)).toBe("Only text");
+  });
+});
+
+describe("extractFilesFromTask", () => {
+  it("pulls A2A file parts out of a result", () => {
+    const task = {
+      parts: [
+        { kind: "text", text: "here's the report" },
+        {
+          kind: "file",
+          file: { name: "report.pdf", mimeType: "application/pdf", uri: "workspace:/reports/report.pdf", size: 4096 },
+        },
+      ],
+    };
+    const files = extractFilesFromTask(task);
+    expect(files).toEqual([
+      { name: "report.pdf", mimeType: "application/pdf", uri: "workspace:/reports/report.pdf", size: 4096 },
+    ]);
+  });
+
+  it("recovers a filename from the URI when `name` is absent", () => {
+    const task = {
+      parts: [
+        { kind: "file", file: { uri: "workspace:/workspace/out/graph.png" } },
+      ],
+    };
+    const files = extractFilesFromTask(task);
+    expect(files[0].name).toBe("graph.png");
+  });
+
+  it("skips file parts without a URI (inline bytes are not supported yet)", () => {
+    const task = {
+      parts: [
+        { kind: "file", file: { name: "inline.bin", bytes: "AAA=" } },
+      ],
+    };
+    expect(extractFilesFromTask(task)).toEqual([]);
+  });
+
+  it("walks artifacts[] so file parts nested inside artifact envelopes are found", () => {
+    const task = {
+      artifacts: [
+        {
+          parts: [
+            { kind: "file", file: { name: "trace.log", uri: "workspace:/logs/trace.log" } },
+          ],
+        },
+      ],
+    };
+    const files = extractFilesFromTask(task);
+    expect(files[0]).toMatchObject({ name: "trace.log", uri: "workspace:/logs/trace.log" });
+  });
+
+  it("returns [] on malformed input rather than throwing", () => {
+    expect(extractFilesFromTask({})).toEqual([]);
+    expect(extractFilesFromTask({ parts: "not-an-array" } as unknown as Record<string, unknown>)).toEqual([]);
+  });
+
+  it("walks result.message.parts — the non-task reply shape some A2A servers use", () => {
+    const task = {
+      message: {
+        parts: [
+          { kind: "file", file: { name: "out.txt", uri: "workspace:/workspace/out.txt" } },
+        ],
+      },
+    };
+    const files = extractFilesFromTask(task);
+    expect(files[0]).toMatchObject({ name: "out.txt", uri: "workspace:/workspace/out.txt" });
   });
 });

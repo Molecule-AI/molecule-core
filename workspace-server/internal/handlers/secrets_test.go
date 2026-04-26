@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -532,6 +533,88 @@ func TestSecretsGetModel_DBError(t *testing.T) {
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// ==================== SetModel ====================
+
+func TestSecretsSetModel_Upsert(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	restartCalled := make(chan string, 1)
+	handler := NewSecretsHandler(func(id string) { restartCalled <- id })
+
+	mock.ExpectExec(`INSERT INTO workspace_secrets`).
+		WithArgs("00000000-0000-0000-0000-000000000001", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "00000000-0000-0000-0000-000000000001"}}
+	c.Request = httptest.NewRequest("PUT", "/workspaces/00000000-0000-0000-0000-000000000001/model",
+		strings.NewReader(`{"model":"minimax/MiniMax-M2.7"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.SetModel(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	select {
+	case id := <-restartCalled:
+		if id != "00000000-0000-0000-0000-000000000001" {
+			t.Errorf("restart called with wrong id: %s", id)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Error("restart was not triggered")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestSecretsSetModel_EmptyClears(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewSecretsHandler(func(string) {})
+
+	mock.ExpectExec(`DELETE FROM workspace_secrets`).
+		WithArgs("00000000-0000-0000-0000-000000000002").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "00000000-0000-0000-0000-000000000002"}}
+	c.Request = httptest.NewRequest("PUT", "/workspaces/00000000-0000-0000-0000-000000000002/model",
+		strings.NewReader(`{"model":""}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.SetModel(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestSecretsSetModel_InvalidID(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	handler := NewSecretsHandler(nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "not-a-uuid"}}
+	c.Request = httptest.NewRequest("PUT", "/workspaces/not-a-uuid/model",
+		strings.NewReader(`{"model":"x"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.SetModel(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for bad UUID, got %d", w.Code)
 	}
 }
 

@@ -10,7 +10,7 @@ import uuid
 
 import httpx
 
-from platform_auth import auth_headers
+from platform_auth import auth_headers, self_source_headers
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +56,15 @@ async def send_a2a_message(target_url: str, message: str) -> str:
         timeout=httpx.Timeout(connect=30.0, read=300.0, write=30.0, pool=30.0)
     ) as client:
         try:
+            # self_source_headers() includes X-Workspace-ID so the
+            # platform's a2a_receive logger records source_id =
+            # WORKSPACE_ID. Otherwise peer-A2A messages — including
+            # the case where target_url resolves to this workspace's
+            # own /a2a — get logged with source_id=NULL and surface
+            # in the recipient's My Chat tab as user-typed input.
             resp = await client.post(
                 target_url,
-                headers=auth_headers(),
+                headers=self_source_headers(WORKSPACE_ID),
                 json={
                     "jsonrpc": "2.0",
                     "id": str(uuid.uuid4()),
@@ -81,10 +87,40 @@ async def send_a2a_message(target_url: str, message: str) -> str:
                     return f"{_A2A_ERROR_PREFIX}{text}"
                 return text
             elif "error" in data:
-                return f"{_A2A_ERROR_PREFIX}{data['error'].get('message', 'unknown')}"
-            return str(data)
+                err = data["error"]
+                msg = (err.get("message") or "").strip()
+                code = err.get("code")
+                if msg and code is not None:
+                    detail = f"{msg} (code={code})"
+                elif msg:
+                    detail = msg
+                elif code is not None:
+                    detail = f"JSON-RPC error with no message (code={code})"
+                else:
+                    detail = "JSON-RPC error with no message"
+                return f"{_A2A_ERROR_PREFIX}{detail} [target={target_url}]"
+            return f"{_A2A_ERROR_PREFIX}unexpected response shape (no result, no error): {str(data)[:200]} [target={target_url}]"
         except Exception as e:
-            return f"{_A2A_ERROR_PREFIX}{e}"
+            # Some httpx exceptions stringify to empty (RemoteProtocolError,
+            # ConnectionReset variants) — the canvas would then render
+            # "[A2A_ERROR] " with no detail and the operator has no signal
+            # to act on. Always include the exception class name and the
+            # target URL so the activity log + Agent Comms panel have
+            # actionable information without a trip through container logs.
+            msg = str(e).strip()
+            type_name = type(e).__name__
+            if not msg:
+                detail = f"{type_name} (no message — likely connection reset or silent timeout)"
+            elif msg.startswith(f"{type_name}:") or msg.startswith(f"{type_name} "):
+                # Already prefixed with the type — don't double-prefix.
+                # Prefix-anchored check (not substring) so a message that
+                # happens to mention some OTHER class name mid-string
+                # (e.g. "got OSError on read") doesn't suppress our own
+                # type prefix and lose the diagnostic signal.
+                detail = msg
+            else:
+                detail = f"{type_name}: {msg}"
+            return f"{_A2A_ERROR_PREFIX}{detail} [target={target_url}]"
 
 
 async def get_peers() -> list[dict]:
