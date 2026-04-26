@@ -38,7 +38,14 @@ jobs:
   canary:
     name: Canary smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 25 min headroom over the 15-min TLS-readiness deadline in
+    # tests/e2e/test_staging_full_saas.sh (#2107). Without the buffer
+    # the job is killed at the wall-clock 15:00 mark BEFORE the bash
+    # `fail` + diagnostic burst can fire, leaving every cancellation
+    # silent. Sibling staging E2E jobs run at 20-45 min — keeping
+    # canary tighter than them so a true wedge still surfaces here
+    # first.
+    timeout-minutes: 25
 
     env:
       MOLECULE_CP_URL: https://staging-api.moleculesai.app
