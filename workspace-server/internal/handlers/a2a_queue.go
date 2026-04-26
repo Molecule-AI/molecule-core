@@ -288,7 +288,7 @@ func (h *WorkspaceHandler) DrainQueueForWorkspace(ctx context.Context, workspace
 	}
 	// logActivity=false: the original EnqueueA2A callsite already logged
 	// the dispatch attempt; re-logging here would double-count events.
-	status, _, proxyErr := h.proxyA2ARequest(ctx, workspaceID, item.Body, callerID, false)
+	status, respBody, proxyErr := h.proxyA2ARequest(ctx, workspaceID, item.Body, callerID, false)
 
 	// 202 Accepted = the dispatch was itself queued again (target still busy).
 	// That's not a failure — the queued item just stays queued naturally on
@@ -321,4 +321,89 @@ func (h *WorkspaceHandler) DrainQueueForWorkspace(ctx context.Context, workspace
 	MarkQueueItemCompleted(ctx, item.ID)
 	log.Printf("A2AQueue drain: dispatched %s to workspace %s (attempt=%d)",
 		item.ID, workspaceID, item.Attempts)
+
+	// Stitch the response back to the originating delegation row, if this
+	// queue item was a delegation. Without this, check_task_status would
+	// see status='queued' (set by the executeDelegation queued-branch) and
+	// the LLM would think the work was never done. We embed delegation_id
+	// in params.message.metadata at Delegate-handler time; pull it out
+	// here and UPDATE the delegate_result row so the original caller can
+	// observe the real reply.
+	if delegationID := extractDelegationIDFromBody(item.Body); delegationID != "" {
+		h.stitchDrainResponseToDelegation(ctx, callerID, item.WorkspaceID, delegationID, respBody)
+	}
+}
+
+// extractDelegationIDFromBody pulls params.message.metadata.delegation_id
+// out of an A2A JSON-RPC body. Empty string when absent — drain treats
+// that as "this queue item didn't originate from /workspaces/:id/delegate"
+// and skips the stitch, so non-delegation queue uses (cross-workspace
+// peer-direct A2A) aren't affected.
+func extractDelegationIDFromBody(body []byte) string {
+	var envelope struct {
+		Params struct {
+			Message struct {
+				Metadata struct {
+					DelegationID string `json:"delegation_id"`
+				} `json:"metadata"`
+			} `json:"message"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return ""
+	}
+	return envelope.Params.Message.Metadata.DelegationID
+}
+
+// stitchDrainResponseToDelegation writes the drained response into the
+// delegation's existing delegate_result row (created with status='queued'
+// by executeDelegation when the proxy first returned queued). This is the
+// other half of the loop that closes "queued → completed" so the LLM's
+// check_task_status reflects ground truth.
+//
+// Errors are logged-only — drain is fire-and-forget from Heartbeat, and a
+// stitch failure shouldn't block other queued items. The delegation will
+// just remain stuck at 'queued' in this case, which is the pre-fix
+// behaviour (no regression vs. shipping nothing).
+func (h *WorkspaceHandler) stitchDrainResponseToDelegation(ctx context.Context, sourceID, targetID, delegationID string, respBody []byte) {
+	if sourceID == "" || delegationID == "" {
+		return
+	}
+	responseText := extractResponseText(respBody)
+	respJSON, _ := json.Marshal(map[string]interface{}{
+		"text":          responseText,
+		"delegation_id": delegationID,
+	})
+	res, err := db.DB.ExecContext(ctx, `
+		UPDATE activity_logs
+		   SET status        = 'completed',
+		       summary       = $1,
+		       response_body = $2::jsonb
+		 WHERE workspace_id   = $3
+		   AND method         = 'delegate_result'
+		   AND target_id      = $4
+		   AND response_body->>'delegation_id' = $5
+	`, "Delegation completed ("+truncate(responseText, 80)+")", string(respJSON),
+		sourceID, targetID, delegationID)
+	if err != nil {
+		log.Printf("A2AQueue drain stitch: update failed for delegation %s: %v", delegationID, err)
+		return
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		log.Printf("A2AQueue drain stitch: no delegate_result row for delegation %s (queued-row may not exist yet)", delegationID)
+		return
+	}
+	log.Printf("A2AQueue drain stitch: delegation %s queued → completed (%d chars)", delegationID, len(responseText))
+
+	// Broadcast DELEGATION_COMPLETE so the canvas chat feed flips the
+	// "⏸ queued" line to "✓ completed" in real time. Without this the
+	// transition only surfaces after the user reloads or polls activity.
+	if h.broadcaster != nil {
+		h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_COMPLETE", sourceID, map[string]interface{}{
+			"delegation_id":    delegationID,
+			"target_id":        targetID,
+			"response_preview": truncate(responseText, 200),
+			"via":              "queue_drain",
+		})
+	}
 }

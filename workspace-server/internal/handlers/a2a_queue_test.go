@@ -80,6 +80,39 @@ func TestExtractIdempotencyKey_emptyOnMissing(t *testing.T) {
 	}
 }
 
+func TestExtractDelegationIDFromBody(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "delegation body — metadata.delegation_id present",
+			body: `{"method":"message/send","params":{"message":{"role":"user","messageId":"abc-123","metadata":{"delegation_id":"abc-123"},"parts":[{"type":"text","text":"hi"}]}}}`,
+			want: "abc-123",
+		},
+		{
+			name: "non-delegation body — no metadata (peer-direct A2A)",
+			body: `{"method":"message/send","params":{"message":{"role":"user","messageId":"m-1","parts":[{"type":"text","text":"hi"}]}}}`,
+			want: "",
+		},
+		{
+			name: "metadata present but no delegation_id key",
+			body: `{"params":{"message":{"metadata":{"trace_id":"t-1"}}}}`,
+			want: "",
+		},
+		{"malformed JSON", `not json`, ""},
+		{"empty body", ``, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := extractDelegationIDFromBody([]byte(tc.body)); got != tc.want {
+				t.Errorf("extractDelegationIDFromBody = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // DrainQueueForWorkspace — nil-safe error extraction regression tests
 //

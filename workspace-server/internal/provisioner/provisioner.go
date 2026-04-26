@@ -1082,6 +1082,13 @@ func pullImageAndDrain(ctx context.Context, cli dockerImageClient, ref, platform
 //
 // Tracked in issue #1875; remove this fallback once the template repos
 // publish multi-arch manifests.
+// DefaultImagePlatform is the exported alias used by the admin
+// workspace-images handler so its ImagePull picks the same platform as
+// the provisioner's. Avoids duplicating the Apple-Silicon-needs-amd64
+// logic and keeps both call sites in sync if Docker manifest support
+// changes (e.g., when the templates start shipping multi-arch).
+func DefaultImagePlatform() string { return defaultImagePlatform() }
+
 func defaultImagePlatform() string {
 	if v, ok := os.LookupEnv("MOLECULE_IMAGE_PLATFORM"); ok {
 		return v

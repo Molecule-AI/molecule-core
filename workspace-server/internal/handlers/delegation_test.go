@@ -376,6 +376,39 @@ func TestIsTransientProxyError_RetriesOnRestartRaceStatuses(t *testing.T) {
 	}
 }
 
+func TestIsQueuedProxyResponse(t *testing.T) {
+	// Regression guard for the chat-leak bug: when the proxy returns
+	// 202 with a queued-shape body, executeDelegation must classify it
+	// as "queued" — not "completed". Mis-classifying it causes the
+	// queued JSON to land in activity_logs.summary, which the LLM then
+	// echoes verbatim into the agent chat as
+	// "Delegation completed: Delegation completed (workspace agent
+	// busy — request queued, will dispatch...)".
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{
+			name: "real proxy busy-enqueue body",
+			body: `{"queued":true,"queue_id":"d0993390-5f5a-4f5d-90a2-66639e53e3c9","queue_depth":1,"message":"workspace agent busy — request queued, will dispatch when capacity available"}`,
+			want: true,
+		},
+		{"queued false explicitly", `{"queued":false}`, false},
+		{"queued field absent (real A2A reply)", `{"jsonrpc":"2.0","id":"1","result":{"kind":"message","parts":[{"kind":"text","text":"hi"}]}}`, false},
+		{"non-bool queued value (defensive)", `{"queued":"true"}`, false},
+		{"malformed JSON", `not-json`, false},
+		{"empty body", ``, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isQueuedProxyResponse([]byte(tc.body)); got != tc.want {
+				t.Errorf("isQueuedProxyResponse(%q) = %v, want %v", tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDelegationRetryDelay_IsSaneWindow(t *testing.T) {
 	// Regression guard: the retry delay must be long enough for the
 	// reactive URL refresh in proxyA2ARequest to kick in (which involves

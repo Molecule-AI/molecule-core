@@ -1,0 +1,113 @@
+name: auto-tag-runtime
+
+# Auto-tag runtime releases on every merge to main that touches workspace/.
+# This is the entry point of the runtime CD chain:
+#
+#   merge PR → auto-tag-runtime (this) → publish-runtime → cascade → template
+#   image rebuilds → repull on hosts.
+#
+# Default bump is patch. Override via PR label `release:minor` or
+# `release:major` BEFORE merging — the label is read off the merged PR
+# associated with the push commit.
+#
+# Skips when:
+#   - The push isn't to main (other branches don't auto-release).
+#   - The merge commit message contains `[skip-release]` (escape hatch
+#     for cleanup PRs that touch workspace/ but shouldn't ship).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "workspace/**"
+      - "scripts/build_runtime_package.py"
+      - ".github/workflows/auto-tag-runtime.yml"
+      - ".github/workflows/publish-runtime.yml"
+
+permissions:
+  contents: write    # to push the new tag
+  pull-requests: read # to read labels off the merged PR
+
+concurrency:
+  # Serialize tag bumps so two near-simultaneous merges can't both think
+  # they're 0.1.6 and race to push the same tag.
+  group: auto-tag-runtime
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # need full tag history for `git describe` / sort
+
+      - name: Skip when commit asks
+        id: skip
+        run: |
+          MSG=$(git log -1 --format=%B "${{ github.sha }}")
+          if echo "$MSG" | grep -qiE '\[skip-release\]|\[no-release\]'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Commit message contains [skip-release] — no tag will be created."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Determine bump kind from PR label
+        id: bump
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The merged PR for this push commit. `gh pr list --search` finds
+          # closed PRs whose merge commit matches; we take the first.
+          PR=$(gh pr list --state merged --search "${{ github.sha }}" --json number,labels --jq '.[0]' 2>/dev/null || echo "")
+          if [ -z "$PR" ] || [ "$PR" = "null" ]; then
+            echo "No merged PR found for ${{ github.sha }} — defaulting to patch bump."
+            echo "kind=patch" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          LABELS=$(echo "$PR" | jq -r '.labels[].name')
+          if echo "$LABELS" | grep -qx 'release:major'; then
+            echo "kind=major" >> "$GITHUB_OUTPUT"
+          elif echo "$LABELS" | grep -qx 'release:minor'; then
+            echo "kind=minor" >> "$GITHUB_OUTPUT"
+          else
+            echo "kind=patch" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute next version from latest runtime-v* tag
+        id: version
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          # Find the highest runtime-vX.Y.Z tag. `sort -V` handles semver
+          # ordering; `grep` filters to the right tag prefix.
+          LATEST=$(git tag --list 'runtime-v*' | sort -V | tail -1)
+          if [ -z "$LATEST" ]; then
+            # No prior tag — start the runtime line at 0.1.0.
+            CURRENT="0.0.0"
+          else
+            CURRENT="${LATEST#runtime-v}"
+          fi
+          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT" | cut -d. -f2)
+          PATCH=$(echo "$CURRENT" | cut -d. -f3)
+          case "${{ steps.bump.outputs.kind }}" in
+            major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0;;
+            minor) MINOR=$((MINOR+1)); PATCH=0;;
+            patch) PATCH=$((PATCH+1));;
+          esac
+          NEW="$MAJOR.$MINOR.$PATCH"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          echo "Bumping runtime $CURRENT → $NEW (${{ steps.bump.outputs.kind }})"
+
+      - name: Push new tag
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          NEW_TAG="runtime-v${{ steps.version.outputs.new }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$NEW_TAG" -m "runtime $NEW_TAG (auto-bump from ${{ steps.bump.outputs.kind }})"
+          git push origin "$NEW_TAG"
+          echo "Pushed $NEW_TAG — publish-runtime workflow will fire on the tag."

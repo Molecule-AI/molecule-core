@@ -78,13 +78,21 @@ func (h *DelegationHandler) Delegate(c *gin.Context) {
 	// reason (logged); we still dispatch the A2A request and surface the
 	// warning in the response.
 
-	// Build A2A payload
+	// Build A2A payload. Embedding delegation_id in metadata gives the
+	// queue drain path a way to look up the originating delegation row
+	// when stitching the response back (issue: previously the drain
+	// dispatched successfully but discarded the response, so
+	// check_task_status returned status='queued' forever even after a
+	// real reply landed). messageId mirrors delegation_id so the
+	// platform's idempotency-key extraction also keys off the same id.
 	a2aBody, _ := json.Marshal(map[string]interface{}{
 		"method": "message/send",
 		"params": map[string]interface{}{
 			"message": map[string]interface{}{
-				"role":  "user",
-				"parts": []map[string]interface{}{{"type": "text", "text": body.Task}},
+				"role":      "user",
+				"messageId": delegationID,
+				"parts":     []map[string]interface{}{{"type": "text", "text": body.Task}},
+				"metadata":  map[string]interface{}{"delegation_id": delegationID},
 			},
 		},
 	})
@@ -280,6 +288,40 @@ func (h *DelegationHandler) executeDelegation(sourceID, targetID, delegationID s
 
 		h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_FAILED", sourceID, map[string]interface{}{
 			"delegation_id": delegationID, "target_id": targetID, "error": proxyErr.Error(),
+		})
+		return
+	}
+
+	// 202 + {queued: true} means the target was busy and the proxy
+	// enqueued the request for the next drain tick — NOT a completion.
+	// Treat it as such: write a clean 'queued' activity row with no
+	// JSON-as-text leakage into the summary, broadcast a status update,
+	// and return. The eventual drain doesn't (yet) feed a result back
+	// into this delegation, so callers polling check_task_status will
+	// see status='queued' and know to retry instead of believing the
+	// queued JSON is the agent's reply. Fixes the chat-leak where the
+	// LLM echoed "Delegation completed (workspace agent busy ...)" to
+	// the user.
+	if status == http.StatusAccepted && isQueuedProxyResponse(respBody) {
+		log.Printf("Delegation %s: target %s busy — queued for drain", delegationID, targetID)
+		h.updateDelegationStatus(sourceID, delegationID, "queued", "")
+		// Store delegation_id in response_body so DrainQueueForWorkspace's
+		// stitch step can find this row by JSON-path key after the queued
+		// dispatch eventually succeeds. Without the key, the drain finds
+		// the row by (workspace_id, target_id, method) but can't tell
+		// multiple-queued-delegations-to-same-target apart.
+		queuedJSON, _ := json.Marshal(map[string]interface{}{
+			"delegation_id": delegationID,
+			"queued":        true,
+		})
+		if _, err := db.DB.ExecContext(ctx, `
+			INSERT INTO activity_logs (workspace_id, activity_type, method, source_id, target_id, summary, response_body, status)
+			VALUES ($1, 'delegation', 'delegate_result', $2, $3, $4, $5::jsonb, 'queued')
+		`, sourceID, sourceID, targetID, "Delegation queued — target at capacity", string(queuedJSON)); err != nil {
+			log.Printf("Delegation %s: failed to insert queued log: %v", delegationID, err)
+		}
+		h.broadcaster.RecordAndBroadcast(ctx, "DELEGATION_STATUS", sourceID, map[string]interface{}{
+			"delegation_id": delegationID, "target_id": targetID, "status": "queued",
 		})
 		return
 	}
@@ -515,6 +557,21 @@ func isTransientProxyError(err *proxyA2AError) bool {
 		return false
 	}
 	return false
+}
+
+// isQueuedProxyResponse reports whether the proxy returned a body shaped like
+// `{"queued": true, "queue_id": ..., "queue_depth": ..., "message": ...}` —
+// the busy-target enqueue path in a2a_proxy_helpers.go. Caller checks this
+// alongside HTTP 202 to distinguish a successful agent reply from a deferred
+// dispatch; without the distinction we'd write the queued-message JSON into
+// the delegation result row and the LLM would surface it as agent output.
+func isQueuedProxyResponse(body []byte) bool {
+	var resp map[string]interface{}
+	if json.Unmarshal(body, &resp) != nil {
+		return false
+	}
+	queued, _ := resp["queued"].(bool)
+	return queued
 }
 
 func extractResponseText(body []byte) string {
