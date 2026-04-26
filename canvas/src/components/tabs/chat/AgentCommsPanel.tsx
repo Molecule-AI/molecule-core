@@ -59,6 +59,34 @@ function resolveName(id: string): string {
 }
 
 export function toCommMessage(entry: ActivityEntry, workspaceId: string): CommMessage | null {
+  // delegation activity rows are written by the platform's /delegate
+  // handler. They're always outbound from this workspace's POV (the
+  // platform proxies the A2A on our behalf). Two methods:
+  //   - "delegate"        — the initial outbound; status pending/dispatched
+  //   - "delegate_result" — the eventual reply; status completed/queued/failed
+  // We surface them in Agent Comms because they ARE agent-to-agent
+  // calls; without this branch they'd be dropped by the activity_type
+  // filter and the user would see "No agent-to-agent communications yet"
+  // even when the director made delegations.
+  if (entry.activity_type === "delegation") {
+    const peerId = entry.target_id || "";
+    if (!peerId) return null;
+    return {
+      id: entry.id,
+      flow: "out",
+      peerName: resolveName(peerId),
+      peerId,
+      // Prefer summary (set by the platform with a human-readable
+      // string like "Delegating to X" or "Delegation queued — target
+      // at capacity"). Fall back to request body for older rows that
+      // pre-date the summary column being populated.
+      text: entry.summary || extractRequestText(entry.request_body) || "(delegation)",
+      responseText: entry.response_body ? extractResponseText(entry.response_body) : null,
+      status: entry.status || "ok",
+      timestamp: entry.created_at,
+    };
+  }
+
   // a2a_receive activity rows come in two shapes:
   //
   //   1. Real incoming call (a peer called us): source_id = the peer,
@@ -132,7 +160,11 @@ export function AgentCommsPanel({ workspaceId }: { workspaceId: string }) {
     api.get<ActivityEntry[]>(`/workspaces/${workspaceId}/activity?source=agent&limit=50`)
       .then((entries) => {
         const filtered = (entries ?? [])
-          .filter((e) => e.activity_type === "a2a_send" || e.activity_type === "a2a_receive")
+          .filter((e) =>
+            e.activity_type === "a2a_send" ||
+            e.activity_type === "a2a_receive" ||
+            e.activity_type === "delegation",
+          )
           .reverse();
         const msgs: CommMessage[] = [];
         for (const e of filtered) {
@@ -186,7 +218,7 @@ export function AgentCommsPanel({ workspaceId }: { workspaceId: string }) {
           const type = p.activity_type as string;
           const sourceId = p.source_id as string | null;
           if (!sourceId) return; // canvas-initiated, not agent comms
-          if (type !== "a2a_send" && type !== "a2a_receive") return;
+          if (type !== "a2a_send" && type !== "a2a_receive" && type !== "delegation") return;
 
           const entry: ActivityEntry = {
             id: p.id as string || crypto.randomUUID(),

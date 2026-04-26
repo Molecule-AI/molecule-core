@@ -39,6 +39,13 @@ DELEGATION_TIMEOUT = float(os.environ.get("DELEGATION_TIMEOUT", "300.0"))
 class DelegationStatus(str, Enum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
+    # QUEUED: peer's a2a-proxy returned HTTP 202 + {queued: true}, meaning
+    # the peer is mid-task and the request was placed in a drain queue.
+    # The reply will arrive via the platform's stitch path when the
+    # peer finishes its current work. The LLM should WAIT, not retry,
+    # and definitely not fall back to doing the work itself — see the
+    # check_delegation_status docstring for the prompt-side guidance.
+    QUEUED = "queued"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -212,6 +219,39 @@ async def _execute_delegation(task_id: str, workspace_id: str, task: str):
                         },
                     )
 
+                    # HTTP 202 + {queued: true} = peer's a2a-proxy
+                    # accepted the request but the peer's runtime is
+                    # mid-task. Platform-side drain will deliver the
+                    # reply asynchronously. Mark QUEUED locally so
+                    # check_delegation_status can surface that state
+                    # to the LLM with explicit "wait, don't bypass"
+                    # guidance. Do NOT mark FAILED — the request is
+                    # alive in the platform's queue, not lost.
+                    #
+                    # Without this branch, the loop falls through, the
+                    # `if "error" in result` line below references an
+                    # unbound `result`, and the eventual FAILED status
+                    # leads the LLM to conclude the peer is permanently
+                    # unavailable — at which point it does the delegated
+                    # work itself, defeating the whole orchestration.
+                    if a2a_resp.status_code == 202:
+                        try:
+                            queued_body = a2a_resp.json()
+                        except Exception:
+                            queued_body = {}
+                        if queued_body.get("queued") is True:
+                            delegation.status = DelegationStatus.QUEUED
+                            log_event(
+                                event_type="delegation", action="delegate",
+                                resource=workspace_id, outcome="queued",
+                                trace_id=task_id, attempt=attempt + 1,
+                            )
+                            await _notify_completion(task_id, workspace_id, "queued")
+                            await _update_delegation_on_platform(
+                                task_id, "queued", "", "",
+                            )
+                            return
+
                     if a2a_resp.status_code == 200:
                         try:
                             result = a2a_resp.json()
@@ -323,6 +363,20 @@ async def check_delegation_status(
     task_id: str = "",
 ) -> dict:
     """Check the status of a delegated task, or list all active delegations.
+
+    Status semantics — IMPORTANT:
+
+    - "pending" / "in_progress" → peer is actively working. Wait and check again.
+    - "queued" → peer's a2a-proxy accepted the call but the peer is
+      processing a prior task. The reply WILL arrive — the platform's
+      drain re-dispatches when the peer is free. Do NOT retry the
+      delegation. Do NOT do the work yourself. Acknowledge to the user
+      that the peer is busy and will reply, then continue with other
+      delegations or check back later.
+    - "completed" → result is in the `result` field.
+    - "failed" → real failure (network, peer crashed, etc.). The
+      `error` field has the cause. Only fall back to doing the work
+      yourself if status is "failed", never if status is "queued".
 
     Args:
         task_id: The task_id returned by delegate_to_workspace. If empty, lists all delegations.

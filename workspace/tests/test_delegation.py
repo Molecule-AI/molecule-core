@@ -283,6 +283,76 @@ class TestA2ASuccess:
         assert "artifact text" in status["result"]
 
 
+class TestA2AQueued:
+    """HTTP 202 + {queued: true} comes back when the peer's a2a-proxy
+    accepted the request but the peer is mid-task. Pre-fix the runtime
+    treated this as 'no 200 → fall through to FAILED', which led the
+    LLM to conclude the peer was permanently unavailable and bypass
+    delegation entirely. Post-fix the status is QUEUED and the LLM
+    sees explicit guidance to wait."""
+
+    @pytest.mark.asyncio
+    async def test_queued_marks_status_queued_not_failed(self, delegation_mocks):
+        mod, *_ = delegation_mocks
+        _, mock_cls = _make_mock_client(
+            a2a_status=202,
+            a2a_payload={"queued": True, "summary": "Delegation queued — target at capacity"},
+        )
+
+        with patch("httpx.AsyncClient", mock_cls):
+            status = await _invoke_and_wait(mod)
+
+        assert status["status"] == "queued", f"expected queued, got {status}"
+        # No 'error' field on queued (it's not a failure)
+        assert "error" not in status or not status.get("error")
+
+    @pytest.mark.asyncio
+    async def test_queued_does_not_retry(self, delegation_mocks):
+        # The retry loop is for transient transport errors. A 202+queued
+        # is NOT a failure to retry against — the platform's drain will
+        # deliver the eventual reply. Retrying would just re-queue the
+        # same task and double-count it.
+        mod, *_ = delegation_mocks
+        client, mock_cls = _make_mock_client(
+            a2a_status=202,
+            a2a_payload={"queued": True},
+        )
+
+        with patch("httpx.AsyncClient", mock_cls):
+            await _invoke_and_wait(mod)
+
+        # The mock is shared across all AsyncClient calls (record, A2A,
+        # notify, update), so total post count includes platform-sync
+        # bookkeeping POSTs too. Only count the A2A POST itself —
+        # identified by URL matching the target's /a2a endpoint.
+        a2a_calls = [
+            c for c in client.post.await_args_list
+            if c.args and c.args[0] == "http://peer:8000"
+        ]
+        assert len(a2a_calls) == 1, (
+            f"queued should not retry the A2A POST; got {len(a2a_calls)} A2A calls"
+        )
+
+    @pytest.mark.asyncio
+    async def test_202_without_queued_flag_falls_through(self, delegation_mocks):
+        # A bare 202 with no {queued: true} marker is NOT the platform's
+        # queue signal — could be a misbehaving proxy or a future protocol
+        # revision. Don't treat it as queued. Falls through to the existing
+        # retry-then-FAILED path.
+        mod, *_ = delegation_mocks
+        _, mock_cls = _make_mock_client(
+            a2a_status=202,
+            a2a_payload={"some_other_field": "value"},
+        )
+
+        with patch("httpx.AsyncClient", mock_cls):
+            status = await _invoke_and_wait(mod)
+
+        assert status["status"] == "failed", (
+            f"bare 202 should not be treated as queued, expected failed, got {status}"
+        )
+
+
 class TestA2AErrors:
 
     @pytest.mark.asyncio
