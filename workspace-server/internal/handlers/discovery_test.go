@@ -671,6 +671,94 @@ func TestWriteExternalWorkspaceURL_RewritesLocalhostForDockerCaller(t *testing.T
 	}
 }
 
+// --- #1484 SSRF defense-in-depth regression tests ---
+
+// TestDiscoverHostPeer_RejectsMetadataIPURL pins the #1484 guard:
+// even though discoverHostPeer is currently gated by a bearer-required
+// Discover handler, the function MUST refuse to hand back a URL that
+// resolves into the cloud-metadata range. setupTestDB disables SSRF
+// for normal tests, so we re-enable it here for the duration of the
+// case and provide a literal IP so the check doesn't depend on DNS.
+func TestDiscoverHostPeer_RejectsMetadataIPURL(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	restoreSSRF := setSSRFCheckForTest(true)
+	t.Cleanup(restoreSSRF)
+
+	mock.ExpectQuery(`SELECT url, status, forwarded_to FROM workspaces WHERE id =`).
+		WithArgs("ws-bad").
+		WillReturnRows(sqlmock.NewRows([]string{"url", "status", "forwarded_to"}).
+			AddRow("http://169.254.169.254/latest/meta-data/", "online", nil))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	discoverHostPeer(context.Background(), c, "ws-bad")
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 for metadata-IP URL, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "safety check") {
+		t.Errorf("response should mention 'safety check', got %s", w.Body.String())
+	}
+}
+
+// TestDiscoverHostPeer_AcceptsPublicURL is the positive counterpart —
+// a routable hostname (literal public-range IP, no DNS dependency)
+// passes through the new guard and returns 200. Without it, the
+// rejection test above could pass by falsely failing every URL.
+func TestDiscoverHostPeer_AcceptsPublicURL(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	restoreSSRF := setSSRFCheckForTest(true)
+	t.Cleanup(restoreSSRF)
+
+	mock.ExpectQuery(`SELECT url, status, forwarded_to FROM workspaces WHERE id =`).
+		WithArgs("ws-good").
+		WillReturnRows(sqlmock.NewRows([]string{"url", "status", "forwarded_to"}).
+			AddRow("http://8.8.8.8/a2a", "online", nil))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	discoverHostPeer(context.Background(), c, "ws-good")
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for public-IP URL, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestWriteExternalWorkspaceURL_RejectsMetadataIPURL is the parallel
+// guard for the external-runtime path. Same #1484 rationale as the
+// host-peer test above; covers writeExternalWorkspaceURL specifically.
+func TestWriteExternalWorkspaceURL_RejectsMetadataIPURL(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	restoreSSRF := setSSRFCheckForTest(true)
+	t.Cleanup(restoreSSRF)
+
+	mock.ExpectQuery(`SELECT COALESCE\(url,''\) FROM workspaces WHERE id =`).
+		WithArgs("ws-ext").
+		WillReturnRows(sqlmock.NewRows([]string{"url"}).
+			AddRow("http://169.254.169.254/computeMetadata/v1/"))
+	// callerRuntime lookup happens before isSafeURL — must mock it.
+	mock.ExpectQuery(`SELECT COALESCE\(runtime,'langgraph'\) FROM workspaces WHERE id =`).
+		WithArgs("ws-caller").
+		WillReturnRows(sqlmock.NewRows([]string{"runtime"}).AddRow("langgraph"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/x", nil)
+
+	handled := writeExternalWorkspaceURL(context.Background(), c, "ws-caller", "ws-ext", "Bad WS")
+	if !handled {
+		t.Fatal("expected handled=true (the function did write a 503)")
+	}
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 for metadata-IP URL, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // --- discoverHostPeer smoke (currently unreachable via Discover) ---
 
 func TestDiscoverHostPeer_Smoke_CacheHit(t *testing.T) {
