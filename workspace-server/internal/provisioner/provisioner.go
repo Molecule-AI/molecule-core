@@ -168,6 +168,12 @@ func (p *Provisioner) ListWorkspaceContainerIDPrefixes(ctx context.Context) ([]s
 		// Container names from the API include a leading slash:
 		// "/ws-abc123def456". Strip both the slash and our prefix
 		// to recover the 12-char workspace ID.
+		//
+		// The Docker name filter is a SUBSTRING match (not a prefix
+		// match), so something like "my-ws-thing" would also be
+		// returned. The HasPrefix check below is load-bearing:
+		// without it those false positives would flow into the
+		// orphan sweeper's DB query as bogus LIKE patterns.
 		for _, name := range c.Names {
 			n := strings.TrimPrefix(name, "/")
 			if !strings.HasPrefix(n, containerNamePrefix) {
@@ -873,19 +879,35 @@ func (p *Provisioner) RemoveVolume(ctx context.Context, workspaceID string) erro
 // restart policy: if we ContainerStop first, the restart policy can
 // respawn the container before ContainerRemove runs, leaving a zombie
 // that re-registers via heartbeat after deletion.
+//
+// Returns nil on success AND on "container does not exist" (the cleanup
+// goal is achieved either way). Returns the underlying Docker error
+// only when the daemon actually failed to remove a live container —
+// callers that follow Stop with RemoveVolume MUST check the return
+// and skip volume removal on a real error, otherwise the volume
+// removal will fail with "volume in use" because the container is
+// still alive.
 func (p *Provisioner) Stop(ctx context.Context, workspaceID string) error {
 	name := ContainerName(workspaceID)
 
 	// Force-remove kills and removes in one atomic operation, bypassing
-	// the restart policy entirely. If the container doesn't exist, the
-	// error is harmless.
-	if err := p.cli.ContainerRemove(ctx, name, container.RemoveOptions{Force: true}); err != nil {
-		// Container may already be gone — log but don't fail.
-		log.Printf("Provisioner: force-remove warning for %s: %v", name, err)
+	// the restart policy entirely.
+	err := p.cli.ContainerRemove(ctx, name, container.RemoveOptions{Force: true})
+	if err == nil {
+		log.Printf("Provisioner: stopped and removed container %s", name)
+		return nil
 	}
-
-	log.Printf("Provisioner: stopped and removed container %s", name)
-	return nil
+	if isContainerNotFound(err) {
+		// Container was already gone — the post-condition we want is
+		// satisfied. Don't surface as an error.
+		log.Printf("Provisioner: container %s already gone (no-op)", name)
+		return nil
+	}
+	// Real failure: daemon timeout, socket EOF, ctx cancellation, etc.
+	// Caller (workspace_crud.stopAndRemove, orphan_sweeper.sweepOnce)
+	// must propagate this so they can skip the follow-up RemoveVolume.
+	log.Printf("Provisioner: force-remove failed for %s: %v", name, err)
+	return fmt.Errorf("force-remove %s: %w", name, err)
 }
 
 // IsRunning checks if a workspace container is currently running.

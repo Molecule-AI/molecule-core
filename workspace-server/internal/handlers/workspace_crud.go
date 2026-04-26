@@ -426,13 +426,20 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 	for _, descID := range descendantIDs {
 		stopAndRemove(descID)
 		db.ClearWorkspaceKeys(cleanupCtx, descID)
-		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_REMOVED", descID, map[string]interface{}{})
+		// Detach broadcaster ctx for the same reason as the cleanup
+		// above — RecordAndBroadcast does an INSERT INTO
+		// structure_events + Redis Publish. If the canvas hangs up,
+		// a request-ctx-bound INSERT can be cancelled mid-write,
+		// leaving other WS clients ignorant of the cascade. The DB
+		// row is already 'removed' so it's recoverable, but the
+		// inconsistency is avoidable.
+		h.broadcaster.RecordAndBroadcast(cleanupCtx, "WORKSPACE_REMOVED", descID, map[string]interface{}{})
 	}
 
 	stopAndRemove(id)
 	db.ClearWorkspaceKeys(cleanupCtx, id)
 
-	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_REMOVED", id, map[string]interface{}{
+	h.broadcaster.RecordAndBroadcast(cleanupCtx, "WORKSPACE_REMOVED", id, map[string]interface{}{
 		"cascade_deleted": len(descendantIDs),
 	})
 

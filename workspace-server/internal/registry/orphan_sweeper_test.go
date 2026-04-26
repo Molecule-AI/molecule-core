@@ -175,6 +175,67 @@ func TestSweepOnce_VolumeRemoveErrorIsNonFatal(t *testing.T) {
 	}
 }
 
+// TestSweepOnce_FiltersNonWorkspacePrefixes — the Docker name filter
+// is a SUBSTRING match so containers like "my-ws-thing" can slip
+// through. The HasPrefix check in the provisioner trims those, but
+// the in-sweeper isLikelyWorkspaceID guard is the second line of
+// defence: anything outside the UUID alphabet (hex + dashes) is
+// rejected before being turned into a SQL LIKE pattern. Locks in
+// that no DB query fires when every prefix is filtered out.
+func TestSweepOnce_FiltersNonWorkspacePrefixes(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	reaper := &fakeReaper{
+		listResponse: []string{
+			"not_a_uuid_at_all",            // underscore not in UUID alphabet
+			"contains%wildcard",            // SQL LIKE wildcard — must not reach the query
+			"contains_wildcard",            // SQL LIKE single-char wildcard
+			"",                             // empty
+			"valid-but-non-workspace-name", // dash + lowercase letters that aren't hex
+		},
+	}
+
+	// No DB query expected — every prefix is rejected before the
+	// query builds, so we short-circuit. sqlmock fails on any
+	// unexpected query.
+	sweepOnce(context.Background(), reaper)
+
+	if len(reaper.stopCalls) != 0 {
+		t.Errorf("Stop must not fire when all prefixes filtered; got %v", reaper.stopCalls)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestIsLikelyWorkspaceID — pin the alphabet directly. This is the
+// guard that prevents SQL LIKE wildcards (`%`, `_`) from reaching
+// the sweeper's query.
+func TestIsLikelyWorkspaceID(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"abc123def456", true},
+		{"abcdef-1234-5678-90ab-cdef00112233", true},
+		{"ABC123DEF456", true}, // uppercase hex still allowed
+		{"", false},
+		{"abc_123", false},      // underscore (SQL LIKE single-char wildcard)
+		{"abc%123", false},      // percent (SQL LIKE multi-char wildcard)
+		{"hello world", false},  // space, non-hex letters
+		{"valid-but-not", false}, // 'l', 't', 'n' aren't hex
+		{"abc 123", false},
+		{".../escape", false},
+	}
+	for _, tc := range cases {
+		got := isLikelyWorkspaceID(tc.in)
+		if got != tc.want {
+			t.Errorf("isLikelyWorkspaceID(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
 // TestStartOrphanSweeper_NilReaperIsNoOp — tolerance for the
 // nil-provisioner path used by some test harnesses.
 func TestStartOrphanSweeper_NilReaperIsNoOp(t *testing.T) {

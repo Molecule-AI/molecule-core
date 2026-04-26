@@ -36,6 +36,29 @@ type OrphanReaper interface {
 	RemoveVolume(ctx context.Context, workspaceID string) error
 }
 
+// isLikelyWorkspaceID accepts strings shaped like a UUID prefix —
+// hex chars and `-` only. Workspace IDs are full UUIDs and the
+// container-name truncation keeps the hex prefix intact, so any
+// container name that doesn't match this is by definition not one
+// of ours and should be skipped. Also doubles as a SQL LIKE
+// wildcard guard (rejects `_` and `%`).
+func isLikelyWorkspaceID(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'f':
+		case r >= 'A' && r <= 'F':
+		case r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // OrphanSweepInterval is the cadence of the reconcile loop. 60s
 // matches the heartbeat cadence (30s) × 2 — a single missed cleanup
 // surfaces within ~90s end-to-end (canvas delete → next sweep tick →
@@ -97,12 +120,24 @@ func sweepOnce(parent context.Context, reaper OrphanReaper) {
 	// statistically negligible). Use a single IN-style query so
 	// the cost is one round-trip regardless of leak count.
 	//
-	// LIKE patterns built from prefixes go through pq.Array → no
-	// SQL injection vector (prefixes come from Docker, not user
-	// input, but defence in depth).
+	// Defence: drop any prefix whose contents fall outside the
+	// hex-and-dash UUID alphabet. Workspace IDs are UUIDs, so
+	// container names follow ws-<12 hex chars>. Anything else is
+	// either a non-workspace container that slipped past the
+	// substring-match Docker filter (workspace-runner, etc.) or a
+	// malformed entry — neither should be turned into a LIKE
+	// pattern. Also blocks SQL LIKE wildcards (`_` and `%`) from
+	// reaching the query, even though Docker's container-name
+	// validation would already have rejected them upstream.
 	likes := make([]string, 0, len(prefixes))
 	for _, p := range prefixes {
+		if !isLikelyWorkspaceID(p) {
+			continue
+		}
 		likes = append(likes, p+"%")
+	}
+	if len(likes) == 0 {
+		return
 	}
 	rows, err := db.DB.QueryContext(ctx, `
 		SELECT id::text
