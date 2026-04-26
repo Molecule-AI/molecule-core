@@ -213,14 +213,34 @@ export function AgentCommsPanel({ workspaceId }: { workspaceId: string }) {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.event === "ACTIVITY_LOGGED" && msg.workspace_id === workspaceId) {
+        if (msg.workspace_id !== workspaceId) return;
+
+        // Two live-update paths:
+        //   1. ACTIVITY_LOGGED — fired by the LogActivity helper for
+        //      a2a_send / a2a_receive (and delegation rows IF the
+        //      delegation handler is ever refactored to use it). Today
+        //      the platform's delegation handlers do direct INSERT
+        //      INTO activity_logs WITHOUT firing ACTIVITY_LOGGED, so
+        //      the delegation branch here is defensive — it'd light
+        //      up automatically the day delegation handlers are
+        //      refactored to call LogActivity.
+        //   2. DELEGATION_SENT / DELEGATION_STATUS / DELEGATION_COMPLETE
+        //      / DELEGATION_FAILED — fired by the platform's delegation
+        //      handlers directly. These are the ONLY live signals the
+        //      panel currently has for delegation rows; the GET on
+        //      mount (which reads from activity_logs) shows them, but
+        //      without this branch, nothing surfaced live until the
+        //      next remount. Synthesise an ActivityEntry from the
+        //      payload so toCommMessage's existing delegation branch
+        //      handles them identically to the GET path.
+        let entry: ActivityEntry | null = null;
+        if (msg.event === "ACTIVITY_LOGGED") {
           const p = msg.payload || {};
           const type = p.activity_type as string;
           const sourceId = p.source_id as string | null;
           if (!sourceId) return; // canvas-initiated, not agent comms
           if (type !== "a2a_send" && type !== "a2a_receive" && type !== "delegation") return;
-
-          const entry: ActivityEntry = {
+          entry = {
             id: p.id as string || crypto.randomUUID(),
             activity_type: type,
             source_id: sourceId,
@@ -232,13 +252,56 @@ export function AgentCommsPanel({ workspaceId }: { workspaceId: string }) {
             status: p.status as string || "ok",
             created_at: msg.timestamp || new Date().toISOString(),
           };
-          const m = toCommMessage(entry, workspaceId);
-          if (m) {
-            const key = `${m.timestamp}:${m.flow}:${m.peerId}`;
-            if (seenKeys.current.has(key)) return;
-            seenKeys.current.add(key);
-            setMessages((prev) => [...prev, m]);
+        } else if (
+          msg.event === "DELEGATION_SENT" ||
+          msg.event === "DELEGATION_STATUS" ||
+          msg.event === "DELEGATION_COMPLETE" ||
+          msg.event === "DELEGATION_FAILED"
+        ) {
+          const p = msg.payload || {};
+          const targetId = (p.target_id as string) || "";
+          if (!targetId) return;
+          // Map event → status. DELEGATION_STATUS payload includes its
+          // own `status` field (queued / dispatched). Other events have
+          // implicit status: SENT → pending, COMPLETE → completed,
+          // FAILED → failed.
+          let status: string;
+          let summary: string;
+          if (msg.event === "DELEGATION_STATUS") {
+            status = (p.status as string) || "queued";
+            summary = `Delegation ${status}`;
+          } else if (msg.event === "DELEGATION_COMPLETE") {
+            status = "completed";
+            summary = `Delegation completed (${(p.response_preview as string)?.slice(0, 60) || ""})`;
+          } else if (msg.event === "DELEGATION_FAILED") {
+            status = "failed";
+            summary = `Delegation failed: ${(p.error as string) || "unknown"}`;
+          } else {
+            status = "pending";
+            summary = `Delegating to ${(p.target_id as string)?.slice(0, 8) || "peer"}`;
           }
+          entry = {
+            id: (p.delegation_id as string) || crypto.randomUUID(),
+            activity_type: "delegation",
+            source_id: workspaceId,
+            target_id: targetId,
+            method: msg.event === "DELEGATION_SENT" ? "delegate" : "delegate_result",
+            summary,
+            request_body: null,
+            response_body: null,
+            status,
+            created_at: msg.timestamp || new Date().toISOString(),
+          };
+        } else {
+          return;
+        }
+
+        const m = toCommMessage(entry, workspaceId);
+        if (m) {
+          const key = `${m.timestamp}:${m.flow}:${m.peerId}`;
+          if (seenKeys.current.has(key)) return;
+          seenKeys.current.add(key);
+          setMessages((prev) => [...prev, m]);
         }
       } catch { /* ignore */ }
     };
