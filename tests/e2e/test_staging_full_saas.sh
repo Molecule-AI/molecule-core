@@ -410,6 +410,13 @@ fi
 if echo "$AGENT_TEXT" | grep -qF "Unknown provider"; then
   fail "A2A — REGRESSION: install.sh set PROVIDER to a value not in hermes's registry. Run 'hermes doctor' on the workspace to see valid values. Raw: $AGENT_TEXT"
 fi
+# "Invalid API key" — the comment block lists this as a CP #238 race
+# (tenant auth chain) signal but the grep was missing. Caller-side
+# 401's containing this exact phrase don't match the generic
+# "error|exception" catch-all below, so they'd slip through.
+if echo "$AGENT_TEXT" | grep -qF "Invalid API key"; then
+  fail "A2A — REGRESSION: tenant auth chain returned 'Invalid API key'. Likely CP boot-event 401 race (CP #238) or stale OPENAI_API_KEY in the runtime env. Raw: $AGENT_TEXT"
+fi
 # Generic catch-all — falls through if none of the known regressions hit.
 if echo "$AGENT_TEXT" | grep -qiE "error|exception"; then
   fail "A2A returned an error-shaped response: $AGENT_TEXT"
