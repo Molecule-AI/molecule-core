@@ -40,10 +40,14 @@ on:
         description: "Override safety gate (default 50, set higher only for major cleanup)"
         required: false
         default: "50"
-  # Required-check support: scheduled-only today, but include merge_group
-  # so a future branch-protection wire-in doesn't need a workflow edit.
-  merge_group:
-    types: [checks_requested]
+  # No `merge_group:` trigger on purpose. This is a janitor — it doesn't
+  # need to gate merges, and including it as written before #2088 fired
+  # the full sweep job (or its secret-check) on every PR going through
+  # the merge queue, generating one red CI run per merge-queue eval. If
+  # this workflow is ever wired up as a required check, re-add
+  #   merge_group: { types: [checks_requested] }
+  # AND gate the sweep step with `if: github.event_name != 'merge_group'`
+  # so merge-queue evals report success without actually running.
 
 # Don't let two sweeps race the same zone. workflow_dispatch during a
 # scheduled run would otherwise issue duplicate DELETE calls.
@@ -77,9 +81,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Verify required secrets present
-        # Fail fast and loud if a secret is unset — sweep-cf-orphans.sh
-        # also checks via `need`, but we want a single distinct error
-        # in the workflow log instead of script-level multi-line noise.
+        id: verify
+        # Soft skip when secrets aren't configured. The 6 secrets have
+        # to be set on the repo manually before this workflow can do
+        # real work; until they are, the schedule is a no-op rather
+        # than a recurring red CI run. workflow_dispatch surfaces a
+        # warning so an operator running it ad-hoc sees the gap.
         run: |
           missing=()
           for var in CF_API_TOKEN CF_ZONE_ID CP_PROD_ADMIN_TOKEN CP_STAGING_ADMIN_TOKEN AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
@@ -88,12 +95,15 @@ jobs:
             fi
           done
           if [ ${#missing[@]} -gt 0 ]; then
-            echo "::error::missing required secret(s): ${missing[*]}"
-            exit 2
+            echo "::warning::skipping sweep — secrets not yet configured: ${missing[*]}"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           echo "All required secrets present ✓"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Run sweep
+        if: steps.verify.outputs.skip != 'true'
         # Schedule-vs-dispatch dry-run asymmetry (intentional):
         #   - Scheduled runs: github.event.inputs.dry_run is empty →
         #     defaults to "false" below → script runs with --execute
