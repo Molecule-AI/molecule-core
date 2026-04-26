@@ -85,6 +85,12 @@ type CreateWorkspacePayload struct {
 	// workspace secrets at creation time.  Stored encrypted (same path as
 	// POST /workspaces/:id/secrets).  Nil/empty map is a no-op.
 	Secrets map[string]string `json:"secrets"`
+	// MaxConcurrentTasks caps how many A2A messages + cron fires the
+	// scheduler will dispatch in parallel for this workspace (#1408).
+	// 0 = use the schema default of 1 (serialised, worker-style).
+	// Set to 3 for leaders with frequent orchestrator pulses so an
+	// in-flight cron doesn't reject incoming A2A delegations.
+	MaxConcurrentTasks int `json:"max_concurrent_tasks"`
 	Canvas   struct {
 		X float64 `json:"x"`
 		Y float64 `json:"y"`
