@@ -506,14 +506,34 @@ func normalizeA2APayload(body []byte) ([]byte, string, *proxyA2AError) {
 // Override via A2A_IDLE_TIMEOUT_SECONDS for ops who want to tune (e.g.
 // shorter for canary/test runners that want fail-fast on wedge, longer
 // for prod tenants running unusually slow plugins).
-var idleTimeoutDuration = func() time.Duration {
-	if v := os.Getenv("A2A_IDLE_TIMEOUT_SECONDS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return time.Duration(n) * time.Second
-		}
+var idleTimeoutDuration = parseIdleTimeoutEnv(os.Getenv("A2A_IDLE_TIMEOUT_SECONDS"))
+
+// defaultIdleTimeoutDuration is what parseIdleTimeoutEnv returns when
+// the env var is unset or invalid. Pulled out as a const so tests can
+// reference it without re-deriving the value.
+const defaultIdleTimeoutDuration = 5 * time.Minute
+
+// parseIdleTimeoutEnv parses the A2A_IDLE_TIMEOUT_SECONDS value, falling
+// back to defaultIdleTimeoutDuration on empty / non-numeric / non-positive
+// input. Bad-input cases LOG so an operator who set the wrong value
+// doesn't silently get the default and waste hours debugging "why is my
+// override not working." Without the log line, A2A_IDLE_TIMEOUT_SECONDS=foo
+// or =-30 produces identical observable behaviour to leaving it unset.
+func parseIdleTimeoutEnv(v string) time.Duration {
+	if v == "" {
+		return defaultIdleTimeoutDuration
 	}
-	return 5 * time.Minute
-}()
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		log.Printf("A2A_IDLE_TIMEOUT_SECONDS=%q is not a valid integer; using default %s", v, defaultIdleTimeoutDuration)
+		return defaultIdleTimeoutDuration
+	}
+	if n <= 0 {
+		log.Printf("A2A_IDLE_TIMEOUT_SECONDS=%d must be > 0; using default %s", n, defaultIdleTimeoutDuration)
+		return defaultIdleTimeoutDuration
+	}
+	return time.Duration(n) * time.Second
+}
 
 // dispatchA2A POSTs `body` to `agentURL`. Uses WithoutCancel so delegation
 // chains survive client disconnect (browser tab close). Two layers of

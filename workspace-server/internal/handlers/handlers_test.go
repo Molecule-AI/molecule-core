@@ -961,6 +961,39 @@ done:
 	}
 }
 
+// ---------- TestParseIdleTimeoutEnv ----------
+//
+// Pins the env-override path including the bad-input fallback paths
+// that the package-init `var idleTimeoutDuration = parseIdleTimeoutEnv(...)`
+// relies on. Without this test, an operator who sets
+// A2A_IDLE_TIMEOUT_SECONDS=foo would get the default with no log signal
+// (pre-fix behaviour) and the regression would slip in unnoticed.
+
+func TestParseIdleTimeoutEnv(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want time.Duration
+	}{
+		{"empty falls back to default", "", defaultIdleTimeoutDuration},
+		{"valid positive integer parses to seconds", "120", 120 * time.Second},
+		{"valid integer at minimum (1) is accepted", "1", 1 * time.Second},
+		{"non-numeric falls back to default", "foo", defaultIdleTimeoutDuration},
+		{"negative falls back to default", "-30", defaultIdleTimeoutDuration},
+		{"zero falls back to default", "0", defaultIdleTimeoutDuration},
+		{"float falls back to default (Atoi rejects)", "1.5", defaultIdleTimeoutDuration},
+		{"trailing units rejected (we accept seconds only)", "60s", defaultIdleTimeoutDuration},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseIdleTimeoutEnv(tc.in)
+			if got != tc.want {
+				t.Errorf("parseIdleTimeoutEnv(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 // ---------- TestActivityHandler_ListEmpty ----------
 
 func TestActivityHandler_ListEmpty(t *testing.T) {
