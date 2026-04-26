@@ -33,18 +33,49 @@ jobs:
       || github.event.pull_request.user.login == 'molecule-ai[bot]'
     steps:
       - name: Retarget PR base to staging
+        id: retarget
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        # Issue #1884: when the bot opens a PR against main and there's
+        # already another PR on the same head branch targeting staging,
+        # GitHub's PATCH /pulls returns 422 with
+        # "A pull request already exists for base branch 'staging' …".
+        # The retarget can't proceed — but the right response is to
+        # close the now-redundant main-PR, not to fail the workflow
+        # noisily. Detect that specific 422 and close instead.
         run: |
+          set +e
           echo "Retargeting PR #${PR_NUMBER} (author: ${PR_AUTHOR}) from main → staging"
-          gh api -X PATCH \
+          PATCH_OUTPUT=$(gh api -X PATCH \
             "repos/${{ github.repository }}/pulls/${PR_NUMBER}" \
             -f base=staging \
-            --jq '.base.ref'
+            --jq '.base.ref' 2>&1)
+          PATCH_EXIT=$?
+          set -e
+          if [ "$PATCH_EXIT" -eq 0 ]; then
+            echo "::notice::Retargeted PR #${PR_NUMBER} → staging"
+            echo "outcome=retargeted" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Specifically match the 422 duplicate-base/head error so
+          # any OTHER PATCH failure (auth, deleted PR, etc.) still
+          # surfaces as a real workflow failure.
+          if echo "$PATCH_OUTPUT" | grep -q "pull request already exists for base branch 'staging'"; then
+            echo "::notice::PR #${PR_NUMBER}: duplicate target-staging PR exists on same head — closing this main-PR as redundant."
+            gh pr close "$PR_NUMBER" \
+              --repo "${{ github.repository }}" \
+              --comment "[retarget-bot] Closing — another PR on the same head branch already targets \`staging\`. This PR is redundant. See issue #1884 for the rationale."
+            echo "outcome=closed-as-duplicate" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::error::Retarget PATCH failed and was NOT a duplicate-base error:"
+          echo "$PATCH_OUTPUT" >&2
+          exit 1
 
       - name: Post explainer comment
+        if: steps.retarget.outputs.outcome == 'retargeted'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
