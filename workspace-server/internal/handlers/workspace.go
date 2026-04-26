@@ -210,11 +210,15 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		return
 	}
 
+	maxConcurrent := payload.MaxConcurrentTasks
+	if maxConcurrent <= 0 {
+		maxConcurrent = models.DefaultMaxConcurrentTasks
+	}
 	// Insert workspace with runtime persisted in DB (inside transaction)
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access, budget_limit)
-		VALUES ($1, $2, $3, $4, $5, $6, 'provisioning', $7, $8, $9, $10)
-	`, id, payload.Name, role, payload.Tier, payload.Runtime, awarenessNamespace, payload.ParentID, workspaceDir, workspaceAccess, payload.BudgetLimit)
+		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access, budget_limit, max_concurrent_tasks)
+		VALUES ($1, $2, $3, $4, $5, $6, 'provisioning', $7, $8, $9, $10, $11)
+	`, id, payload.Name, role, payload.Tier, payload.Runtime, awarenessNamespace, payload.ParentID, workspaceDir, workspaceAccess, payload.BudgetLimit, maxConcurrent)
 	if err != nil {
 		tx.Rollback() //nolint:errcheck
 		log.Printf("Create workspace error: %v", err)

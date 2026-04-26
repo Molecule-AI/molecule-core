@@ -111,10 +111,14 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, absX
 	// (see canvas-topology.ts), so imports don't spray the viewport.
 	initialCollapsed := false
 
+	maxConcurrent := ws.MaxConcurrentTasks
+	if maxConcurrent <= 0 {
+		maxConcurrent = models.DefaultMaxConcurrentTasks
+	}
 	_, err := db.DB.ExecContext(ctx, `
-		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`, id, ws.Name, role, tier, runtime, awarenessNS, "provisioning", parentID, workspaceDir, workspaceAccess)
+		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access, max_concurrent_tasks)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`, id, ws.Name, role, tier, runtime, awarenessNS, "provisioning", parentID, workspaceDir, workspaceAccess, maxConcurrent)
 	if err != nil {
 		log.Printf("Org import: failed to create %s: %v", ws.Name, err)
 		return fmt.Errorf("failed to create %s: %w", ws.Name, err)

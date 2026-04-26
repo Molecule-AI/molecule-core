@@ -402,8 +402,10 @@ type OrgWorkspace struct {
 	// InitialMemories are memories seeded into this workspace at creation
 	// time. If empty, defaults.initial_memories are used. Issue #1050.
 	InitialMemories []models.MemorySeed `yaml:"initial_memories" json:"initial_memories"`
-	Schedules       []OrgSchedule       `yaml:"schedules" json:"schedules"`
-	Channels        []OrgChannel        `yaml:"channels" json:"channels"`
+	// MaxConcurrentTasks: see models.CreateWorkspacePayload.
+	MaxConcurrentTasks int                 `yaml:"max_concurrent_tasks" json:"max_concurrent_tasks"`
+	Schedules          []OrgSchedule       `yaml:"schedules" json:"schedules"`
+	Channels           []OrgChannel        `yaml:"channels" json:"channels"`
 	External        bool                `yaml:"external" json:"external"`
 	URL             string              `yaml:"url" json:"url"`
 	Canvas          struct {

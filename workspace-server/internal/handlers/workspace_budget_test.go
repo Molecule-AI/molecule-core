@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/models"
 	"github.com/gin-gonic/gin"
 )
 
@@ -150,6 +151,7 @@ func TestWorkspaceBudget_Create_WithLimit(t *testing.T) {
 			nil,              // workspace_dir
 			"none",           // workspace_access
 			&budgetVal,       // budget_limit ($10)
+			models.DefaultMaxConcurrentTasks, // max_concurrent_tasks default
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()

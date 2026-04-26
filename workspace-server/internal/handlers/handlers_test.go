@@ -291,7 +291,7 @@ func TestWorkspaceCreate(t *testing.T) {
 	// Expect workspace INSERT (uuid is dynamic, use AnyArg for id, runtime, awareness_namespace).
 	// Default tier is 3 (Privileged) — see workspace.go create-handler comment.
 	mock.ExpectExec("INSERT INTO workspaces").
-		WithArgs(sqlmock.AnyArg(), "Test Agent", nil, 3, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil)).
+		WithArgs(sqlmock.AnyArg(), "Test Agent", nil, 3, "langgraph", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil), models.DefaultMaxConcurrentTasks).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// Expect transaction commit (no secrets in this payload)
