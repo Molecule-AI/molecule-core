@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
@@ -40,13 +41,24 @@ func (f *fakeEmitter) count() int {
 	return len(f.events)
 }
 
+// candidateRows builds the new-shape query result (id, runtime, age_sec).
+// Use this in every sweep test to match the runtime-aware SELECT.
+func candidateRows(rows ...[3]any) *sqlmock.Rows {
+	r := sqlmock.NewRows([]string{"id", "runtime", "age_sec"})
+	for _, row := range rows {
+		r = r.AddRow(row[0], row[1], row[2])
+	}
+	return r
+}
+
 // TestSweepStuckProvisioning_FlipsOverdue verifies the happy path: a stuck
 // provisioning workspace gets flipped to failed AND an event is broadcast.
 func TestSweepStuckProvisioning_FlipsOverdue(t *testing.T) {
 	mock := setupTestDB(t)
 
-	mock.ExpectQuery(`SELECT id FROM workspaces`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ws-stuck"))
+	// claude-code workspace, 700s old > 600s default timeout → flipped.
+	mock.ExpectQuery(`SELECT id, COALESCE\(runtime, ''\), EXTRACT`).
+		WillReturnRows(candidateRows([3]any{"ws-stuck", "claude-code", 700}))
 
 	mock.ExpectExec(`UPDATE workspaces`).
 		WithArgs("ws-stuck", sqlmock.AnyArg(), sqlmock.AnyArg()).
@@ -69,6 +81,60 @@ func TestSweepStuckProvisioning_FlipsOverdue(t *testing.T) {
 	}
 }
 
+// TestSweepStuckProvisioning_HermesGets30MinSlack — the regression that
+// motivated the runtime-aware change. A hermes workspace 11 min into
+// cold-boot must NOT be flipped to failed; the watcher's 25-min budget
+// covers it. Without the fix, the 10-min sweep killed healthy hermes
+// boots mid-install (issue #2061's E2E failure on 2026-04-26).
+func TestSweepStuckProvisioning_HermesGets30MinSlack(t *testing.T) {
+	mock := setupTestDB(t)
+
+	// 11 min = 660 sec. < HermesProvisioningTimeout (1800s).
+	// No UPDATE should fire — hermes still has time.
+	mock.ExpectQuery(`SELECT id, COALESCE\(runtime, ''\), EXTRACT`).
+		WillReturnRows(candidateRows([3]any{"ws-hermes-booting", "hermes", 660}))
+
+	emit := &fakeEmitter{}
+	sweepStuckProvisioning(context.Background(), emit)
+
+	if emit.count() != 0 {
+		t.Fatalf("hermes at 11min should NOT have been flipped, got %d events", emit.count())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// TestSweepStuckProvisioning_HermesPastDeadline — a hermes workspace
+// past 30 min DOES get flipped. Closes the loop on the runtime-aware
+// fix: it's still bounded, just with a longer threshold than other
+// runtimes.
+func TestSweepStuckProvisioning_HermesPastDeadline(t *testing.T) {
+	mock := setupTestDB(t)
+
+	// 31 min = 1860 sec > HermesProvisioningTimeout (1800s).
+	mock.ExpectQuery(`SELECT id, COALESCE\(runtime, ''\), EXTRACT`).
+		WillReturnRows(candidateRows([3]any{"ws-hermes-stuck", "hermes", 1860}))
+	mock.ExpectExec(`UPDATE workspaces`).
+		WithArgs("ws-hermes-stuck", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	emit := &fakeEmitter{}
+	sweepStuckProvisioning(context.Background(), emit)
+
+	if emit.count() != 1 {
+		t.Fatalf("hermes past 30min must be flipped, got %d events", emit.count())
+	}
+	// Payload should include runtime so ops can distinguish in logs.
+	payload, ok := emit.events[0].Payload.(map[string]interface{})
+	if !ok {
+		t.Fatalf("payload not a map: %T", emit.events[0].Payload)
+	}
+	if payload["runtime"] != "hermes" {
+		t.Errorf("payload.runtime = %v, want hermes", payload["runtime"])
+	}
+}
+
 // TestSweepStuckProvisioning_RaceSafe covers the case where UPDATE affects
 // 0 rows because the workspace flipped to online (or got restarted) between
 // the SELECT and the UPDATE. We should skip the event, not emit a false
@@ -76,8 +142,8 @@ func TestSweepStuckProvisioning_FlipsOverdue(t *testing.T) {
 func TestSweepStuckProvisioning_RaceSafe(t *testing.T) {
 	mock := setupTestDB(t)
 
-	mock.ExpectQuery(`SELECT id FROM workspaces`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ws-raced"))
+	mock.ExpectQuery(`SELECT id, COALESCE\(runtime, ''\), EXTRACT`).
+		WillReturnRows(candidateRows([3]any{"ws-raced", "claude-code", 700}))
 
 	mock.ExpectExec(`UPDATE workspaces`).
 		WithArgs("ws-raced", sqlmock.AnyArg(), sqlmock.AnyArg()).
@@ -99,8 +165,8 @@ func TestSweepStuckProvisioning_RaceSafe(t *testing.T) {
 func TestSweepStuckProvisioning_NoStuck(t *testing.T) {
 	mock := setupTestDB(t)
 
-	mock.ExpectQuery(`SELECT id FROM workspaces`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery(`SELECT id, COALESCE\(runtime, ''\), EXTRACT`).
+		WillReturnRows(candidateRows())
 
 	emit := &fakeEmitter{}
 	sweepStuckProvisioning(context.Background(), emit)
@@ -115,14 +181,16 @@ func TestSweepStuckProvisioning_NoStuck(t *testing.T) {
 
 // TestSweepStuckProvisioning_MultipleStuck covers the realistic case where
 // both agents (claude-code + hermes) are stuck — both should get flipped
-// and both should get events.
+// and both should get events. claude-code at 11 min (over its 10-min
+// limit), hermes at 31 min (over its 30-min limit).
 func TestSweepStuckProvisioning_MultipleStuck(t *testing.T) {
 	mock := setupTestDB(t)
 
-	mock.ExpectQuery(`SELECT id FROM workspaces`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).
-			AddRow("ws-claude-code").
-			AddRow("ws-hermes"))
+	mock.ExpectQuery(`SELECT id, COALESCE\(runtime, ''\), EXTRACT`).
+		WillReturnRows(candidateRows(
+			[3]any{"ws-claude-code", "claude-code", 700},
+			[3]any{"ws-hermes", "hermes", 1860},
+		))
 
 	mock.ExpectExec(`UPDATE workspaces`).
 		WithArgs("ws-claude-code", sqlmock.AnyArg(), sqlmock.AnyArg()).
@@ -145,8 +213,8 @@ func TestSweepStuckProvisioning_MultipleStuck(t *testing.T) {
 func TestSweepStuckProvisioning_BroadcastFailureDoesNotCrash(t *testing.T) {
 	mock := setupTestDB(t)
 
-	mock.ExpectQuery(`SELECT id FROM workspaces`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ws-stuck"))
+	mock.ExpectQuery(`SELECT id, COALESCE\(runtime, ''\), EXTRACT`).
+		WillReturnRows(candidateRows([3]any{"ws-stuck", "claude-code", 700}))
 	mock.ExpectExec(`UPDATE workspaces`).
 		WithArgs("ws-stuck", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -158,18 +226,47 @@ func TestSweepStuckProvisioning_BroadcastFailureDoesNotCrash(t *testing.T) {
 
 // TestProvisioningTimeout_EnvOverride verifies PROVISION_TIMEOUT_SECONDS
 // env var takes effect when set to a positive integer, and falls back to
-// default otherwise.
+// the per-runtime default otherwise.
 func TestProvisioningTimeout_EnvOverride(t *testing.T) {
 	t.Setenv("PROVISION_TIMEOUT_SECONDS", "60")
-	if got := provisioningTimeout(); got.Seconds() != 60 {
-		t.Errorf("override: got %v, want 60s", got)
+	// When env override is set it wins over runtime defaults.
+	if got := provisioningTimeoutFor(""); got.Seconds() != 60 {
+		t.Errorf("override (no runtime): got %v, want 60s", got)
+	}
+	if got := provisioningTimeoutFor("hermes"); got.Seconds() != 60 {
+		t.Errorf("override (hermes): got %v, want 60s", got)
 	}
 	t.Setenv("PROVISION_TIMEOUT_SECONDS", "")
-	if got := provisioningTimeout(); got != DefaultProvisioningTimeout {
-		t.Errorf("default: got %v, want %v", got, DefaultProvisioningTimeout)
+	if got := provisioningTimeoutFor(""); got != DefaultProvisioningTimeout {
+		t.Errorf("default (no runtime): got %v, want %v", got, DefaultProvisioningTimeout)
 	}
 	t.Setenv("PROVISION_TIMEOUT_SECONDS", "not-a-number")
-	if got := provisioningTimeout(); got != DefaultProvisioningTimeout {
-		t.Errorf("bad override: got %v, want default %v", got, DefaultProvisioningTimeout)
+	if got := provisioningTimeoutFor("claude-code"); got != DefaultProvisioningTimeout {
+		t.Errorf("bad override (claude-code): got %v, want default %v", got, DefaultProvisioningTimeout)
+	}
+}
+
+// TestProvisioningTimeout_RuntimeAware verifies hermes gets the longer
+// HermesProvisioningTimeout while other runtimes keep the default.
+// Mirrors bootstrap_watcher.go's bootstrapTimeoutFn — these two
+// timeouts must stay in sync (sweep > watcher) or healthy hermes
+// boots get killed mid-install.
+func TestProvisioningTimeout_RuntimeAware(t *testing.T) {
+	cases := []struct {
+		runtime string
+		want    time.Duration
+	}{
+		{"hermes", HermesProvisioningTimeout},
+		{"langgraph", DefaultProvisioningTimeout},
+		{"claude-code", DefaultProvisioningTimeout},
+		{"crewai", DefaultProvisioningTimeout},
+		{"autogen", DefaultProvisioningTimeout},
+		{"", DefaultProvisioningTimeout},
+		{"unknown-runtime", DefaultProvisioningTimeout},
+	}
+	for _, c := range cases {
+		if got := provisioningTimeoutFor(c.runtime); got != c.want {
+			t.Errorf("runtime=%q: got %v, want %v", c.runtime, got, c.want)
+		}
 	}
 }
