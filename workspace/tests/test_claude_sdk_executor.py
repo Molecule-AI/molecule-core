@@ -21,7 +21,14 @@ _FakeTextBlock = _sdk_stub.TextBlock
 _FakeAssistantMessage = _sdk_stub.AssistantMessage
 _FakeResultMessage = _sdk_stub.ResultMessage
 
-from claude_sdk_executor import ClaudeSDKExecutor, QueryResult  # noqa: E402
+from claude_sdk_executor import (  # noqa: E402
+    ClaudeSDKExecutor,
+    QueryResult,
+    _mark_sdk_wedged,
+    _reset_sdk_wedge_for_test,
+    is_wedged,
+    wedge_reason,
+)
 
 
 # ---------- Helpers ----------
@@ -1230,38 +1237,37 @@ def test_load_config_dict_empty_file_returns_empty(tmp_path):
 # heartbeat task reads it via is_wedged() / wedge_reason() and reports
 # runtime_state="wedged" so the platform flips status → degraded.
 
-import claude_sdk_executor as _executor_mod
 
 
 def test_wedge_helpers_default_clean():
     """Fresh module: no wedge."""
-    _executor_mod._reset_sdk_wedge_for_test()
-    assert _executor_mod.is_wedged() is False
-    assert _executor_mod.wedge_reason() == ""
+    _reset_sdk_wedge_for_test()
+    assert is_wedged() is False
+    assert wedge_reason() == ""
 
 
 def test_mark_sdk_wedged_sets_flag_and_reason():
     """First mark wins and sets both is_wedged() and the reason text."""
-    _executor_mod._reset_sdk_wedge_for_test()
-    _executor_mod._mark_sdk_wedged("init timeout — restart")
+    _reset_sdk_wedge_for_test()
+    _mark_sdk_wedged("init timeout — restart")
     try:
-        assert _executor_mod.is_wedged() is True
-        assert "init timeout" in _executor_mod.wedge_reason()
+        assert is_wedged() is True
+        assert "init timeout" in wedge_reason()
     finally:
-        _executor_mod._reset_sdk_wedge_for_test()
+        _reset_sdk_wedge_for_test()
 
 
 def test_mark_sdk_wedged_sticky_first_wins():
     """A second wedge call with a different reason does NOT overwrite
     the first. The first cause is the one the user needs to see; later
     knock-on errors from the same wedge would otherwise mask it."""
-    _executor_mod._reset_sdk_wedge_for_test()
-    _executor_mod._mark_sdk_wedged("first cause — Control request timeout")
-    _executor_mod._mark_sdk_wedged("noise from a downstream symptom")
+    _reset_sdk_wedge_for_test()
+    _mark_sdk_wedged("first cause — Control request timeout")
+    _mark_sdk_wedged("noise from a downstream symptom")
     try:
-        assert _executor_mod.wedge_reason() == "first cause — Control request timeout"
+        assert wedge_reason() == "first cause — Control request timeout"
     finally:
-        _executor_mod._reset_sdk_wedge_for_test()
+        _reset_sdk_wedge_for_test()
 
 
 @pytest.mark.asyncio
