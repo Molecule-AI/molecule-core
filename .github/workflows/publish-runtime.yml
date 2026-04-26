@@ -16,7 +16,11 @@ name: publish-runtime
 #      build/molecule_runtime/ with imports rewritten (`a2a_client` →
 #      `molecule_runtime.a2a_client`).
 #   2. Builds wheel + sdist with `python -m build`.
-#   3. Publishes to PyPI via twine + repo secret PYPI_TOKEN.
+#   3. Publishes to PyPI via the PyPA Trusted Publisher action (OIDC).
+#      No static API token is stored — PyPI verifies the workflow's
+#      OIDC claim against the trusted-publisher config registered for
+#      molecule-ai-workspace-runtime (Molecule-AI/molecule-core,
+#      publish-runtime.yml, environment pypi-publish).
 #
 # After publish: the 8 template repos pick up the new version on their
 # next image rebuild (their requirements.txt pin
@@ -42,6 +46,9 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     environment: pypi-publish
+    permissions:
+      contents: read
+      id-token: write   # PyPI Trusted Publisher (OIDC) — no PYPI_TOKEN needed
     steps:
       - uses: actions/checkout@v4
 
@@ -106,12 +113,15 @@ jobs:
           print('✓ smoke import passed')
           "
 
-      - name: Publish to PyPI
-        working-directory: ${{ runner.temp }}/runtime-build
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
-        run: python -m twine upload dist/*
+      - name: Publish to PyPI (Trusted Publisher / OIDC)
+        # PyPI side is configured: project molecule-ai-workspace-runtime →
+        # publisher Molecule-AI/molecule-core, workflow publish-runtime.yml,
+        # environment pypi-publish. The action mints a short-lived OIDC
+        # token and exchanges it for a PyPI upload credential — no static
+        # API token in this repo's secrets.
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: ${{ runner.temp }}/runtime-build/dist/
 
   cascade:
     # After PyPI accepts the upload, fan out a repository_dispatch to each
