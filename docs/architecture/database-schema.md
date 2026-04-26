@@ -77,7 +77,7 @@ CREATE TABLE workspace_secrets (
 );
 ```
 
-Stores API keys, credentials, and other secrets needed by workspace agents. Values are encrypted with AES-256 at the application layer. The encryption key comes from the `SECRETS_ENCRYPTION_KEY` environment variable on the platform — never stored in the database.
+Stores API keys, credentials, and other secrets needed by workspace agents. Values are encrypted with AES-256-GCM at the application layer. The encryption key comes from the tenant's `SECRETS_ENCRYPTION_KEY` environment variable, provisioned at tenant boot by the control plane (which holds the master key in AWS KMS — see [secrets-key-custody.md](./secrets-key-custody.md)). The key is never stored in the database.
 
 The provisioner reads secrets from this table, decrypts them, and injects them as environment variables when spinning up workspace containers. Secrets are never included in bundles (see [Constraints — Rule 5](../development/constraints-and-rules.md)).
 
