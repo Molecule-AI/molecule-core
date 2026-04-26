@@ -195,14 +195,21 @@ TENANT_TOKEN=$(echo "$TENANT_TOKEN_RESP" | python3 -c "import json,sys; print(js
 ok "Tenant admin token retrieved (len=${#TENANT_TOKEN})"
 
 # ─── 4. Wait for tenant TLS / DNS propagation ──────────────────────────
+# 10 min — same envelope as canvas/e2e/staging-setup.ts TLS_TIMEOUT_MS.
+# CF DNS propagation + tunnel hostname registration + ACME cert + edge
+# cache routinely take 5-7 min under staging load; the original 3-min
+# cap blocked multiple staging→main PRs across 2026-04-24+. Stays
+# inside the parent provision envelope so a genuinely-stuck tenant
+# still fails loud at the earlier provision step rather than masquerading
+# as a TLS issue.
 log "4/11 Waiting for tenant TLS / DNS propagation..."
-TLS_DEADLINE=$(( $(date +%s) + 180 ))
+TLS_DEADLINE=$(( $(date +%s) + 600 ))
 while true; do
   if curl -sSfk --max-time 5 "$TENANT_URL/health" >/dev/null 2>&1; then
     break
   fi
   if [ "$(date +%s)" -gt "$TLS_DEADLINE" ]; then
-    fail "Tenant URL never responded 2xx on /health within 3 min"
+    fail "Tenant URL never responded 2xx on /health within 10 min"
   fi
   sleep 5
 done
