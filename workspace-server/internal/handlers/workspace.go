@@ -210,12 +210,9 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// max_concurrent_tasks: payload-supplied → write as-is; 0/omitted →
-	// fall back to the schema default (1). Single INSERT shape regardless,
-	// avoids a forked column list. (#1408)
 	maxConcurrent := payload.MaxConcurrentTasks
 	if maxConcurrent <= 0 {
-		maxConcurrent = 1
+		maxConcurrent = models.DefaultMaxConcurrentTasks
 	}
 	// Insert workspace with runtime persisted in DB (inside transaction)
 	_, err := tx.ExecContext(ctx, `

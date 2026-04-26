@@ -103,12 +103,9 @@ func (h *OrgHandler) createWorkspaceTree(ws OrgWorkspace, parentID *string, absX
 	// (see canvas-topology.ts), so imports don't spray the viewport.
 	initialCollapsed := false
 
-	// max_concurrent_tasks from org template (#1408). 0/omitted → schema
-	// default of 1. Leaders typically set 3 in their org.yaml so an
-	// in-flight cron doesn't reject incoming A2A delegations.
 	maxConcurrent := ws.MaxConcurrentTasks
 	if maxConcurrent <= 0 {
-		maxConcurrent = 1
+		maxConcurrent = models.DefaultMaxConcurrentTasks
 	}
 	_, err := db.DB.ExecContext(ctx, `
 		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access, max_concurrent_tasks)

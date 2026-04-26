@@ -287,13 +287,7 @@ type OrgWorkspace struct {
 	// InitialMemories are memories seeded into this workspace at creation
 	// time. If empty, defaults.initial_memories are used. Issue #1050.
 	InitialMemories []models.MemorySeed `yaml:"initial_memories" json:"initial_memories"`
-	// MaxConcurrentTasks lets a leader workspace handle multiple A2A
-	// messages + cron fires concurrently (#1408). Default 1 keeps the
-	// classic worker-style serialised execution; bump to 3 for leaders
-	// (PM, leads with 5-min orchestrator pulses) so an in-flight cron
-	// doesn't reject incoming A2A delegations. Wired into the workspaces
-	// table at template-import time + read by the scheduler's capacity
-	// check (workspace-server/internal/scheduler/scheduler.go).
+	// MaxConcurrentTasks: see models.CreateWorkspacePayload.
 	MaxConcurrentTasks int                 `yaml:"max_concurrent_tasks" json:"max_concurrent_tasks"`
 	Schedules          []OrgSchedule       `yaml:"schedules" json:"schedules"`
 	Channels           []OrgChannel        `yaml:"channels" json:"channels"`

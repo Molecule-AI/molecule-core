@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/Molecule-AI/molecule-monorepo/platform/internal/models"
 	"github.com/gin-gonic/gin"
 )
 
@@ -31,7 +32,7 @@ func TestWorkspaceCreate_WithParentID(t *testing.T) {
 	mock.ExpectBegin()
 	// Default tier is 3 (Privileged) — see workspace.go create-handler comment.
 	mock.ExpectExec("INSERT INTO workspaces").
-		WithArgs(sqlmock.AnyArg(), "Child Agent", nil, 3, "langgraph", sqlmock.AnyArg(), &parentID, nil, "none", (*int64)(nil), 1).
+		WithArgs(sqlmock.AnyArg(), "Child Agent", nil, 3, "langgraph", sqlmock.AnyArg(), &parentID, nil, "none", (*int64)(nil), models.DefaultMaxConcurrentTasks).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectExec("INSERT INTO canvas_layouts").
@@ -66,7 +67,7 @@ func TestWorkspaceCreate_ExplicitClaudeCodeRuntime(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO workspaces").
-		WithArgs(sqlmock.AnyArg(), "CC Agent", nil, 2, "claude-code", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil), 1).
+		WithArgs(sqlmock.AnyArg(), "CC Agent", nil, 2, "claude-code", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil), models.DefaultMaxConcurrentTasks).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectExec("INSERT INTO canvas_layouts").
@@ -277,12 +278,8 @@ func TestWorkspaceList_WithData(t *testing.T) {
 	}
 }
 
-// ---------- workspace.go: Create with explicit max_concurrent_tasks (#1408) ----------
+// ---------- workspace.go: Create with explicit max_concurrent_tasks ----------
 
-// Locks the wire-up that lets a leader workspace's template config.yaml
-// (or a direct API caller) set max_concurrent_tasks > 1 so an in-flight
-// cron doesn't reject incoming A2A delegations. Schema default is 1; a
-// non-zero payload value must reach the INSERT verbatim.
 func TestWorkspaceCreate_MaxConcurrentTasksOverride(t *testing.T) {
 	mock := setupTestDB(t)
 	setupTestRedis(t)
@@ -290,7 +287,6 @@ func TestWorkspaceCreate_MaxConcurrentTasksOverride(t *testing.T) {
 	handler := NewWorkspaceHandler(broadcaster, nil, "http://localhost:8080", t.TempDir())
 
 	mock.ExpectBegin()
-	// 11th arg = max_concurrent_tasks; payload says 3, must propagate.
 	mock.ExpectExec("INSERT INTO workspaces").
 		WithArgs(sqlmock.AnyArg(), "Leader Agent", nil, 3, "claude-code", sqlmock.AnyArg(), (*string)(nil), nil, "none", (*int64)(nil), 3).
 		WillReturnResult(sqlmock.NewResult(0, 1))
