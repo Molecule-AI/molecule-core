@@ -98,6 +98,26 @@ def auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {tok}"}
 
 
+def self_source_headers(workspace_id: str) -> dict[str, str]:
+    """Return auth headers PLUS X-Workspace-ID identifying this workspace
+    as the source of the request.
+
+    Use this for any POST the workspace's own runtime fires against the
+    platform's A2A endpoints — heartbeat self-messages, initial_prompt,
+    idle-loop fires, peer-to-peer A2A from runtime tools. Without the
+    X-Workspace-ID header the platform's a2a_receive logger writes
+    source_id=NULL, which the canvas's My Chat tab interprets as a
+    user-typed message and renders the internal prompt to the user.
+    See workspace-server/internal/handlers/a2a_proxy.go:184 for the
+    server-side classification rule.
+
+    Centralised here so adding a new system header (e.g. a per-fire
+    correlation ID) only touches one place — and so that any
+    workspace→A2A POST that doesn't use this helper stands out in
+    review as a probable bug."""
+    return {**auth_headers(), "X-Workspace-ID": workspace_id}
+
+
 def clear_cache() -> None:
     """Reset the in-memory cache. Used by tests that write fresh token
     files between cases."""

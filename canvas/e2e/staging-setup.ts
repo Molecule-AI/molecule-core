@@ -46,7 +46,17 @@ const TENANT_DOMAIN = process.env.STAGING_TENANT_DOMAIN || "staging.moleculesai.
 // were blocking staging→main syncs on 2026-04-24.
 const PROVISION_TIMEOUT_MS = 20 * 60 * 1000;
 const WORKSPACE_ONLINE_TIMEOUT_MS = 20 * 60 * 1000;
-const TLS_TIMEOUT_MS = 3 * 60 * 1000;
+
+// TLS readiness depends on (1) Cloudflare DNS propagation through the
+// edge, (2) the tenant's CF Tunnel registering the new hostname, (3)
+// CF's edge ACME cert provisioning + cache. Each of these layers can
+// add 1-3 min on its own under heavy staging load. Bumped 10→15 min
+// after a burst of canary failures correlated with CP changes (#2090).
+// Stays below the 20-min PROVISION_TIMEOUT envelope so a genuinely-
+// stuck tenant fails-loud at the provision step rather than
+// masquerading as a TLS issue. Kept aligned with
+// tests/e2e/test_staging_full_saas.sh.
+const TLS_TIMEOUT_MS = 15 * 60 * 1000;
 
 async function jsonFetch(
   url: string,

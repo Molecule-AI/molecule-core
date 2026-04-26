@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -600,9 +601,21 @@ func TestIsUpstreamBusyError(t *testing.T) {
 	}{
 		{"nil", nil, false},
 		{"context.DeadlineExceeded", context.DeadlineExceeded, true},
+		// applyIdleTimeout cancels its child ctx via context.WithCancel
+		// when the broadcaster silence window elapses — surfaces here
+		// as context.Canceled. Same "upstream busy" classification.
+		{"context.Canceled", context.Canceled, true},
+		{"wrapped context.Canceled", fmt.Errorf("dispatch wrapped: %w", context.Canceled), true},
 		{"io.EOF", io.EOF, true},
 		{"io.ErrUnexpectedEOF", io.ErrUnexpectedEOF, true},
-		{"wrapped context deadline string", fmt.Errorf(`Post "http://ws-foo:8000": context deadline exceeded`), true},
+		// Real net/http wraps context.DeadlineExceeded via *url.Error.Unwrap,
+		// so errors.Is(err, context.DeadlineExceeded) catches it. The
+		// pre-892de784 substring "context deadline exceeded" fallback
+		// also accepted a string-only error like
+		// `fmt.Errorf("Post: context deadline exceeded")`; that fallback
+		// was dropped because errors.Is handles the real shape and the
+		// substring was indistinguishable from a user-content match.
+		{"wrapped context deadline (errors.Is path)", fmt.Errorf("Post: %w", context.DeadlineExceeded), true},
 		{"wrapped EOF string", fmt.Errorf(`Post "http://ws-foo:8000": EOF`), true},
 		{"connection reset", fmt.Errorf("read tcp 127.0.0.1:8080->127.0.0.1:12345: connection reset by peer"), true},
 		{"generic dns error", fmt.Errorf("no such host"), false},
@@ -1074,7 +1087,7 @@ func TestDispatchA2A_BuildRequestError(t *testing.T) {
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
 
 	// Malformed URL causes http.NewRequestWithContext to fail.
-	_, cancel, err := handler.dispatchA2A(context.Background(), "http://%%badhost", []byte("{}"), "")
+	_, cancel, err := handler.dispatchA2A(context.Background(), "ws-target", "http://%%badhost", []byte("{}"), "")
 	if cancel != nil {
 		cancel()
 	}
@@ -1097,13 +1110,13 @@ func TestDispatchA2A_CanvasTimeout(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, cancel, err := handler.dispatchA2A(context.Background(), srv.URL, []byte(`{}`), "")
+	resp, cancel, err := handler.dispatchA2A(context.Background(), "ws-target", srv.URL, []byte(`{}`), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	defer resp.Body.Close()
 	if cancel == nil {
-		t.Fatal("canvas caller (empty callerID) must set a timeout + return cancel")
+		t.Fatal("canvas caller must return a cancel func (idle-timeout cleanup)")
 	}
 	cancel() // restore
 }
@@ -1118,20 +1131,23 @@ func TestDispatchA2A_AgentTimeout(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, cancel, err := handler.dispatchA2A(context.Background(), srv.URL, []byte(`{}`), "ws-caller")
+	resp, cancel, err := handler.dispatchA2A(context.Background(), "ws-target", srv.URL, []byte(`{}`), "ws-caller")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	defer resp.Body.Close()
 	if cancel == nil {
-		t.Fatal("agent-to-agent caller must set a timeout + return cancel")
+		t.Fatal("agent-to-agent caller must return a cancel func (idle + ceiling cleanup)")
 	}
 	cancel()
 }
 
-func TestDispatchA2A_ContextDeadline_NoCancelAdded(t *testing.T) {
-	// When ctx already has a deadline, dispatchA2A must NOT layer its own
-	// timeout (cancel should be nil).
+func TestDispatchA2A_ContextDeadline_NoExtraCeiling(t *testing.T) {
+	// When ctx already has a deadline, dispatchA2A must not layer
+	// its own absolute ceiling on top — the caller's deadline wins.
+	// The idle-timer cleanup still produces a non-nil cancel func
+	// (introduced by the always-on idle timeout) but the cancel func
+	// is safe to call repeatedly and from a deferred path.
 	setupTestDB(t)
 	setupTestRedis(t)
 	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
@@ -1144,16 +1160,133 @@ func TestDispatchA2A_ContextDeadline_NoCancelAdded(t *testing.T) {
 	ctx, ctxCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer ctxCancel()
 
-	resp, cancel, err := handler.dispatchA2A(ctx, srv.URL, []byte(`{}`), "")
+	resp, cancel, err := handler.dispatchA2A(ctx, "ws-target", srv.URL, []byte(`{}`), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	defer resp.Body.Close()
-	if cancel != nil {
-		t.Error("cancel should be nil when ctx already has a deadline")
-		cancel()
+	if cancel == nil {
+		t.Error("cancel must be non-nil (idle-timer cleanup)")
 	}
 }
+
+// --- applyIdleTimeout ---
+
+// TestApplyIdleTimeout_FiresOnSilence verifies the helper cancels its
+// child ctx when no broadcaster events arrive for `idle` duration.
+// Uses a short idle window (60ms) so the test runs fast.
+func TestApplyIdleTimeout_FiresOnSilence(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	b := newTestBroadcaster()
+
+	parent, parentCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer parentCancel()
+
+	idleCtx, idleCancel := applyIdleTimeout(parent, b, "ws-silent", 60*time.Millisecond)
+	defer idleCancel()
+
+	select {
+	case <-idleCtx.Done():
+		// expected — no events ever arrived for ws-silent
+	case <-time.After(2 * time.Second):
+		t.Fatal("idleCtx never cancelled despite no events")
+	}
+	if !errors.Is(idleCtx.Err(), context.Canceled) {
+		t.Errorf("idleCtx err = %v, want context.Canceled", idleCtx.Err())
+	}
+}
+
+// TestApplyIdleTimeout_ResetsOnEvent verifies that a broadcaster event
+// for the workspace resets the timer. Sends one event mid-window and
+// confirms ctx is still alive after the original deadline would have
+// fired, but cancelled after a second silence window elapses.
+func TestApplyIdleTimeout_ResetsOnEvent(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	b := newTestBroadcaster()
+
+	parent, parentCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer parentCancel()
+
+	idle := 80 * time.Millisecond
+	idleCtx, idleCancel := applyIdleTimeout(parent, b, "ws-active", idle)
+	defer idleCancel()
+
+	// Send a progress event halfway through the window — should
+	// extend the deadline by another `idle`.
+	time.Sleep(idle / 2)
+	b.BroadcastOnly("ws-active", "ACTIVITY_LOGGED", map[string]interface{}{"activity_type": "agent_log"})
+
+	// At t = idle (original deadline), ctx must still be alive
+	// because the event reset the clock.
+	select {
+	case <-idleCtx.Done():
+		t.Fatal("idleCtx cancelled despite mid-window event resetting the timer")
+	case <-time.After(idle - (idle / 2) + 10*time.Millisecond):
+		// ok — past the original deadline, still alive
+	}
+
+	// Now wait for the second silence window to actually fire.
+	select {
+	case <-idleCtx.Done():
+		// expected
+	case <-time.After(idle + 200*time.Millisecond):
+		t.Fatal("idleCtx never cancelled after the second silence window")
+	}
+}
+
+// TestApplyIdleTimeout_NilBroadcasterDegradesGracefully — nil
+// broadcaster (some test paths) returns the parent ctx unchanged.
+func TestApplyIdleTimeout_NilBroadcasterDegradesGracefully(t *testing.T) {
+	parent := context.Background()
+	idleCtx, cancel := applyIdleTimeout(parent, nil, "ws-x", 50*time.Millisecond)
+	defer cancel()
+	if idleCtx != parent {
+		t.Error("nil broadcaster must return the parent ctx unchanged")
+	}
+	// And calling cancel must be safe.
+	cancel()
+}
+
+// TestDispatchA2A_RejectsUnsafeURL is the #1483 defense-in-depth
+// regression. setupTestDB disables SSRF for normal tests so existing
+// dispatchA2A unit tests can hit httptest.NewServer (loopback) — we
+// re-enable it here to verify the new in-function isSafeURL guard.
+// Production callers go through resolveAgentURL which already
+// validates; this test pins that dispatchA2A is now safe even when
+// called directly by a future caller that skips resolveAgentURL.
+//
+// Note: dispatchA2A's signature includes workspaceID (added by the
+// idle-timeout work) so this test passes a stub value — the SSRF check
+// fires before workspaceID is referenced.
+func TestDispatchA2A_RejectsUnsafeURL(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	restoreSSRF := setSSRFCheckForTest(true)
+	t.Cleanup(restoreSSRF)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	// Cloud metadata IP — must be rejected before any HTTP call goes out.
+	_, cancel, err := handler.dispatchA2A(
+		context.Background(),
+		"ws-target",
+		"http://169.254.169.254/latest/meta-data/",
+		[]byte(`{}`),
+		"",
+	)
+	if cancel != nil {
+		cancel()
+		t.Error("cancel must be nil when the URL is rejected pre-request")
+	}
+	if err == nil {
+		t.Fatal("expected SSRF rejection error, got nil")
+	}
+	if _, ok := err.(*proxyDispatchBuildError); !ok {
+		t.Errorf("expected *proxyDispatchBuildError (caller maps to 500), got %T: %v", err, err)
+	}
+}
+
 
 // --- handleA2ADispatchError ---
 

@@ -454,6 +454,29 @@ func (h *RegistryHandler) evaluateStatus(c *gin.Context, payload models.Heartbea
 		return
 	}
 
+	// Self-reported runtime wedge: takes precedence over the error_rate
+	// path. The heartbeat task lives in its own asyncio task and keeps
+	// firing 200s even after claude_agent_sdk locks up on
+	// `Control request timeout: initialize` — so error_rate stays at 0
+	// (no calls have been recorded as errors yet) while every actual
+	// /a2a POST hangs. The workspace tells us about that case via
+	// runtime_state="wedged"; we honor it directly. Sample_error from
+	// the heartbeat carries the human-readable reason ("SDK init
+	// timeout — restart workspace"), which the canvas surfaces in the
+	// degraded card without the operator scraping container logs.
+	if payload.RuntimeState == "wedged" && currentStatus == "online" {
+		_, err := db.DB.ExecContext(ctx,
+			`UPDATE workspaces SET status = 'degraded', updated_at = now() WHERE id = $1 AND status = 'online'`,
+			payload.WorkspaceID)
+		if err != nil {
+			log.Printf("Heartbeat: failed to mark %s degraded (wedged): %v", payload.WorkspaceID, err)
+		}
+		h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_DEGRADED", payload.WorkspaceID, map[string]interface{}{
+			"runtime_state": "wedged",
+			"sample_error":  payload.SampleError,
+		})
+	}
+
 	if currentStatus == "online" && payload.ErrorRate >= 0.5 {
 		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'degraded', updated_at = now() WHERE id = $1`, payload.WorkspaceID); err != nil {
 			log.Printf("Heartbeat: failed to mark %s degraded: %v", payload.WorkspaceID, err)
@@ -464,7 +487,13 @@ func (h *RegistryHandler) evaluateStatus(c *gin.Context, payload models.Heartbea
 		})
 	}
 
-	if currentStatus == "degraded" && payload.ErrorRate < 0.1 {
+	// Recovery from degraded → online when BOTH the error rate has
+	// fallen back AND the workspace is no longer reporting a wedge.
+	// The wedge condition is sticky for the process lifetime
+	// (claude_sdk_executor only clears it on restart), so when the
+	// container restarts and starts heartbeating fresh — RuntimeState
+	// is empty, error_rate is 0 — this branch flips us back to online.
+	if currentStatus == "degraded" && payload.ErrorRate < 0.1 && payload.RuntimeState == "" {
 		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'online', updated_at = now() WHERE id = $1`, payload.WorkspaceID); err != nil {
 			log.Printf("Heartbeat: failed to recover %s to online: %v", payload.WorkspaceID, err)
 		}

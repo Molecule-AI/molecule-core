@@ -114,11 +114,11 @@ class TestDelegateTask:
             async def __aexit__(self, *a): pass
 
             async def get(self, url, headers=None):
-                calls.append(("get", url))
+                calls.append(("get", url, headers))
                 return _FakeResponse(200, {"url": "http://target.test/a2a"})
 
-            async def post(self, url, json=None):
-                calls.append(("post", url))
+            async def post(self, url, json=None, headers=None):
+                calls.append(("post", url, headers))
                 return _FakeResponse(200, {
                     "result": {
                         "parts": [{"kind": "text", "text": "Task done!"}]
@@ -130,7 +130,17 @@ class TestDelegateTask:
         result = await mod.delegate_task("ws-target", "do something")
         assert result == "Task done!"
         assert any(c[0] == "get" for c in calls)
-        assert any(c[0] == "post" for c in calls)
+        post_calls = [c for c in calls if c[0] == "post"]
+        assert post_calls, "delegate_task must POST to the target's /a2a endpoint"
+        # Regression: peer A2A POSTs MUST include X-Workspace-ID so
+        # the platform's a2a_receive logger writes source_id correctly
+        # — without it the recipient's My Chat tab would render the
+        # delegation as user-typed input. Same hazard fixed in
+        # heartbeat.py / a2a_client.py / main.py initial+idle flows.
+        post_headers = post_calls[0][2] or {}
+        assert post_headers.get("X-Workspace-ID"), (
+            f"delegate_task POST must include X-Workspace-ID; got headers={post_headers!r}"
+        )
 
     async def test_delegate_task_success_empty_parts(self, monkeypatch):
         """Result with empty parts list falls back to str(result)."""
@@ -144,7 +154,7 @@ class TestDelegateTask:
             async def get(self, url, headers=None):
                 return _FakeResponse(200, {"url": "http://target.test/a2a"})
 
-            async def post(self, url, json=None):
+            async def post(self, url, json=None, headers=None):
                 return _FakeResponse(200, {"result": {"parts": []}})
 
         monkeypatch.setattr(mod.httpx, "AsyncClient", FakeClient)
@@ -217,7 +227,7 @@ class TestDelegateTask:
             async def get(self, url, headers=None):
                 return _FakeResponse(200, {"url": "http://target.test/a2a"})
 
-            async def post(self, url, json=None):
+            async def post(self, url, json=None, headers=None):
                 return _FakeResponse(200, {
                     "error": {"code": -32603, "message": "Internal error"}
                 })
@@ -240,7 +250,7 @@ class TestDelegateTask:
             async def get(self, url, headers=None):
                 return _FakeResponse(200, {"url": "http://target.test/a2a"})
 
-            async def post(self, url, json=None):
+            async def post(self, url, json=None, headers=None):
                 return _FakeResponse(200, {"jsonrpc": "2.0", "id": "123"})
 
         monkeypatch.setattr(mod.httpx, "AsyncClient", FakeClient)
@@ -262,7 +272,7 @@ class TestDelegateTask:
             async def get(self, url, headers=None):
                 return _FakeResponse(200, {"url": "http://target.test/a2a"})
 
-            async def post(self, url, json=None):
+            async def post(self, url, json=None, headers=None):
                 call_count["n"] += 1
                 raise ConnectionError("target down")
 

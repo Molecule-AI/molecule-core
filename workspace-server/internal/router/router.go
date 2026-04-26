@@ -308,6 +308,7 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		wsAuth.PUT("/secrets", sech.Set)
 		wsAuth.DELETE("/secrets/:key", sech.Delete)
 		wsAuth.GET("/model", sech.GetModel)
+		wsAuth.PUT("/model", sech.SetModel)
 
 		// Token usage metrics — cost transparency (#593).
 		// WorkspaceAuth middleware (on wsAuth) binds the bearer to :id.
@@ -402,6 +403,17 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 		r.POST("/admin/a2a-queue/drop-stale", middleware.AdminAuth(db.DB), qH.DropStale)
 	}
 
+	// Admin — workspace template image refresh. Pulls latest images from GHCR
+	// and recreates running ws-* containers so they adopt the new image.
+	// Final step of the runtime CD chain — see docs/workspace-runtime-package.md.
+	// Operators (or post-publish automation) hit this after a runtime release.
+	// Reuses the provisioner's Docker client; no-op when prov is nil
+	// (test / non-Docker deploy).
+	if prov != nil {
+		imgH := handlers.NewAdminWorkspaceImagesHandler(prov.DockerClient())
+		r.POST("/admin/workspace-images/refresh", middleware.AdminAuth(db.DB), imgH.Refresh)
+	}
+
 	// Admin — test token minting (issue #6). Hidden in production via TestTokensEnabled().
 	// NOT behind AdminAuth — this is the bootstrap endpoint E2E tests and
 	// fresh installs use to obtain their first admin bearer. Adding AdminAuth
@@ -469,6 +481,14 @@ func Setup(hub *ws.Hub, broadcaster *events.Broadcaster, prov *provisioner.Provi
 	wsAuth.GET("/files/*path", tmplh.ReadFile)
 	wsAuth.PUT("/files/*path", tmplh.WriteFile)
 	wsAuth.DELETE("/files/*path", tmplh.DeleteFile)
+
+	// Chat attachments — file upload (user → agent) and binary-safe
+	// streaming download (agent → user). Namespaced under /chat/ so
+	// the security model is obviously distinct from /files/* (which
+	// handles workspace config/templates and has a different caller).
+	chatfh := handlers.NewChatFilesHandler(tmplh)
+	wsAuth.POST("/chat/uploads", chatfh.Upload)
+	wsAuth.GET("/chat/download", chatfh.Download)
 
 	// Plugins
 	pluginsDir := findPluginsDir(configsDir)

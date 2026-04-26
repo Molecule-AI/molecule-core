@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	dockerimage "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
@@ -141,6 +142,62 @@ func ContainerName(workspaceID string) string {
 		id = id[:12]
 	}
 	return fmt.Sprintf("ws-%s", id)
+}
+
+// containerNamePrefix is the shared prefix every workspace container
+// name carries (`ws-`). Used by ListWorkspaceContainerIDPrefixes for
+// the Docker name-filter, and by the orphan sweeper to recognise our
+// own containers vs. anything else on the host.
+const containerNamePrefix = "ws-"
+
+// ListWorkspaceContainerIDPrefixes returns the 12-char workspace ID
+// prefixes of every running ws-* container the Docker daemon knows
+// about. The 12-char form matches ContainerName's truncation, so the
+// orphan sweeper can intersect this set against `SELECT
+// substring(id::text, 1, 12) FROM workspaces WHERE status = 'removed'`
+// without an extra round-trip per row.
+//
+// Returns an empty slice on any Docker error (sweeper treats that as
+// "skip this round" — better than a partial scan that misses leaks).
+func (p *Provisioner) ListWorkspaceContainerIDPrefixes(ctx context.Context) ([]string, error) {
+	if p == nil || p.cli == nil {
+		return nil, nil
+	}
+	containers, err := p.cli.ContainerList(ctx, container.ListOptions{
+		// All=true catches stopped-but-not-removed containers too —
+		// those still hold their volume references and would block
+		// RemoveVolume just like a running container would.
+		All:     true,
+		Filters: filters.NewArgs(filters.Arg("name", containerNamePrefix)),
+	})
+	if err != nil {
+		return nil, err
+	}
+	prefixes := make([]string, 0, len(containers))
+	for _, c := range containers {
+		// Container names from the API include a leading slash:
+		// "/ws-abc123def456". Strip both the slash and our prefix
+		// to recover the 12-char workspace ID.
+		//
+		// The Docker name filter is a SUBSTRING match (not a prefix
+		// match), so something like "my-ws-thing" would also be
+		// returned. The HasPrefix check below is load-bearing:
+		// without it those false positives would flow into the
+		// orphan sweeper's DB query as bogus LIKE patterns.
+		for _, name := range c.Names {
+			n := strings.TrimPrefix(name, "/")
+			if !strings.HasPrefix(n, containerNamePrefix) {
+				continue
+			}
+			id := strings.TrimPrefix(n, containerNamePrefix)
+			if id == "" {
+				continue
+			}
+			prefixes = append(prefixes, id)
+			break // one name is enough; multiple aliases would dup
+		}
+	}
+	return prefixes, nil
 }
 
 // InternalURL returns the Docker-internal URL for a workspace container.
@@ -832,6 +889,14 @@ func (p *Provisioner) RemoveVolume(ctx context.Context, workspaceID string) erro
 // restart policy: if we ContainerStop first, the restart policy can
 // respawn the container before ContainerRemove runs, leaving a zombie
 // that re-registers via heartbeat after deletion.
+//
+// Returns nil on success AND on "container does not exist" (the cleanup
+// goal is achieved either way). Returns the underlying Docker error
+// only when the daemon actually failed to remove a live container —
+// callers that follow Stop with RemoveVolume MUST check the return
+// and skip volume removal on a real error, otherwise the volume
+// removal will fail with "volume in use" because the container is
+// still alive.
 func (p *Provisioner) Stop(ctx context.Context, workspaceID string) error {
 	if p == nil || p.cli == nil {
 		return ErrNoBackend
@@ -839,15 +904,23 @@ func (p *Provisioner) Stop(ctx context.Context, workspaceID string) error {
 	name := ContainerName(workspaceID)
 
 	// Force-remove kills and removes in one atomic operation, bypassing
-	// the restart policy entirely. If the container doesn't exist, the
-	// error is harmless.
-	if err := p.cli.ContainerRemove(ctx, name, container.RemoveOptions{Force: true}); err != nil {
-		// Container may already be gone — log but don't fail.
-		log.Printf("Provisioner: force-remove warning for %s: %v", name, err)
+	// the restart policy entirely.
+	err := p.cli.ContainerRemove(ctx, name, container.RemoveOptions{Force: true})
+	if err == nil {
+		log.Printf("Provisioner: stopped and removed container %s", name)
+		return nil
 	}
-
-	log.Printf("Provisioner: stopped and removed container %s", name)
-	return nil
+	if isContainerNotFound(err) {
+		// Container was already gone — the post-condition we want is
+		// satisfied. Don't surface as an error.
+		log.Printf("Provisioner: container %s already gone (no-op)", name)
+		return nil
+	}
+	// Real failure: daemon timeout, socket EOF, ctx cancellation, etc.
+	// Caller (workspace_crud.stopAndRemove, orphan_sweeper.sweepOnce)
+	// must propagate this so they can skip the follow-up RemoveVolume.
+	log.Printf("Provisioner: force-remove failed for %s: %v", name, err)
+	return fmt.Errorf("force-remove %s: %w", name, err)
 }
 
 // IsRunning checks if a workspace container is currently running.
@@ -1082,6 +1155,13 @@ func pullImageAndDrain(ctx context.Context, cli dockerImageClient, ref, platform
 //
 // Tracked in issue #1875; remove this fallback once the template repos
 // publish multi-arch manifests.
+// DefaultImagePlatform is the exported alias used by the admin
+// workspace-images handler so its ImagePull picks the same platform as
+// the provisioner's. Avoids duplicating the Apple-Silicon-needs-amd64
+// logic and keeps both call sites in sync if Docker manifest support
+// changes (e.g., when the templates start shipping multi-arch).
+func DefaultImagePlatform() string { return defaultImagePlatform() }
+
 func defaultImagePlatform() string {
 	if v, ok := os.LookupEnv("MOLECULE_IMAGE_PLATFORM"); ok {
 		return v

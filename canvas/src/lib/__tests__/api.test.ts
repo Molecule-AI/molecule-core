@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
-import { api } from "../api";
+import { api, PlatformUnavailableError } from "../api";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -378,5 +378,101 @@ describe("api – request timeout signal", () => {
     // not be the same reference, otherwise one slow request could cancel
     // a subsequent fast request.
     expect(sigA).not.toBe(sigB);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PlatformUnavailableError classification
+// ---------------------------------------------------------------------------
+//
+// When the platform's wsauth middleware can't reach Postgres/Redis to
+// validate a token, it returns 503 + {error, code:"platform_unavailable"}.
+// api.ts must surface that as a typed error so the page-level renderer
+// can show a dedicated diagnostic instead of a generic 5xx toast.
+
+describe("PlatformUnavailableError classification", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  function mock503Platform(detail = "platform datastore unavailable — retry shortly") {
+    const body = JSON.stringify({ error: detail, code: "platform_unavailable" });
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: () => Promise.reject(new Error("not used")),
+      text: () => Promise.resolve(body),
+    } as unknown as Response);
+  }
+
+  it("throws PlatformUnavailableError on 503 + code=platform_unavailable", async () => {
+    mock503Platform();
+    let thrown: unknown;
+    try {
+      await api.get("/workspaces");
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(PlatformUnavailableError);
+    expect((thrown as PlatformUnavailableError).code).toBe("platform_unavailable");
+  });
+
+  it("preserves the server-provided error string as the Error message", async () => {
+    mock503Platform("Postgres unreachable");
+    try {
+      await api.get("/workspaces");
+    } catch (e) {
+      expect(e).toBeInstanceOf(PlatformUnavailableError);
+      expect((e as Error).message).toBe("Postgres unreachable");
+      return;
+    }
+    throw new Error("expected to throw");
+  });
+
+  it("does NOT classify a generic 503 (no platform_unavailable code) as PlatformUnavailableError", async () => {
+    // Generic upstream-busy 503 — should keep the legacy generic-Error
+    // path so existing busy-retry UX isn't disrupted.
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: () => Promise.reject(new Error("not used")),
+      text: () => Promise.resolve(JSON.stringify({ error: "upstream busy" })),
+    } as unknown as Response);
+    try {
+      await api.get("/workspaces/x/a2a");
+    } catch (e) {
+      expect(e).not.toBeInstanceOf(PlatformUnavailableError);
+      expect((e as Error).message).toContain("503");
+      return;
+    }
+    throw new Error("expected to throw");
+  });
+
+  it("does NOT classify on 500 (server kept legacy 500 for true internal errors)", async () => {
+    mockFailure(500, "boom");
+    try {
+      await api.get("/workspaces");
+    } catch (e) {
+      expect(e).not.toBeInstanceOf(PlatformUnavailableError);
+      return;
+    }
+    throw new Error("expected to throw");
+  });
+
+  it("falls back to generic Error when 503 body isn't JSON", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: () => Promise.reject(new Error("not used")),
+      text: () => Promise.resolve("Service Unavailable"),
+    } as unknown as Response);
+    try {
+      await api.get("/workspaces");
+    } catch (e) {
+      expect(e).not.toBeInstanceOf(PlatformUnavailableError);
+      expect((e as Error).message).toContain("503");
+      return;
+    }
+    throw new Error("expected to throw");
   });
 });

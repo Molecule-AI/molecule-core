@@ -195,14 +195,35 @@ TENANT_TOKEN=$(echo "$TENANT_TOKEN_RESP" | python3 -c "import json,sys; print(js
 ok "Tenant admin token retrieved (len=${#TENANT_TOKEN})"
 
 # ─── 4. Wait for tenant TLS / DNS propagation ──────────────────────────
+# Kept below the 20-min provision envelope so a genuinely-stuck tenant
+# still fails loud at the earlier provision step rather than masquerading
+# as a TLS issue. CF DNS propagation + tunnel hostname registration +
+# ACME cert + edge cache run 5-7 min on a healthy day; +5 min headroom
+# over the previous 10-min cap covers the slower path observed in #2090.
+#
+# On timeout, dump DNS + curl -v + headers so the next failure identifies
+# the broken layer (DNS / TLS / HTTP). Authorization is redacted
+# defensively in case a future caller adds an auth header to this probe.
 log "4/11 Waiting for tenant TLS / DNS propagation..."
-TLS_DEADLINE=$(( $(date +%s) + 180 ))
+TLS_TIMEOUT_SEC=$((15 * 60))
+TLS_DEADLINE=$(( $(date +%s) + TLS_TIMEOUT_SEC ))
+TENANT_HOST="${TENANT_URL#http*://}"
+TENANT_HOST="${TENANT_HOST%%/*}"
+TENANT_HOST="${TENANT_HOST%%:*}"
 while true; do
   if curl -sSfk --max-time 5 "$TENANT_URL/health" >/dev/null 2>&1; then
     break
   fi
   if [ "$(date +%s)" -gt "$TLS_DEADLINE" ]; then
-    fail "Tenant URL never responded 2xx on /health within 3 min"
+    log "── DIAGNOSTIC BURST (TLS-readiness timeout) ──"
+    log "DNS lookup ($TENANT_HOST):"
+    getent hosts "$TENANT_HOST" 2>&1 || log "  (no DNS resolution)"
+    log "curl -v $TENANT_URL/health (last 40 lines):"
+    curl -kv --max-time 10 "$TENANT_URL/health" 2>&1 \
+      | sed -E 's/(Authorization|Cookie):.*/\1: [redacted]/i' \
+      | tail -n 40 | sed 's/^/  /' || true
+    log "── END DIAGNOSTIC ──"
+    fail "Tenant URL never responded 2xx on /health within ${TLS_TIMEOUT_SEC}s"
   fi
   sleep 5
 done
@@ -402,6 +423,13 @@ if echo "$AGENT_TEXT" | grep -qF "Encrypted content is not supported"; then
 fi
 if echo "$AGENT_TEXT" | grep -qF "Unknown provider"; then
   fail "A2A — REGRESSION: install.sh set PROVIDER to a value not in hermes's registry. Run 'hermes doctor' on the workspace to see valid values. Raw: $AGENT_TEXT"
+fi
+# "Invalid API key" — the comment block lists this as a CP #238 race
+# (tenant auth chain) signal but the grep was missing. Caller-side
+# 401's containing this exact phrase don't match the generic
+# "error|exception" catch-all below, so they'd slip through.
+if echo "$AGENT_TEXT" | grep -qF "Invalid API key"; then
+  fail "A2A — REGRESSION: tenant auth chain returned 'Invalid API key'. Likely CP boot-event 401 race (CP #238) or stale OPENAI_API_KEY in the runtime env. Raw: $AGENT_TEXT"
 fi
 # Generic catch-all — falls through if none of the known regressions hit.
 if echo "$AGENT_TEXT" | grep -qiE "error|exception"; then

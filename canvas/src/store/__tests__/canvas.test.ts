@@ -484,6 +484,70 @@ describe("removeNode", () => {
   });
 });
 
+// ---------- removeSubtree ----------
+
+describe("removeSubtree", () => {
+  beforeEach(() => {
+    useCanvasStore.getState().hydrate([
+      makeWS({ id: "root" }),
+      makeWS({ id: "mid", parent_id: "root" }),
+      makeWS({ id: "leaf", parent_id: "mid" }),
+      makeWS({ id: "sibling", parent_id: "root" }),
+      makeWS({ id: "unrelated" }), // separate root
+    ]);
+  });
+
+  it("removes the root and every descendant in one shot", () => {
+    useCanvasStore.getState().removeSubtree("root");
+    const ids = useCanvasStore
+      .getState()
+      .nodes.map((n) => n.id)
+      .sort();
+    expect(ids).toEqual(["unrelated"]);
+  });
+
+  it("removes a mid-level node and its descendants but leaves siblings + ancestors", () => {
+    useCanvasStore.getState().removeSubtree("mid");
+    const ids = useCanvasStore
+      .getState()
+      .nodes.map((n) => n.id)
+      .sort();
+    expect(ids).toEqual(["root", "sibling", "unrelated"]);
+  });
+
+  it("removing a leaf is a no-op cascade (just drops the leaf)", () => {
+    useCanvasStore.getState().removeSubtree("leaf");
+    const ids = useCanvasStore
+      .getState()
+      .nodes.map((n) => n.id)
+      .sort();
+    expect(ids).toEqual(["mid", "root", "sibling", "unrelated"]);
+  });
+
+  it("clears selection when the selected node is anywhere in the removed subtree", () => {
+    useCanvasStore.getState().selectNode("leaf");
+    useCanvasStore.getState().removeSubtree("root");
+    expect(useCanvasStore.getState().selectedNodeId).toBeNull();
+  });
+
+  it("preserves selection when the selected node is outside the removed subtree", () => {
+    useCanvasStore.getState().selectNode("unrelated");
+    useCanvasStore.getState().removeSubtree("root");
+    expect(useCanvasStore.getState().selectedNodeId).toBe("unrelated");
+  });
+
+  it("drops edges incident to any removed node", () => {
+    // The hydrate-built edges connect parent → child. After removing
+    // `root`, no edge involving root/mid/leaf/sibling should remain.
+    useCanvasStore.getState().removeSubtree("root");
+    const remaining = useCanvasStore.getState().edges;
+    for (const e of remaining) {
+      expect(["root", "mid", "leaf", "sibling"]).not.toContain(e.source);
+      expect(["root", "mid", "leaf", "sibling"]).not.toContain(e.target);
+    }
+  });
+});
+
 // ---------- isDescendant ----------
 
 describe("isDescendant", () => {

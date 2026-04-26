@@ -26,7 +26,13 @@ import (
 )
 
 type WorkspaceHandler struct {
-	broadcaster *events.Broadcaster
+	// broadcaster narrowed from `*events.Broadcaster` to the
+	// events.EventEmitter interface (#1814) so tests can substitute a
+	// capture-only stub without standing up the real Redis + WS-hub
+	// topology. Production callers still pass *events.Broadcaster, which
+	// satisfies the interface — see the compile-time assertion in
+	// internal/events/broadcaster.go.
+	broadcaster events.EventEmitter
 	provisioner *provisioner.Provisioner
 	cpProv      *provisioner.CPProvisioner
 	platformURL string
@@ -46,7 +52,7 @@ type WorkspaceHandler struct {
 	provisionTimeouts runtimeProvisionTimeoutsCache
 }
 
-func NewWorkspaceHandler(b *events.Broadcaster, p *provisioner.Provisioner, platformURL, configsDir string) *WorkspaceHandler {
+func NewWorkspaceHandler(b events.EventEmitter, p *provisioner.Provisioner, platformURL, configsDir string) *WorkspaceHandler {
 	return &WorkspaceHandler{
 		broadcaster: b,
 		provisioner: p,
@@ -204,11 +210,15 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		return
 	}
 
+	maxConcurrent := payload.MaxConcurrentTasks
+	if maxConcurrent <= 0 {
+		maxConcurrent = models.DefaultMaxConcurrentTasks
+	}
 	// Insert workspace with runtime persisted in DB (inside transaction)
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access, budget_limit)
-		VALUES ($1, $2, $3, $4, $5, $6, 'provisioning', $7, $8, $9, $10)
-	`, id, payload.Name, role, payload.Tier, payload.Runtime, awarenessNamespace, payload.ParentID, workspaceDir, workspaceAccess, payload.BudgetLimit)
+		INSERT INTO workspaces (id, name, role, tier, runtime, awareness_namespace, status, parent_id, workspace_dir, workspace_access, budget_limit, max_concurrent_tasks)
+		VALUES ($1, $2, $3, $4, $5, $6, 'provisioning', $7, $8, $9, $10, $11)
+	`, id, payload.Name, role, payload.Tier, payload.Runtime, awarenessNamespace, payload.ParentID, workspaceDir, workspaceAccess, payload.BudgetLimit, maxConcurrent)
 	if err != nil {
 		tx.Rollback() //nolint:errcheck
 		log.Printf("Create workspace error: %v", err)

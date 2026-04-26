@@ -127,7 +127,16 @@ var testAllowLoopback = false
 // container deployments the relaxation is off and every private range
 // stays blocked.
 func isPrivateOrMetadataIP(ip net.IP) bool {
-	saas := saasMode()
+	// MOLECULE_ENV=development is the dev-host pattern: platform and
+	// workspace containers share a docker bridge network (172.18.0.0/16,
+	// RFC-1918). Treat that the same as SaaS for private-range relaxation
+	// — both share the "trusted intra-network routing" property. Without
+	// this, every workspace registration via docker-internal hostname
+	// resolves to 172.18.x.x and gets rejected as
+	// "workspace URL is not publicly routable", breaking the entire
+	// docker-compose dev loop. Always-blocked categories (metadata link-
+	// local, TEST-NET, CGNAT) remain blocked regardless.
+	saas := saasMode() || devModeAllowsLoopback()
 
 	// IPv4 path.
 	if ip4 := ip.To4(); ip4 != nil {

@@ -32,6 +32,64 @@ export function extractTextsFromParts(parts: unknown): string | null {
   return texts.length > 0 ? texts.join("\n") : null;
 }
 
+export interface ParsedFilePart {
+  name: string;
+  uri: string;
+  mimeType?: string;
+  size?: number;
+}
+
+/** Extract file parts from an A2A response. Walks parts[] + artifacts[].
+ *  Per the A2A spec a file part looks like:
+ *    { kind: "file", file: { name, mimeType, uri | bytes } }
+ *  We only surface parts that carry a `uri` — inline bytes would
+ *  require a different renderer (data URL) and are out of scope for
+ *  MVP. Names fall back to the URI's basename when absent. */
+export function extractFilesFromTask(task: Record<string, unknown>): ParsedFilePart[] {
+  const out: ParsedFilePart[] = [];
+  const pushFromParts = (parts: unknown) => {
+    if (!Array.isArray(parts)) return;
+    for (const raw of parts as Array<Record<string, unknown>>) {
+      if (raw.kind !== "file" && raw.type !== "file") continue;
+      const file = (raw.file ?? raw) as Record<string, unknown>;
+      const uri = typeof file.uri === "string" ? file.uri : "";
+      if (!uri) continue;
+      const name = (typeof file.name === "string" && file.name) || basename(uri);
+      out.push({
+        name,
+        uri,
+        mimeType: typeof file.mimeType === "string" ? file.mimeType : undefined,
+        size: typeof file.size === "number" ? file.size : undefined,
+      });
+    }
+  };
+  try {
+    pushFromParts(task.parts);
+    const artifacts = task.artifacts as Array<Record<string, unknown>> | undefined;
+    if (artifacts) for (const a of artifacts) pushFromParts(a.parts);
+    const status = task.status as Record<string, unknown> | undefined;
+    if (status?.message) {
+      const msg = status.message as Record<string, unknown>;
+      pushFromParts(msg.parts);
+    }
+    // Some A2A servers wrap a non-task reply as
+    // {result: {message: {parts: [...]}}} rather than {result: {parts}}.
+    // Without this branch we'd silently drop file parts returned by
+    // third-party implementations.
+    const message = task.message as Record<string, unknown> | undefined;
+    if (message) pushFromParts(message.parts);
+  } catch {
+    /* tolerate malformed shapes — chat falls through to text-only */
+  }
+  return out;
+}
+
+function basename(uri: string): string {
+  const cleaned = uri.replace(/^workspace:/, "").replace(/^https?:\/\//, "");
+  const slash = cleaned.lastIndexOf("/");
+  return slash >= 0 ? cleaned.slice(slash + 1) : cleaned || "file";
+}
+
 /** Extract user message text from an activity log request_body */
 export function extractRequestText(body: Record<string, unknown> | null): string {
   if (!body) return "";
@@ -41,22 +99,54 @@ export function extractRequestText(body: Record<string, unknown> | null): string
   return (parts?.[0]?.text as string) || "";
 }
 
-/** Extract text from an activity log response_body (multiple possible formats) */
+/** Extract text from an activity log response_body (multiple possible formats).
+ *
+ *  Collects from EVERY source — top-level `parts[].text`, `parts[].root.text`
+ *  (older nested shape), and `artifacts[].parts[].text` (task-shaped
+ *  replies) — and joins them with "\n". Two reasons to collect rather
+ *  than early-return:
+ *
+ *    1. Claude Code and other long-reply runtimes emit multiple text
+ *       parts in a single `parts` array. Returning just the first
+ *       silently truncates 15k-char briefs to their leading line
+ *       (observed UX A/B Lab Wave 1, 2026-04-25).
+ *
+ *    2. Some producers emit a summary in `parts[].text` AND details in
+ *       `artifacts[].parts[].text` (Hermes does this for tool calls).
+ *       The previous "first source wins" returned only the summary;
+ *       artifacts dropped silently. */
 export function extractResponseText(body: Record<string, unknown>): string {
   try {
     // {result: "text"} — from MCP server delegation logs
     if (typeof body.result === "string") return body.result;
 
-    // A2A JSON-RPC response: {result: {parts: [{kind: "text", text: "..."}]}}
     const result = body.result as Record<string, unknown> | undefined;
     if (result) {
+      const collected: string[] = [];
+
+      // A2A JSON-RPC: {result: {parts: [{kind: "text", text: "..."}]}}
+      const fromParts = extractTextsFromParts(result.parts);
+      if (fromParts) collected.push(fromParts);
+
+      // Older nested shape: {parts: [{root: {text: "..."}}]}
       const parts = (result.parts || []) as Array<Record<string, unknown>>;
+      const rootTexts: string[] = [];
       for (const p of parts) {
-        const t = (p.text as string) || "";
-        if (t) return t;
         const root = p.root as Record<string, unknown> | undefined;
-        if (root?.text) return root.text as string;
+        if (root?.text) rootTexts.push(root.text as string);
       }
+      if (rootTexts.length > 0) collected.push(rootTexts.join("\n"));
+
+      // Task shape: {result: {artifacts: [{parts: [...]}]}}
+      const artifacts = result.artifacts as Array<Record<string, unknown>> | undefined;
+      if (artifacts) {
+        for (const a of artifacts) {
+          const t = extractTextsFromParts(a.parts);
+          if (t) collected.push(t);
+        }
+      }
+
+      if (collected.length > 0) return collected.join("\n");
     }
 
     // {task: "text"} — request body format, shouldn't be in response but handle it

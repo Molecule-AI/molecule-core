@@ -1,5 +1,9 @@
 @import "xterm/css/xterm.css";
+/* Theme tokens MUST load before any feature stylesheet that
+   references them so custom properties are in scope. */
+@import "../styles/theme-tokens.css";
 @import "../styles/settings-panel.css";
+@import "../styles/org-deploy.css";
 
 @tailwind base;
 @tailwind components;
@@ -38,7 +42,20 @@ body {
 }
 
 .react-flow__node {
-  transition: box-shadow 0.2s ease;
+  /* Transform transition drives the "spawn from parent" motion —
+     org-deploy sets the node's initial position to the parent's
+     absolute coords, then repositions to the real slot, and this
+     transition interpolates the translate() in between.
+     Non-deploy workspace moves (drag, nest) get the same smoothing
+     for free. */
+  transition:
+    box-shadow var(--mol-duration-fast) ease,
+    transform var(--mol-duration-spawn) var(--mol-easing-bounce-out);
+}
+/* Drag events must feel instant — React Flow adds this class
+   for the lifetime of the gesture. */
+.react-flow__node.dragging {
+  transition: box-shadow var(--mol-duration-fast) ease;
 }
 
 /* Scrollbar styling */

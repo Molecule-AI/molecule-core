@@ -33,6 +33,14 @@ import (
 )
 
 func main() {
+	// .env auto-load: in dev, the operator keeps MOLECULE_ENV /
+	// DATABASE_URL / etc. in the monorepo's .env file. Loading it here
+	// — before any code reads env — means a fresh `/tmp/molecule-server`
+	// run picks up dev config without `set -a && source .env`. No-op
+	// in production (Docker image doesn't ship a .env, and existing env
+	// always wins over file values, so container env stays dominant).
+	loadDotEnvIfPresent()
+
 	// CP self-refresh: pull any operator-rotated config (e.g. a new
 	// MOLECULE_CP_SHARED_SECRET) before any other code reads env.
 	// Best-effort — if the CP is unreachable we keep booting with the
@@ -218,6 +226,18 @@ func main() {
 	if prov != nil {
 		go supervised.RunWithRecover(ctx, "health-sweep", func(c context.Context) {
 			registry.StartHealthSweep(c, prov, 15*time.Second, onWorkspaceOffline)
+		})
+	}
+
+	// Orphan-container reconcile sweep — finds running containers
+	// whose workspace row is already status='removed' and stops
+	// them. Defence in depth on top of the inline cleanup in
+	// handlers/workspace_crud.go: any Docker hiccup that left a
+	// container alive after the user clicked delete heals on the
+	// next sweep instead of leaking forever.
+	if prov != nil {
+		go supervised.RunWithRecover(ctx, "orphan-sweeper", func(c context.Context) {
+			registry.StartOrphanSweeper(c, prov)
 		})
 	}
 

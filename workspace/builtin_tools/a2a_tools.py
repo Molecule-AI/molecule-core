@@ -42,10 +42,15 @@ async def delegate_task(workspace_id: str, task: str) -> str:
         except Exception as e:
             return f"Error discovering workspace: {e}"
 
-        # Send A2A message
+        # Send A2A message. X-Workspace-ID identifies us as the source —
+        # without it the platform's a2a_receive logger writes
+        # source_id=NULL and the recipient's My Chat tab renders the
+        # delegation as if a human user typed it. Same hazard fixed
+        # in heartbeat.py / a2a_client.py / main.py initial+idle flows.
         try:
             a2a_resp = await client.post(
                 target_url,
+                headers={"X-Workspace-ID": WORKSPACE_ID},
                 json={
                     "jsonrpc": "2.0",
                     "id": str(uuid.uuid4()),

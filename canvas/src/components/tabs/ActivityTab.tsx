@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { ConversationTraceModal } from "@/components/ConversationTraceModal";
 import { type ActivityEntry } from "@/types/activity";
 import { useWorkspaceName } from "@/hooks/useWorkspaceName";
+import { inferA2AErrorHint } from "./chat/a2aErrorHint";
 
 interface Props {
   workspaceId: string;
@@ -286,6 +287,26 @@ function ActivityRow({
   );
 }
 
+const A2A_ERROR_PREFIX = "[A2A_ERROR]";
+
+/** Render a [A2A_ERROR]-prefixed response as a structured error block
+ *  with a stripped detail line + a cause hint. The previous raw render
+ *  ("[A2A_ERROR] " literal in the response area) gave the user no
+ *  signal to act on. */
+function A2AErrorPreview({ label, raw }: { label: string; raw: string }) {
+  const detail = raw.slice(A2A_ERROR_PREFIX.length).trim() || "(no detail provided)";
+  const hint = inferA2AErrorHint(detail);
+  return (
+    <div>
+      <div className="text-[8px] text-red-400/80 uppercase tracking-wider mb-1">{label} — delivery failed</div>
+      <div className="text-[10px] text-red-300 bg-red-950/30 border border-red-800/40 rounded p-2 space-y-1.5">
+        <div className="font-mono whitespace-pre-wrap break-words max-h-32 overflow-y-auto">{detail}</div>
+        <div className="text-[9px] text-red-300/70 leading-relaxed border-t border-red-800/30 pt-1.5">{hint}</div>
+      </div>
+    </div>
+  );
+}
+
 /** Extract human-readable text from A2A request/response JSON */
 function MessagePreview({ label, body }: { label: string; body: Record<string, unknown> }) {
   // Try to extract text from A2A message parts
@@ -295,6 +316,14 @@ function MessagePreview({ label, body }: { label: string; body: Record<string, u
     if (body.task && typeof body.task === "string") { text = body.task; }
     if (!text && body.result && typeof body.result === "string") { text = body.result; }
     if (text) {
+      // [A2A_ERROR]-prefixed responses get the structured error
+      // treatment. Bare text fallthrough renders a bland gray block
+      // — fine for normal replies, terrible for "[A2A_ERROR] " with
+      // no further context. Detect at the top of the rendering path
+      // so it short-circuits before the generic preview kicks in.
+      if (text.trimStart().startsWith(A2A_ERROR_PREFIX)) {
+        return <A2AErrorPreview label={label} raw={text.trimStart()} />;
+      }
       return (
         <div>
           <div className="text-[8px] text-zinc-500 uppercase tracking-wider mb-1">{label}</div>

@@ -105,12 +105,17 @@ interface RuntimeOption {
 // Fallback used when /templates can't be fetched (offline, older backend).
 // Keep in sync with manifest.json workspace_templates as a defensive default.
 // Model + env suggestions only flow when the backend is reachable.
+//
 // Runtimes that manage their own config outside the platform's config.yaml
-// template. For these, a missing config.yaml is expected — the user manages
-// config via the runtime's own mechanism (e.g. hermes edits
-// ~/.hermes/config.yaml on the workspace EC2 via the Terminal tab or its
-// own CLI). Showing a "No config.yaml found" error for these is misleading.
-const RUNTIMES_WITH_OWN_CONFIG = new Set<string>(["hermes", "external"]);
+// template. For these, a missing config.yaml is expected and the form
+// genuinely can't edit the runtime's settings (there's no platform file
+// to write). Hermes is NOT on this list: it DOES ship a platform
+// config.yaml via workspace-configs-templates/hermes that controls model,
+// runtime_config, required_env, etc. Editing it through this form is
+// exactly the point of the platform adaptor. The deep `~/.hermes/
+// config.yaml` on the container is a separate runtime-internal file,
+// not this one.
+const RUNTIMES_WITH_OWN_CONFIG = new Set<string>(["external"]);
 
 const FALLBACK_RUNTIME_OPTIONS: RuntimeOption[] = [
   { value: "", label: "LangGraph (default)", models: [] },
@@ -152,9 +157,11 @@ export function ConfigTab({ workspaceId }: Props) {
     // default `LangGraph`. See GH #1894.
     let wsMetadataRuntime = "";
     let wsMetadataModel = "";
+    let wsMetadataTier: number | null = null;
     try {
-      const ws = await api.get<{ runtime?: string }>(`/workspaces/${workspaceId}`);
+      const ws = await api.get<{ runtime?: string; tier?: number }>(`/workspaces/${workspaceId}`);
       wsMetadataRuntime = (ws.runtime || "").trim();
+      if (typeof ws.tier === "number") wsMetadataTier = ws.tier;
     } catch { /* fall back to config.yaml */ }
     try {
       const m = await api.get<{ model?: string }>(`/workspaces/${workspaceId}/model`);
@@ -166,11 +173,15 @@ export function ConfigTab({ workspaceId }: Props) {
       const parsed = parseYaml(res.content);
       setOriginalYaml(res.content);
       setRawDraft(res.content);
-      // Merge: config.yaml wins for fields it declares, but workspace metadata
-      // wins for runtime + model when config.yaml doesn't set them.
+      // Merge: workspace-row metadata is authoritative for the DB-backed
+      // fields (tier, runtime, model). config.yaml often lags — handleSave
+      // PATCHes tier/runtime directly and a template snapshot in the
+      // container can differ from the live row. Show the DB value so the
+      // form doesn't contradict the node badge (issue: badge=T3, form=T2).
       const merged = { ...DEFAULT_CONFIG, ...parsed } as ConfigData;
-      if (!merged.runtime && wsMetadataRuntime) merged.runtime = wsMetadataRuntime;
-      if (!merged.model && wsMetadataModel) merged.model = wsMetadataModel;
+      if (wsMetadataRuntime) merged.runtime = wsMetadataRuntime;
+      if (wsMetadataModel) merged.model = wsMetadataModel;
+      if (wsMetadataTier !== null) merged.tier = wsMetadataTier;
       setConfig(merged);
     } catch {
       // No platform-managed config.yaml. Some runtimes (hermes, external)
@@ -185,6 +196,7 @@ export function ConfigTab({ workspaceId }: Props) {
         ...DEFAULT_CONFIG,
         runtime: wsMetadataRuntime,
         model: wsMetadataModel,
+        ...(wsMetadataTier !== null ? { tier: wsMetadataTier } : {}),
       } as ConfigData);
     } finally {
       setLoading(false);

@@ -33,6 +33,46 @@ export interface TemplateLike {
   required_env?: string[];
 }
 
+/** Full /templates response shape shared by TemplatePalette (sidebar)
+ *  and EmptyState (welcome grid). Was previously re-declared in each
+ *  with subtly different fields — EmptyState's narrower shape silently
+ *  dropped `runtime`, `models`, and `required_env`, so the preflight
+ *  couldn't see provider alternatives the template declared. Keep this
+ *  the single source of truth.  */
+export interface Template extends TemplateLike {
+  id: string;
+  name: string;
+  description: string;
+  tier: number;
+  model: string;
+  skills: string[];
+  skill_count: number;
+}
+
+/** Map from a template id to the runtime name the per-workspace
+ *  preflight expects. Used only when the server's `/templates`
+ *  response predates the `runtime` field on the summary (legacy
+ *  installs) — modern responses carry it verbatim. Strip `-default`
+ *  for the claude-code template and identity-map everything else
+ *  that matches our current runtime registry.
+ *
+ *  Lives in the preflight module (not TemplatePalette) so EmptyState
+ *  uses the SAME fallback table. A previous duplication in both call
+ *  sites left EmptyState with only the `-default` suffix strip, which
+ *  would silently disagree with TemplatePalette on templates whose
+ *  id needs a non-identity mapping. */
+export function resolveRuntime(templateId: string): string {
+  const runtimeMap: Record<string, string> = {
+    langgraph: "langgraph",
+    "claude-code-default": "claude-code",
+    openclaw: "openclaw",
+    deepagents: "deepagents",
+    crewai: "crewai",
+    autogen: "autogen",
+  };
+  return runtimeMap[templateId] ?? templateId.replace(/-default$/, "");
+}
+
 export interface SecretEntry {
   key: string;
   has_value: boolean;

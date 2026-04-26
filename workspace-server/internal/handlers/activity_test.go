@@ -217,6 +217,86 @@ func TestActivityReport_RejectsUnknownType(t *testing.T) {
 	}
 }
 
+func TestNotify_PersistsToActivityLogsForReloadRecovery(t *testing.T) {
+	// Regression guard for the "responses gone on reload" bug. send_message_to_user
+	// pushes (which route through Notify) used to be broadcast-only — they
+	// rendered in the canvas but vanished on page reload because nothing
+	// wrote them to activity_logs. The chat history loader queries
+	// `type=a2a_receive&source=canvas`, so the persisted row must:
+	//   - Use activity_type='a2a_receive' (loader's filter)
+	//   - Have source_id NULL (canvas-source filter)
+	//   - Carry the message text in response_body so extractResponseText
+	//     can reconstruct the agent reply on reload
+	mockDB, mock, _ := sqlmock.New()
+	defer mockDB.Close()
+	db.DB = mockDB
+
+	// Workspace existence check
+	mock.ExpectQuery(`SELECT name FROM workspaces`).
+		WithArgs("ws-notify").
+		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("DD"))
+
+	// Persistence INSERT — verify shape
+	mock.ExpectExec(`INSERT INTO activity_logs`).
+		WithArgs(
+			"ws-notify",
+			sqlmock.AnyArg(), // summary
+			sqlmock.AnyArg(), // response_body JSON
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	broadcaster := newTestBroadcaster()
+	handler := NewActivityHandler(broadcaster)
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-notify"}}
+	body := `{"message":"agent reply that arrived after the sync POST timed out"}`
+	c.Request = httptest.NewRequest("POST", "/workspaces/ws-notify/notify", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	handler.Notify(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("DB expectations not met: %v", err)
+	}
+}
+
+func TestNotify_DBFailure_StillBroadcastsAnd200(t *testing.T) {
+	// Persistence is best-effort — a DB hiccup must NOT block the
+	// WebSocket push (which the user is already seeing in their open
+	// canvas). Pre-fix the WS push always succeeded; we don't want
+	// the new persistence step to regress that path.
+	mockDB, mock, _ := sqlmock.New()
+	defer mockDB.Close()
+	db.DB = mockDB
+
+	mock.ExpectQuery(`SELECT name FROM workspaces`).
+		WithArgs("ws-x").
+		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("DD"))
+	mock.ExpectExec(`INSERT INTO activity_logs`).
+		WillReturnError(fmt.Errorf("simulated db hiccup"))
+
+	broadcaster := newTestBroadcaster()
+	handler := NewActivityHandler(broadcaster)
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-x"}}
+	body := `{"message":"hi"}`
+	c.Request = httptest.NewRequest("POST", "/workspaces/ws-x/notify", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	handler.Notify(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("DB failure must not break the response; got %d", w.Code)
+	}
+}
+
 // ==================== Direct unit tests for SessionSearch helpers ====================
 
 // --- parseSessionSearchParams ---
