@@ -17,10 +17,8 @@ import unittest
 import sweep_cf_decide as M
 
 
-# --- Fixtures ---------------------------------------------------------------
-
-PROD = {"acme", "globex", "initech"}
-STAGING = {"e2e-test-runner", "soak", "playground"}
+# Caller responsibility (per the new decide signature): compute the union once.
+ALL_SLUGS = {"acme", "globex", "initech", "e2e-test-runner", "soak", "playground"}
 LIVE_EC2 = {"ws-d3605ef2-f7d", "ws-aaaaaaaa-bbb", "ws-cafef00d-dec"}
 
 
@@ -29,10 +27,7 @@ def rec(name: str, rid: str = "rid-x", typ: str = "A") -> dict:
 
 
 def call(record: dict) -> tuple:
-    return M.decide(record, PROD, STAGING, LIVE_EC2)
-
-
-# --- Rule 1: platform core --------------------------------------------------
+    return M.decide(record, ALL_SLUGS, LIVE_EC2)
 
 
 class TestPlatformCore(unittest.TestCase):
@@ -43,10 +38,10 @@ class TestPlatformCore(unittest.TestCase):
         self.assertEqual((action, reason), ("keep", "apex"))
 
     def test_underscore_records_kept(self):
-        # _vercel, _domainkey, _railway-verify, etc.
         for n in ("_vercel.moleculesai.app", "_railway-verify.moleculesai.app"):
-            action, reason, *_ = call(rec(n))
-            self.assertEqual((action, reason), ("keep", "verification/key"), n)
+            with self.subTest(name=n):
+                action, reason, *_ = call(rec(n))
+                self.assertEqual((action, reason), ("keep", "verification/key"))
 
     def test_dkim_kept(self):
         action, reason, *_ = call(rec("send._domainkey.moleculesai.app"))
@@ -62,11 +57,9 @@ class TestPlatformCore(unittest.TestCase):
             "www.moleculesai.app",
             "staging-api.moleculesai.app",
         ):
-            action, reason, *_ = call(rec(n))
-            self.assertEqual((action, reason), ("keep", "platform-core"), n)
-
-
-# --- Rule 3: ws-<hex8>-<rest> -----------------------------------------------
+            with self.subTest(name=n):
+                action, reason, *_ = call(rec(n))
+                self.assertEqual((action, reason), ("keep", "platform-core"))
 
 
 class TestWsRule(unittest.TestCase):
@@ -89,9 +82,6 @@ class TestWsRule(unittest.TestCase):
         self.assertEqual((action, reason), ("delete", "orphan-ws"))
 
 
-# --- Rule 4: e2e-* tenants --------------------------------------------------
-
-
 class TestE2ERule(unittest.TestCase):
     def test_live_e2e_kept(self):
         action, reason, *_ = call(rec("e2e-test-runner.staging.moleculesai.app"))
@@ -102,12 +92,8 @@ class TestE2ERule(unittest.TestCase):
         self.assertEqual((action, reason), ("delete", "orphan-e2e-tenant"))
 
     def test_dead_e2e_on_prod_deleted(self):
-        # e2e-* on prod (no .staging) is also tenant-shaped — deletion path.
         action, reason, *_ = call(rec("e2e-ghost.moleculesai.app"))
         self.assertEqual((action, reason), ("delete", "orphan-e2e-tenant"))
-
-
-# --- Rule 2: generic tenant subdomain ---------------------------------------
 
 
 class TestTenantSubdomainRule(unittest.TestCase):
@@ -120,12 +106,8 @@ class TestTenantSubdomainRule(unittest.TestCase):
         self.assertEqual((action, reason), ("keep", "live-tenant"))
 
     def test_unknown_subdomain_kept_for_safety(self):
-        # The script intentionally KEEPS unknown patterns to avoid blast.
         action, reason, *_ = call(rec("hermes-final-2.moleculesai.app"))
         self.assertEqual((action, reason), ("keep", "unknown-subdomain-kept-for-safety"))
-
-
-# --- Rule 5 / fallthrough ---------------------------------------------------
 
 
 class TestNotASweepPattern(unittest.TestCase):
@@ -139,13 +121,10 @@ class TestNotASweepPattern(unittest.TestCase):
         self.assertEqual((action, reason), ("keep", "not-a-pattern-we-sweep"))
 
 
-# --- Rule priority ----------------------------------------------------------
-
-
 class TestRulePriority(unittest.TestCase):
-    """Rule 1 (platform-core) wins over later rules even if the name shape
-    overlaps — e.g. ``api.moleculesai.app`` matches Rule 2's tenant pattern
-    but must be classified as platform-core."""
+    """Platform-core check must precede the tenant-subdomain regex —
+    e.g. ``api.moleculesai.app`` matches the tenant pattern but must
+    classify as platform-core."""
 
     def test_api_subdomain_classified_as_platform_not_tenant(self):
         action, reason, *_ = call(rec("api.moleculesai.app"))
@@ -154,9 +133,6 @@ class TestRulePriority(unittest.TestCase):
     def test_underscore_record_classified_before_tenant(self):
         action, reason, *_ = call(rec("_vercel.moleculesai.app"))
         self.assertEqual(reason, "verification/key")
-
-
-# --- Safety gate ------------------------------------------------------------
 
 
 class TestSafetyGate(unittest.TestCase):
@@ -179,48 +155,42 @@ class TestSafetyGate(unittest.TestCase):
         self.assertFalse(M.safety_gate(total=100, delete_count=76, max_delete_pct=75))
 
 
-# --- Empty live-sets behavior (incident-prevention) -------------------------
-
-
 class TestEmptyLiveSets(unittest.TestCase):
     """If the CP admin API returns no orgs (auth broken, network blip),
-    every tenant-shaped record looks orphan. The decide function alone
-    has no defense — that's the safety_gate's job. This test pins the
-    expected behavior so the safety-gate contract is documented."""
+    every tenant-shaped record looks orphan. decide() alone has no
+    defense — that's safety_gate's job. This test pins the contract so
+    a future "make decide() defensive" change doesn't silently bypass
+    the gate."""
 
     def test_dead_e2e_orphans_when_live_set_empty(self):
-        empty = set()
         action, reason, *_ = M.decide(
             rec("e2e-test-runner.staging.moleculesai.app"),
-            empty, empty, set(),
+            set(), set(),
         )
-        # decide() classifies as orphan — gate is the line of defense.
         self.assertEqual((action, reason), ("delete", "orphan-e2e-tenant"))
 
     def test_live_ws_still_kept_when_ec2_set_empty(self):
-        # Symmetric: ws-* without matching EC2 = orphan.
         action, reason, *_ = M.decide(
             rec("ws-cafef00d-dec.moleculesai.app"),
-            PROD, STAGING, set(),
+            ALL_SLUGS, set(),
         )
         self.assertEqual((action, reason), ("delete", "orphan-ws"))
-
-
-# --- Parity check -----------------------------------------------------------
 
 
 class TestParityWithBashScript(unittest.TestCase):
     """The decision logic exists in two places: the canonical block in
     sweep_cf_decide.py and the inline heredoc in sweep-cf-orphans.sh.
-    This test asserts the two byte-for-byte match between the
+    This test asserts the two match between the
     ``# CANONICAL DECIDE BEGIN`` / ``# CANONICAL DECIDE END`` markers,
-    so an edit to one without the other fails CI loudly."""
+    so an edit to one without the other fails CI loudly. The mirror-
+    reminder comment lives OUTSIDE the markers in the .sh file so we
+    don't need to special-case it here."""
 
     @staticmethod
-    def _slice_canonical(text: str) -> str:
-        """Return the canonical block, line-anchored (mentions of the marker
-        words inside docstrings are ignored — only an exact-match line
-        ``# CANONICAL DECIDE BEGIN`` opens the slice)."""
+    def _slice_canonical(text: str) -> list[str]:
+        """Return the lines between the canonical markers, exclusive.
+        Markers are matched line-anchored (a stripped-line literal match)
+        so the docstring's prose mention is ignored."""
         lines = text.splitlines()
         begin_idx = end_idx = None
         for i, line in enumerate(lines):
@@ -235,27 +205,14 @@ class TestParityWithBashScript(unittest.TestCase):
                 "missing CANONICAL DECIDE BEGIN/END markers — "
                 "first 30 lines were:\n" + "\n".join(lines[:30])
             )
-        block = lines[begin_idx + 1:end_idx]
-        # Strip leading whitespace per-line so the .sh heredoc (no indent)
-        # and the .py module (also no indent at function scope) compare equal
-        # even if a future move into a class adds indent on one side.
-        return "\n".join(line.strip() for line in block if line.strip())
+        return lines[begin_idx + 1:end_idx]
 
     def test_blocks_match(self):
         here = os.path.dirname(__file__)
         with open(os.path.join(here, "sweep_cf_decide.py"), "r", encoding="utf-8") as f:
             py_block = self._slice_canonical(f.read())
         with open(os.path.join(here, "sweep-cf-orphans.sh"), "r", encoding="utf-8") as f:
-            # Strip the bash-only marker comment line (the .py file doesn't
-            # carry the "Edits inside this block must mirror …" reminder).
-            sh_text = f.read().replace(
-                "# Edits inside this block must mirror scripts/ops/sweep_cf_decide.py — the\n",
-                "",
-            ).replace(
-                "# parity test in test_sweep_cf_decide.py asserts they match byte-for-byte.\n",
-                "",
-            )
-            sh_block = self._slice_canonical(sh_text)
+            sh_block = self._slice_canonical(f.read())
         self.assertEqual(
             py_block,
             sh_block,

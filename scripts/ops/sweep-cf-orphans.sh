@@ -117,66 +117,69 @@ log "  CF records: $TOTAL_CF"
 #   5. Anything else → keep (we only sweep patterns we understand).
 
 export PROD_SLUGS STAGING_SLUGS EC2_NAMES TOTAL_CF
+# Edits inside the CANONICAL DECIDE block below must mirror
+# scripts/ops/sweep_cf_decide.py — the parity test in
+# test_sweep_cf_decide.py asserts they match byte-for-byte.
 DECISIONS=$(echo "$CF_JSON" | python3 -c '
 import json, os, re, sys
 d = json.load(sys.stdin)
 prod_slugs = set(os.environ["PROD_SLUGS"].split())
 staging_slugs = set(os.environ["STAGING_SLUGS"].split())
+all_slugs = prod_slugs | staging_slugs
 ec2_names = set(n for n in os.environ["EC2_NAMES"].split() if n)
 
+_PLATFORM_CORE_NAMES = {
+    "api.moleculesai.app", "app.moleculesai.app", "doc.moleculesai.app",
+    "send.moleculesai.app", "status.moleculesai.app", "www.moleculesai.app",
+    "staging-api.moleculesai.app",
+}
+_WS_RE = re.compile(r"^(ws-[a-f0-9]{8}-[a-f0-9]+)(?:\.staging)?\.moleculesai\.app$")
+_E2E_RE = re.compile(r"^(e2e-[^.]+)(?:\.staging)?\.moleculesai\.app$")
+_TENANT_RE = re.compile(r"^([a-z0-9][a-z0-9-]*)(?:\.staging)?\.moleculesai\.app$")
+
 # CANONICAL DECIDE BEGIN
-# Edits inside this block must mirror scripts/ops/sweep_cf_decide.py — the
-# parity test in test_sweep_cf_decide.py asserts they match byte-for-byte.
-def decide(r, prod_slugs, staging_slugs, ec2_names):
+def decide(r, all_slugs, ec2_names):
     n = r["name"]
     rid = r["id"]
     typ = r["type"]
-    all_slugs = prod_slugs | staging_slugs
 
-    # Rule 1: platform core — leave alone
     if n == "moleculesai.app":
         return ("keep", "apex", rid, n, typ)
     if n.startswith("_") or n.endswith("._domainkey.moleculesai.app"):
         return ("keep", "verification/key", rid, n, typ)
-    if n in {"api.moleculesai.app","app.moleculesai.app","doc.moleculesai.app",
-            "send.moleculesai.app","status.moleculesai.app","www.moleculesai.app",
-            "staging-api.moleculesai.app"}:
+    if n in _PLATFORM_CORE_NAMES:
         return ("keep", "platform-core", rid, n, typ)
 
-    # Rule 3: ws-<hex8>-<rest>.(staging.)moleculesai.app
-    m = re.match(r"^(ws-[a-f0-9]{8}-[a-f0-9]+)(?:\.staging)?\.moleculesai\.app$", n)
+    m = _WS_RE.match(n)
     if m:
         prefix = m.group(1)
-        # Live EC2 names are like "ws-d3605ef2-f7d" — same shape as DNS subdomain.
+        # Live EC2 names share the ws-<hex8>-<rest> shape with the DNS subdomain.
         for ename in ec2_names:
             if ename.startswith(prefix):
                 return ("keep", "live-ec2", rid, n, typ)
         return ("delete", "orphan-ws", rid, n, typ)
 
-    # Rule 4: e2e-* tenants (includes canary, canvas variants)
-    m = re.match(r"^(e2e-[^.]+)(?:\.staging)?\.moleculesai\.app$", n)
+    m = _E2E_RE.match(n)
     if m:
         slug = m.group(1)
         if slug in all_slugs:
             return ("keep", "live-e2e-tenant", rid, n, typ)
         return ("delete", "orphan-e2e-tenant", rid, n, typ)
 
-    # Rule 2: any other tenant subdomain (slug.moleculesai.app or slug.staging.moleculesai.app)
-    m = re.match(r"^([a-z0-9][a-z0-9-]*)(?:\.staging)?\.moleculesai\.app$", n)
+    m = _TENANT_RE.match(n)
     if m:
         slug = m.group(1)
         if slug in all_slugs:
             return ("keep", "live-tenant", rid, n, typ)
-        # Only flag as orphan if name looks like a tenant (not a one-off like "hermes-final-*")
-        # To avoid false-positive nukes on ad-hoc records, we KEEP anything that
-        # does not match a known pattern. Orphan only for explicit tenant-shaped names.
+        # KEEP unknown tenant-shaped names — avoid false-positive nukes on
+        # ad-hoc records (e.g. hermes-final-*) that do not match a known slug.
         return ("keep", "unknown-subdomain-kept-for-safety", rid, n, typ)
 
     return ("keep", "not-a-pattern-we-sweep", rid, n, typ)
 # CANONICAL DECIDE END
 
 for r in d["result"]:
-    action, reason, rid, name, typ = decide(r, prod_slugs, staging_slugs, ec2_names)
+    action, reason, rid, name, typ = decide(r, all_slugs, ec2_names)
     print(json.dumps({"action": action, "reason": reason, "id": rid, "name": name, "type": typ}))
 ')
 

@@ -15,6 +15,12 @@ on:
     paths:
       - 'scripts/ops/**'
       - '.github/workflows/test-ops-scripts.yml'
+  merge_group:
+    types: [checks_requested]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
