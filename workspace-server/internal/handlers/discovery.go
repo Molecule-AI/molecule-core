@@ -177,6 +177,14 @@ func writeExternalWorkspaceURL(ctx context.Context, c *gin.Context, callerID, ta
 }
 
 // Peers handles GET /registry/:id/peers
+//
+// Optional ``?q=<substring>`` filters the result by case-insensitive
+// substring match against ``name`` or ``role`` (#1038). Filtering is done
+// in Go after the DB read — keeps the SQL identical to the no-filter path
+// (no injection risk, no DB-driver collation surprises) at the cost of
+// loading the unfiltered set first. Acceptable because the peer set is
+// always bounded by the small fanout of a single workspace's parent +
+// children + siblings (typically <50 rows).
 func (h *DiscoveryHandler) Peers(c *gin.Context) {
 	workspaceID := c.Param("id")
 	ctx := c.Request.Context()
@@ -241,10 +249,37 @@ func (h *DiscoveryHandler) Peers(c *gin.Context) {
 		peers = append(peers, parent...)
 	}
 
+	peers = filterPeersByQuery(peers, c.Query("q"))
+
 	if peers == nil {
 		peers = make([]map[string]interface{}, 0)
 	}
 	c.JSON(http.StatusOK, peers)
+}
+
+// filterPeersByQuery returns the subset of peers whose name or role
+// case-insensitively contains q. An empty/whitespace-only q is a no-op
+// (returns the input slice unchanged) so the no-filter path stays free
+// of allocations. Map values come from queryPeerMaps which always
+// stringifies name + role, so the type asserts here cannot fail in
+// practice — the comma-ok form belt-and-braces against future shape
+// changes upstream.
+func filterPeersByQuery(peers []map[string]interface{}, q string) []map[string]interface{} {
+	q = strings.TrimSpace(q)
+	if q == "" {
+		return peers
+	}
+	needle := strings.ToLower(q)
+	out := make([]map[string]interface{}, 0, len(peers))
+	for _, p := range peers {
+		name, _ := p["name"].(string)
+		role, _ := p["role"].(string)
+		if strings.Contains(strings.ToLower(name), needle) ||
+			strings.Contains(strings.ToLower(role), needle) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // queryPeerMaps returns clean JSON-serializable maps instead of Workspace structs.

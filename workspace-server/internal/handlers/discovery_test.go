@@ -258,6 +258,150 @@ func TestPeers_RootWorkspace_NoPeers(t *testing.T) {
 	}
 }
 
+// ==================== Peers — ?q= filter (#1038) ====================
+
+// peersFilterFixture mocks all 3 SQL reads with a known 3-peer set so each
+// q-filter test can focus on the post-fetch substring-match behaviour
+// without re-stating the full query expectations.
+func peersFilterFixture(t *testing.T) (*DiscoveryHandler, sqlmock.Sqlmock) {
+	t.Helper()
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+
+	mock.ExpectQuery("SELECT parent_id FROM workspaces WHERE id =").
+		WithArgs("ws-self").
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow("ws-pm"))
+
+	cols := []string{"id", "name", "role", "tier", "status", "agent_card", "url", "parent_id", "active_tasks"}
+
+	mock.ExpectQuery("SELECT w.id, w.name.*WHERE w.parent_id = \\$1 AND w.id != \\$2").
+		WithArgs("ws-pm", "ws-self").
+		WillReturnRows(sqlmock.NewRows(cols).
+			AddRow("ws-alpha", "Alpha Researcher", "researcher", 1, "online", []byte("null"), "http://a", "ws-pm", 0).
+			AddRow("ws-beta", "Beta Designer", "designer", 1, "online", []byte("null"), "http://b", "ws-pm", 0))
+
+	mock.ExpectQuery("SELECT w.id, w.name.*WHERE w.parent_id = \\$1 AND w.status").
+		WithArgs("ws-self").
+		WillReturnRows(sqlmock.NewRows(cols))
+
+	mock.ExpectQuery("SELECT w.id, w.name.*WHERE w.id = \\$1 AND w.status").
+		WithArgs("ws-pm").
+		WillReturnRows(sqlmock.NewRows(cols).
+			AddRow("ws-pm", "PM Workspace", "manager", 2, "online", []byte("null"), "http://pm", nil, 1))
+
+	return NewDiscoveryHandler(), mock
+}
+
+func runPeersWithQuery(t *testing.T, handler *DiscoveryHandler, q string) []map[string]interface{} {
+	t.Helper()
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-self"}}
+	url := "/registry/ws-self/peers"
+	if q != "" {
+		url += "?q=" + q
+	}
+	c.Request = httptest.NewRequest("GET", url, nil)
+	handler.Peers(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var peers []map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &peers); err != nil {
+		t.Fatalf("parse response: %v", err)
+	}
+	return peers
+}
+
+// TestPeers_NoQ_ReturnsAll locks in the regression baseline: without ?q,
+// the handler returns the full 3-peer fixture (alpha + beta + pm).
+func TestPeers_NoQ_ReturnsAll(t *testing.T) {
+	handler, mock := peersFilterFixture(t)
+	peers := runPeersWithQuery(t, handler, "")
+	if len(peers) != 3 {
+		t.Errorf("no-q: expected 3 peers, got %d (%v)", len(peers), peerNames(peers))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestPeers_Q_FiltersByName covers the primary CWE-862 fix path.
+func TestPeers_Q_FiltersByName(t *testing.T) {
+	handler, mock := peersFilterFixture(t)
+	peers := runPeersWithQuery(t, handler, "alpha")
+	if len(peers) != 1 || peers[0]["id"] != "ws-alpha" {
+		t.Errorf("q=alpha: expected just ws-alpha, got %v", peerNames(peers))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestPeers_Q_CaseInsensitive guards against a future strings.Contains
+// without ToLower regression.
+func TestPeers_Q_CaseInsensitive(t *testing.T) {
+	handler, mock := peersFilterFixture(t)
+	peers := runPeersWithQuery(t, handler, "ALPHA")
+	if len(peers) != 1 || peers[0]["id"] != "ws-alpha" {
+		t.Errorf("q=ALPHA: expected ws-alpha, got %v", peerNames(peers))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestPeers_Q_FiltersByRole — role-based match (designer is the role of
+// ws-beta; the substring "design" must surface beta and only beta).
+func TestPeers_Q_FiltersByRole(t *testing.T) {
+	handler, mock := peersFilterFixture(t)
+	peers := runPeersWithQuery(t, handler, "design")
+	if len(peers) != 1 || peers[0]["id"] != "ws-beta" {
+		t.Errorf("q=design: expected ws-beta, got %v", peerNames(peers))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestPeers_Q_NoMatches returns an empty array, not null.
+func TestPeers_Q_NoMatches(t *testing.T) {
+	handler, mock := peersFilterFixture(t)
+	peers := runPeersWithQuery(t, handler, "nonexistent")
+	if len(peers) != 0 {
+		t.Errorf("q=nonexistent: expected 0 peers, got %d (%v)", len(peers), peerNames(peers))
+	}
+	// JSON should serialize as `[]` not `null` — re-encode and inspect.
+	if got, _ := json.Marshal(peers); string(got) != "[]" {
+		t.Errorf("expected JSON [], got %s", string(got))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+// TestPeers_Q_WhitespaceOnly is treated as an empty filter.
+func TestPeers_Q_WhitespaceOnly(t *testing.T) {
+	handler, mock := peersFilterFixture(t)
+	peers := runPeersWithQuery(t, handler, "%20%20")
+	if len(peers) != 3 {
+		t.Errorf("q=whitespace: expected unfiltered 3 peers, got %d", len(peers))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func peerNames(peers []map[string]interface{}) []string {
+	out := make([]string, 0, len(peers))
+	for _, p := range peers {
+		if id, ok := p["id"].(string); ok {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // ==================== CheckAccess ====================
 
 func TestCheckAccess_BadJSON(t *testing.T) {
