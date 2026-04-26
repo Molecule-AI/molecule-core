@@ -6,6 +6,7 @@ import yaml
 
 from config import (
     A2AConfig,
+    ComplianceConfig,
     DelegationConfig,
     SandboxConfig,
     WorkspaceConfig,
@@ -244,3 +245,54 @@ def test_shared_context_from_yaml(tmp_path):
 
     cfg = load_config(str(tmp_path))
     assert cfg.shared_context == ["guidelines.md", "architecture.md"]
+
+
+# ===== Compliance default lock (#2059) =====
+#
+# PR #2056 flipped ComplianceConfig.mode default from "" to "owasp_agentic"
+# so every shipped template gets prompt-injection detection + PII redaction
+# by default. These tests pin the new default at all four entry points so
+# a silent revert (or a refactor that reintroduces the old no-op default)
+# fails fast instead of shipping a workspace with compliance silently off.
+
+
+def test_compliance_dataclass_default():
+    """ComplianceConfig() — no args — must default to owasp_agentic + detect."""
+    cfg = ComplianceConfig()
+    assert cfg.mode == "owasp_agentic"
+    assert cfg.prompt_injection == "detect"
+
+
+def test_compliance_default_when_yaml_omits_block(tmp_path):
+    """A config.yaml with no `compliance:` key still gets owasp_agentic."""
+    config_yaml = tmp_path / "config.yaml"
+    config_yaml.write_text(yaml.dump({}))
+
+    cfg = load_config(str(tmp_path))
+    assert cfg.compliance.mode == "owasp_agentic"
+    assert cfg.compliance.prompt_injection == "detect"
+
+
+def test_compliance_default_when_yaml_block_is_empty(tmp_path):
+    """An explicitly empty `compliance: {}` block still gets owasp_agentic.
+
+    This is the load_config default-fill path — `.get("mode", "owasp_agentic")`
+    must keep delivering the new default even when the operator dropped a
+    bare `compliance:` block in their yaml (a common shape during template
+    editing).
+    """
+    config_yaml = tmp_path / "config.yaml"
+    config_yaml.write_text(yaml.dump({"compliance": {}}))
+
+    cfg = load_config(str(tmp_path))
+    assert cfg.compliance.mode == "owasp_agentic"
+    assert cfg.compliance.prompt_injection == "detect"
+
+
+def test_compliance_explicit_optout_still_works(tmp_path):
+    """Explicit `mode: ""` in yaml must disable compliance — opt-out path."""
+    config_yaml = tmp_path / "config.yaml"
+    config_yaml.write_text(yaml.dump({"compliance": {"mode": ""}}))
+
+    cfg = load_config(str(tmp_path))
+    assert cfg.compliance.mode == ""
