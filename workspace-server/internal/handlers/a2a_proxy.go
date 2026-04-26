@@ -490,13 +490,30 @@ func normalizeA2APayload(body []byte) ([]byte, string, *proxyA2AError) {
 // idleTimeoutDuration is the per-dispatch silence window: if the
 // platform's broadcaster emits no events for this workspace for the
 // full duration, the dispatch ctx is cancelled. Resets on every
-// ACTIVITY_LOGGED / TASK_UPDATED / A2A_RESPONSE event for the
-// workspace, so a chat that's actively reporting tool calls or
-// streaming status updates never trips it. Picked to be longer than
-// any reasonable single-tool-use cadence (Claude Code's slowest
-// observed silence between tools is ~30s) but short enough that a
-// truly wedged runtime fails in 1 minute, not 5.
-const idleTimeoutDuration = 60 * time.Second
+// broadcaster event for the workspace — including the WORKSPACE_HEARTBEAT
+// fired by the registry's /heartbeat handler every 30s, so a runtime
+// that's just thinking silently between tool calls keeps the connection
+// alive without having to emit ACTIVITY_LOGGED noise.
+//
+// Pre-2026-04-26 this was 60s, picked when the platform only broadcast
+// on TASK_UPDATED (which itself only fires when current_task CHANGES).
+// A claude-code agent doing a long packaging step or a slow model thought
+// kept the same current_task for >60s, fired no broadcast, got cancelled
+// mid-flight. Bumped to 5min as a safety net AND the heartbeat handler
+// now broadcasts unconditionally — together either one alone closes the
+// gap, both together is defence in depth.
+//
+// Override via A2A_IDLE_TIMEOUT_SECONDS for ops who want to tune (e.g.
+// shorter for canary/test runners that want fail-fast on wedge, longer
+// for prod tenants running unusually slow plugins).
+var idleTimeoutDuration = func() time.Duration {
+	if v := os.Getenv("A2A_IDLE_TIMEOUT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 5 * time.Minute
+}()
 
 // dispatchA2A POSTs `body` to `agentURL`. Uses WithoutCancel so delegation
 // chains survive client disconnect (browser tab close). Two layers of

@@ -884,6 +884,83 @@ func TestHeartbeatHandler_TaskCleared(t *testing.T) {
 	}
 }
 
+// ---------- TestHeartbeatHandler_AlwaysBroadcastsHeartbeat ----------
+//
+// Regression for the "context canceled" wave on 2026-04-26 (15+ failures
+// in 1hr across 6 workspaces). The a2a-proxy idle timer subscribes to
+// the broadcaster's SSE channel for the workspace and resets on every
+// event. Pre-fix the only broadcast paths from heartbeat were
+// TASK_UPDATED (only on current_task change) and the
+// WORKSPACE_ONLINE/DEGRADED transitions inside evaluateStatus (only on
+// status change). A long-running agent on the same task with stable
+// status fired NO broadcasts → idle timer fired → user message
+// got cancelled mid-flight.
+//
+// The fix emits an unconditional WORKSPACE_HEARTBEAT on every successful
+// heartbeat. This test pins the property: regardless of whether
+// current_task changed, the SSE subscriber observes a broadcast.
+
+func TestHeartbeatHandler_AlwaysBroadcastsHeartbeat(t *testing.T) {
+	mock := setupTestDB(t)
+	setupTestRedis(t)
+	broadcaster := newTestBroadcaster()
+	handler := NewRegistryHandler(broadcaster)
+
+	// Subscribe BEFORE the heartbeat so we don't miss the broadcast.
+	sub, unsub := broadcaster.SubscribeSSE("ws-123")
+	defer unsub()
+
+	// Same-task scenario: task value unchanged across the heartbeat.
+	// Pre-fix this path emitted ZERO broadcasts.
+	mock.ExpectQuery("SELECT COALESCE\\(current_task").
+		WithArgs("ws-123").
+		WillReturnRows(sqlmock.NewRows([]string{"current_task"}).AddRow("doing work"))
+	mock.ExpectExec("UPDATE workspaces SET").
+		WithArgs("ws-123", 0.0, "", 1, 500, "doing work").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("SELECT status FROM workspaces WHERE id =").
+		WithArgs("ws-123").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("online"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"workspace_id":"ws-123","error_rate":0.0,"sample_error":"","active_tasks":1,"uptime_seconds":500,"current_task":"doing work"}`
+	c.Request = httptest.NewRequest("POST", "/registry/heartbeat", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	handler.Heartbeat(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Drain whatever the handler broadcast (with a tight timeout — the
+	// channel is in-process so the event should already be queued by
+	// the time Heartbeat returns).
+	gotHeartbeat := false
+	for i := 0; i < 5; i++ {
+		select {
+		case msg, ok := <-sub:
+			if !ok {
+				t.Fatal("broadcaster channel closed unexpectedly")
+			}
+			if msg.Event == "WORKSPACE_HEARTBEAT" {
+				gotHeartbeat = true
+				goto done
+			}
+		case <-time.After(200 * time.Millisecond):
+			goto done
+		}
+	}
+done:
+	if !gotHeartbeat {
+		t.Error("expected WORKSPACE_HEARTBEAT broadcast on every heartbeat (regression: pre-fix, same-task heartbeats fired no broadcast and the a2a-proxy idle timer trip-cancelled in-flight requests)")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 // ---------- TestActivityHandler_ListEmpty ----------
 
 func TestActivityHandler_ListEmpty(t *testing.T) {

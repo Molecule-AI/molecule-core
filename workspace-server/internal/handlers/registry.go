@@ -441,6 +441,26 @@ func (h *RegistryHandler) Heartbeat(c *gin.Context) {
 		})
 	}
 
+	// Always emit a lightweight heartbeat broadcast — load-bearing for
+	// the a2a-proxy's per-dispatch idle timeout (a2a_proxy.go:applyIdleTimeout).
+	// Before this, the proxy's idle timer reset on TASK_UPDATED but
+	// TASK_UPDATED only fires when current_task CHANGES. A long-running
+	// agent that keeps the same task value for >idleTimeoutDuration
+	// (claude-code packaging a ZIP, slow tool call, model thinking time)
+	// hit no broadcast → idle timer fired → user's message got cancelled
+	// mid-flight with "context canceled". Symptom users hit on the
+	// 2026-04-26 director-bypass investigation: 15+ failures in 1hr
+	// across 6 workspaces, all silent during the gap.
+	//
+	// Cost: BroadcastOnly skips the DB write (no activity_logs row),
+	// so per-heartbeat cost is one in-memory channel send per active
+	// SSE subscriber and one WS hub fan-out. At 30s heartbeat cadence
+	// this is far below any noise floor on either path.
+	h.broadcaster.BroadcastOnly(payload.WorkspaceID, "WORKSPACE_HEARTBEAT", map[string]interface{}{
+		"active_tasks":   payload.ActiveTasks,
+		"uptime_seconds": payload.UptimeSeconds,
+	})
+
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
