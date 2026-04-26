@@ -195,21 +195,34 @@ TENANT_TOKEN=$(echo "$TENANT_TOKEN_RESP" | python3 -c "import json,sys; print(js
 ok "Tenant admin token retrieved (len=${#TENANT_TOKEN})"
 
 # ─── 4. Wait for tenant TLS / DNS propagation ──────────────────────────
-# 10 min — same envelope as canvas/e2e/staging-setup.ts TLS_TIMEOUT_MS.
-# CF DNS propagation + tunnel hostname registration + ACME cert + edge
-# cache routinely take 5-7 min under staging load; the original 3-min
-# cap blocked multiple staging→main PRs across 2026-04-24+. Stays
-# inside the parent provision envelope so a genuinely-stuck tenant
-# still fails loud at the earlier provision step rather than masquerading
-# as a TLS issue.
+# 15 min — kept below the 20-min provision envelope so a genuinely-stuck
+# tenant still fails loud at the earlier provision step rather than
+# masquerading as a TLS issue. CF DNS propagation + tunnel hostname
+# registration + ACME cert + edge cache run 5-7 min on a healthy day; the
+# +5 min headroom over the previous 10-min cap covers the slower path
+# observed in #2090 (6 consecutive canary failures starting 2026-04-26
+# correlated with CP commits a3eb8be / ed70405 / 4ab339e).
+#
+# On timeout we print a diagnostic burst — last DNS lookup, last curl
+# verbose handshake, last response headers — so the next failure tells
+# us which layer (DNS, TLS, HTTP) is actually broken. Without this the
+# only signal is "no 2xx in N min" which sent us in circles.
 log "4/11 Waiting for tenant TLS / DNS propagation..."
-TLS_DEADLINE=$(( $(date +%s) + 600 ))
+TLS_DEADLINE=$(( $(date +%s) + 900 ))
+TENANT_HOST="${TENANT_URL#https://}"
+TENANT_HOST="${TENANT_HOST%%/*}"
 while true; do
   if curl -sSfk --max-time 5 "$TENANT_URL/health" >/dev/null 2>&1; then
     break
   fi
   if [ "$(date +%s)" -gt "$TLS_DEADLINE" ]; then
-    fail "Tenant URL never responded 2xx on /health within 10 min"
+    log "── DIAGNOSTIC BURST (TLS-readiness timeout) ──"
+    log "DNS lookup ($TENANT_HOST):"
+    getent hosts "$TENANT_HOST" 2>&1 || log "  (no DNS resolution)"
+    log "curl -v $TENANT_URL/health (last 40 lines):"
+    curl -kv --max-time 10 "$TENANT_URL/health" 2>&1 | tail -n 40 | sed 's/^/  /' || true
+    log "── END DIAGNOSTIC ──"
+    fail "Tenant URL never responded 2xx on /health within 15 min"
   fi
   sleep 5
 done
