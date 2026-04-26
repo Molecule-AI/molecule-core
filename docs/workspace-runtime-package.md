@@ -188,13 +188,53 @@ correctness before pushing a `runtime-v*` tag.
 
 ## Writing a new adapter
 
-1. Create a new standalone repo `molecule-ai-workspace-template-<runtime>`
-2. Copy `adapter.py` pattern from any existing adapter repo
-3. Change imports: `from molecule_runtime.adapters.base import BaseAdapter, AdapterConfig`
-4. Create `requirements.txt` with `molecule-ai-workspace-runtime>=0.1.0` + your deps
-5. Create `Dockerfile` with `ENV ADAPTER_MODULE=adapter` and
-   `ENTRYPOINT ["molecule-runtime"]`
-6. Register the runtime name in the platform's known runtimes list
+Use the GitHub template repo
+[`Molecule-AI/molecule-ai-workspace-template-starter`](https://github.com/Molecule-AI/molecule-ai-workspace-template-starter)
+— it ships with the canonical Dockerfile + adapter.py skeleton + config.yaml
+schema + the `repository_dispatch: [runtime-published]` cascade receiver
+already wired up. No follow-up setup PR required.
+
+```bash
+# Replace <runtime> with your runtime slug (lowercase, hyphenated).
+gh repo create Molecule-AI/molecule-ai-workspace-template-<runtime> \
+  --template Molecule-AI/molecule-ai-workspace-template-starter \
+  --public \
+  --description "Molecule AI workspace template: <runtime>"
+
+git clone https://github.com/Molecule-AI/molecule-ai-workspace-template-<runtime>
+cd molecule-ai-workspace-template-<runtime>
+```
+
+Then fill in the `TODO` markers in:
+
+| File | What to fill in |
+|---|---|
+| `adapter.py` | Rename class to `<Runtime>Adapter`. Fill in `name()`, `display_name()`, `description()`, `get_config_schema()`. Implement `setup()` and `create_executor()`. |
+| `requirements.txt` | Add your runtime's pip dependencies (e.g. `langgraph`, `crewai`, `claude-agent-sdk`). |
+| `Dockerfile` | Add runtime-specific apt deps (most runtimes don't need any). Replace ENTRYPOINT only if you need custom boot logic. |
+| `config.yaml` | Update top-level `name`/`runtime`/`description`. Add the models your runtime supports to `models[]`. |
+| `system-prompt.md` | Default agent prompt. |
+
+After `git push`:
+
+1. The template's `publish-image.yml` builds + pushes
+   `ghcr.io/molecule-ai/workspace-template-<runtime>:latest` automatically.
+2. The next `runtime-vX.Y.Z` tag on `molecule-core` cascades a
+   `repository_dispatch` event into your new template, rebuilding the image
+   against the latest runtime — no setup PR required.
+3. Register the runtime name in the platform's `RuntimeImages` map (in
+   `workspace-server/internal/provisioner/provisioner.go`) so it's
+   selectable in the canvas.
+
+## When the starter itself needs to evolve
+
+If the canonical shape changes (e.g. `config.yaml` schema gets a new field,
+the `BaseAdapter` interface adds a method, the reusable CI workflow
+signature changes), update the
+[starter](https://github.com/Molecule-AI/molecule-ai-workspace-template-starter)
+**first**. Existing templates can either migrate at their own pace or be
+touched in a coordinated cleanup PR. Either way, future templates pick up
+the new shape from day one.
 
 ## Migration note
 
