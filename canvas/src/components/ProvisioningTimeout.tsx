@@ -73,8 +73,11 @@ export function ProvisioningTimeout({
   //  runtimes — a single threshold would false-alarm on one or the other).
   // provisionTimeoutMs added by #2054 — server-declared per-workspace
   // override that wins over the runtime profile when present.
-  // Separator: `|` between fields, `,` between nodes. Names may contain
-  // anything the user typed; strip `|` and `,` so serialization round-trips.
+  // Separator: `|` between fields, `,` between nodes. Only `name` is
+  // user-typed (gets sanitized below); the other fields are
+  // primitive-typed (id is a UUID, runtime is a [a-z-]+ slug,
+  // provisionTimeoutMs is numeric). If a future field is string-typed,
+  // extend the sanitize step to strip `|` + `,` from it too.
   // Empty-string sentinels for missing values so split/index stays positional.
   const provisioningNodes = useCanvasStore((s) => {
     const result = s.nodes
