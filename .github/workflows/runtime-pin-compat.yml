@@ -68,5 +68,10 @@ jobs:
           /tmp/venv/bin/pip show molecule-ai-workspace-runtime a2a-sdk \
             | grep -E '^(Name|Version):'
       - name: Smoke import — fail if metadata declares deps that don't satisfy real imports
+        # WORKSPACE_ID is validated at import time by platform_auth.py — EC2
+        # user-data sets it from the cloud-init template; set a placeholder
+        # here so the import smoke doesn't trip on the env-var guard.
+        env:
+          WORKSPACE_ID: 00000000-0000-0000-0000-000000000001
         run: |
           /tmp/venv/bin/python -c "from molecule_runtime.main import main_sync; print('runtime imports OK')"
