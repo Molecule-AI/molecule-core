@@ -6,30 +6,42 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 // runs happily in node. Splitting keeps the node tests fast.
 
 // ---------------------------------------------------------------------------
-// 401 handling — gated on SaaS-tenant hostname
+// 401 handling — session-probe-before-redirect
 // ---------------------------------------------------------------------------
 //
-// Before fix/quickstart-bugless, any 401 from any endpoint triggered
-// `redirectToLogin()`, navigating to `/cp/auth/login`. That route
-// exists only on SaaS (mounted by cp_proxy when CP_UPSTREAM_URL is
-// set). On localhost / self-hosted / Vercel preview it 404s, so the
-// user lands on a broken login page instead of seeing the actual error.
+// History:
+//   1. fix/quickstart-bugless: gated redirect on SaaS hostname (slug).
+//   2. fix/api-401-probe-before-redirect (this file): probe /cp/auth/me
+//      before redirecting on a 401 from a non-auth path. The earlier
+//      behaviour redirected on EVERY 401, so a single 401 from
+//      /workspaces/:id/plugins (workspace-scoped — refused by the
+//      tenant admin bearer) yanked the user to AuthKit even when
+//      the session was fine. The probe lets us tell "session dead"
+//      from "endpoint refused this token."
 //
-// These tests lock in:
-//   - SaaS tenant hostname (*.moleculesai.app) → 401 still redirects.
-//   - non-SaaS hostname (localhost, LAN IP, apex) → 401 throws, no
-//     redirect, so the caller renders a real error affordance.
+// Matrix:
+//   slug    | path             | probe → me | expected
+//   ---     | ---              | ---        | ---
+//   acme    | /cp/auth/me      | (n/a)      | redirect (path IS auth)
+//   acme    | /workspaces/...  | 401        | redirect (session dead)
+//   acme    | /workspaces/...  | 200        | throw, no redirect
+//   acme    | /workspaces/...  | network err| throw, no redirect
+//   ""      | /workspaces/...  | (n/a)      | throw, no redirect (no slug)
 
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
-function mockFailure(status: number, text: string) {
+function mockNextResponse(status: number, text = "") {
   mockFetch.mockResolvedValueOnce({
-    ok: false,
+    ok: status >= 200 && status < 300,
     status,
     json: () => Promise.reject(new Error("no json")),
     text: () => Promise.resolve(text),
   } as unknown as Response);
+}
+
+function mockNextNetworkError() {
+  mockFetch.mockRejectedValueOnce(new Error("network"));
 }
 
 function setHostname(host: string) {
@@ -59,27 +71,66 @@ describe("api 401 handling", () => {
     vi.resetModules();
   });
 
-  it("redirects to login on SaaS tenant hostname", async () => {
+  it("redirects when /cp/auth/me itself 401s — that IS the session-dead signal", async () => {
     setHostname("acme.moleculesai.app");
-    mockFailure(401, '{"error":"admin auth required"}');
+    // Single fetch: the /cp/auth/me call itself.
+    mockNextResponse(401, '{"error":"unauthenticated"}');
 
     const { api } = await import("../api");
-    await expect(api.get("/workspaces")).rejects.toThrow(/Session expired/);
+    await expect(api.get("/cp/auth/me")).rejects.toThrow(/Session expired/);
     expect(redirectSpy).toHaveBeenCalledWith("sign-in");
+    // No probe fired — we already know the session is dead.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("redirects when /cp/auth/me probe ALSO 401s — session genuinely dead", async () => {
+    setHostname("acme.moleculesai.app");
+    // First call: the workspace-scoped fetch returns 401.
+    mockNextResponse(401, '{"error":"workspace token required"}');
+    // Second call: the probe to /cp/auth/me also 401s.
+    mockNextResponse(401, '{"error":"unauthenticated"}');
+
+    const { api } = await import("../api");
+    await expect(api.get("/workspaces/abc/plugins")).rejects.toThrow(/Session expired/);
+    expect(redirectSpy).toHaveBeenCalledWith("sign-in");
+  });
+
+  it("does NOT redirect when probe returns 200 — endpoint refused this token, session fine", async () => {
+    setHostname("acme.moleculesai.app");
+    // First call: workspace-scoped 401.
+    mockNextResponse(401, '{"error":"workspace token required"}');
+    // Second call: probe shows the session is alive.
+    mockNextResponse(200, '{"user_id":"u1","org_id":"o1","email":"x@y"}');
+
+    const { api } = await import("../api");
+    await expect(api.get("/workspaces/abc/plugins")).rejects.toThrow(/401/);
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT redirect when probe network-errors — conservative fallback", async () => {
+    setHostname("acme.moleculesai.app");
+    mockNextResponse(401, '{"error":"workspace token required"}');
+    mockNextNetworkError();
+
+    const { api } = await import("../api");
+    await expect(api.get("/workspaces/abc/plugins")).rejects.toThrow(/401/);
+    expect(redirectSpy).not.toHaveBeenCalled();
   });
 
   it("does NOT redirect on localhost — throws a real error instead", async () => {
     setHostname("localhost");
-    mockFailure(401, '{"error":"admin auth required"}');
+    mockNextResponse(401, '{"error":"admin auth required"}');
 
     const { api } = await import("../api");
     await expect(api.get("/workspaces")).rejects.toThrow(/401/);
     expect(redirectSpy).not.toHaveBeenCalled();
+    // No slug → no probe fires either.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("does NOT redirect on a LAN hostname", async () => {
     setHostname("192.168.1.74");
-    mockFailure(401, '{"error":"missing workspace auth token"}');
+    mockNextResponse(401, '{"error":"missing workspace auth token"}');
 
     const { api } = await import("../api");
     await expect(api.get("/workspaces/abc/activity")).rejects.toThrow(/401/);
@@ -91,7 +142,7 @@ describe("api 401 handling", () => {
     // Users landing on app.moleculesai.app (pre-tenant-selection) must
     // see the real 401 error rather than loop on login.
     setHostname("app.moleculesai.app");
-    mockFailure(401, '{"error":"admin auth required"}');
+    mockNextResponse(401, '{"error":"admin auth required"}');
 
     const { api } = await import("../api");
     await expect(api.get("/workspaces")).rejects.toThrow(/401/);

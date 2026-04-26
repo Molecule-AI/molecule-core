@@ -87,27 +87,30 @@ test.describe("staging canvas tabs", () => {
       }),
     );
 
-    // Universal 401 → empty-200 fallback for any fetch.
+    // Universal 401 → empty-200 fallback (defense-in-depth).
     //
-    // The narrow first pass (#2073, scoped to /workspaces/<id>/*) didn't
-    // catch all the redirect triggers — SkillsTab.tsx alone fetches
-    // /plugins and /plugins/sources outside the /workspaces/ tree, and
-    // each of those 401s with the tenant admin bearer in SaaS mode.
-    // canvas/src/lib/api.ts:62-74 calls `redirectToLogin` on ANY 401,
-    // so a single non-workspace-scoped 401 yanks the page off the
-    // tenant origin and breaks every locator that runs after.
+    // The original product bug was canvas/src/lib/api.ts:62-74 calling
+    // `redirectToLogin` on EVERY 401 — a single workspace-scoped 401
+    // (e.g. /workspaces/:id/peers, /plugins) yanked the user (and the
+    // test) to AuthKit. That's now fixed at the source: api.ts probes
+    // /cp/auth/me before redirecting, so a 401 from a non-auth path
+    // with a live session throws a regular error instead.
     //
-    // Broaden the route to ALL fetches: pass-through real responses,
-    // swap 401s for 200 + empty body. Skip `/cp/auth/me` and the
-    // tenant-origin HTML/JS bundle requests (resourceType !== fetch);
-    // those are already handled or shouldn't be intercepted.
+    // This route handler stays as a SAFETY NET, not the primary
+    // defense:
+    //   1. It silences resource-load console noise from the browser
+    //      (those messages don't include the URL — useless in
+    //      diagnostics, captured by the filter in the assertion
+    //      block but having no 401s reach the network is cleaner).
+    //   2. It guards against panels that DON'T have try/catch around
+    //      their api calls — an unhandled rejection would surface
+    //      as console.error → fail the assertion. Panels SHOULD
+    //      handle errors, but until they're all audited, this is
+    //      the test's belt to api.ts's braces.
     //
-    // For tab-render tests we don't need real data — the gate is
-    // "panel mounts without crashing, no Failed-to-load toast". Body
-    // shape is best-effort by URL: list endpoints (paths not ending
-    // in a UUID-shaped segment) get `[]`; single-resource endpoints
-    // get `{}`. Both are valid JSON; well-written panels render an
-    // empty state for either rather than throwing.
+    // Pass-through real responses; swap 401s for 200 + empty body.
+    // Skip /cp/auth/me (mocked above) and non-fetch resources
+    // (HTML/JS/CSS bundles that should NOT be intercepted).
     await context.route("**", async (route, request) => {
       if (request.resourceType() !== "fetch") {
         return route.fallback();
