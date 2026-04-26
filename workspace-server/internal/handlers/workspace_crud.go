@@ -6,6 +6,7 @@ package handlers
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -388,9 +389,24 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 	// Now stop containers + remove volumes for all descendants (any depth).
 	// Any concurrent heartbeat / registration / liveness-triggered restart
 	// will see status='removed' and bail out early.
+	//
+	// #1843: Stop() errors used to be silently swallowed. On the CP/EC2
+	// backend, Stop() calls the control plane's DELETE workspaces endpoint
+	// to terminate the EC2; if that errors (CP transient 5xx, network),
+	// the EC2 stays running with no DB row to track it — the
+	// "14 orphan workspace EC2s on a 0-customer account" scenario.
+	// Aggregate Stop failures and surface them as 500 so the client can
+	// retry. The retry replays Stop with the same instance_id (still
+	// readable from the row even after status='removed') — idempotent on
+	// the CP side. RemoveVolume errors stay log-and-continue: those are
+	// local cleanup of /var/data, not infra-leak class.
+	var stopErrs []error
 	for _, descID := range descendantIDs {
 		if h.provisioner != nil {
-			h.provisioner.Stop(ctx, descID)
+			if err := h.provisioner.Stop(ctx, descID); err != nil {
+				log.Printf("Delete descendant %s stop error: %v", descID, err)
+				stopErrs = append(stopErrs, fmt.Errorf("stop descendant %s: %w", descID, err))
+			}
 			if err := h.provisioner.RemoveVolume(ctx, descID); err != nil {
 				log.Printf("Delete descendant %s volume removal warning: %v", descID, err)
 			}
@@ -401,7 +417,10 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 
 	// Stop + remove volume for the workspace itself
 	if h.provisioner != nil {
-		h.provisioner.Stop(ctx, id)
+		if err := h.provisioner.Stop(ctx, id); err != nil {
+			log.Printf("Delete %s stop error: %v", id, err)
+			stopErrs = append(stopErrs, fmt.Errorf("stop %s: %w", id, err))
+		}
 		if err := h.provisioner.RemoveVolume(ctx, id); err != nil {
 			log.Printf("Delete %s volume removal warning: %v", id, err)
 		}
@@ -411,6 +430,21 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 	h.broadcaster.RecordAndBroadcast(ctx, "WORKSPACE_REMOVED", id, map[string]interface{}{
 		"cascade_deleted": len(descendantIDs),
 	})
+
+	// If any Stop call failed, surface 500 so the client retries. The DB
+	// row is already 'removed' (idempotent), and Stop's instance_id
+	// lookup tolerates that — the retry replays the terminate. This is
+	// the loud-fail-instead-of-silent-leak choice; users see a 500
+	// instead of an orphaned EC2.
+	if len(stopErrs) > 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("workspace marked removed, but %d stop call(s) failed — please retry: %v",
+				len(stopErrs), errors.Join(stopErrs...)),
+			"removed_count": len(allIDs),
+			"stop_failures": len(stopErrs),
+		})
+		return
+	}
 
 	// Hard purge: cascade delete all FK data and remove the DB row entirely (#1087)
 	if c.Query("purge") == "true" {
