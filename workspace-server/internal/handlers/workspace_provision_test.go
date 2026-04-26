@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/Molecule-AI/molecule-monorepo/platform/internal/events"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/models"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/plugins"
 	"github.com/Molecule-AI/molecule-monorepo/platform/internal/provisioner"
@@ -1044,12 +1043,19 @@ var errInternalDB = fmt.Errorf("pq: connection refused")
 var errInternalOS = fmt.Errorf("operation failed: no such file or directory")
 
 // captureBroadcaster is a test broadcaster that captures the last data
-// payload passed to RecordAndBroadcast so tests can inspect it.
+// payload passed to RecordAndBroadcast so tests can inspect it. Now
+// satisfies events.EventEmitter (#1814) directly — RecordAndBroadcast
+// captures, BroadcastOnly is a no-op since none of the
+// WorkspaceHandler paths under test call it.
 type captureBroadcaster struct {
-	events.Broadcaster // embed to satisfy the interface — only RecordAndBroadcast is overridden
 	lastData map[string]interface{}
 	lastErr  error
 }
+
+// BroadcastOnly is required to satisfy events.EventEmitter. None of the
+// captureBroadcaster's exercising tests should land here — if a future
+// test does, it'll need to add capture state for that channel.
+func (c *captureBroadcaster) BroadcastOnly(_ string, _ string, _ interface{}) {}
 
 func (c *captureBroadcaster) RecordAndBroadcast(_ context.Context, _, _ string, data interface{}) error {
 	if m, ok := data.(map[string]interface{}); ok {
@@ -1107,14 +1113,14 @@ func containsUnsafeString(v interface{}) bool {
 // never leaks internal error details in WORKSPACE_PROVISION_FAILED broadcasts.
 // Regression test for issue #1206.
 func TestProvisionWorkspace_NoInternalErrorsInBroadcast(t *testing.T) {
-	t.Skip("TODO: captureBroadcaster type mismatch with WorkspaceHandler.broadcaster (*events.Broadcaster). Needs broadcaster interface refactor — currently blocking package compile on main (2026-04-21).")
+	t.Skip("TODO: write the test body. The interface blocker (#1814) is fixed — captureBroadcaster now satisfies events.EventEmitter and can be passed to NewWorkspaceHandler. The remaining work is constructing the provisionWorkspace failure path + asserting captured payload doesn't contain unsafeErrorStrings.")
 }
 
 // TestProvisionWorkspaceCP_NoInternalErrorsInBroadcast asserts that
 // provisionWorkspaceCP never leaks err.Error() in WORKSPACE_PROVISION_FAILED
 // broadcasts. Regression test for issue #1206.
 func TestProvisionWorkspaceCP_NoInternalErrorsInBroadcast(t *testing.T) {
-	t.Skip("TODO: captureBroadcaster type mismatch with WorkspaceHandler.broadcaster (*events.Broadcaster). Needs broadcaster interface refactor — currently blocking package compile on main (2026-04-21).")
+	t.Skip("TODO: write the test body. Same status as TestProvisionWorkspace_NoInternalErrorsInBroadcast — interface blocker fixed (#1814), need to construct the provisionWorkspaceCP failure path + assert payload sanitization.")
 }
 
 // mockEnvMutator is a provisionhook.Registry stub that always returns a fixed error.

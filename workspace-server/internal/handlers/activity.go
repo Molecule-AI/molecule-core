@@ -373,7 +373,9 @@ func (h *ActivityHandler) Report(c *gin.Context) {
 }
 
 // LogActivity inserts an activity log and optionally broadcasts via WebSocket.
-func LogActivity(ctx context.Context, broadcaster *events.Broadcaster, params ActivityParams) {
+// Takes events.EventEmitter (#1814) so callers passing a stub broadcaster
+// in tests no longer need to construct the full *events.Broadcaster.
+func LogActivity(ctx context.Context, broadcaster events.EventEmitter, params ActivityParams) {
 	reqJSON, reqErr := json.Marshal(params.RequestBody)
 	if reqErr != nil {
 		log.Printf("LogActivity: failed to marshal request_body for %s: %v", params.WorkspaceID, reqErr)

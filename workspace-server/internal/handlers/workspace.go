@@ -26,7 +26,13 @@ import (
 )
 
 type WorkspaceHandler struct {
-	broadcaster *events.Broadcaster
+	// broadcaster narrowed from `*events.Broadcaster` to the
+	// events.EventEmitter interface (#1814) so tests can substitute a
+	// capture-only stub without standing up the real Redis + WS-hub
+	// topology. Production callers still pass *events.Broadcaster, which
+	// satisfies the interface — see the compile-time assertion in
+	// internal/events/broadcaster.go.
+	broadcaster events.EventEmitter
 	provisioner *provisioner.Provisioner
 	cpProv      *provisioner.CPProvisioner
 	platformURL string
@@ -46,7 +52,7 @@ type WorkspaceHandler struct {
 	provisionTimeouts runtimeProvisionTimeoutsCache
 }
 
-func NewWorkspaceHandler(b *events.Broadcaster, p *provisioner.Provisioner, platformURL, configsDir string) *WorkspaceHandler {
+func NewWorkspaceHandler(b events.EventEmitter, p *provisioner.Provisioner, platformURL, configsDir string) *WorkspaceHandler {
 	return &WorkspaceHandler{
 		broadcaster: b,
 		provisioner: p,
