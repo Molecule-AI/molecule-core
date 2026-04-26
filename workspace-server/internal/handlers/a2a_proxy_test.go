@@ -1249,6 +1249,45 @@ func TestApplyIdleTimeout_NilBroadcasterDegradesGracefully(t *testing.T) {
 	cancel()
 }
 
+// TestDispatchA2A_RejectsUnsafeURL is the #1483 defense-in-depth
+// regression. setupTestDB disables SSRF for normal tests so existing
+// dispatchA2A unit tests can hit httptest.NewServer (loopback) — we
+// re-enable it here to verify the new in-function isSafeURL guard.
+// Production callers go through resolveAgentURL which already
+// validates; this test pins that dispatchA2A is now safe even when
+// called directly by a future caller that skips resolveAgentURL.
+//
+// Note: dispatchA2A's signature includes workspaceID (added by the
+// idle-timeout work) so this test passes a stub value — the SSRF check
+// fires before workspaceID is referenced.
+func TestDispatchA2A_RejectsUnsafeURL(t *testing.T) {
+	setupTestDB(t)
+	setupTestRedis(t)
+	restoreSSRF := setSSRFCheckForTest(true)
+	t.Cleanup(restoreSSRF)
+	handler := NewWorkspaceHandler(newTestBroadcaster(), nil, "http://localhost:8080", t.TempDir())
+
+	// Cloud metadata IP — must be rejected before any HTTP call goes out.
+	_, cancel, err := handler.dispatchA2A(
+		context.Background(),
+		"ws-target",
+		"http://169.254.169.254/latest/meta-data/",
+		[]byte(`{}`),
+		"",
+	)
+	if cancel != nil {
+		cancel()
+		t.Error("cancel must be nil when the URL is rejected pre-request")
+	}
+	if err == nil {
+		t.Fatal("expected SSRF rejection error, got nil")
+	}
+	if _, ok := err.(*proxyDispatchBuildError); !ok {
+		t.Errorf("expected *proxyDispatchBuildError (caller maps to 500), got %T: %v", err, err)
+	}
+}
+
+
 // --- handleA2ADispatchError ---
 
 func TestHandleA2ADispatchError_ContextDeadline(t *testing.T) {

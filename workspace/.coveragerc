@@ -1,0 +1,13 @@
+# coverage.py config — consumed by `pytest --cov` via the pytest-cov
+# plugin. Lives here (not in pytest.ini) because coverage.py only reads
+# .coveragerc / setup.cfg / tox.ini / pyproject.toml — the [coverage:*]
+# sections in pytest.ini are silently ignored. See issue #1817.
+[run]
+omit =
+    */tests/*
+    */__init__.py
+    plugins_registry/*
+
+[report]
+# Skip files at 100% in the term-missing output to keep CI logs readable.
+skip_covered = True

@@ -61,6 +61,13 @@ type templateSummary struct {
 	RequiredEnv []string `json:"required_env,omitempty"`
 	Skills      []string `json:"skills"`
 	SkillCount  int      `json:"skill_count"`
+	// ProvisionTimeoutSeconds lets a slow runtime declare its expected
+	// cold-boot duration in its template manifest. Canvas's
+	// ProvisioningTimeout banner respects this per-workspace via the
+	// `provision_timeout_ms` field in the workspace API response (#2054).
+	// 0 = template hasn't declared one, falls through to canvas's
+	// runtime-profile default.
+	ProvisionTimeoutSeconds int `json:"provision_timeout_seconds,omitempty"`
 }
 
 // resolveTemplateDir finds the template directory for a workspace on the host.
@@ -80,24 +87,8 @@ func (h *TemplatesHandler) resolveTemplateDir(wsName string) string {
 
 // List handles GET /templates
 func (h *TemplatesHandler) List(c *gin.Context) {
-	entries, err := os.ReadDir(h.configsDir)
-	if err != nil {
-		c.JSON(http.StatusOK, []templateSummary{})
-		return
-	}
-
 	templates := make([]templateSummary, 0)
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		configPath := filepath.Join(h.configsDir, entry.Name(), "config.yaml")
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			continue
-		}
-
+	walkTemplateConfigs(h.configsDir, func(id string, data []byte) {
 		var raw struct {
 			Name          string   `yaml:"name"`
 			Description   string   `yaml:"description"`
@@ -106,13 +97,14 @@ func (h *TemplatesHandler) List(c *gin.Context) {
 			Model         string   `yaml:"model"`
 			Skills        []string `yaml:"skills"`
 			RuntimeConfig struct {
-				Model       string      `yaml:"model"`
-				Models      []modelSpec `yaml:"models"`
-				RequiredEnv []string    `yaml:"required_env"`
+				Model                   string      `yaml:"model"`
+				Models                  []modelSpec `yaml:"models"`
+				RequiredEnv             []string    `yaml:"required_env"`
+				ProvisionTimeoutSeconds int         `yaml:"provision_timeout_seconds"`
 			} `yaml:"runtime_config"`
 		}
 		if err := yaml.Unmarshal(data, &raw); err != nil {
-			continue
+			return
 		}
 
 		// Model comes from either top-level (legacy) or runtime_config.model (current).
@@ -122,18 +114,19 @@ func (h *TemplatesHandler) List(c *gin.Context) {
 		}
 
 		templates = append(templates, templateSummary{
-			ID:          entry.Name(),
-			Name:        raw.Name,
-			Description: raw.Description,
-			Tier:        raw.Tier,
-			Runtime:     raw.Runtime,
-			Model:       model,
-			Models:      raw.RuntimeConfig.Models,
-			RequiredEnv: raw.RuntimeConfig.RequiredEnv,
-			Skills:      raw.Skills,
-			SkillCount:  len(raw.Skills),
+			ID:                      id,
+			Name:                    raw.Name,
+			Description:             raw.Description,
+			Tier:                    raw.Tier,
+			Runtime:                 raw.Runtime,
+			Model:                   model,
+			Models:                  raw.RuntimeConfig.Models,
+			RequiredEnv:             raw.RuntimeConfig.RequiredEnv,
+			Skills:                  raw.Skills,
+			SkillCount:              len(raw.Skills),
+			ProvisionTimeoutSeconds: raw.RuntimeConfig.ProvisionTimeoutSeconds,
 		})
-	}
+	})
 
 	c.JSON(http.StatusOK, templates)
 }

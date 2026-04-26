@@ -7,6 +7,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -391,19 +392,32 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 	// Any concurrent heartbeat / registration / liveness-triggered restart
 	// will see status='removed' and bail out early.
 	//
-	// IMPORTANT: detach from the request ctx via WithoutCancel so that
-	// when the canvas's `api.del` resolves on our 200 (and gin cancels
-	// `c.Request.Context()`), in-flight Docker stop/remove calls don't
-	// get cancelled mid-operation. The previous shape leaked containers
-	// every time the canvas hung up promptly: Stop returned
-	// `context canceled`, the container stayed up, and the next
-	// RemoveVolume call failed with `volume in use`. The 30s bound is
-	// generous for Docker daemon round-trips (typical: <2s) and keeps
-	// a stuck daemon from holding a goroutine forever.
+	// Combines two concerns:
+	//
+	//  1. Detach cleanup from the request ctx via WithoutCancel + a 30s
+	//     timeout, so when the canvas's `api.del` resolves on our 200
+	//     (and gin cancels c.Request.Context()), in-flight Docker
+	//     stop/remove calls don't get cancelled mid-operation. The
+	//     previous shape leaked containers every time the canvas hung
+	//     up promptly: Stop returned "context canceled", the container
+	//     stayed up, and the next RemoveVolume failed with
+	//     "volume in use". 30s is generous for Docker daemon round-
+	//     trips (typical: <2s) and bounds a stuck daemon.
+	//
+	//  2. #1843: aggregate Stop() failures into stopErrs so the
+	//     post-deletion block surfaces them as 500. On the CP/EC2
+	//     backend, Stop() calls control plane's DELETE endpoint to
+	//     terminate the EC2; if that errors (transient 5xx, network),
+	//     the EC2 stays running with no DB row to track it (the
+	//     "orphan EC2 on a 0-customer account" scenario). Loud-fail
+	//     instead of silent-leak — clients retry, Stop's instance_id
+	//     lookup is idempotent against status='removed'. RemoveVolume
+	//     errors stay log-and-continue (local cleanup, not infra-leak).
 	cleanupCtx, cleanupCancel := context.WithTimeout(
 		context.WithoutCancel(ctx), 30*time.Second)
 	defer cleanupCancel()
 
+	var stopErrs []error
 	stopAndRemove := func(wsID string) {
 		if h.provisioner == nil {
 			return
@@ -416,6 +430,7 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 		// skip here on the next reconcile pass.
 		if err := h.provisioner.Stop(cleanupCtx, wsID); err != nil {
 			log.Printf("Delete %s container stop failed: %v — leaving volume for orphan sweeper", wsID, err)
+			stopErrs = append(stopErrs, fmt.Errorf("stop %s: %w", wsID, err))
 			return
 		}
 		if err := h.provisioner.RemoveVolume(cleanupCtx, wsID); err != nil {
@@ -442,6 +457,21 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 	h.broadcaster.RecordAndBroadcast(cleanupCtx, "WORKSPACE_REMOVED", id, map[string]interface{}{
 		"cascade_deleted": len(descendantIDs),
 	})
+
+	// If any Stop call failed, surface 500 so the client retries. The DB
+	// row is already 'removed' (idempotent), and Stop's instance_id
+	// lookup tolerates that — the retry replays the terminate. This is
+	// the loud-fail-instead-of-silent-leak choice; users see a 500
+	// instead of an orphaned EC2.
+	if len(stopErrs) > 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("workspace marked removed, but %d stop call(s) failed — please retry: %v",
+				len(stopErrs), errors.Join(stopErrs...)),
+			"removed_count": len(allIDs),
+			"stop_failures": len(stopErrs),
+		})
+		return
+	}
 
 	// Hard purge: cascade delete all FK data and remove the DB row entirely (#1087)
 	if c.Query("purge") == "true" {

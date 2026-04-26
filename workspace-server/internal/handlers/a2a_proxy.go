@@ -515,6 +515,16 @@ const idleTimeoutDuration = 60 * time.Second
 // Either layer is overridable by the X-Timeout header upstream in
 // ProxyA2A; X-Timeout: 0 explicitly disables the absolute ceiling.
 func (h *WorkspaceHandler) dispatchA2A(ctx context.Context, workspaceID, agentURL string, body []byte, callerID string) (*http.Response, context.CancelFunc, error) {
+	// #1483 SSRF defense-in-depth: the primary call path through
+	// proxyA2ARequest → resolveAgentURL already validates via isSafeURL
+	// (a2a_proxy.go:424), but adding the check here closes the gap for
+	// any future code path that calls dispatchA2A directly without
+	// going through resolveAgentURL. Wrapping as proxyDispatchBuildError
+	// keeps the caller's error-classification path unchanged — the same
+	// shape it already produces a 500 for.
+	if err := isSafeURL(agentURL); err != nil {
+		return nil, nil, &proxyDispatchBuildError{err: err}
+	}
 	forwardCtx := context.WithoutCancel(ctx)
 	var ceilingCancel context.CancelFunc
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
@@ -530,7 +540,18 @@ func (h *WorkspaceHandler) dispatchA2A(ctx context.Context, workspaceID, agentUR
 	// ceiling above is a separate runaway-loop cap that only fires
 	// for agent traffic). Combines with the ceiling cancel into a
 	// single returned cancel func that the caller defers.
-	forwardCtx, idleCancel := applyIdleTimeout(forwardCtx, h.broadcaster, workspaceID, idleTimeoutDuration)
+	// applyIdleTimeout needs SubscribeSSE which only lives on the
+	// concrete *Broadcaster, not on the EventEmitter interface the
+	// handler now stores. Type-assert + fall through to a no-op idle
+	// timer if the broadcaster doesn't support subscriptions (the
+	// EventEmitter mock used by some tests, e.g.). Production wires
+	// the concrete *Broadcaster, so the assertion always succeeds in
+	// real deploys.
+	var b *events.Broadcaster
+	if concrete, ok := h.broadcaster.(*events.Broadcaster); ok {
+		b = concrete
+	}
+	forwardCtx, idleCancel := applyIdleTimeout(forwardCtx, b, workspaceID, idleTimeoutDuration)
 	cancel := func() {
 		idleCancel()
 		if ceilingCancel != nil {

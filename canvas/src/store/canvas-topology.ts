@@ -504,6 +504,9 @@ export function buildNodesAndEdges(
         needsRestart: false,
         budgetLimit: ws.budget_limit ?? null,
         budgetUsed: ws.budget_used ?? null,
+        // #2054 — server-declared per-workspace provisioning timeout.
+        // Falls through to the runtime profile when null/absent.
+        provisionTimeoutMs: ws.provision_timeout_ms ?? null,
       },
     };
     if (hasParent) {

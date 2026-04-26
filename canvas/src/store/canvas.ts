@@ -92,6 +92,12 @@ export interface WorkspaceNodeData extends Record<string, unknown> {
   budgetLimit: number | null;
   /** Cumulative USD spend. Present when the platform tracks spend (issue #541). */
   budgetUsed?: number | null;
+  /** Per-workspace provisioning-timeout override in milliseconds (#2054).
+   *  Sourced server-side from the workspace's template manifest at provision
+   *  time. null/absent = fall through to runtime profile + default in
+   *  @/lib/runtimeProfiles. Lets a slow runtime declare its cold-boot
+   *  expectation without a canvas release. */
+  provisionTimeoutMs?: number | null;
 }
 
 export type PanelTab = "details" | "skills" | "chat" | "terminal" | "config" | "schedule" | "channels" | "files" | "memory" | "traces" | "events" | "activity" | "audit";

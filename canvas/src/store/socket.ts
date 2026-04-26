@@ -285,6 +285,13 @@ export interface WorkspaceData {
   budget_limit: number | null;
   /** Cumulative USD spend for this workspace. Present when the platform tracks spend. */
   budget_used?: number | null;
+  /** Server-declared provisioning-timeout override in milliseconds (#2054).
+   *  Sourced from the workspace's template manifest at provision time —
+   *  lets a slow runtime declare its cold-boot expectation without a
+   *  canvas release. Falls through to the per-runtime profile in
+   *  `@/lib/runtimeProfiles` when absent (the default behavior for any
+   *  template that hasn't yet declared the field). */
+  provision_timeout_ms?: number | null;
 }
 
 let socket: ReconnectingSocket | null = null;

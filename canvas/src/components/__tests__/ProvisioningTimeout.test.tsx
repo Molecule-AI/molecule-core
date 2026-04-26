@@ -287,5 +287,60 @@ describe("ProvisioningTimeout", () => {
         );
       });
     });
+
+    // #2054 — per-workspace server override threading from socket
+    // payload through node-data into ProvisioningTimeout's resolver.
+    // Doesn't render the component; verifies the data path lands the
+    // value where ProvisioningTimeout reads it from.
+    describe("server-side per-workspace override (#2054)", () => {
+      it("hydrate carries provision_timeout_ms onto node.data.provisionTimeoutMs", () => {
+        useCanvasStore.getState().hydrate([
+          makeWS({
+            id: "ws-slow",
+            name: "Slow",
+            status: "provisioning",
+            runtime: "future-runtime",
+            provision_timeout_ms: 600_000,
+          }),
+        ]);
+        const node = useCanvasStore
+          .getState()
+          .nodes.find((n) => n.id === "ws-slow");
+        expect(node?.data.provisionTimeoutMs).toBe(600_000);
+      });
+
+      it("absent provision_timeout_ms hydrates to null (falls through to runtime profile)", () => {
+        useCanvasStore.getState().hydrate([
+          makeWS({ id: "ws-default", name: "Default", status: "provisioning", runtime: "hermes" }),
+        ]);
+        const node = useCanvasStore
+          .getState()
+          .nodes.find((n) => n.id === "ws-default");
+        expect(node?.data.provisionTimeoutMs).toBeNull();
+        // And the resolver still returns hermes' profile value when
+        // no override is supplied — proves the fall-through stays intact.
+        expect(
+          provisionTimeoutForRuntime("hermes", {
+            provisionTimeoutMs: node?.data.provisionTimeoutMs ?? undefined,
+          }),
+        ).toBe(RUNTIME_PROFILES.hermes.provisionTimeoutMs);
+      });
+
+      it("server override wins over runtime profile via the resolver path the component uses", () => {
+        // Mirrors ProvisioningTimeout.tsx:144 where node.provisionTimeoutMs
+        // is passed as overrides — verifies the resolver respects it
+        // even when the runtime has its own profile entry.
+        const override = 30_000;
+        expect(
+          provisionTimeoutForRuntime("hermes", {
+            provisionTimeoutMs: override,
+          }),
+        ).toBe(override);
+        // Sanity — the runtime profile would have been much larger.
+        expect(RUNTIME_PROFILES.hermes.provisionTimeoutMs).toBeGreaterThan(
+          override,
+        );
+      });
+    });
   });
 });

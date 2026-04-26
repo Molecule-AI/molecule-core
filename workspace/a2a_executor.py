@@ -469,7 +469,14 @@ class LangGraphA2AExecutor(AgentExecutor):
                     try:
                         msg.metadata = {"tool_trace": tool_trace}
                     except (AttributeError, TypeError):
-                        pass
+                        # `new_agent_text_message()` returns a plain string in
+                        # MagicMock paths in tests, where assignment to
+                        # .metadata raises despite hasattr being true (the
+                        # mock has the attribute as a property). Suppression
+                        # is intentional — production Message objects always
+                        # accept the assignment. See #1787 + commit dcbcf19
+                        # for the original test-mock motivation.
+                        logger.debug("metadata attach skipped (non-Message return from new_agent_text_message)")
                 await event_queue.enqueue_event(msg)
                 _result = final_text
 
