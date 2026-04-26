@@ -41,6 +41,24 @@ export function shouldFitGrowing(
 }
 
 /**
+ * Drop entries from the last-fit snapshot map whose root id no longer
+ * exists in the live node set. Called on every fit attempt — the cost
+ * is O(map_size) and runs only at user-driven cadence (deploys), so
+ * the map is bounded by "roots present right now" instead of growing
+ * unbounded across long sessions of import-then-delete cycles. (#2070)
+ */
+export function pruneStaleSubtreeIds(
+  map: Map<string, Set<string>>,
+  liveNodeIds: ReadonlySet<string>,
+): void {
+  for (const rootId of map.keys()) {
+    if (!liveNodeIds.has(rootId)) {
+      map.delete(rootId);
+    }
+  }
+}
+
+/**
  * Wires the two canvas-wide CustomEvent listeners and the viewport
  * save/restore bookkeeping so Canvas.tsx doesn't have to.
  *
@@ -251,10 +269,9 @@ export function useCanvasViewport() {
   // brand-new node landed off-screen. The id-set sees the new id
   // wasn't in the snapshot and forces the fit.
   //
-  // Map is keyed by root id and never pruned. Acceptable today because
-  // org roots are UUIDs (no collisions on retry / template re-import),
-  // canvas sessions are per-tab, and entries are tiny. Worth a sweep
-  // if long-lived sessions ever start importing hundreds of orgs.
+  // Map is keyed by root id. Pruned at the top of `runFit` against the
+  // live node set, so deleted roots don't accumulate across long
+  // sessions of import-then-delete cycles (#2070).
   const lastFitSubtreeIdsRef = useRef<Map<string, Set<string>>>(new Map());
   useEffect(() => {
     const runFit = () => {
@@ -262,6 +279,10 @@ export function useCanvasViewport() {
       pendingFitRootRef.current = null;
       if (!rootCandidate) return;
       const state = useCanvasStore.getState();
+      pruneStaleSubtreeIds(
+        lastFitSubtreeIdsRef.current,
+        new Set(state.nodes.map((n) => n.id)),
+      );
       // Climb to the true root — the event's rootId is the just-
       // landed child's direct parent, which may itself be nested.
       let topId = rootCandidate;
