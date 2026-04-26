@@ -2,8 +2,11 @@ package middleware
 
 import (
 	"crypto/sha256"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -1697,5 +1700,59 @@ func TestAdminAuth_684_SpecificRoutes_NoBearer_Returns401(t *testing.T) {
 				t.Errorf("unmet sqlmock expectations: %v", err)
 			}
 		})
+	}
+}
+
+// ==================== platform-unavailable classification ====================
+//
+// abortAuthLookupError replaces the prior opaque
+// `500 {"error":"auth check failed"}` with a 503 + structured code so
+// the canvas can render a dedicated diagnostic instead of a confusing
+// toast. Pin both the status code and the body shape against
+// regression — this is the contract the canvas's
+// PlatformUnavailableError classifier reads at api.ts.
+
+func TestAdminAuth_DatastoreError_Returns503PlatformUnavailable(t *testing.T) {
+	mockDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer mockDB.Close()
+
+	// Simulate Postgres being down — HasAnyLiveTokenGlobal's COUNT
+	// query returns a connection error.
+	mock.ExpectQuery(hasAnyLiveTokenGlobalQuery).
+		WillReturnError(errors.New("dial tcp [::1]:5432: connect: connection refused"))
+
+	r := gin.New()
+	r.GET("/workspaces", AdminAuth(mockDB), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/workspaces", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("response body must be JSON: %v (body=%s)", err, w.Body.String())
+	}
+	if resp["code"] != "platform_unavailable" {
+		t.Errorf("response code = %v, want platform_unavailable (canvas reads this for the dedicated diagnostic)", resp["code"])
+	}
+	if _, ok := resp["error"].(string); !ok {
+		t.Errorf("response must include human-readable error string, got %v", resp["error"])
+	}
+	// The body must NOT leak the underlying DB error string —
+	// production hostnames / connection-string fragments could land
+	// in an error toast otherwise.
+	if errStr, _ := resp["error"].(string); strings.Contains(errStr, "dial tcp") {
+		t.Errorf("response leaks underlying DB error: %q", errStr)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
 }
