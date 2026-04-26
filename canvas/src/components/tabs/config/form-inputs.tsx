@@ -104,7 +104,7 @@ export function TagList({ label, values, onChange, placeholder }: { label: strin
         {values.map((v, i) => (
           <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px] text-zinc-300 font-mono">
             {v}
-            <button aria-label={`Remove tag ${v}`} onClick={() => onChange(values.filter((_, j) => j !== i))} className="text-zinc-500 hover:text-red-400">×</button>
+            <button type="button" aria-label={`Remove tag ${v}`} onClick={() => onChange(values.filter((_, j) => j !== i))} className="text-zinc-500 hover:text-red-400">×</button>
           </span>
         ))}
       </div>
@@ -131,7 +131,7 @@ export function Section({ title, children, defaultOpen = true }: { title: string
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="border border-zinc-800 rounded mb-2">
-      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] text-zinc-400 hover:text-zinc-200 bg-zinc-900/50">
+      <button type="button" onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] text-zinc-400 hover:text-zinc-200 bg-zinc-900/50">
         <span className="font-medium uppercase tracking-wider">{title}</span>
         <span>{open ? "▾" : "▸"}</span>
       </button>

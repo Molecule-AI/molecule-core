@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	cronlib "github.com/robfig/cron/v3"
@@ -23,7 +24,25 @@ const (
 	fireTimeout           = 5 * time.Minute
 	phantomSweepInterval  = 5 * time.Minute
 	phantomStaleThreshold = 10 * time.Minute
+	// #2026: per-DB-op deadline. Every scheduler DB call must complete
+	// within this window or the Exec/Query is cancelled and the tick
+	// continues. Before this, a slow/stuck DB op (bad UTF-8 rejected by
+	// Postgres, connection pool exhausted, replica lag) would block a
+	// fireSchedule goroutine indefinitely, which blocked wg.Wait() in
+	// tick(), which stalled the entire scheduler until operator restart.
+	dbQueryTimeout = 10 * time.Second
 )
+
+// sanitizeUTF8 replaces invalid UTF-8 byte sequences with the Unicode
+// replacement character. Used before writing agent-produced strings to
+// Postgres (text/jsonb columns reject invalid UTF-8, silently failing the
+// INSERT and holding the transaction open). #2026.
+func sanitizeUTF8(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	return strings.ToValidUTF8(s, "�")
+}
 
 // A2AProxy is the interface the scheduler needs to send messages to workspaces.
 // WorkspaceHandler.ProxyA2ARequest satisfies this.
@@ -186,7 +205,10 @@ func (s *Scheduler) Start(ctx context.Context) {
 func (s *Scheduler) tick(ctx context.Context) {
 	supervised.Heartbeat("scheduler")
 
-	rows, err := db.DB.QueryContext(ctx, `
+	// #2026: bound the due-schedules query — if Postgres is slow/stuck
+	// this fails fast instead of blocking the tick loop indefinitely.
+	queryCtx, queryCancel := context.WithTimeout(ctx, dbQueryTimeout)
+	rows, err := db.DB.QueryContext(queryCtx, `
 		SELECT id, workspace_id, name, cron_expr, timezone, prompt
 		FROM workspace_schedules
 		WHERE enabled = true AND next_run_at IS NOT NULL AND next_run_at <= now()
@@ -194,9 +216,11 @@ func (s *Scheduler) tick(ctx context.Context) {
 		LIMIT $1
 	`, batchLimit)
 	if err != nil {
+		queryCancel()
 		log.Printf("Scheduler: tick query error: %v", err)
 		return
 	}
+	defer queryCancel()
 	defer rows.Close()
 
 	var wg sync.WaitGroup
@@ -276,20 +300,29 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 	// to allow concurrent task processing (e.g. leaders handling A2A while cron runs).
 	var activeTasks int
 	var maxConcurrent int
-	if err := db.DB.QueryRowContext(ctx,
+	// #2026: bound the capacity check — if the DB is slow, fail open
+	// (skip the capacity wait, let fireTimeout catch a truly stuck fire)
+	// rather than blocking here indefinitely.
+	capCtx, capCancel := context.WithTimeout(ctx, dbQueryTimeout)
+	capErr := db.DB.QueryRowContext(capCtx,
 		`SELECT COALESCE(active_tasks, 0), COALESCE(max_concurrent_tasks, 1) FROM workspaces WHERE id = $1`,
 		sched.WorkspaceID,
-	).Scan(&activeTasks, &maxConcurrent); err == nil && activeTasks >= maxConcurrent {
+	).Scan(&activeTasks, &maxConcurrent)
+	capCancel()
+	if capErr == nil && activeTasks >= maxConcurrent {
 		log.Printf("Scheduler: '%s' workspace %s at capacity (active_tasks=%d, max=%d), deferring up to 2 min",
 			sched.Name, short(sched.WorkspaceID, 12), activeTasks, maxConcurrent)
 		// Poll every 10s for up to 2 minutes
 		waited := false
 		for i := 0; i < 12; i++ {
 			time.Sleep(10 * time.Second)
-			if err := db.DB.QueryRowContext(ctx,
+			pollCtx, pollCancel := context.WithTimeout(ctx, dbQueryTimeout)
+			err := db.DB.QueryRowContext(pollCtx,
 				`SELECT COALESCE(active_tasks, 0), COALESCE(max_concurrent_tasks, 1) FROM workspaces WHERE id = $1`,
 				sched.WorkspaceID,
-			).Scan(&activeTasks, &maxConcurrent); err != nil || activeTasks < maxConcurrent {
+			).Scan(&activeTasks, &maxConcurrent)
+			pollCancel()
+			if err != nil || activeTasks < maxConcurrent {
 				waited = true
 				break
 			}
@@ -362,7 +395,12 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 		// per schedule; at 100 tenants × dozens of schedules the saved
 		// query matters.
 		var consecEmpty int
-		if err := db.DB.QueryRowContext(ctx, `
+		// #2026: bound the empty-run UPDATE — survives outer ctx cancellation
+		// (uses Background()) so the bookkeeping completes even if fireTimeout
+		// cancelled the HTTP call, and has its own deadline so a stuck DB
+		// can't block the goroutine.
+		emptyCtx, emptyCancel := context.WithTimeout(context.Background(), dbQueryTimeout)
+		if err := db.DB.QueryRowContext(emptyCtx, `
 			UPDATE workspace_schedules
 			SET consecutive_empty_runs = consecutive_empty_runs + 1,
 			    updated_at = now()
@@ -370,6 +408,7 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 			RETURNING consecutive_empty_runs`, sched.ID).Scan(&consecEmpty); err != nil {
 			log.Printf("Scheduler: '%s' empty-run bump failed: %v", sched.Name, err)
 		}
+		emptyCancel()
 		if consecEmpty >= 3 {
 			lastStatus = "stale"
 			lastError = fmt.Sprintf("empty response %d consecutive times — agent may be phantom-producing (#795)", consecEmpty)
@@ -378,11 +417,13 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 		}
 	} else if lastStatus == "ok" {
 		// Non-empty success — reset the counter
-		db.DB.ExecContext(ctx, `
+		resetCtx, resetCancel := context.WithTimeout(context.Background(), dbQueryTimeout)
+		_, _ = db.DB.ExecContext(resetCtx, `
 			UPDATE workspace_schedules
 			SET consecutive_empty_runs = 0,
 			    updated_at = now()
 			WHERE id = $1`, sched.ID)
+		resetCancel()
 	}
 
 	nextRun, nextErr := ComputeNextRun(sched.CronExpr, sched.Timezone, time.Now())
@@ -422,20 +463,31 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched scheduleRow) {
 
 	// Log a dedicated cron_run activity entry with schedule metadata so the
 	// history endpoint can query by schedule_id.
+	// #2026: sanitize the truncated prompt — even UTF-8-safe truncate() can
+	// carry pre-existing invalid bytes from an agent-edited template. jsonb
+	// columns reject invalid UTF-8 and hold the transaction open.
 	cronMeta, _ := json.Marshal(map[string]interface{}{
 		"schedule_id":   sched.ID,
 		"schedule_name": sched.Name,
 		"cron_expr":     sched.CronExpr,
-		"prompt":        truncate(sched.Prompt, 200),
+		"prompt":        sanitizeUTF8(truncate(sched.Prompt, 200)),
 	})
 	// #152: persist lastError into error_detail on the activity_logs row
 	// so GET /workspaces/:id/schedules/:id/history can surface why a run
 	// failed (previously dropped — history returned status without any
 	// error context, making root-cause debugging impossible).
-	_, _ = db.DB.ExecContext(ctx, `
+	// #2026: bounded Background() context — this INSERT was observed wedging
+	// indefinitely on invalid-UTF-8 jsonb payloads, blocking wg.Wait() in
+	// tick() and stalling the whole scheduler. Now: 10s deadline, survives
+	// outer ctx cancellation, and every string is UTF-8 sanitized.
+	insertCtx, insertCancel := context.WithTimeout(context.Background(), dbQueryTimeout)
+	if _, insErr := db.DB.ExecContext(insertCtx, `
 		INSERT INTO activity_logs (workspace_id, activity_type, source_id, method, summary, request_body, status, error_detail, created_at)
 		VALUES ($1, 'cron_run', NULL, 'cron', $2, $3::jsonb, $4, $5, now())
-	`, sched.WorkspaceID, "Cron: "+sched.Name, string(cronMeta), lastStatus, lastError)
+	`, sched.WorkspaceID, sanitizeUTF8("Cron: "+sched.Name), string(cronMeta), lastStatus, sanitizeUTF8(lastError)); insErr != nil {
+		log.Printf("Scheduler: activity_logs insert failed for '%s' (%s): %v", sched.Name, sched.ID, insErr)
+	}
+	insertCancel()
 
 	if s.broadcaster != nil {
 		s.broadcaster.RecordAndBroadcast(ctx, "CRON_EXECUTED", sched.WorkspaceID, map[string]interface{}{
@@ -483,7 +535,10 @@ func (s *Scheduler) recordSkipped(ctx context.Context, sched scheduleRow, active
 	// Advance next_run_at + bump run_count so the liveness view reflects
 	// that we're still ticking. last_status='skipped', last_error carries
 	// the reason for operators debugging via the schedule history API.
-	_, _ = db.DB.ExecContext(ctx, `
+	// #2026: bounded Background() context so the bookkeeping can't block
+	// on a stuck DB and stall the scheduler.
+	skipUpdCtx, skipUpdCancel := context.WithTimeout(context.Background(), dbQueryTimeout)
+	_, _ = db.DB.ExecContext(skipUpdCtx, `
 		UPDATE workspace_schedules
 		SET last_run_at = now(),
 		    next_run_at = COALESCE($2, next_run_at),
@@ -492,7 +547,8 @@ func (s *Scheduler) recordSkipped(ctx context.Context, sched scheduleRow, active
 		    last_error = $3,
 		    updated_at = now()
 		WHERE id = $1
-	`, sched.ID, nextRunPtr, reason)
+	`, sched.ID, nextRunPtr, sanitizeUTF8(reason))
+	skipUpdCancel()
 
 	cronMeta, _ := json.Marshal(map[string]interface{}{
 		"schedule_id":   sched.ID,
@@ -501,10 +557,14 @@ func (s *Scheduler) recordSkipped(ctx context.Context, sched scheduleRow, active
 		"skipped":       true,
 		"active_tasks":  activeTasks,
 	})
-	_, _ = db.DB.ExecContext(ctx, `
+	// #2026: bounded Background() context on the skipped activity log INSERT
+	// for the same reason as the fireSchedule activity_logs INSERT above.
+	skipInsCtx, skipInsCancel := context.WithTimeout(context.Background(), dbQueryTimeout)
+	_, _ = db.DB.ExecContext(skipInsCtx, `
 		INSERT INTO activity_logs (workspace_id, activity_type, source_id, method, summary, request_body, status, error_detail, created_at)
 		VALUES ($1, 'cron_run', NULL, 'cron', $2, $3::jsonb, 'skipped', $4, now())
-	`, sched.WorkspaceID, "Cron skipped: "+sched.Name, string(cronMeta), reason)
+	`, sched.WorkspaceID, sanitizeUTF8("Cron skipped: "+sched.Name), string(cronMeta), sanitizeUTF8(reason))
+	skipInsCancel()
 
 	if s.broadcaster != nil {
 		_ = s.broadcaster.RecordAndBroadcast(ctx, "CRON_SKIPPED", sched.WorkspaceID, map[string]interface{}{
@@ -690,11 +750,26 @@ func isEmptyResponse(body []byte) bool {
 	return false
 }
 
+// truncate shortens s to at most maxLen bytes, appending "..." if truncated.
+// #2026: UTF-8 safe — byte-slicing at maxLen-3 would split multi-byte runes
+// (observed: U+2026 `…` = 0xe2 0x80 0xa6, sliced mid-char, concatenated with
+// "..." producing 0xe2 0x80 0x2e — rejected by Postgres as invalid UTF-8,
+// which wedged the activity_logs INSERT with no deadline and stalled the
+// scheduler).
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen-3] + "..."
+	cut := maxLen - 3
+	if cut < 0 {
+		cut = 0
+	}
+	// Back up to a rune boundary — utf8.RuneStart returns true for any
+	// non-continuation byte (ASCII, or the lead byte of a multi-byte rune).
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
 }
 
 // short returns up to n leading characters of s without panicking when s is

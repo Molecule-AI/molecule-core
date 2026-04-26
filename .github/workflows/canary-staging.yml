@@ -43,6 +43,17 @@ jobs:
     env:
       MOLECULE_CP_URL: https://staging-api.moleculesai.app
       MOLECULE_ADMIN_TOKEN: ${{ secrets.MOLECULE_STAGING_ADMIN_TOKEN }}
+      # Without an LLM key the test_staging_full_saas.sh script provisions
+      # the workspace with empty secrets, hermes derive-provider.sh resolves
+      # `openai/gpt-4o` to PROVIDER=openrouter, no OPENROUTER_API_KEY is
+      # found in env, and A2A returns "No LLM provider configured" at
+      # request time (canary step 8/11). The full-lifecycle workflow
+      # (e2e-staging-saas.yml) has carried this secret since launch — the
+      # canary regressed when it was first split out and lost the env
+      # block. Issue #1500 had ~30 consecutive failures before this was
+      # spotted; do NOT remove without re-reading the script's secrets-
+      # injection block.
+      E2E_OPENAI_API_KEY: ${{ secrets.MOLECULE_STAGING_OPENAI_KEY }}
       E2E_MODE: canary
       E2E_RUNTIME: hermes
       E2E_RUN_ID: "canary-${{ github.run_id }}"
@@ -56,6 +67,14 @@ jobs:
             echo "::error::MOLECULE_STAGING_ADMIN_TOKEN not set"
             exit 2
           fi
+
+      - name: Verify OpenAI key present
+        run: |
+          if [ -z "$E2E_OPENAI_API_KEY" ]; then
+            echo "::error::MOLECULE_STAGING_OPENAI_KEY secret not set — A2A will fail at request time with 'No LLM provider configured'"
+            exit 2
+          fi
+          echo "OpenAI key present ✓ (len=${#E2E_OPENAI_API_KEY})"
 
       - name: Canary run
         id: canary

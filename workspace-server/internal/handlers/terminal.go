@@ -77,17 +77,26 @@ func (h *TerminalHandler) HandleConnect(c *gin.Context) {
 	// A2A message-passing, so we apply the same hierarchy check here.
 	// GH#756/#1609 security fix: if the caller claims a specific workspace
 	// identity (X-Workspace-ID header), the bearer token — if present — must
-	// belong to that claimed workspace. ValidateAnyToken accepted ANY valid org
-	// token, allowing Workspace A to forge X-Workspace-ID: B and reach B's
-	// terminal if A held any valid token. ValidateToken binds the token to
-	// the claimed workspace identity.
+	// belong to that claimed workspace. Previously ValidateAnyToken accepted
+	// ANY valid org token, allowing Workspace A to forge X-Workspace-ID: B
+	// and reach B's terminal if A held any valid token. ValidateToken binds
+	// the workspace-scoped token to the claimed workspace identity. Org-level
+	// tokens are handled separately via the org_token_id context key.
 	callerID := c.GetHeader("X-Workspace-ID")
 	if callerID != "" && callerID != workspaceID {
 		tok := wsauth.BearerTokenFromHeader(c.GetHeader("Authorization"))
 		if tok != "" {
 			if err := wsauth.ValidateToken(ctx, db.DB, callerID, tok); err != nil {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token for claimed workspace"})
-				return
+				// Org-scoped tokens (org_api_tokens) are validated at the org level
+				// by WorkspaceAuth and do not have a workspace_auth_tokens row, so
+				// ValidateToken always returns ErrInvalidToken for them. If WorkspaceAuth
+				// already validated an org token (org_token_id set in context), trust
+				// the X-Workspace-ID claim — the hierarchy is enforced by
+				// canCommunicateCheck below. Reject everything else.
+				if c.GetString("org_token_id") == "" {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token for claimed workspace"})
+					return
+				}
 			}
 		}
 		if !canCommunicateCheck(callerID, workspaceID) {

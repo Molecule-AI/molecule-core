@@ -426,14 +426,19 @@ class ClaudeSDKExecutor(AgentExecutor):
         # Keep a clean copy of the user's actual message for the memory record,
         # BEFORE any delegation or memory injection.
         original_input = user_input
-        await set_current_task(self.heartbeat, brief_summary(user_input))
         logger.debug("SDK execute [claude-code]: %s", user_input[:200])
 
         prompt = self._prepare_prompt(user_input)
-        prompt = await self._inject_memories_if_first_turn(prompt)
 
         response_text: str = ""
         try:
+            # set_current_task INSIDE the try so active_tasks is always
+            # decremented by the finally block even if CancelledError hits
+            # during the heartbeat HTTP push. Moving it outside the try
+            # created a narrow window where cancellation left active_tasks
+            # stuck at 1 forever, permanently blocking queue drain. (#2026)
+            await set_current_task(self.heartbeat, brief_summary(user_input))
+            prompt = await self._inject_memories_if_first_turn(prompt)
             for attempt in range(_MAX_RETRIES):
                 options = self._build_options()
                 try:

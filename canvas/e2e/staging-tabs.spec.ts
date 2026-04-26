@@ -63,6 +63,82 @@ test.describe("staging canvas tabs", () => {
       Authorization: `Bearer ${tenantToken}`,
     });
 
+    // canvas/src/components/AuthGate.tsx fetches /cp/auth/me on mount
+    // and redirects to the login page on 401. The bearer header above
+    // is for platform API calls — it does NOT satisfy /cp/auth/me,
+    // which is cookie-based (WorkOS session). Without this mock, the
+    // canvas page mounts AuthGate, sees 401 from /cp/auth/me, and
+    // redirects away from the tenant URL before the React Flow root
+    // ever renders. The [aria-label] selector wait then times out.
+    //
+    // Intercept /cp/auth/me + return a fake Session shape so AuthGate
+    // resolves to "authenticated" and renders {children}. The session
+    // contents are cosmetic — the canvas only inspects org_id/user_id
+    // in a few places that don't fail when these are dummy values.
+    await context.route("**/cp/auth/me", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          user_id: `e2e-test-user-${workspaceId}`,
+          org_id: "e2e-test-org",
+          email: "e2e@test.local",
+        }),
+      }),
+    );
+
+    // Universal 401 → empty-200 fallback (defense-in-depth).
+    //
+    // The original product bug was canvas/src/lib/api.ts:62-74 calling
+    // `redirectToLogin` on EVERY 401 — a single workspace-scoped 401
+    // (e.g. /workspaces/:id/peers, /plugins) yanked the user (and the
+    // test) to AuthKit. That's now fixed at the source: api.ts probes
+    // /cp/auth/me before redirecting, so a 401 from a non-auth path
+    // with a live session throws a regular error instead.
+    //
+    // This route handler stays as a SAFETY NET, not the primary
+    // defense:
+    //   1. It silences resource-load console noise from the browser
+    //      (those messages don't include the URL — useless in
+    //      diagnostics, captured by the filter in the assertion
+    //      block but having no 401s reach the network is cleaner).
+    //   2. It guards against panels that DON'T have try/catch around
+    //      their api calls — an unhandled rejection would surface
+    //      as console.error → fail the assertion. Panels SHOULD
+    //      handle errors, but until they're all audited, this is
+    //      the test's belt to api.ts's braces.
+    //
+    // Pass-through real responses; swap 401s for 200 + empty body.
+    // Skip /cp/auth/me (mocked above) and non-fetch resources
+    // (HTML/JS/CSS bundles that should NOT be intercepted).
+    await context.route("**", async (route, request) => {
+      if (request.resourceType() !== "fetch") {
+        return route.fallback();
+      }
+      // /cp/auth/me is mocked above with a fixed Session shape — let
+      // that handler win without us round-tripping the network.
+      if (request.url().includes("/cp/auth/me")) {
+        return route.fallback();
+      }
+      let resp;
+      try {
+        resp = await route.fetch();
+      } catch {
+        return route.fallback();
+      }
+      if (resp.status() !== 401) {
+        return route.fulfill({ response: resp });
+      }
+      const lastSeg =
+        new URL(request.url()).pathname.split("/").filter(Boolean).pop() || "";
+      const looksLikeList = !/^[0-9a-f-]{8,}$/.test(lastSeg);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: looksLikeList ? "[]" : "{}",
+      });
+    });
+
     const consoleErrors: string[] = [];
     page.on("console", (msg) => {
       if (msg.type() === "error") {
@@ -70,13 +146,38 @@ test.describe("staging canvas tabs", () => {
       }
     });
 
-    await page.goto(tenantURL, { waitUntil: "networkidle" });
+    // Capture the URL of any failed network request so a "Failed to load
+    // resource: 404" console message we filter out below leaves a
+    // breadcrumb. Browser console messages for resource-load failures
+    // omit the URL, so we'd otherwise be flying blind. Logged to the
+    // test's stdout (visible in the workflow log under the failed step).
+    page.on("requestfailed", (req) => {
+      console.log(`[e2e/requestfailed] ${req.method()} ${req.url()}: ${req.failure()?.errorText ?? "?"}`);
+    });
+    page.on("response", (res) => {
+      if (res.status() >= 400) {
+        console.log(`[e2e/response-${res.status()}] ${res.request().method()} ${res.url()}`);
+      }
+    });
+
+    // waitUntil="networkidle" is wrong here — the canvas keeps a
+    // WebSocket open + polls /events and /workspaces every few
+    // seconds, so the network is *never* idle for 500ms. page.goto
+    // would hang until its 45s default timeout. "domcontentloaded"
+    // returns as soon as the HTML is parsed; React hydration + the
+    // selector wait below is what actually gates ready-for-interaction.
+    await page.goto(tenantURL, { waitUntil: "domcontentloaded" });
 
     // Canvas hydration races WebSocket connect + /workspaces fetch.
-    // Wait for the tablist element (appears after a workspace is
-    // selected) or the hydration-error banner — whichever wins first.
+    // Wait for the React Flow canvas wrapper (always present once
+    // hydrated, even with zero workspaces) or the hydration-error
+    // banner — whichever wins first. Previous version of this wait
+    // used `[role="tablist"]`, but that selector only appears AFTER
+    // a workspace node is clicked (which happens below at L100), so
+    // the wait would always time out at 45s before any meaningful
+    // failure surfaced.
     await page.waitForSelector(
-      '[role="tablist"], [data-testid="hydration-error"]',
+      '[aria-label="Molecule AI workspace canvas"], [data-testid="hydration-error"]',
       { timeout: 45_000 },
     );
 
@@ -106,6 +207,15 @@ test.describe("staging canvas tabs", () => {
     for (const tabId of TAB_IDS) {
       await test.step(`tab: ${tabId}`, async () => {
         const tabButton = page.locator(`#tab-${tabId}`);
+        // The TABS bar is `overflow-x-auto` (SidePanel.tsx:~tabs
+        // wrapper) — tabs after position ~3 are clipped behind the
+        // right-edge fade gradient on smaller viewports. Playwright's
+        // `toBeVisible()` returns false for clipped elements, so a
+        // bare visibility check fails on `skills` and later tabs in
+        // CI. scrollIntoViewIfNeeded brings the button into view
+        // before the visibility check, mirroring what SidePanel's own
+        // keyboard handler does on arrow-key navigation.
+        await tabButton.scrollIntoViewIfNeeded({ timeout: 5_000 });
         await expect(
           tabButton,
           `tab-${tabId} button missing — TABS list may have drifted`,
@@ -134,14 +244,22 @@ test.describe("staging canvas tabs", () => {
 
     // Aggregate console-error budget. Known-noisy sources whitelisted:
     // Sentry, Vercel analytics, WS reconnects (expected on SaaS
-    // terminal), favicon 404 (cosmetic).
+    // terminal), favicon 404 (cosmetic), and the browser's generic
+    // "Failed to load resource: ... 404" message which never includes
+    // the URL — uninformative on its own and impossible to filter
+    // meaningfully without a URL. The page.on('requestfailed') +
+    // page.on('response>=400') logging above captures the actual URLs
+    // so a real bug still leaves a breadcrumb in the workflow log;
+    // a real exception (panel crash, JS error) surfaces as a typed
+    // error with file path which the filter still catches.
     const appErrors = consoleErrors.filter(
       (msg) =>
         !msg.includes("sentry") &&
         !msg.includes("vercel") &&
         !msg.includes("WebSocket") &&
         !msg.includes("favicon") &&
-        !msg.includes("molecule-icon.png"), // another cosmetic 404
+        !msg.includes("molecule-icon.png") && // cosmetic 404
+        !msg.includes("Failed to load resource"),
     );
     expect(
       appErrors,

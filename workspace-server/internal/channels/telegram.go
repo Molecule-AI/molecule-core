@@ -39,6 +39,31 @@ type TelegramAdapter struct{}
 func (t *TelegramAdapter) Type() string        { return "telegram" }
 func (t *TelegramAdapter) DisplayName() string { return "Telegram" }
 
+// ConfigSchema — Telegram uses Bot API long-polling. The bot token comes
+// from @BotFather; chat_id is a comma-separated list discovered via the
+// "Detect Chats" UI flow (calls Bot.getUpdates).
+func (t *TelegramAdapter) ConfigSchema() []ConfigField {
+	return []ConfigField{
+		{
+			Key:         "bot_token",
+			Label:       "Bot Token",
+			Type:        "password",
+			Required:    true,
+			Sensitive:   true,
+			Placeholder: "123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			Help:        "From @BotFather → /newbot (or /token on an existing bot).",
+		},
+		{
+			Key:         "chat_id",
+			Label:       "Chat IDs",
+			Type:        "text",
+			Required:    true,
+			Placeholder: "-100123456789, -100987654321",
+			Help:        "Comma-separated chat IDs. Use \"Detect Chats\" after adding the bot to groups or sending /start in DMs.",
+		},
+	}
+}
+
 func (t *TelegramAdapter) ValidateConfig(config map[string]interface{}) error {
 	token, _ := config["bot_token"].(string)
 	if token == "" {

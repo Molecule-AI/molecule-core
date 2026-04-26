@@ -31,6 +31,57 @@ type SlackAdapter struct{}
 func (s *SlackAdapter) Type() string        { return "slack" }
 func (s *SlackAdapter) DisplayName() string { return "Slack" }
 
+// ConfigSchema — Slack supports two mutually-exclusive outbound modes:
+// Bot API (bot_token + channel_id, supports per-message identity override)
+// and Incoming Webhook (webhook_url, legacy, no identity override). The
+// form exposes both; ValidateConfig enforces "one or the other".
+func (s *SlackAdapter) ConfigSchema() []ConfigField {
+	return []ConfigField{
+		{
+			Key:         "bot_token",
+			Label:       "Bot Token (xoxb-…)",
+			Type:        "password",
+			Required:    false,
+			Sensitive:   true,
+			Placeholder: "xoxb-1234-5678-abc...",
+			Help:        "Bot API mode — supports per-agent identity override. Required scopes: chat:write, chat:write.customize. Leave empty to use Incoming Webhook mode instead.",
+		},
+		{
+			Key:         "channel_id",
+			Label:       "Channel ID",
+			Type:        "text",
+			Required:    false,
+			Placeholder: "C01234ABCDE",
+			Help:        "Required when using Bot Token mode. From the channel's \"View channel details\" dialog.",
+		},
+		{
+			Key:         "webhook_url",
+			Label:       "Incoming Webhook URL (legacy)",
+			Type:        "password",
+			Required:    false,
+			Sensitive:   true,
+			Placeholder: "https://hooks.slack.com/services/T.../B.../...",
+			Help:        "Simpler mode — no per-agent identity. Either Bot Token OR Webhook URL is required.",
+		},
+		{
+			Key:         "username",
+			Label:       "Override Username",
+			Type:        "text",
+			Required:    false,
+			Placeholder: "optional, Bot Token mode only",
+			Help:        "Display name to use on outbound messages. Ignored in Webhook mode.",
+		},
+		{
+			Key:         "icon_emoji",
+			Label:       "Override Icon Emoji",
+			Type:        "text",
+			Required:    false,
+			Placeholder: ":robot_face:",
+			Help:        "Emoji shortcode for per-message avatar. Ignored in Webhook mode.",
+		},
+	}
+}
+
 // ValidateConfig checks that the channel config contains a valid Slack
 // Incoming Webhook URL (must start with https://hooks.slack.com/).
 // Returns an error whose message becomes part of the 400 response body so

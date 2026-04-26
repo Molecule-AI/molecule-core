@@ -455,3 +455,38 @@ func TestTerminalConnect_KI005_AllowsSiblingWorkspace(t *testing.T) {
 	}
 }
 
+// TestKI005_OrgToken_SkipsValidateToken verifies that when WorkspaceAuth already
+// validated an org token (org_token_id set in gin context), the X-Workspace-ID
+// claim is trusted without a workspace_auth_tokens lookup. The hierarchy is still
+// enforced by canCommunicateCheck. Regression guard for the A2A routing regression
+// introduced in GH#1885: internal routing uses org tokens which are not in
+// workspace_auth_tokens, so ValidateToken would always fail for them.
+func TestKI005_OrgToken_SkipsValidateToken(t *testing.T) {
+	setupTestDB(t) // no ValidateToken ExpectQuery — none should fire
+	prev := canCommunicateCheck
+	canCommunicateCheck = func(callerID, targetID string) bool {
+		// Simulate platform agent → target workspace (same org).
+		return callerID == "ws-platform" && targetID == "ws-target"
+	}
+	defer func() { canCommunicateCheck = prev }()
+
+	h := NewTerminalHandler(nil)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-target"}}
+	c.Request = httptest.NewRequest("GET", "/workspaces/ws-target/terminal", nil)
+	c.Request.Header.Set("X-Workspace-ID", "ws-platform")
+	c.Request.Header.Set("Authorization", "Bearer org-token-abc123")
+	// Simulate WorkspaceAuth having validated the org token (orgtoken.Validate
+	// succeeded). HandleConnect must skip ValidateToken and trust the claim.
+	c.Set("org_token_id", "tok-org-abc")
+
+	h.HandleConnect(c)
+
+	// Org token path: ValidateToken skipped → canCommunicateCheck=true →
+	// falls through to Docker path → 503 nil-docker (no Docker client).
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("org-token A2A: got %d, want 503 nil-docker (%s)", w.Code, w.Body.String())
+	}
+}
+

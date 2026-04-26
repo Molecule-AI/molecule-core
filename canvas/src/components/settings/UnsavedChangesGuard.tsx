@@ -31,12 +31,12 @@ export function UnsavedChangesGuard({
           </AlertDialog.Title>
           <div className="guard-dialog__actions">
             <AlertDialog.Cancel asChild>
-              <button className="guard-dialog__keep-btn" onClick={onKeepEditing}>
+              <button type="button" className="guard-dialog__keep-btn">
                 Keep editing
               </button>
             </AlertDialog.Cancel>
             <AlertDialog.Action asChild>
-              <button className="guard-dialog__discard-btn" onClick={onDiscard}>
+              <button type="button" className="guard-dialog__discard-btn">
                 Discard
               </button>
             </AlertDialog.Action>

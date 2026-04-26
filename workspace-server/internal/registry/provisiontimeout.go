@@ -18,29 +18,48 @@ type ProvisionTimeoutEmitter interface {
 }
 
 // DefaultProvisioningTimeout is how long a workspace may sit in
-// status='provisioning' before the sweeper flips it to 'failed'. The
-// container-launch path has its own 3-minute context timeout
-// (provisioner.ProvisionTimeout) but that only bounds the docker API call —
-// a container that started but crashes before /registry/register never
-// triggers that path and would sit in provisioning forever. 10 minutes
-// covers pathological image-pull + user-data execution on a cold EC2 worker
-// while still getting well ahead of the "15+ minute" stuck state users see
-// in production.
+// status='provisioning' before the sweeper flips it to 'failed'.
+// Default for non-hermes runtimes (claude-code, langgraph, crewai,
+// autogen, etc.) which cold-boot in <5 min. The container-launch path
+// has its own 3-minute context timeout (provisioner.ProvisionTimeout)
+// but that only bounds the docker API call — a container that started
+// but crashes before /registry/register never triggers that path and
+// would sit in provisioning forever. 10 minutes covers pathological
+// image-pull + user-data execution on a cold EC2 worker while still
+// getting well ahead of the "15+ minute" stuck state users see in
+// production.
 const DefaultProvisioningTimeout = 10 * time.Minute
+
+// HermesProvisioningTimeout matches the CP bootstrap-watcher's
+// runtime-aware deadline (cp#245) for hermes workspaces: 25 min watcher
+// + 5 min sweep slack. Hermes cold-boot does apt + uv + Python venv +
+// Node + hermes-agent install — 13–25 min on slow apt mirrors is
+// normal. Without this, the sweep would flip the workspace to 'failed'
+// at 10 min while the watcher (and the workspace itself) is still
+// happily progressing through install. Issue #1843 follow-up: a
+// healthy 10.5-min hermes boot was killed by the 10-min sweep on
+// 2026-04-26, breaking #2061's E2E.
+const HermesProvisioningTimeout = 30 * time.Minute
 
 // DefaultProvisionSweepInterval is how often the sweeper polls. Same cadence
 // as the hibernation monitor — cheap and bounded by the provisioning-state
 // query which hits the primary key / status partial index.
 const DefaultProvisionSweepInterval = 30 * time.Second
 
-// provisioningTimeout reads the override from env, falling back to the
-// default. Env var expressed in seconds so operators can tune via a normal
-// container restart without a code change.
-func provisioningTimeout() time.Duration {
+// provisioningTimeoutFor picks the per-runtime sweep deadline. Mirrors
+// the CP bootstrap-watcher's runtime gating (provisioner.bootstrapTimeoutFn).
+// PROVISION_TIMEOUT_SECONDS env override, when set, applies to ALL
+// runtimes — useful for ops debugging but loses the runtime nuance, so
+// operators should prefer the defaults unless they have a specific
+// reason.
+func provisioningTimeoutFor(runtime string) time.Duration {
 	if v := os.Getenv("PROVISION_TIMEOUT_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return time.Duration(n) * time.Second
 		}
+	}
+	if runtime == "hermes" {
+		return HermesProvisioningTimeout
 	}
 	return DefaultProvisioningTimeout
 }
@@ -65,7 +84,8 @@ func StartProvisioningTimeoutSweep(ctx context.Context, emitter ProvisionTimeout
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	log.Printf("Provision-timeout sweep: started (interval=%s, timeout=%s)", interval, provisioningTimeout())
+	log.Printf("Provision-timeout sweep: started (interval=%s, timeout=%s default / %s hermes)",
+		interval, DefaultProvisioningTimeout, HermesProvisioningTimeout)
 
 	for {
 		select {
@@ -80,33 +100,51 @@ func StartProvisioningTimeoutSweep(ctx context.Context, emitter ProvisionTimeout
 // sweepStuckProvisioning is one tick of the sweeper. Exported-for-test via
 // the package boundary: keep all time.Now reads inside so tests can drive it
 // deterministically by seeding updated_at rather than manipulating time.
+//
+// Runtime-aware: the per-workspace timeout depends on `runtime`. Hermes
+// gets 30 min (matching the CP bootstrap-watcher's 25-min deadline + 5
+// min slack); everything else gets 10 min. Without this distinction a
+// healthy hermes cold-boot at 10–25 min got killed mid-install by this
+// sweep, leaving an incoherent "marked failed but actually working"
+// state. See bootstrap_watcher.go's bootstrapTimeoutFn for the
+// canonical CP-side gating.
 func sweepStuckProvisioning(ctx context.Context, emitter ProvisionTimeoutEmitter) {
-	timeout := provisioningTimeout()
-	timeoutSec := int(timeout / time.Second)
-
-	// Read candidates first so the event broadcast can include each id. The
-	// subsequent UPDATE re-checks the predicate to stay race-safe against
-	// concurrent restart / register paths that write updated_at.
+	// We can't pre-filter by age in SQL because the threshold depends
+	// on the row's runtime. Pull every provisioning row + its runtime
+	// + its age, evaluate per-row in Go. Still cheap — the
+	// status='provisioning' row count is bounded (workspaces in
+	// flight, not historical) and the partial index on status keeps
+	// it fast.
 	rows, err := db.DB.QueryContext(ctx, `
-		SELECT id FROM workspaces
+		SELECT id, COALESCE(runtime, ''), EXTRACT(EPOCH FROM (now() - updated_at))::int
+		FROM workspaces
 		WHERE status = 'provisioning'
-		  AND updated_at < now() - ($1 || ' seconds')::interval
-	`, timeoutSec)
+	`)
 	if err != nil {
 		log.Printf("Provision-timeout sweep: query error: %v", err)
 		return
 	}
 	defer rows.Close()
 
-	var ids []string
+	type candidate struct {
+		id      string
+		runtime string
+		ageSec  int
+	}
+	var ids []candidate
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err == nil {
-			ids = append(ids, id)
+		var c candidate
+		if err := rows.Scan(&c.id, &c.runtime, &c.ageSec); err == nil {
+			ids = append(ids, c)
 		}
 	}
 
-	for _, id := range ids {
+	for _, c := range ids {
+		timeout := provisioningTimeoutFor(c.runtime)
+		timeoutSec := int(timeout / time.Second)
+		if c.ageSec < timeoutSec {
+			continue
+		}
 		msg := "provisioning timed out — container started but never called /registry/register. Check container logs and network connectivity to the platform."
 		res, err := db.DB.ExecContext(ctx, `
 			UPDATE workspaces
@@ -116,9 +154,9 @@ func sweepStuckProvisioning(ctx context.Context, emitter ProvisionTimeoutEmitter
 			 WHERE id = $1
 			   AND status = 'provisioning'
 			   AND updated_at < now() - ($3 || ' seconds')::interval
-		`, id, msg, timeoutSec)
+		`, c.id, msg, timeoutSec)
 		if err != nil {
-			log.Printf("Provision-timeout sweep: failed to flip %s to failed: %v", id, err)
+			log.Printf("Provision-timeout sweep: failed to flip %s to failed: %v", c.id, err)
 			continue
 		}
 		affected, _ := res.RowsAffected()
@@ -126,18 +164,19 @@ func sweepStuckProvisioning(ctx context.Context, emitter ProvisionTimeoutEmitter
 			// Raced with restart / register — no harm, just skip.
 			continue
 		}
-		log.Printf("Provision-timeout sweep: %s stuck in provisioning > %s — marked failed", id, timeout)
+		log.Printf("Provision-timeout sweep: %s (runtime=%q) stuck in provisioning > %s — marked failed", c.id, c.runtime, timeout)
 		// Emit as WORKSPACE_PROVISION_FAILED, not _TIMEOUT, because the
 		// canvas event handler only flips node state on the _FAILED case.
 		// A separate event type was considered but the UI reaction is
 		// identical either way — operators who need to distinguish can
 		// tell from the `source` payload field.
-		if emitErr := emitter.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", id, map[string]interface{}{
+		if emitErr := emitter.RecordAndBroadcast(ctx, "WORKSPACE_PROVISION_FAILED", c.id, map[string]interface{}{
 			"error":        msg,
 			"timeout_secs": timeoutSec,
+			"runtime":      c.runtime,
 			"source":       "provision_timeout_sweep",
 		}); emitErr != nil {
-			log.Printf("Provision-timeout sweep: broadcast failed for %s: %v", id, emitErr)
+			log.Printf("Provision-timeout sweep: broadcast failed for %s: %v", c.id, emitErr)
 		}
 	}
 }

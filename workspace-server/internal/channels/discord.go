@@ -38,6 +38,32 @@ type DiscordAdapter struct{}
 func (d *DiscordAdapter) Type() string        { return "discord" }
 func (d *DiscordAdapter) DisplayName() string { return "Discord" }
 
+// ConfigSchema — Discord only needs a webhook URL for outbound.
+// public_key is the Ed25519 pubkey used to verify inbound Interactions
+// signatures (stored hex-encoded); not required if you only do outbound.
+func (d *DiscordAdapter) ConfigSchema() []ConfigField {
+	return []ConfigField{
+		{
+			Key:         "webhook_url",
+			Label:       "Webhook URL",
+			Type:        "password",
+			Required:    true,
+			Sensitive:   true,
+			Placeholder: "https://discord.com/api/webhooks/{id}/{token}",
+			Help:        "From Server Settings → Integrations → Webhooks → Copy URL.",
+		},
+		{
+			Key:         "public_key",
+			Label:       "Interactions Public Key (hex)",
+			Type:        "password",
+			Required:    false,
+			Sensitive:   true,
+			Placeholder: "optional — for inbound slash commands",
+			Help:        "Ed25519 public key from the Discord Developer Portal → General Information. Only needed to receive slash commands.",
+		},
+	}
+}
+
 // ValidateConfig checks that the channel config contains a valid Discord
 // Incoming Webhook URL. Returns a human-readable error for the Canvas UI.
 func (d *DiscordAdapter) ValidateConfig(config map[string]interface{}) error {
