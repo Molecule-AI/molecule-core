@@ -902,7 +902,7 @@ Postgres + Redis + Langfuse only (for local development without containerized wo
 | `REDIS_URL` | `redis://localhost:6379` | Redis connection |
 | `PORT` | `8080` | Platform listen port |
 | `PLATFORM_URL` | `http://host.docker.internal:8080` | Injected to workspace containers |
-| `SECRETS_ENCRYPTION_KEY` | Optional | AES-256 key (32 bytes) for secret encryption |
+| `SECRETS_ENCRYPTION_KEY` | Optional | AES-256-GCM key (32 bytes) for tenant secret encryption. Provisioned at tenant boot by the control plane, which holds the master key in AWS KMS — see [secrets-key-custody.md](./secrets-key-custody.md). |
 | `CONFIGS_DIR` | `/configs` | Workspace config template directory |
 | `PLUGINS_DIR` | `/plugins` | Shared plugin directory |
 | `ACTIVITY_RETENTION_DAYS` | `7` | Activity log retention |
