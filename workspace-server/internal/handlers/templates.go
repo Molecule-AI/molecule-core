@@ -87,24 +87,8 @@ func (h *TemplatesHandler) resolveTemplateDir(wsName string) string {
 
 // List handles GET /templates
 func (h *TemplatesHandler) List(c *gin.Context) {
-	entries, err := os.ReadDir(h.configsDir)
-	if err != nil {
-		c.JSON(http.StatusOK, []templateSummary{})
-		return
-	}
-
 	templates := make([]templateSummary, 0)
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		configPath := filepath.Join(h.configsDir, entry.Name(), "config.yaml")
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			continue
-		}
-
+	walkTemplateConfigs(h.configsDir, func(id string, data []byte) {
 		var raw struct {
 			Name          string   `yaml:"name"`
 			Description   string   `yaml:"description"`
@@ -113,14 +97,14 @@ func (h *TemplatesHandler) List(c *gin.Context) {
 			Model         string   `yaml:"model"`
 			Skills        []string `yaml:"skills"`
 			RuntimeConfig struct {
-				Model                  string      `yaml:"model"`
-				Models                 []modelSpec `yaml:"models"`
-				RequiredEnv            []string    `yaml:"required_env"`
+				Model                   string      `yaml:"model"`
+				Models                  []modelSpec `yaml:"models"`
+				RequiredEnv             []string    `yaml:"required_env"`
 				ProvisionTimeoutSeconds int         `yaml:"provision_timeout_seconds"`
 			} `yaml:"runtime_config"`
 		}
 		if err := yaml.Unmarshal(data, &raw); err != nil {
-			continue
+			return
 		}
 
 		// Model comes from either top-level (legacy) or runtime_config.model (current).
@@ -130,7 +114,7 @@ func (h *TemplatesHandler) List(c *gin.Context) {
 		}
 
 		templates = append(templates, templateSummary{
-			ID:                      entry.Name(),
+			ID:                      id,
 			Name:                    raw.Name,
 			Description:             raw.Description,
 			Tier:                    raw.Tier,
@@ -142,7 +126,7 @@ func (h *TemplatesHandler) List(c *gin.Context) {
 			SkillCount:              len(raw.Skills),
 			ProvisionTimeoutSeconds: raw.RuntimeConfig.ProvisionTimeoutSeconds,
 		})
-	}
+	})
 
 	c.JSON(http.StatusOK, templates)
 }
