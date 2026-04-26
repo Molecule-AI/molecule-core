@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { showToast } from "@/components/Toaster";
 import type { WorkspaceData, WSMessage } from "./socket";
 import { handleCanvasEvent } from "./canvas-events";
+import { markDeleted, wasRecentlyDeleted } from "./deleteTombstones";
 import {
   buildNodesAndEdges,
   computeAutoLayout,
@@ -832,6 +833,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         }
       }
     }
+    // Mark every removed id with a tombstone so an in-flight GET
+    // /workspaces response that lands AFTER this can't resurrect them
+    // via hydrate (#2069). Tombstones expire after the WS-fallback
+    // poll cadence so legitimate re-imports flow normally.
+    markDeleted(removed);
     set({
       nodes: nodes.filter((n) => !removed.has(n.id)),
       edges: edges.filter((e) => !removed.has(e.source) && !removed.has(e.target)),
@@ -843,6 +849,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   hydrate: (workspaces: WorkspaceData[]) => {
+    // Filter out workspaces whose ids match a fresh tombstone — they
+    // were just deleted locally and this snapshot is stale (#2069).
+    workspaces = workspaces.filter((w) => !wasRecentlyDeleted(w.id));
     const layoutOverrides = computeAutoLayout(workspaces);
     // Carry the live measured/grown parent sizes from the existing
     // store into the rebuild. buildNodesAndEdges runs an auto-rescue
