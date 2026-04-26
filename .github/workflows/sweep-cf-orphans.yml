@@ -1,0 +1,114 @@
+name: Sweep stale Cloudflare DNS records
+
+# Janitor for Cloudflare DNS records whose backing tenant/workspace no
+# longer exists. Without this loop, every short-lived E2E or canary
+# leaves a CF record on the moleculesai.app zone — the zone has a
+# 200-record quota (controlplane#239 hit it 2026-04-23+) and provisions
+# start failing with code 81045 once exhausted.
+#
+# Why a separate workflow vs sweep-stale-e2e-orgs.yml:
+#   - That workflow operates at the CP layer (DELETE /cp/admin/tenants/:slug
+#     drives the cascade). It assumes CP has the org row to drive the
+#     deprovision from. It doesn't catch records left behind when CP
+#     itself never knew about the tenant (canary scratch, manual ops
+#     experiments) or when the cascade's CF-delete branch failed.
+#   - sweep-cf-orphans.sh enumerates the CF zone directly and matches
+#     each record against live CP slugs + AWS EC2 names. It catches
+#     leaks the CP-driven sweep can't.
+#
+# Safety: the script's own MAX_DELETE_PCT gate refuses to nuke more
+# than 50% of records in a single run. If something has gone weird
+# (CP admin endpoint returns no orgs → every tenant looks orphan) the
+# gate halts before damage. Decision-function unit tests in
+# scripts/ops/test_sweep_cf_decide.py (#2027) cover the rule
+# classifier.
+
+on:
+  schedule:
+    # Hourly. Mirrors sweep-stale-e2e-orgs cadence so the two janitors
+    # converge on the same tick. CF API rate budget is generous (1200
+    # req/5min); a single sweep makes ~1 list + N deletes (N<=quota/2).
+    - cron: '15 * * * *'  # offset from sweep-stale-e2e-orgs (top of hour)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run only — list what would be deleted, no deletion"
+        required: false
+        type: boolean
+        default: true
+      max_delete_pct:
+        description: "Override safety gate (default 50, set higher only for major cleanup)"
+        required: false
+        default: "50"
+  # Required-check support: scheduled-only today, but include merge_group
+  # so a future branch-protection wire-in doesn't need a workflow edit.
+  merge_group:
+    types: [checks_requested]
+
+# Don't let two sweeps race the same zone. workflow_dispatch during a
+# scheduled run would otherwise issue duplicate DELETE calls.
+concurrency:
+  group: sweep-cf-orphans
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    name: Sweep CF orphans
+    runs-on: ubuntu-latest
+    # 3 min surfaces hangs (CF API stall, AWS describe-instances stuck)
+    # within one cron interval instead of burning a full tick. Realistic
+    # worst case is ~2 min: 4 sequential curls + 1 aws + N×CF-DELETE
+    # each individually capped at 10s by the script's curl -m flag.
+    timeout-minutes: 3
+    env:
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+      CP_PROD_ADMIN_TOKEN: ${{ secrets.CP_PROD_ADMIN_TOKEN }}
+      CP_STAGING_ADMIN_TOKEN: ${{ secrets.CP_STAGING_ADMIN_TOKEN }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: us-east-2
+      MAX_DELETE_PCT: ${{ github.event.inputs.max_delete_pct || '50' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify required secrets present
+        # Fail fast and loud if a secret is unset — sweep-cf-orphans.sh
+        # also checks via `need`, but we want a single distinct error
+        # in the workflow log instead of script-level multi-line noise.
+        run: |
+          missing=()
+          for var in CF_API_TOKEN CF_ZONE_ID CP_PROD_ADMIN_TOKEN CP_STAGING_ADMIN_TOKEN AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+            if [ -z "${!var:-}" ]; then
+              missing+=("$var")
+            fi
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::missing required secret(s): ${missing[*]}"
+            exit 2
+          fi
+          echo "All required secrets present ✓"
+
+      - name: Run sweep
+        # Schedule-vs-dispatch dry-run asymmetry (intentional):
+        #   - Scheduled runs: github.event.inputs.dry_run is empty →
+        #     defaults to "false" below → script runs with --execute
+        #     (the whole point of an hourly janitor).
+        #   - Manual workflow_dispatch: input default is true (line 38)
+        #     so an ad-hoc operator-triggered run is dry-run by default;
+        #     they have to flip the toggle to actually delete.
+        # The script's MAX_DELETE_PCT gate (default 50%) is the second
+        # line of defense regardless of mode.
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ]; then
+            echo "Running in dry-run mode — no deletions"
+            bash scripts/ops/sweep-cf-orphans.sh
+          else
+            echo "Running with --execute — will delete identified orphans"
+            bash scripts/ops/sweep-cf-orphans.sh --execute
+          fi
