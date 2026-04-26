@@ -1,0 +1,59 @@
+name: Runtime Pin Compatibility
+
+# CI gate that prevents the 5-hour staging outage from 2026-04-24 from
+# recurring (controlplane#253). The original failure mode:
+#   1. molecule-ai-workspace-runtime 0.1.13 declared `a2a-sdk<1.0` in its
+#      requires_dist metadata (incorrect — it actually imports
+#      a2a.server.routes which only exists in a2a-sdk 1.0+)
+#   2. `pip install molecule-ai-workspace-runtime` resolved cleanly
+#   3. `from molecule_runtime.main import main_sync` raised ImportError
+#   4. Every tenant workspace crashed; the canary tenant caught it but
+#      only after 5 hours of degraded staging
+#
+# This workflow installs the runtime in a fresh Python venv from PyPI
+# and tries the same import the EC2 user-data does. If pip resolution
+# silently produces a broken combo, this gate fails before the tenant
+# image gets published.
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      - 'workspace/requirements.txt'
+      - '.github/workflows/runtime-pin-compat.yml'
+  pull_request:
+    branches: [main, staging]
+    paths:
+      - 'workspace/requirements.txt'
+      - '.github/workflows/runtime-pin-compat.yml'
+  # Daily catch for upstream PyPI publishes that break the pin combo
+  # without any change in our repo (e.g. someone re-yanks an a2a-sdk
+  # release or molecule-ai-workspace-runtime publishes a bad bump).
+  schedule:
+    - cron: '0 13 * * *'  # 06:00 PT
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  default-install:
+    name: Default install + import smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install runtime + workspace requirements
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install --upgrade pip
+          /tmp/venv/bin/pip install molecule-ai-workspace-runtime
+          /tmp/venv/bin/pip install -r workspace/requirements.txt
+          /tmp/venv/bin/pip show molecule-ai-workspace-runtime a2a-sdk \
+            | grep -E '^(Name|Version):'
+      - name: Smoke import — fail if metadata declares deps that don't satisfy real imports
+        run: |
+          /tmp/venv/bin/python -c "from molecule_runtime.main import main_sync; print('runtime imports OK')"
