@@ -2,6 +2,7 @@
 
 import os
 
+import pytest
 import yaml
 
 from config import (
@@ -263,36 +264,28 @@ def test_compliance_dataclass_default():
     assert cfg.prompt_injection == "detect"
 
 
-def test_compliance_default_when_yaml_omits_block(tmp_path):
-    """A config.yaml with no `compliance:` key still gets owasp_agentic."""
+@pytest.mark.parametrize(
+    "yaml_payload, expected_mode",
+    [
+        # No `compliance:` key at all — full default path.
+        ({}, "owasp_agentic"),
+        # Explicit empty block — exercises load_config's
+        # `.get("mode", "owasp_agentic")` default-fill at config.py:377.
+        # Common shape during template editing.
+        ({"compliance": {}}, "owasp_agentic"),
+        # Documented opt-out: explicit `mode: ""` disables compliance.
+        ({"compliance": {"mode": ""}}, ""),
+    ],
+    ids=["yaml_omits_block", "yaml_block_empty", "yaml_explicit_optout"],
+)
+def test_compliance_default_via_load_config(tmp_path, yaml_payload, expected_mode):
+    """load_config honors the owasp_agentic default at every yaml shape and
+    still respects explicit opt-out."""
     config_yaml = tmp_path / "config.yaml"
-    config_yaml.write_text(yaml.dump({}))
+    config_yaml.write_text(yaml.dump(yaml_payload))
 
     cfg = load_config(str(tmp_path))
-    assert cfg.compliance.mode == "owasp_agentic"
+    assert cfg.compliance.mode == expected_mode
+    # prompt_injection was never overridden in any payload — must stay at
+    # the dataclass default regardless of the mode value.
     assert cfg.compliance.prompt_injection == "detect"
-
-
-def test_compliance_default_when_yaml_block_is_empty(tmp_path):
-    """An explicitly empty `compliance: {}` block still gets owasp_agentic.
-
-    This is the load_config default-fill path — `.get("mode", "owasp_agentic")`
-    must keep delivering the new default even when the operator dropped a
-    bare `compliance:` block in their yaml (a common shape during template
-    editing).
-    """
-    config_yaml = tmp_path / "config.yaml"
-    config_yaml.write_text(yaml.dump({"compliance": {}}))
-
-    cfg = load_config(str(tmp_path))
-    assert cfg.compliance.mode == "owasp_agentic"
-    assert cfg.compliance.prompt_injection == "detect"
-
-
-def test_compliance_explicit_optout_still_works(tmp_path):
-    """Explicit `mode: ""` in yaml must disable compliance — opt-out path."""
-    config_yaml = tmp_path / "config.yaml"
-    config_yaml.write_text(yaml.dump({"compliance": {"mode": ""}}))
-
-    cfg = load_config(str(tmp_path))
-    assert cfg.compliance.mode == ""
