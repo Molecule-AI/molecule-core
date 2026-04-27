@@ -128,6 +128,78 @@ class TestReportActivity:
             # Must not raise
             await a2a_tools.report_activity("a2a_send", summary="test")
 
+    async def test_error_detail_capped_at_max(self):
+        """Hermes-borrowed pattern: error_detail is capped INSIDE the helper
+        so a careless caller pasting a 1MB stack trace can't DoS the
+        activity_logs table. Cap value (4096) is set in
+        a2a_tools._MAX_ERROR_DETAIL_CHARS — pin it here so a future change
+        that drops the cap (or moves it to the call site only) regresses
+        loudly."""
+        import a2a_tools
+
+        huge = "X" * 50_000
+        mc = _make_http_mock()
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+            await a2a_tools.report_activity(
+                "a2a_receive",
+                target_id="ws-1",
+                summary="failed",
+                status="error",
+                error_detail=huge,
+            )
+        # Two POSTs (activity + heartbeat because summary is set); the
+        # error_detail rides the FIRST call (the activity one).
+        payload = mc.post.call_args_list[0].kwargs.get("json")
+        assert "error_detail" in payload
+        assert len(payload["error_detail"]) == a2a_tools._MAX_ERROR_DETAIL_CHARS
+        assert payload["error_detail"] == "X" * a2a_tools._MAX_ERROR_DETAIL_CHARS
+
+    async def test_error_detail_under_cap_passes_through(self):
+        """Defensive negative: short error_detail must NOT be padded or
+        truncated — only over-long values get clipped."""
+        import a2a_tools
+
+        short = "AssertionError: missing field"
+        mc = _make_http_mock()
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+            await a2a_tools.report_activity(
+                "a2a_receive", summary="x", status="error", error_detail=short
+            )
+        # First POST is the activity row; second is the heartbeat.
+        payload = mc.post.call_args_list[0].kwargs.get("json")
+        assert payload["error_detail"] == short
+
+    async def test_summary_capped_at_max(self):
+        """summary is shown verbatim in the canvas card and activity row;
+        cap at 256 so a giant string doesn't blow out the layout. Same
+        helper-side cap pattern as error_detail."""
+        import a2a_tools
+
+        huge = "Y" * 1000
+        mc = _make_http_mock()
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+            await a2a_tools.report_activity("a2a_send", summary=huge)
+        # Two POSTs (activity + heartbeat); inspect the first (activity).
+        first_payload = mc.post.call_args_list[0].kwargs.get("json")
+        assert len(first_payload["summary"]) == a2a_tools._MAX_SUMMARY_CHARS
+
+    async def test_response_text_NOT_capped(self):
+        """Negative pin: response_text is the agent's actual reply content.
+        Capping it would silently truncate user-visible output. Hermes'
+        cap discipline applies to error_detail + summary (telemetry
+        fields) only, not the payload itself."""
+        import a2a_tools
+
+        big_reply = "Z" * 20_000
+        mc = _make_http_mock()
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+            await a2a_tools.report_activity(
+                "a2a_receive", target_id="ws-1", response_text=big_reply
+            )
+        payload = mc.post.call_args.kwargs.get("json")
+        assert payload["response_body"]["result"] == big_reply
+        assert len(payload["response_body"]["result"]) == 20_000
+
 
 # ---------------------------------------------------------------------------
 # tool_delegate_task

@@ -111,11 +111,33 @@ def _auth_headers_for_heartbeat() -> dict[str, str]:
         return {}
 
 
+# Per-field caps on the heartbeat / activity payload. Borrowed from
+# hermes-agent's design discipline: cap ONCE in the helper, not at every
+# call site, so a future caller adding error_detail can't accidentally
+# DoS activity_logs by pasting a 4MB stack trace + base64 image.
+#
+# Why these specific limits:
+#   - error_detail (4096): hermes' value. Long enough for a multi-frame
+#     stack trace, short enough that 100 errors in 5min is < 500KB total.
+#   - summary (256): summary is a one-liner shown in the canvas card +
+#     activity row. 256 covers UTF-8 emoji + a sentence.
+#   - response_text (NOT capped): this is the agent's actual reply
+#     content. Capping would silently truncate user-visible output.
+_MAX_ERROR_DETAIL_CHARS = 4096
+_MAX_SUMMARY_CHARS = 256
+
+
 async def report_activity(
     activity_type: str, target_id: str = "", summary: str = "", status: str = "ok",
     task_text: str = "", response_text: str = "", error_detail: str = "",
 ):
     """Report activity to the platform for live progress tracking."""
+    # Defensive caps in the helper itself so every caller benefits — see
+    # _MAX_ERROR_DETAIL_CHARS / _MAX_SUMMARY_CHARS comments above.
+    if error_detail and len(error_detail) > _MAX_ERROR_DETAIL_CHARS:
+        error_detail = error_detail[:_MAX_ERROR_DETAIL_CHARS]
+    if summary and len(summary) > _MAX_SUMMARY_CHARS:
+        summary = summary[:_MAX_SUMMARY_CHARS]
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             payload: dict = {
