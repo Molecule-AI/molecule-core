@@ -370,6 +370,86 @@ class TestToolSendMessageToUser:
         assert "Error sending message" in result
         assert "platform unreachable" in result
 
+    # --- attachments ---
+
+    async def test_attachments_uploads_then_notifies_with_uris(self, tmp_path):
+        import a2a_tools
+        # Create a real file the tool will read off disk.
+        f = tmp_path / "build.zip"
+        f.write_bytes(b"zip-bytes-here")
+
+        # Mock client: first POST = chat/uploads (returns file metadata),
+        # second POST = notify.
+        upload_resp = _resp(200, {
+            "files": [{
+                "uri": "workspace:/workspace/.molecule/chat-uploads/abc-build.zip",
+                "name": "build.zip",
+                "mimeType": "application/zip",
+                "size": len(b"zip-bytes-here"),
+            }],
+        })
+        notify_resp = _resp(200, {})
+        mc = _make_http_mock(post_resp=notify_resp)
+        mc.post = AsyncMock(side_effect=[upload_resp, notify_resp])
+
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+            result = await a2a_tools.tool_send_message_to_user(
+                "Done — see attached.",
+                attachments=[str(f)],
+            )
+
+        assert "1 attachment" in result
+        # Verify the notify call carried attachment metadata, not bytes.
+        notify_call = mc.post.await_args_list[1]
+        notify_body = notify_call.kwargs.get("json") or {}
+        assert notify_body.get("message") == "Done — see attached."
+        assert len(notify_body.get("attachments", [])) == 1
+        att = notify_body["attachments"][0]
+        assert att["uri"].startswith("workspace:/workspace/")
+        assert att["name"] == "build.zip"
+
+    async def test_attachment_path_missing_returns_error_no_notify(self):
+        # If a path doesn't exist on disk, fail fast — never POST notify
+        # with a half-rendered attachment chip.
+        import a2a_tools
+        mc = _make_http_mock()
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+            result = await a2a_tools.tool_send_message_to_user(
+                "Hi", attachments=["/no/such/file.zip"],
+            )
+        assert "not found" in result.lower()
+        # No post calls at all when the path validation fails.
+        assert mc.post.await_count == 0
+
+    async def test_attachments_upload_failure_returns_error_no_notify(self, tmp_path):
+        # Upload endpoint 5xxs — caller returns an error and never fires
+        # notify. Otherwise the user sees a chat bubble with a broken chip.
+        import a2a_tools
+        f = tmp_path / "x.bin"
+        f.write_bytes(b"x")
+        upload_resp = _resp(500, {"error": "boom"})
+        mc = _make_http_mock()
+        mc.post = AsyncMock(return_value=upload_resp)
+
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+            result = await a2a_tools.tool_send_message_to_user(
+                "Hi", attachments=[str(f)],
+            )
+        assert "Error" in result
+        assert "500" in result
+        # Exactly one POST — the upload — and no notify follow-up.
+        assert mc.post.await_count == 1
+
+    async def test_no_attachments_param_omits_attachments_field(self):
+        # Backwards-compat: callers passing only `message` should not see
+        # an `attachments` field added to the notify body.
+        import a2a_tools
+        mc = _make_http_mock(post_resp=_resp(200, {}))
+        with patch("a2a_tools.httpx.AsyncClient", return_value=mc):
+            await a2a_tools.tool_send_message_to_user("plain text")
+        body = mc.post.await_args.kwargs.get("json") or {}
+        assert body == {"message": "plain text"}
+
 
 # ---------------------------------------------------------------------------
 # tool_list_peers

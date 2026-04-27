@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -264,6 +265,80 @@ func TestNotify_PersistsToActivityLogsForReloadRecovery(t *testing.T) {
 		t.Errorf("DB expectations not met: %v", err)
 	}
 }
+
+func TestNotify_WithAttachments_PersistsFilePartsForReload(t *testing.T) {
+	// Pins the response_body shape: must include {result: msg, parts: [{kind:"file", file: {...}}]}
+	// so the chat history loader's extractFilesFromTask reconstructs the
+	// download chips after a page reload. Without `parts`, the bubble
+	// shows up but the attachment chip is silently dropped on every
+	// refresh.
+	mockDB, mock, _ := sqlmock.New()
+	defer mockDB.Close()
+	db.DB = mockDB
+
+	mock.ExpectQuery(`SELECT name FROM workspaces`).
+		WithArgs("ws-attach").
+		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("DD"))
+
+	// Capture the JSONB arg via a custom matcher so we can assert on
+	// the persisted shape (must include parts[].kind=file so reload
+	// reconstructs download chips).
+	var capturedRespJSON string
+	respMatcher := sqlmockArgMatcher(func(v driver.Value) bool {
+		s, ok := v.(string)
+		if !ok {
+			return false
+		}
+		capturedRespJSON = s
+		return true
+	})
+	mock.ExpectExec(`INSERT INTO activity_logs`).
+		WithArgs("ws-attach", sqlmock.AnyArg(), respMatcher).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	broadcaster := newTestBroadcaster()
+	handler := NewActivityHandler(broadcaster)
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "id", Value: "ws-attach"}}
+	body := `{
+		"message": "Here's the build:",
+		"attachments": [
+			{"uri": "workspace:/workspace/.molecule/chat-uploads/abc-build.zip",
+			 "name": "build.zip", "mimeType": "application/zip", "size": 12345}
+		]
+	}`
+	c.Request = httptest.NewRequest("POST", "/workspaces/ws-attach/notify", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	handler.Notify(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("DB expectations not met: %v", err)
+	}
+	// Verify the persisted response_body has both the text (so chat
+	// reload renders the bubble) AND a parts[].kind=file (so reload
+	// renders the download chip).
+	if !strings.Contains(capturedRespJSON, `"result":"Here's the build:"`) {
+		t.Errorf("response_body missing result text: %s", capturedRespJSON)
+	}
+	if !strings.Contains(capturedRespJSON, `"kind":"file"`) ||
+		!strings.Contains(capturedRespJSON, `"name":"build.zip"`) ||
+		!strings.Contains(capturedRespJSON, `workspace:/workspace/.molecule/chat-uploads/abc-build.zip`) {
+		t.Errorf("response_body missing file part — chat reload won't render the chip: %s", capturedRespJSON)
+	}
+}
+
+// sqlmockArgMatcher adapts a closure into the sqlmock.Argument interface
+// so tests can capture/inspect the actual driver value sent into a
+// prepared statement. Returns true to match.
+type sqlmockArgMatcher func(driver.Value) bool
+
+func (m sqlmockArgMatcher) Match(v driver.Value) bool { return m(v) }
 
 func TestNotify_DBFailure_StillBroadcastsAnd200(t *testing.T) {
 	// Persistence is best-effort — a DB hiccup must NOT block the
