@@ -35,8 +35,26 @@ export function activityRowToMessages(
   const out: ChatMessage[] = [];
 
   const userText = extractRequestText(row.request_body);
-  if (userText && !isInternalSelfMessage(userText)) {
-    out.push({ ...createMessage("user", userText), timestamp: row.created_at });
+  // Hydrate user-side file attachments out of the same A2A envelope.
+  // Without this, a chat reload after a session where the user dragged
+  // in a file shows the text bubble but loses the download chip — the
+  // pre-fix loader only walked text via extractRequestText. Mirrors
+  // the agent branch below. Wire shape from ChatTab's outbound POST:
+  //   request_body = {params: {message: {parts: [{kind:"text"}, {kind:"file", file:{...}}]}}}
+  // extractFilesFromTask walks `task.parts`, so we feed it `params.message`.
+  const userMsg = (row.request_body?.params as Record<string, unknown> | undefined)
+    ?.message as Record<string, unknown> | undefined;
+  const userAttachments = userMsg ? extractFilesFromTask(userMsg) : [];
+  // Internal-self messages (e.g. heartbeat self-trigger) take precedence
+  // — drop the row even if it carries attachments, since the heartbeat
+  // path doesn't produce attachments anyway and keeping the bubble would
+  // misattribute it to the user.
+  const isInternal = !!userText && isInternalSelfMessage(userText);
+  if (!isInternal && (userText || userAttachments.length > 0)) {
+    out.push({
+      ...createMessage("user", userText, userAttachments),
+      timestamp: row.created_at,
+    });
   }
 
   if (row.response_body) {

@@ -112,6 +112,84 @@ describe("activityRowToMessages", () => {
       const msgs = activityRowToMessages(row, NEVER_INTERNAL);
       expect(msgs.find((m) => m.role === "user")).toBeUndefined();
     });
+
+    // Reviewer follow-up: the pre-fix loader didn't extract user-side
+    // file parts, so a chat reload after a session where the user
+    // dragged in a file showed the text bubble but lost the chip.
+    // Symmetric to the agent attachment hydration below.
+
+    it("hydrates user-side file attachments from request_body.params.message.parts", () => {
+      const row = makeRow({
+        request_body: {
+          params: {
+            message: {
+              parts: [
+                { kind: "text", text: "here's the screenshot" },
+                {
+                  kind: "file",
+                  file: {
+                    name: "shot.png",
+                    mimeType: "image/png",
+                    uri: "workspace:/uploads/shot.png",
+                    size: 4096,
+                  },
+                },
+              ],
+            },
+          },
+        },
+      });
+      const msgs = activityRowToMessages(row, NEVER_INTERNAL);
+      const user = msgs.find((m) => m.role === "user")!;
+      expect(user.content).toBe("here's the screenshot");
+      expect(user.attachments).toEqual([
+        { name: "shot.png", mimeType: "image/png", uri: "workspace:/uploads/shot.png", size: 4096 },
+      ]);
+    });
+
+    it("emits an attachments-only user bubble when text is empty (drag-drop without caption)", () => {
+      // Some users drop a file with no message — the bubble should
+      // still render so the file appears in history. Pre-fix the
+      // empty userText short-circuited and the row was dropped.
+      const row = makeRow({
+        request_body: {
+          params: {
+            message: {
+              parts: [
+                { kind: "file", file: { name: "report.pdf", uri: "workspace:/uploads/report.pdf" } },
+              ],
+            },
+          },
+        },
+      });
+      const msgs = activityRowToMessages(row, NEVER_INTERNAL);
+      expect(msgs).toHaveLength(1);
+      expect(msgs[0].role).toBe("user");
+      expect(msgs[0].content).toBe("");
+      expect(msgs[0].attachments).toHaveLength(1);
+      expect(msgs[0].attachments![0].name).toBe("report.pdf");
+    });
+
+    it("internal-self predicate suppresses the row even if it carries attachments", () => {
+      // Defence-in-depth: heartbeat self-trigger never produces
+      // attachments, but if a future internal trigger DID, we still
+      // want to suppress (otherwise it'd render as the user attaching
+      // something they never touched).
+      const row = makeRow({
+        request_body: {
+          params: {
+            message: {
+              parts: [
+                { kind: "text", text: "Delegation results are ready..." },
+                { kind: "file", file: { name: "x.zip", uri: "workspace:/x.zip" } },
+              ],
+            },
+          },
+        },
+      });
+      const msgs = activityRowToMessages(row, (t) => t.startsWith("Delegation results are ready"));
+      expect(msgs.find((m) => m.role === "user")).toBeUndefined();
+    });
   });
 
   describe("agent-message extraction", () => {
