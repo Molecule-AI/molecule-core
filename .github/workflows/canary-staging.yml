@@ -87,30 +87,36 @@ jobs:
         id: canary
         run: bash tests/e2e/test_staging_full_saas.sh
 
-      # Alerting: open an issue on first failure, auto-close on recovery.
-      # Title includes a stable marker so multiple consecutive failures
-      # don't spam — they just add comments to the existing issue.
+      # Alerting: open an issue only after THREE consecutive failures so
+      # transient flakes (Cloudflare DNS hiccup, AWS API blip) don't spam
+      # the issue list. If an issue is already open, we still comment on
+      # every failure so ops sees the streak. Auto-close on next green.
+      #
+      # Threshold rationale: canary fires every 30 min, so 3 failures =
+      # ~90 min of consecutive red — well past any single-run flake but
+      # still tight enough that a real outage gets surfaced before the
+      # next deploy window.
       - name: Open issue on failure
         if: failure()
         uses: actions/github-script@v7
+        env:
+          # Inject the workflow path explicitly — context.workflow is
+          # the *name*, not the file path the actions API needs.
+          WORKFLOW_PATH: '.github/workflows/canary-staging.yml'
+          CONSECUTIVE_THRESHOLD: '3'
         with:
           script: |
             const title = '🔴 Canary failing: staging SaaS smoke';
             const runURL = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body =
-              `Canary run failed at ${new Date().toISOString()}.\n\n` +
-              `Run: ${runURL}\n\n` +
-              `This issue auto-closes on the next green canary run. ` +
-              `Consecutive failures add a comment here rather than a new issue.`;
 
             // Find an existing open canary issue (stable title match).
+            // If one exists, this isn't a "first failure" — comment and exit.
             const { data: existing } = await github.rest.issues.listForRepo({
               owner: context.repo.owner, repo: context.repo.repo,
               state: 'open', labels: 'canary-staging',
               per_page: 10,
             });
             const match = existing.find(i => i.title === title);
-
             if (match) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner, repo: context.repo.repo,
@@ -118,14 +124,44 @@ jobs:
                 body: `Canary still failing. ${runURL}`,
               });
               core.info(`Commented on existing issue #${match.number}`);
-            } else {
-              await github.rest.issues.create({
-                owner: context.repo.owner, repo: context.repo.repo,
-                title, body,
-                labels: ['canary-staging', 'bug'],
-              });
-              core.info('Opened new canary failure issue');
+              return;
             }
+
+            // No open issue yet — check the last N-1 runs' conclusions.
+            // We open the issue only if the last (THRESHOLD-1) runs ALSO
+            // failed (so this is the 3rd consecutive red).
+            const threshold = parseInt(process.env.CONSECUTIVE_THRESHOLD, 10);
+            const { data: runs } = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner, repo: context.repo.repo,
+              workflow_id: process.env.WORKFLOW_PATH,
+              status: 'completed',
+              per_page: threshold,
+              // Skip the current in-progress run; it isn't 'completed' yet.
+            });
+            // listWorkflowRuns returns recent first. We need (threshold-1)
+            // prior failures (current run is the threshold-th).
+            const priorFailures = (runs.workflow_runs || [])
+              .slice(0, threshold - 1)
+              .filter(r => r.id !== context.runId)
+              .filter(r => r.conclusion === 'failure')
+              .length;
+            if (priorFailures < threshold - 1) {
+              core.info(`Below threshold: ${priorFailures + 1}/${threshold} consecutive failures — not filing yet`);
+              return;
+            }
+
+            const body =
+              `Canary run failed at ${new Date().toISOString()}, ` +
+              `${threshold} consecutive runs red.\n\n` +
+              `Run: ${runURL}\n\n` +
+              `This issue auto-closes on the next green canary run. ` +
+              `Consecutive failures add a comment here rather than a new issue.`;
+            await github.rest.issues.create({
+              owner: context.repo.owner, repo: context.repo.repo,
+              title, body,
+              labels: ['canary-staging', 'bug'],
+            });
+            core.info(`Opened canary failure issue (${threshold} consecutive reds)`);
 
       - name: Auto-close canary issue on success
         if: success()
