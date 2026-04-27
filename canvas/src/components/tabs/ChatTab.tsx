@@ -136,10 +136,14 @@ async function loadMessagesFromDB(workspaceId: string): Promise<{ messages: Chat
     const messages: ChatMessage[] = [];
     // Activities are newest-first, reverse for chronological order
     for (const a of [...activities].reverse()) {
-      // Extract user message from request_body
+      // Extract user message from request_body. Pin the timestamp to
+      // the activity row's created_at — without this override every
+      // historical user bubble re-stamps to "now" on each chat reload,
+      // and ALL user messages collapse to the same render-time clock
+      // (same as the agent path on line 157).
       const userText = extractRequestText(a.request_body);
       if (userText && !isInternalSelfMessage(userText)) {
-        messages.push(createMessage("user", userText));
+        messages.push({ ...createMessage("user", userText), timestamp: a.created_at });
       }
 
       // Extract agent response — text AND any file attachments so a
