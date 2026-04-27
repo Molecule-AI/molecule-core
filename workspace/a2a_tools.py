@@ -5,6 +5,7 @@ Imports shared client functions and constants from a2a_client.
 
 import hashlib
 import json
+import mimetypes
 import os
 import uuid
 
@@ -313,7 +314,18 @@ async def _upload_chat_files(client: httpx.AsyncClient, paths: list[str]) -> tup
                 data = fh.read()
         except OSError as e:
             return [], f"Error reading {p}: {e}"
-        files_payload.append(("files", (os.path.basename(p), data, "application/octet-stream")))
+        # Sniff mime from filename so the canvas can pick the right
+        # icon / preview / inline-image renderer. Pre-fix this was
+        # hardcoded application/octet-stream and chat_files.go's
+        # Upload trusts whatever Content-Type the multipart part
+        # carries — `mt := fh.Header.Get("Content-Type")` only falls
+        # back to extension-sniffing when the header is empty. So a
+        # hardcoded octet-stream meant every attachment lost its
+        # real type forever, breaking the canvas chip's icon logic.
+        mime_type, _ = mimetypes.guess_type(p)
+        if not mime_type:
+            mime_type = "application/octet-stream"
+        files_payload.append(("files", (os.path.basename(p), data, mime_type)))
     try:
         resp = await client.post(
             f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/chat/uploads",

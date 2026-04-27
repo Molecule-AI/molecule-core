@@ -289,6 +289,22 @@ func (h *ActivityHandler) Notify(c *gin.Context) {
 		return
 	}
 
+	// Per-element attachment validation: gin's go-playground/validator
+	// does NOT iterate slice elements without `dive`, so the inner
+	// `binding:"required"` tags on NotifyAttachment.URI/Name don't
+	// actually run. Without this loop, attachments: [{"uri":"","name":""}]
+	// would slip through, broadcast empty-URI chips that render
+	// blank/broken in the canvas, and persist them in activity_logs
+	// for every page reload to re-render. Validate explicitly.
+	for i, a := range body.Attachments {
+		if a.URI == "" || a.Name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("attachment[%d]: uri and name are required", i),
+			})
+			return
+		}
+	}
+
 	// Verify workspace exists
 	var wsName string
 	err := db.DB.QueryRowContext(c.Request.Context(),

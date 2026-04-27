@@ -280,20 +280,15 @@ func TestNotify_WithAttachments_PersistsFilePartsForReload(t *testing.T) {
 		WithArgs("ws-attach").
 		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("DD"))
 
-	// Capture the JSONB arg via a custom matcher so we can assert on
-	// the persisted shape (must include parts[].kind=file so reload
-	// reconstructs download chips).
+	// Capture the JSONB arg so we can assert on the persisted shape
+	// AFTER the call (must include parts[].kind=file so reload
+	// reconstructs download chips). Use AnyArg() for the binding
+	// gate — the substring asserts below are what actually validate
+	// the shape; a custom matcher that always returned true would
+	// be misleading about which step does the gating.
 	var capturedRespJSON string
-	respMatcher := sqlmockArgMatcher(func(v driver.Value) bool {
-		s, ok := v.(string)
-		if !ok {
-			return false
-		}
-		capturedRespJSON = s
-		return true
-	})
 	mock.ExpectExec(`INSERT INTO activity_logs`).
-		WithArgs("ws-attach", sqlmock.AnyArg(), respMatcher).
+		WithArgs("ws-attach", sqlmock.AnyArg(), sqlmockCaptureArg(&capturedRespJSON)).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	broadcaster := newTestBroadcaster()
@@ -333,12 +328,65 @@ func TestNotify_WithAttachments_PersistsFilePartsForReload(t *testing.T) {
 	}
 }
 
-// sqlmockArgMatcher adapts a closure into the sqlmock.Argument interface
-// so tests can capture/inspect the actual driver value sent into a
-// prepared statement. Returns true to match.
-type sqlmockArgMatcher func(driver.Value) bool
+func TestNotify_RejectsAttachmentWithEmptyURIOrName(t *testing.T) {
+	// Critical regression guard. gin's go-playground/validator does NOT
+	// iterate slice elements without `dive`, so `binding:"required"` on
+	// NotifyAttachment.URI/Name would silently fail to enforce on
+	// `attachments: [{"uri":"","name":""}]`. Without this explicit
+	// per-element check, the platform broadcasts empty-URI chips that
+	// render blank in the canvas AND get persisted in activity_logs
+	// for every page reload to re-render. Pre-fix: passed validation.
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"empty uri", `{"message":"hi","attachments":[{"uri":"","name":"file.zip"}]}`},
+		{"empty name", `{"message":"hi","attachments":[{"uri":"workspace:/x","name":""}]}`},
+		{"both empty", `{"message":"hi","attachments":[{"uri":"","name":""}]}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockDB, _, _ := sqlmock.New()
+			defer mockDB.Close()
+			db.DB = mockDB
+			// No DB expectations — handler must reject with 400 BEFORE
+			// reaching SELECT/INSERT. sqlmock will fail "expectations not met"
+			// only if the handler unexpectedly queries.
 
-func (m sqlmockArgMatcher) Match(v driver.Value) bool { return m(v) }
+			broadcaster := newTestBroadcaster()
+			handler := NewActivityHandler(broadcaster)
+			gin.SetMode(gin.TestMode)
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Params = gin.Params{{Key: "id", Value: "ws-x"}}
+			c.Request = httptest.NewRequest("POST", "/workspaces/ws-x/notify", strings.NewReader(tc.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			handler.Notify(c)
+
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("expected 400 for %s, got %d: %s", tc.name, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+// sqlmockCaptureArg returns an sqlmock.Argument that always matches AND
+// writes the string-coerced driver value into `dst`. Lets a test
+// inspect the actual JSON bytes written to a JSONB column without
+// pretending to enforce shape — that's what the downstream substring
+// asserts in the test body do.
+func sqlmockCaptureArg(dst *string) sqlmock.Argument {
+	return sqlmockArgFn(func(v driver.Value) bool {
+		if s, ok := v.(string); ok {
+			*dst = s
+		}
+		return true
+	})
+}
+
+type sqlmockArgFn func(driver.Value) bool
+
+func (f sqlmockArgFn) Match(v driver.Value) bool { return f(v) }
 
 func TestNotify_DBFailure_StillBroadcastsAnd200(t *testing.T) {
 	// Persistence is best-effort — a DB hiccup must NOT block the

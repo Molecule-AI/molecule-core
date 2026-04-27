@@ -403,7 +403,16 @@ export function handleCanvasEvent(
       const rawAttachments = msg.payload.attachments;
       const attachments = Array.isArray(rawAttachments)
         ? (rawAttachments as Array<{ uri?: unknown; name?: unknown; mimeType?: unknown; size?: unknown }>)
-            .filter((a) => typeof a?.uri === "string" && typeof a?.name === "string")
+            // Reject empty strings as well as non-strings — server-side
+            // gin validation does NOT enforce binding:"required" on
+            // slice-element struct fields without `dive` (which the
+            // notify handler does not use), so a malformed broadcast
+            // could carry uri:"" or name:"". Defence-in-depth: drop
+            // those here so the chat doesn't render a blank/broken chip.
+            .filter((a) =>
+              typeof a?.uri === "string" && a.uri.length > 0 &&
+              typeof a?.name === "string" && a.name.length > 0,
+            )
             .map((a) => ({
               uri: a.uri as string,
               name: a.name as string,

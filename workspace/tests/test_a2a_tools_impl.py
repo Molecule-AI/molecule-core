@@ -400,8 +400,15 @@ class TestToolSendMessageToUser:
 
         assert "1 attachment" in result
         # Verify the notify call carried attachment metadata, not bytes.
-        notify_call = mc.post.await_args_list[1]
-        notify_body = notify_call.kwargs.get("json") or {}
+        # Locate the call by URL suffix, not by index — a future refactor
+        # in _upload_chat_files that adds a pre-flight call would silently
+        # shift the array index and the assert would target the wrong call.
+        notify_calls = [
+            c for c in mc.post.await_args_list
+            if c.args and isinstance(c.args[0], str) and c.args[0].endswith("/notify")
+        ]
+        assert len(notify_calls) == 1, f"expected 1 notify POST, got {len(notify_calls)}"
+        notify_body = notify_calls[0].kwargs.get("json") or {}
         assert notify_body.get("message") == "Done — see attached."
         assert len(notify_body.get("attachments", [])) == 1
         att = notify_body["attachments"][0]
