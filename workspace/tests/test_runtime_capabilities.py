@@ -152,3 +152,35 @@ class TestBaseAdapterCapabilitiesDefault:
         native = _NativeHeartbeatAdapter().capabilities()
         assert minimal.provides_native_heartbeat is False
         assert native.provides_native_heartbeat is True
+
+
+class TestIdleTimeoutOverride:
+    """The idle_timeout_override() hook — the first capability primitive
+    with an actual platform consumer (workspace-server's a2a_proxy.go
+    consults this per-workspace before applying its idle timer).
+
+    Default behavior MUST be no-op (return None → platform uses global
+    default). Subclasses override to declare longer/shorter window."""
+
+    def test_default_returns_none(self):
+        # If this default ever flips to a positive number, every adapter
+        # silently gets that idle timeout. The platform's global default
+        # (env A2A_IDLE_TIMEOUT_SECONDS, default 5min) would stop being
+        # the floor — instead this hook would be — and ops would lose
+        # the central knob.
+        assert _MinimalAdapter().idle_timeout_override() is None
+
+    def test_subclass_can_override_to_positive_seconds(self):
+        class _SlowAdapter(_MinimalAdapter):
+            def idle_timeout_override(self) -> int:
+                return 600  # 10 min — typical for a slow synth runtime
+        assert _SlowAdapter().idle_timeout_override() == 600
+
+    def test_subclass_can_explicitly_keep_default_via_none(self):
+        # An adapter that overrode this in an old version then dropped
+        # the override (back to None) should cleanly fall back to the
+        # platform default. Pinning here makes the round-trip explicit.
+        class _DroppedOverrideAdapter(_MinimalAdapter):
+            def idle_timeout_override(self):
+                return None
+        assert _DroppedOverrideAdapter().idle_timeout_override() is None

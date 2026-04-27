@@ -164,6 +164,29 @@ class BaseAdapter(ABC):
         project memory `project_runtime_native_pluggable.md`."""
         return RuntimeCapabilities()
 
+    def idle_timeout_override(self) -> int | None:
+        """Per-A2A-dispatch silence window override, in SECONDS.
+
+        Return None to use the platform default (env var
+        A2A_IDLE_TIMEOUT_SECONDS, falling back to 5 minutes — see
+        a2a_proxy.go:defaultIdleTimeoutDuration). Override when this
+        runtime's SDK can legitimately go silent longer than the
+        default before the dispatch should be considered wedged.
+
+        Why this is per-adapter, not just env: the env value is a
+        cluster-wide knob set by ops. Different SDKs have different
+        latency profiles — claude-code synthesis on Opus + tool use
+        legitimately runs 8-10 min between broadcasts; hermes synth
+        with custom providers can be even slower. Hardcoding 5min for
+        everyone either cancels real work (claude-code synth) or
+        leaves wedged runtimes (langgraph) hanging too long.
+
+        Platform reads this from the heartbeat payload and stashes
+        it per-workspace; dispatchA2A consults it before applying the
+        idle timer. None / unset / zero falls through to the global
+        default — same behavior as before this hook landed."""
+        return None
+
     # ------------------------------------------------------------------
     # Plugin install hooks
     # ------------------------------------------------------------------
