@@ -118,7 +118,10 @@ describe("toCommMessage — flow derivation", () => {
   // Pre-fix the panel filtered these out and showed "no agent comms"
   // even when 6+ delegations existed in the DB.
 
-  it("delegation 'delegate' row maps as outbound to target", () => {
+  it("delegation 'delegate' row prefers request_body.task over the boilerplate summary", () => {
+    // The platform's `summary` field is "Delegating to <UUID>" — useless
+    // in chat. The real task text lives in request_body.task. Show that
+    // so the user sees WHAT was delegated, not just where.
     const m = toCommMessage(
       makeEntry({
         activity_type: "delegation",
@@ -126,6 +129,7 @@ describe("toCommMessage — flow derivation", () => {
         source_id: SELF,
         target_id: PEER,
         summary: "Delegating to ws-peer",
+        request_body: { task: "Build me 10 landing pages" },
         status: "pending",
       }),
       SELF,
@@ -134,15 +138,52 @@ describe("toCommMessage — flow derivation", () => {
     expect(m!.flow).toBe("out");
     expect(m!.peerId).toBe(PEER);
     expect(m!.peerName).toBe("Peer Agent");
-    expect(m!.text).toBe("Delegating to ws-peer");
+    expect(m!.text).toBe("Build me 10 landing pages");
     expect(m!.status).toBe("pending");
   });
 
-  it("delegation 'delegate_result' queued row preserves status='queued'", () => {
-    // The "queued" status is the load-bearing signal the LLM uses to
-    // decide whether to wait or fall back. If toCommMessage drops or
-    // rewrites it, the UI loses the ability to show the "peer busy,
-    // will reply" affordance.
+  it("delegation 'delegate' row falls back to a name-resolved label when request_body is missing", () => {
+    // Older rows or some queued paths don't have request_body.task.
+    // Don't render the raw UUID — resolve to the peer name so the
+    // bubble at least reads "Delegating to Peer Agent".
+    const m = toCommMessage(
+      makeEntry({
+        activity_type: "delegation",
+        method: "delegate",
+        source_id: SELF,
+        target_id: PEER,
+        summary: "Delegating to ws-peer",
+        request_body: null,
+        status: "pending",
+      }),
+      SELF,
+    );
+    expect(m!.text).toBe("Delegating to Peer Agent");
+  });
+
+  it("delegation 'delegate_result' row is INBOUND so the chat shows alternating bubbles", () => {
+    // Even though source_id=us (we wrote the row), the conversational
+    // direction is peer → us. Render as flow="in" so the user sees
+    // a chat-style back-and-forth instead of a one-sided "→ To X" wall.
+    const m = toCommMessage(
+      makeEntry({
+        activity_type: "delegation",
+        method: "delegate_result",
+        source_id: SELF,
+        target_id: PEER,
+        summary: "Delegation completed (...)",
+        response_body: { response_preview: "Done — ZIP at /tmp/x.zip" },
+        status: "completed",
+      }),
+      SELF,
+    );
+    expect(m!.flow).toBe("in");
+    expect(m!.text).toBe("Done — ZIP at /tmp/x.zip");
+  });
+
+  it("delegation 'delegate_result' queued row shows a human-readable wait message", () => {
+    // "Delegation queued — target at capacity" is platform jargon.
+    // Render with the resolved peer name so the user knows WHO is busy.
     const m = toCommMessage(
       makeEntry({
         activity_type: "delegation",
@@ -150,12 +191,15 @@ describe("toCommMessage — flow derivation", () => {
         source_id: SELF,
         target_id: PEER,
         summary: "Delegation queued — target at capacity",
+        response_body: { queued: true },
         status: "queued",
       }),
       SELF,
     );
+    expect(m!.flow).toBe("in");
     expect(m!.status).toBe("queued");
-    expect(m!.text).toContain("queued");
+    expect(m!.text).toContain("Peer Agent");
+    expect(m!.text.toLowerCase()).toContain("busy");
   });
 
   it("delegation row with no target_id returns null", () => {

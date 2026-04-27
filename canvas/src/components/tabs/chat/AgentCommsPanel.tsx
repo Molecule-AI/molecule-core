@@ -60,28 +60,63 @@ function resolveName(id: string): string {
 
 export function toCommMessage(entry: ActivityEntry, workspaceId: string): CommMessage | null {
   // delegation activity rows are written by the platform's /delegate
-  // handler. They're always outbound from this workspace's POV (the
-  // platform proxies the A2A on our behalf). Two methods:
+  // handler. Two methods:
   //   - "delegate"        — the initial outbound; status pending/dispatched
   //   - "delegate_result" — the eventual reply; status completed/queued/failed
-  // We surface them in Agent Comms because they ARE agent-to-agent
-  // calls; without this branch they'd be dropped by the activity_type
-  // filter and the user would see "No agent-to-agent communications yet"
-  // even when the director made delegations.
+  //
+  // Flow direction: even though both rows have source_id=us (the
+  // platform writes them on our row), the CONVERSATIONAL direction
+  // differs. 'delegate' is us asking the peer; 'delegate_result' is
+  // the peer's reply coming back. Render them as alternating bubbles
+  // (out + in) so the user sees a chat-like back-and-forth instead
+  // of a one-sided wall of "→ To X" rows.
+  //
+  // Text content: the platform's `summary` is boilerplate
+  // ("Delegating to <UUID>" / "Delegation queued — target at
+  // capacity") — useful for an audit log, useless in a chat UI.
+  // Prefer the real payload:
+  //   - outbound: request_body.task (the task text the agent sent)
+  //   - inbound:  response_body.response_preview (the peer's reply text)
+  // Falls back to a name-resolved summary when the payload is empty.
   if (entry.activity_type === "delegation") {
     const peerId = entry.target_id || "";
     if (!peerId) return null;
+    const isResult = entry.method === "delegate_result";
+    const peerName = resolveName(peerId);
+
+    let text: string;
+    if (isResult) {
+      const rb = entry.response_body as Record<string, unknown> | null;
+      const replyText =
+        (typeof rb?.response_preview === "string" && rb.response_preview) ||
+        (typeof rb?.text === "string" && rb.text) ||
+        "";
+      if (replyText) {
+        text = replyText;
+      } else if (entry.status === "queued") {
+        // No actual reply yet — peer's a2a-proxy queued the call;
+        // show what the user needs to know without the boilerplate.
+        text = `Queued — ${peerName} is busy on a prior task, reply will arrive when they're free`;
+      } else if (entry.status === "failed") {
+        text = entry.summary || `Delegation to ${peerName} failed`;
+      } else {
+        text = entry.summary || "(no reply)";
+      }
+    } else {
+      const reqTask = (entry.request_body as Record<string, unknown> | null)?.task;
+      text = (typeof reqTask === "string" && reqTask) || `Delegating to ${peerName}`;
+    }
+
     return {
       id: entry.id,
-      flow: "out",
-      peerName: resolveName(peerId),
+      flow: isResult ? "in" : "out",
+      peerName,
       peerId,
-      // Prefer summary (set by the platform with a human-readable
-      // string like "Delegating to X" or "Delegation queued — target
-      // at capacity"). Fall back to request body for older rows that
-      // pre-date the summary column being populated.
-      text: entry.summary || extractRequestText(entry.request_body) || "(delegation)",
-      responseText: entry.response_body ? extractResponseText(entry.response_body) : null,
+      text,
+      // Result text is now the primary `text` (above), so don't
+      // duplicate it as responseText — that would render a divider
+      // line under the reply with the same content below.
+      responseText: null,
       status: entry.status || "ok",
       timestamp: entry.created_at,
     };
@@ -265,20 +300,39 @@ export function AgentCommsPanel({ workspaceId }: { workspaceId: string }) {
           // own `status` field (queued / dispatched). Other events have
           // implicit status: SENT → pending, COMPLETE → completed,
           // FAILED → failed.
+          //
+          // Populate request_body / response_body from the payload so
+          // toCommMessage's delegation branch can read the actual
+          // task / reply text via the same code path the GET-on-mount
+          // uses. Without this, live-pushed bubbles would fall back
+          // to the boilerplate summary ("Delegating to <id>") instead
+          // of the real text.
           let status: string;
           let summary: string;
+          let requestBody: Record<string, unknown> | null = null;
+          let responseBody: Record<string, unknown> | null = null;
           if (msg.event === "DELEGATION_STATUS") {
             status = (p.status as string) || "queued";
             summary = `Delegation ${status}`;
           } else if (msg.event === "DELEGATION_COMPLETE") {
             status = "completed";
-            summary = `Delegation completed (${(p.response_preview as string)?.slice(0, 60) || ""})`;
+            const preview = (p.response_preview as string) || "";
+            summary = `Delegation completed (${preview.slice(0, 60)})`;
+            responseBody = { response_preview: preview };
           } else if (msg.event === "DELEGATION_FAILED") {
             status = "failed";
             summary = `Delegation failed: ${(p.error as string) || "unknown"}`;
           } else {
             status = "pending";
+            // DELEGATION_SENT carries `task_preview` (truncated to 100
+            // chars at broadcast time in delegation.go). Surface as
+            // request_body.task so the inbound bubble shows what was
+            // actually delegated, not the UUID stub summary.
+            const taskPreview = (p.task_preview as string) || "";
             summary = `Delegating to ${(p.target_id as string)?.slice(0, 8) || "peer"}`;
+            if (taskPreview) {
+              requestBody = { task: taskPreview };
+            }
           }
           entry = {
             id: (p.delegation_id as string) || crypto.randomUUID(),
@@ -287,8 +341,8 @@ export function AgentCommsPanel({ workspaceId }: { workspaceId: string }) {
             target_id: targetId,
             method: msg.event === "DELEGATION_SENT" ? "delegate" : "delegate_result",
             summary,
-            request_body: null,
-            response_body: null,
+            request_body: requestBody,
+            response_body: responseBody,
             status,
             created_at: msg.timestamp || new Date().toISOString(),
           };
