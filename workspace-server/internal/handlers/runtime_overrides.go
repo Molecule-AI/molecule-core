@@ -38,40 +38,112 @@ var runtimeOverrides runtimeOverrideCache
 
 type runtimeOverrideEntry struct {
 	idleTimeout time.Duration // 0 means "no override; use global default"
+	// capabilities maps wire-name keys from RuntimeCapabilities.to_dict()
+	// — "heartbeat", "scheduler", "session", "status_mgmt", "retry",
+	// "activity_decoration", "channel_dispatch" — to whether the adapter
+	// claims native ownership. Consumers (e.g. scheduler.tick) read this
+	// to decide whether to fire their platform-fallback behavior for this
+	// workspace.
+	//
+	// nil map means "no capability declarations received yet" → consumers
+	// fall back to the platform default (today's behavior).
+	capabilities map[string]bool
 }
 
 type runtimeOverrideCache struct {
 	m sync.Map // key: workspaceID (string), value: runtimeOverrideEntry
 }
 
+// loadEntry returns the entry for workspaceID (or a zero-value entry).
+// Internal helper for the partial-update Set methods; sync.Map's
+// Load doesn't support "read or default" in one shot.
+func (c *runtimeOverrideCache) loadEntry(workspaceID string) runtimeOverrideEntry {
+	if v, ok := c.m.Load(workspaceID); ok {
+		if e, ok := v.(runtimeOverrideEntry); ok {
+			return e
+		}
+	}
+	return runtimeOverrideEntry{}
+}
+
+// deleteIfEmpty drops the workspace's entry from the cache when both
+// idleTimeout and capabilities are absent. Keeps the cache from
+// retaining empty husks forever after a runtime stops sending overrides.
+func (c *runtimeOverrideCache) deleteIfEmpty(workspaceID string, e runtimeOverrideEntry) {
+	if e.idleTimeout <= 0 && len(e.capabilities) == 0 {
+		c.m.Delete(workspaceID)
+		return
+	}
+	c.m.Store(workspaceID, e)
+}
+
 // SetIdleTimeout records the per-workspace idle-timeout override sent
 // in the most recent heartbeat. d == 0 clears the override (falling
 // back to the global default), so a runtime that previously declared
 // an override and then dropped it cleanly returns to platform behavior.
+// Capability flags on the same workspace are preserved.
 func (c *runtimeOverrideCache) SetIdleTimeout(workspaceID string, d time.Duration) {
 	if workspaceID == "" {
 		return
 	}
+	e := c.loadEntry(workspaceID)
 	if d <= 0 {
-		c.m.Delete(workspaceID)
-		return
+		e.idleTimeout = 0
+	} else {
+		e.idleTimeout = d
 	}
-	c.m.Store(workspaceID, runtimeOverrideEntry{idleTimeout: d})
+	c.deleteIfEmpty(workspaceID, e)
 }
 
 // IdleTimeout returns the per-workspace override and ok=true when one
 // is in effect; ok=false means dispatchA2A should fall back to the
 // global idleTimeoutDuration.
 func (c *runtimeOverrideCache) IdleTimeout(workspaceID string) (time.Duration, bool) {
-	v, ok := c.m.Load(workspaceID)
-	if !ok {
-		return 0, false
-	}
-	e, ok := v.(runtimeOverrideEntry)
-	if !ok || e.idleTimeout <= 0 {
+	e := c.loadEntry(workspaceID)
+	if e.idleTimeout <= 0 {
 		return 0, false
 	}
 	return e.idleTimeout, true
+}
+
+// SetCapabilities records the per-workspace capability declaration map
+// (e.g. {"scheduler": true, "heartbeat": false, ...}) sent in the most
+// recent heartbeat. Replaces any prior map; pass nil to clear.
+// IdleTimeout on the same workspace is preserved.
+//
+// The wire-name keys (heartbeat, scheduler, session, status_mgmt, retry,
+// activity_decoration, channel_dispatch) match RuntimeCapabilities.to_dict()
+// in workspace/adapter_base.py — keep in sync there.
+func (c *runtimeOverrideCache) SetCapabilities(workspaceID string, caps map[string]bool) {
+	if workspaceID == "" {
+		return
+	}
+	e := c.loadEntry(workspaceID)
+	if len(caps) == 0 {
+		e.capabilities = nil
+	} else {
+		// Defensive copy: caller may reuse / mutate the map after the
+		// call; the cache holds long-lived refs.
+		dup := make(map[string]bool, len(caps))
+		for k, v := range caps {
+			dup[k] = v
+		}
+		e.capabilities = dup
+	}
+	c.deleteIfEmpty(workspaceID, e)
+}
+
+// HasCapability returns true when the workspace's adapter has declared
+// native ownership of the named capability. False when no entry exists,
+// no capability map was ever sent, or the named capability is absent /
+// false. Consumers (scheduler.tick, etc.) call this before firing their
+// platform-fallback behavior.
+func (c *runtimeOverrideCache) HasCapability(workspaceID, name string) bool {
+	if workspaceID == "" || name == "" {
+		return false
+	}
+	e := c.loadEntry(workspaceID)
+	return e.capabilities[name]
 }
 
 // Reset clears the entire cache. Test-only; production code never
@@ -81,4 +153,12 @@ func (c *runtimeOverrideCache) Reset() {
 		c.m.Delete(k)
 		return true
 	})
+}
+
+// ProvidesNativeScheduler is the public adapter exposed to the scheduler
+// package — wraps HasCapability("scheduler") with the package-level
+// runtimeOverrides instance. Wired into Scheduler.New() at router setup
+// to keep scheduler/scheduler.go free of a handlers/ import.
+func ProvidesNativeScheduler(workspaceID string) bool {
+	return runtimeOverrides.HasCapability(workspaceID, "scheduler")
 }
