@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "@/lib/api";
@@ -60,28 +60,63 @@ function resolveName(id: string): string {
 
 export function toCommMessage(entry: ActivityEntry, workspaceId: string): CommMessage | null {
   // delegation activity rows are written by the platform's /delegate
-  // handler. They're always outbound from this workspace's POV (the
-  // platform proxies the A2A on our behalf). Two methods:
+  // handler. Two methods:
   //   - "delegate"        — the initial outbound; status pending/dispatched
   //   - "delegate_result" — the eventual reply; status completed/queued/failed
-  // We surface them in Agent Comms because they ARE agent-to-agent
-  // calls; without this branch they'd be dropped by the activity_type
-  // filter and the user would see "No agent-to-agent communications yet"
-  // even when the director made delegations.
+  //
+  // Flow direction: even though both rows have source_id=us (the
+  // platform writes them on our row), the CONVERSATIONAL direction
+  // differs. 'delegate' is us asking the peer; 'delegate_result' is
+  // the peer's reply coming back. Render them as alternating bubbles
+  // (out + in) so the user sees a chat-like back-and-forth instead
+  // of a one-sided wall of "→ To X" rows.
+  //
+  // Text content: the platform's `summary` is boilerplate
+  // ("Delegating to <UUID>" / "Delegation queued — target at
+  // capacity") — useful for an audit log, useless in a chat UI.
+  // Prefer the real payload:
+  //   - outbound: request_body.task (the task text the agent sent)
+  //   - inbound:  response_body.response_preview (the peer's reply text)
+  // Falls back to a name-resolved summary when the payload is empty.
   if (entry.activity_type === "delegation") {
     const peerId = entry.target_id || "";
     if (!peerId) return null;
+    const isResult = entry.method === "delegate_result";
+    const peerName = resolveName(peerId);
+
+    let text: string;
+    if (isResult) {
+      const rb = entry.response_body as Record<string, unknown> | null;
+      const replyText =
+        (typeof rb?.response_preview === "string" && rb.response_preview) ||
+        (typeof rb?.text === "string" && rb.text) ||
+        "";
+      if (replyText) {
+        text = replyText;
+      } else if (entry.status === "queued") {
+        // No actual reply yet — peer's a2a-proxy queued the call;
+        // show what the user needs to know without the boilerplate.
+        text = `Queued — ${peerName} is busy on a prior task, reply will arrive when they're free`;
+      } else if (entry.status === "failed") {
+        text = entry.summary || `Delegation to ${peerName} failed`;
+      } else {
+        text = entry.summary || "(no reply)";
+      }
+    } else {
+      const reqTask = (entry.request_body as Record<string, unknown> | null)?.task;
+      text = (typeof reqTask === "string" && reqTask) || `Delegating to ${peerName}`;
+    }
+
     return {
       id: entry.id,
-      flow: "out",
-      peerName: resolveName(peerId),
+      flow: isResult ? "in" : "out",
+      peerName,
       peerId,
-      // Prefer summary (set by the platform with a human-readable
-      // string like "Delegating to X" or "Delegation queued — target
-      // at capacity"). Fall back to request body for older rows that
-      // pre-date the summary column being populated.
-      text: entry.summary || extractRequestText(entry.request_body) || "(delegation)",
-      responseText: entry.response_body ? extractResponseText(entry.response_body) : null,
+      text,
+      // Result text is now the primary `text` (above), so don't
+      // duplicate it as responseText — that would render a divider
+      // line under the reply with the same content below.
+      responseText: null,
       status: entry.status || "ok",
       timestamp: entry.created_at,
     };
@@ -265,20 +300,39 @@ export function AgentCommsPanel({ workspaceId }: { workspaceId: string }) {
           // own `status` field (queued / dispatched). Other events have
           // implicit status: SENT → pending, COMPLETE → completed,
           // FAILED → failed.
+          //
+          // Populate request_body / response_body from the payload so
+          // toCommMessage's delegation branch can read the actual
+          // task / reply text via the same code path the GET-on-mount
+          // uses. Without this, live-pushed bubbles would fall back
+          // to the boilerplate summary ("Delegating to <id>") instead
+          // of the real text.
           let status: string;
           let summary: string;
+          let requestBody: Record<string, unknown> | null = null;
+          let responseBody: Record<string, unknown> | null = null;
           if (msg.event === "DELEGATION_STATUS") {
             status = (p.status as string) || "queued";
             summary = `Delegation ${status}`;
           } else if (msg.event === "DELEGATION_COMPLETE") {
             status = "completed";
-            summary = `Delegation completed (${(p.response_preview as string)?.slice(0, 60) || ""})`;
+            const preview = (p.response_preview as string) || "";
+            summary = `Delegation completed (${preview.slice(0, 60)})`;
+            responseBody = { response_preview: preview };
           } else if (msg.event === "DELEGATION_FAILED") {
             status = "failed";
             summary = `Delegation failed: ${(p.error as string) || "unknown"}`;
           } else {
             status = "pending";
+            // DELEGATION_SENT carries `task_preview` (truncated to 100
+            // chars at broadcast time in delegation.go). Surface as
+            // request_body.task so the inbound bubble shows what was
+            // actually delegated, not the UUID stub summary.
+            const taskPreview = (p.task_preview as string) || "";
             summary = `Delegating to ${(p.target_id as string)?.slice(0, 8) || "peer"}`;
+            if (taskPreview) {
+              requestBody = { task: taskPreview };
+            }
           }
           entry = {
             id: (p.delegation_id as string) || crypto.randomUUID(),
@@ -287,8 +341,8 @@ export function AgentCommsPanel({ workspaceId }: { workspaceId: string }) {
             target_id: targetId,
             method: msg.event === "DELEGATION_SENT" ? "delegate" : "delegate_result",
             summary,
-            request_body: null,
-            response_body: null,
+            request_body: requestBody,
+            response_body: responseBody,
             status,
             created_at: msg.timestamp || new Date().toISOString(),
           };
@@ -328,17 +382,187 @@ export function AgentCommsPanel({ workspaceId }: { workspaceId: string }) {
     );
   }
 
+  return <GroupedCommsView messages={messages} bottomRef={bottomRef} />;
+}
+
+// ALL_PEERS is the sentinel selectedPeerId value for "show every peer
+// in one chronological feed" — the panel's pre-grouping default.
+// Picked to be a value no real peerId can collide with (workspace IDs
+// are UUIDs).
+export const ALL_PEERS = "__all__";
+
+/** PeerSummary is one entry in the sub-tab bar — the per-peer
+ *  message count + most-recent timestamp used for ordering. Exported
+ *  so the sort/count behaviour can be unit-tested without React. */
+export interface PeerSummary {
+  peerId: string;
+  peerName: string;
+  count: number;
+  lastTs: string;
+}
+
+/** buildPeerSummary collapses the flat message list into per-peer
+ *  rows, sorted by most-recent activity descending. Order matches
+ *  Slack/Linear's DM list — active conversations rise to the top.
+ *  Pure function so the sort + count behaviour is testable without
+ *  rendering the panel. */
+export function buildPeerSummary(messages: CommMessage[]): PeerSummary[] {
+  const acc = new Map<string, PeerSummary>();
+  for (const m of messages) {
+    const existing = acc.get(m.peerId);
+    if (existing) {
+      existing.count += 1;
+      if (m.timestamp > existing.lastTs) existing.lastTs = m.timestamp;
+    } else {
+      acc.set(m.peerId, {
+        peerId: m.peerId,
+        peerName: m.peerName,
+        count: 1,
+        lastTs: m.timestamp,
+      });
+    }
+  }
+  return Array.from(acc.values()).sort((a, b) => (a.lastTs < b.lastTs ? 1 : -1));
+}
+
+/** GroupedCommsView renders the messages list with a peer-keyed
+ *  sub-tab bar at the top so the user can drill into one DD↔X thread
+ *  at a time instead of reading a single chronological mix.
+ *
+ *  Tab list derivation: walk the messages once, count per-peer, sort
+ *  by most-recent timestamp DESC so the active conversations rise to
+ *  the top. "All" stays pinned as the leftmost tab. */
+function GroupedCommsView({
+  messages,
+  bottomRef,
+}: {
+  messages: CommMessage[];
+  bottomRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [selectedPeerId, setSelectedPeerId] = useState<string>(ALL_PEERS);
+
+  // Build per-peer summary: count + most-recent timestamp + display
+  // name. One pass over messages — O(n). Logic lives in a pure
+  // helper so it's unit-testable without rendering the panel.
+  const peerSummary = useMemo(() => buildPeerSummary(messages), [messages]);
+
+  // Auto-prune: if the user had selected a peer and that peer no
+  // longer has messages (rare — only happens if dedupe removes the
+  // last bubble for them), fall back to "All" rather than rendering
+  // an empty thread.
+  useEffect(() => {
+    if (selectedPeerId === ALL_PEERS) return;
+    if (!peerSummary.some((p) => p.peerId === selectedPeerId)) {
+      setSelectedPeerId(ALL_PEERS);
+    }
+  }, [peerSummary, selectedPeerId]);
+
+  const visible = useMemo(() => {
+    if (selectedPeerId === ALL_PEERS) return messages;
+    return messages.filter((m) => m.peerId === selectedPeerId);
+  }, [messages, selectedPeerId]);
+
   return (
-    <div className="flex-1 overflow-y-auto p-3 space-y-2">
-      {messages.map((msg) =>
-        msg.status === "error" ? (
-          <ErrorMessage key={msg.id} msg={msg} />
-        ) : (
-          <NormalMessage key={msg.id} msg={msg} />
-        ),
-      )}
-      <div ref={bottomRef} />
+    <div className="flex flex-col h-full min-h-0">
+      <PeerTabs
+        peers={peerSummary}
+        totalCount={messages.length}
+        selectedPeerId={selectedPeerId}
+        onSelect={setSelectedPeerId}
+      />
+      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        {visible.map((msg) =>
+          msg.status === "error" ? (
+            <ErrorMessage key={msg.id} msg={msg} />
+          ) : (
+            <NormalMessage key={msg.id} msg={msg} />
+          ),
+        )}
+        <div ref={bottomRef} />
+      </div>
     </div>
+  );
+}
+
+/** PeerTabs renders the horizontally-scrolling sub-tab bar.
+ *  Keyboard: ArrowLeft / ArrowRight cycle peers (matches the existing
+ *  My Chat / Agent Comms tab pattern in ChatTab). */
+function PeerTabs({
+  peers,
+  totalCount,
+  selectedPeerId,
+  onSelect,
+}: {
+  peers: Array<{ peerId: string; peerName: string; count: number; lastTs: string }>;
+  totalCount: number;
+  selectedPeerId: string;
+  onSelect: (peerId: string) => void;
+}) {
+  // "All" + each peer, in tab-bar order. Built once per render and
+  // used both for click handling and for ArrowLeft/ArrowRight cycling.
+  const ids = [ALL_PEERS, ...peers.map((p) => p.peerId)];
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Peer threads"
+      className="flex border-b border-zinc-800/40 bg-zinc-900/30 px-2 shrink-0 overflow-x-auto"
+      onKeyDown={(e) => {
+        const idx = ids.indexOf(selectedPeerId);
+        if (idx < 0) return;
+        if (e.key === "ArrowRight") {
+          e.preventDefault();
+          onSelect(ids[(idx + 1) % ids.length]);
+        } else if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          onSelect(ids[(idx - 1 + ids.length) % ids.length]);
+        }
+      }}
+    >
+      <PeerTabButton
+        active={selectedPeerId === ALL_PEERS}
+        onClick={() => onSelect(ALL_PEERS)}
+        label="All"
+        count={totalCount}
+      />
+      {peers.map((p) => (
+        <PeerTabButton
+          key={p.peerId}
+          active={selectedPeerId === p.peerId}
+          onClick={() => onSelect(p.peerId)}
+          label={p.peerName}
+          count={p.count}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PeerTabButton({
+  active,
+  onClick,
+  label,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count: number;
+}) {
+  return (
+    <button
+      role="tab"
+      aria-selected={active}
+      tabIndex={active ? 0 : -1}
+      onClick={onClick}
+      className={`shrink-0 px-3 py-1.5 text-[10px] font-medium transition-colors whitespace-nowrap ${
+        active
+          ? "border-b-2 border-cyan-500 text-cyan-200"
+          : "border-b-2 border-transparent text-zinc-500 hover:text-zinc-300"
+      }`}
+    >
+      {label} <span className="text-[9px] text-zinc-500">({count})</span>
+    </button>
   );
 }
 
