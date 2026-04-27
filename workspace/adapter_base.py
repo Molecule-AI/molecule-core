@@ -116,11 +116,21 @@ class BaseAdapter(ABC):
     """Interface every agent infrastructure adapter must implement.
 
     To add a new agent infra:
-    1. Create workspace/adapters/<your_infra>/
+    1. Create a standalone template repo (molecule-ai-workspace-template-<infra>)
     2. Implement adapter.py with a class extending BaseAdapter
-    3. Add requirements.txt with your infra's dependencies
-    4. Export as Adapter in __init__.py
-    5. Submit a PR
+    3. Add requirements.txt with your infra's dependencies + molecule-runtime
+    4. Set ADAPTER_MODULE in the Dockerfile to your adapter module path
+
+    Cross-cutting capabilities your adapter can opt into:
+    - capabilities() — declare native ownership of heartbeat, scheduler,
+      session, status mgmt, etc. (see RuntimeCapabilities above)
+    - idle_timeout_override() — extend the platform's per-dispatch
+      silence window for SDKs with long synth turns
+    - runtime_wedge.mark_wedged() / clear_wedge() — flip the workspace
+      to `degraded` + auto-recover when your SDK hits a non-recoverable
+      error class. Import directly from `runtime_wedge`; the heartbeat
+      forwards the state to the platform automatically. See the
+      runtime_wedge module docstring for the integration recipe.
     """
 
     @staticmethod
