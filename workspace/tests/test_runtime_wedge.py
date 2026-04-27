@@ -66,38 +66,7 @@ class TestRuntimeWedge:
         assert runtime_wedge.wedge_reason() == "second wedge — different reason"
 
 
-class TestClaudeSdkExecutorReExportShim:
-    """claude_sdk_executor.py keeps re-exporting the old names for one
-    release cycle so any third-party adapter copying our wedge convention
-    has time to migrate. These tests pin the shim — when removed, the
-    test file goes too."""
-
-    def test_is_wedged_re_exported(self):
-        from claude_sdk_executor import is_wedged
-        assert is_wedged is runtime_wedge.is_wedged
-
-    def test_wedge_reason_re_exported(self):
-        from claude_sdk_executor import wedge_reason
-        assert wedge_reason is runtime_wedge.wedge_reason
-
-    def test_internal_helpers_re_exported(self):
-        # Keep the underscore names too — claude_sdk_executor's own
-        # _run_query calls _mark_sdk_wedged / _clear_sdk_wedge_on_success
-        # via these re-exports.
-        from claude_sdk_executor import (
-            _mark_sdk_wedged,
-            _clear_sdk_wedge_on_success,
-            _reset_sdk_wedge_for_test,
-        )
-        assert _mark_sdk_wedged is runtime_wedge.mark_wedged
-        assert _clear_sdk_wedge_on_success is runtime_wedge.clear_wedge
-        assert _reset_sdk_wedge_for_test is runtime_wedge.reset_for_test
-
-    def test_re_export_state_is_shared(self):
-        # The shim isn't a copy — both names refer to the same module
-        # state. Marking via the executor name must be observable via
-        # the runtime_wedge name (and vice versa).
-        from claude_sdk_executor import _mark_sdk_wedged
-        _mark_sdk_wedged("via executor shim")
-        assert runtime_wedge.is_wedged() is True
-        assert runtime_wedge.wedge_reason() == "via executor shim"
+# TestClaudeSdkExecutorReExportShim removed alongside
+# workspace/claude_sdk_executor.py — the shim served its one-release-
+# cycle purpose during the universal-runtime refactor (#87 Phase 2).
+# The executor + its shim now live in the claude-code template repo.
