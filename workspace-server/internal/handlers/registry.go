@@ -464,11 +464,12 @@ func (h *RegistryHandler) Heartbeat(c *gin.Context) {
 
 	// Refresh per-workspace runtime overrides from the heartbeat's
 	// runtime_metadata block (introduced for the native+pluggable
-	// runtime principle — see project memory). Only idle_timeout_seconds
-	// is consumed today; capability flags are stored for future
-	// consumers (heartbeat-skip, scheduler-skip, etc.) by subsequent
-	// PRs in task #117. A nil RuntimeMetadata or absent field clears
-	// the override so the dispatch path uses the global default.
+	// runtime principle — see project memory). Both idle_timeout_seconds
+	// and capability flags are stored. Each consumer (a2a_proxy.dispatchA2A
+	// for idle timeout, scheduler.tick for native scheduler, etc.) reads
+	// what it needs from the cache. nil RuntimeMetadata or absent field
+	// clears the corresponding override so the dispatch path uses the
+	// global default.
 	if payload.RuntimeMetadata != nil && payload.RuntimeMetadata.IdleTimeoutSeconds != nil {
 		runtimeOverrides.SetIdleTimeout(
 			payload.WorkspaceID,
@@ -476,6 +477,11 @@ func (h *RegistryHandler) Heartbeat(c *gin.Context) {
 		)
 	} else {
 		runtimeOverrides.SetIdleTimeout(payload.WorkspaceID, 0) // clear
+	}
+	if payload.RuntimeMetadata != nil {
+		runtimeOverrides.SetCapabilities(payload.WorkspaceID, payload.RuntimeMetadata.Capabilities)
+	} else {
+		runtimeOverrides.SetCapabilities(payload.WorkspaceID, nil) // clear
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})

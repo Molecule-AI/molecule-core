@@ -254,6 +254,12 @@ func main() {
 
 	// Cron Scheduler — fires A2A messages to workspaces on user-defined schedules
 	cronSched := scheduler.New(wh, broadcaster)
+	// Wire the native-scheduler skip — when an adapter's heartbeat
+	// declares provides_native_scheduler=true, the platform's polling
+	// loop drops that workspace's schedules to avoid double-fire (the
+	// SDK runs them itself). See project memory
+	// `project_runtime_native_pluggable.md` and capability primitive #3.
+	cronSched.SetNativeSchedulerCheck(handlers.ProvidesNativeScheduler)
 	go supervised.RunWithRecover(ctx, "scheduler", cronSched.Start)
 
 	// Hibernation Monitor — auto-pauses idle workspaces that have
