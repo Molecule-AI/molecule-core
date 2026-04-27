@@ -10,7 +10,7 @@ import { closeWebSocketGracefully } from "@/lib/ws-close";
 import { type ChatMessage, type ChatAttachment, createMessage, appendMessageDeduped } from "./chat/types";
 import { uploadChatFiles, downloadChatFile } from "./chat/uploads";
 import { AttachmentChip, PendingAttachmentPill } from "./chat/AttachmentViews";
-import { extractResponseText, extractFilesFromTask } from "./chat/message-parser";
+import { extractFilesFromTask } from "./chat/message-parser";
 import { AgentCommsPanel } from "./chat/AgentCommsPanel";
 import { appendActivityLine } from "./chat/activityLog";
 import { activityRowToMessages, type ActivityRowForHydration } from "./chat/historyHydration";
