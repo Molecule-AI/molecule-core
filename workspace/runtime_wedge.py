@@ -40,6 +40,13 @@ in place — adapters do not change anything in molecule-runtime.
 
 Minimum integration (~6 LOC inside the executor):
 
+    # Import path:
+    #   - In a TEMPLATE repo (the common case for new adapters), the
+    #     runtime is installed via PyPI as `molecule-ai-workspace-runtime`,
+    #     so the import is `from molecule_runtime.runtime_wedge import …`.
+    #   - In molecule-core itself (when editing this repo's own
+    #     workspace/ tree), the module is at the top level — import as
+    #     `from runtime_wedge import …`.
     from molecule_runtime.runtime_wedge import mark_wedged, clear_wedge
 
     async def execute(self, ctx, queue):
@@ -95,23 +102,72 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# Single-flag state. None = healthy; non-empty string = wedged with that
-# human-readable reason. Surfaced verbatim as the canvas's degraded-card
-# banner text via heartbeat.sample_error.
-_wedged_reason: str | None = None
+class _WedgeState:
+    """Internal carrier for the wedge flag. Exposed only via the module-
+    level helpers below; adapters never see this class.
+
+    Wrapping the state in a class (instead of a bare module-level global)
+    is forward-cover for the day a runtime hosts multiple executors per
+    process — a future per-scope variant can hand out keyed instances
+    without changing the public mark_wedged / clear_wedge / is_wedged /
+    wedge_reason API. Today there's exactly one instance (_DEFAULT).
+    """
+
+    def __init__(self) -> None:
+        # None = healthy; non-empty string = wedged with that human-
+        # readable reason. Surfaced verbatim as the canvas's degraded-
+        # card banner text via heartbeat.sample_error.
+        self._reason: str | None = None
+
+    def is_wedged(self) -> bool:
+        return self._reason is not None
+
+    def reason(self) -> str:
+        return self._reason or ""
+
+    def mark(self, reason: str) -> None:
+        # First-write-wins: a subsequent identical-class wedge can't
+        # overwrite a more specific initial reason so the operator-
+        # visible banner stays stable.
+        if self._reason is None:
+            self._reason = reason
+            logger.error(
+                "runtime wedge detected: %s — workspace will report degraded until cleared",
+                reason,
+            )
+
+    def clear(self) -> None:
+        # No-op when not wedged (the common case — adapters call this
+        # on every successful query).
+        if self._reason is not None:
+            logger.info(
+                "runtime wedge cleared after successful operation — workspace will recover to online on next heartbeat",
+            )
+            self._reason = None
+
+    def reset(self) -> None:
+        # Unconditional clear — for test fixtures only. Skips the
+        # info-level log line the production clear() path emits.
+        self._reason = None
+
+
+# Single shared instance backing the module-level helpers. Today there's
+# one executor per workspace process so this fits perfectly; the class
+# wrap above is the seam for any future per-scope variant.
+_DEFAULT = _WedgeState()
 
 
 def is_wedged() -> bool:
     """True if some adapter executor in this process has marked itself
     wedged. Sticky until the same executor calls clear_wedge() on
     observed recovery (or the process restarts)."""
-    return _wedged_reason is not None
+    return _DEFAULT.is_wedged()
 
 
 def wedge_reason() -> str:
     """Human-readable description of the wedge cause, or empty string
     when not wedged. Surfaced to the canvas via heartbeat sample_error."""
-    return _wedged_reason or ""
+    return _DEFAULT.reason()
 
 
 def mark_wedged(reason: str) -> None:
@@ -123,13 +179,7 @@ def mark_wedged(reason: str) -> None:
     SDK has hit a non-recoverable error class. Safe to call multiple
     times; the no-op when already wedged is intentional.
     """
-    global _wedged_reason
-    if _wedged_reason is None:
-        _wedged_reason = reason
-        logger.error(
-            "runtime wedge detected: %s — workspace will report degraded until cleared",
-            reason,
-        )
+    _DEFAULT.mark(reason)
 
 
 def clear_wedge() -> None:
@@ -142,10 +192,7 @@ def clear_wedge() -> None:
     and the platform flips status back to online.
 
     No-op when not wedged (the common case)."""
-    global _wedged_reason
-    if _wedged_reason is not None:
-        logger.info("runtime wedge cleared after successful operation — workspace will recover to online on next heartbeat")
-        _wedged_reason = None
+    _DEFAULT.clear()
 
 
 def reset_for_test() -> None:
@@ -153,5 +200,4 @@ def reset_for_test() -> None:
     clear_wedge() on observed success; this helper is for unit tests
     that need to reset between cases without going through the full
     SDK round-trip."""
-    global _wedged_reason
-    _wedged_reason = None
+    _DEFAULT.reset()

@@ -87,19 +87,11 @@ _RETRYABLE_PATTERNS = (
     "try again",
 )
 
-# SDK-wedge state lives in the runtime-side module (runtime_wedge) so
-# heartbeat.py and any future cross-cutting consumer can read it without
-# importing this adapter-specific executor. Decoupling was the prerequisite
-# for moving claude_sdk_executor out of molecule-runtime into the
-# claude-code template repo (task #87 — universal-runtime refactor).
-#
-# Local re-exports keep the in-file call sites (_run_query etc.) terse
-# and preserve the historical names so the behavior is identical to
-# the pre-extraction version. is_wedged/wedge_reason are also re-exported
-# so any external consumer that imported them from this module keeps
-# working — heartbeat.py has been updated to import from runtime_wedge
-# directly, but a third-party adapter copying our wedge convention may
-# still expect them here.
+# Wedge state moved to runtime_wedge (see that module's docstring for
+# the rationale + the broader "Compatibility shim" note). This block
+# re-exports under the historical names so the in-file call sites in
+# _run_query stay terse and any external consumer that imported them
+# from claude_sdk_executor keeps working for one release cycle.
 from runtime_wedge import (  # noqa: E402
     clear_wedge as _clear_sdk_wedge_on_success,
     is_wedged,
