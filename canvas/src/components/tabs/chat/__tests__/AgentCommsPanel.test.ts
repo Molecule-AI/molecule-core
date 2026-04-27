@@ -15,7 +15,7 @@ vi.mock("@/store/canvas", () => ({
   },
 }));
 
-import { toCommMessage, type ActivityEntry } from "../AgentCommsPanel";
+import { toCommMessage, buildPeerSummary, type ActivityEntry } from "../AgentCommsPanel";
 
 const SELF = "ws-self";
 const PEER = "ws-peer";
@@ -170,5 +170,81 @@ describe("toCommMessage — flow derivation", () => {
       SELF,
     );
     expect(m).toBeNull();
+  });
+});
+
+// --- buildPeerSummary — peer-tab ordering + counts -------------------
+//
+// The grouped view sorts peer tabs by most-recent activity descending
+// (Slack-style DM list) so active conversations rise to the top.
+// These tests pin that ordering plus the count aggregation. Pure
+// helper — no React render required.
+
+describe("buildPeerSummary", () => {
+  function msg(peerId: string, peerName: string, timestamp: string): never {
+    // Cast through unknown — we only need the fields buildPeerSummary
+    // reads (peerId, peerName, timestamp). Other CommMessage fields
+    // are irrelevant to the sort/count logic.
+    return {
+      id: `id-${peerId}-${timestamp}`,
+      flow: "out",
+      peerId,
+      peerName,
+      text: "",
+      responseText: null,
+      status: "ok",
+      timestamp,
+    } as never;
+  }
+
+  it("collapses messages into one row per peer with correct count", () => {
+    const summary = buildPeerSummary([
+      msg("ws-a", "Alpha", "2026-04-25T10:00:00Z"),
+      msg("ws-a", "Alpha", "2026-04-25T10:01:00Z"),
+      msg("ws-b", "Bravo", "2026-04-25T10:02:00Z"),
+    ]);
+    expect(summary).toHaveLength(2);
+    const byId = new Map(summary.map((s) => [s.peerId, s]));
+    expect(byId.get("ws-a")?.count).toBe(2);
+    expect(byId.get("ws-b")?.count).toBe(1);
+  });
+
+  it("orders peers by most-recent activity DESC", () => {
+    // ws-old's last activity was at 10:00, ws-new's was at 10:30 —
+    // ws-new should sort first because it's more recently active.
+    const summary = buildPeerSummary([
+      msg("ws-old", "Old", "2026-04-25T09:00:00Z"),
+      msg("ws-old", "Old", "2026-04-25T10:00:00Z"),
+      msg("ws-new", "New", "2026-04-25T10:30:00Z"),
+    ]);
+    expect(summary[0].peerId).toBe("ws-new");
+    expect(summary[1].peerId).toBe("ws-old");
+  });
+
+  it("tracks lastTs as the maximum timestamp across that peer's messages", () => {
+    // Out-of-order messages — buildPeerSummary should still pick the
+    // newest. Pre-fix a naive "last-seen-wins" would have set lastTs
+    // to the second message's timestamp (older).
+    const summary = buildPeerSummary([
+      msg("ws-a", "Alpha", "2026-04-25T11:00:00Z"),
+      msg("ws-a", "Alpha", "2026-04-25T09:00:00Z"),
+      msg("ws-a", "Alpha", "2026-04-25T10:00:00Z"),
+    ]);
+    expect(summary[0].lastTs).toBe("2026-04-25T11:00:00Z");
+  });
+
+  it("empty input returns empty array", () => {
+    expect(buildPeerSummary([])).toEqual([]);
+  });
+
+  it("preserves the peer's display name from the first occurrence", () => {
+    // If two messages for the same peerId carry different peerName
+    // (shouldn't happen in practice, but defensive), the first wins
+    // — matches what the user sees in the tile and avoids name flicker.
+    const summary = buildPeerSummary([
+      msg("ws-a", "Alpha", "2026-04-25T10:00:00Z"),
+      msg("ws-a", "Renamed", "2026-04-25T10:01:00Z"),
+    ]);
+    expect(summary[0].peerName).toBe("Alpha");
   });
 });

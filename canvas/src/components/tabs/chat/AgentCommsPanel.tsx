@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "@/lib/api";
@@ -328,17 +328,187 @@ export function AgentCommsPanel({ workspaceId }: { workspaceId: string }) {
     );
   }
 
+  return <GroupedCommsView messages={messages} bottomRef={bottomRef} />;
+}
+
+// ALL_PEERS is the sentinel selectedPeerId value for "show every peer
+// in one chronological feed" — the panel's pre-grouping default.
+// Picked to be a value no real peerId can collide with (workspace IDs
+// are UUIDs).
+export const ALL_PEERS = "__all__";
+
+/** PeerSummary is one entry in the sub-tab bar — the per-peer
+ *  message count + most-recent timestamp used for ordering. Exported
+ *  so the sort/count behaviour can be unit-tested without React. */
+export interface PeerSummary {
+  peerId: string;
+  peerName: string;
+  count: number;
+  lastTs: string;
+}
+
+/** buildPeerSummary collapses the flat message list into per-peer
+ *  rows, sorted by most-recent activity descending. Order matches
+ *  Slack/Linear's DM list — active conversations rise to the top.
+ *  Pure function so the sort + count behaviour is testable without
+ *  rendering the panel. */
+export function buildPeerSummary(messages: CommMessage[]): PeerSummary[] {
+  const acc = new Map<string, PeerSummary>();
+  for (const m of messages) {
+    const existing = acc.get(m.peerId);
+    if (existing) {
+      existing.count += 1;
+      if (m.timestamp > existing.lastTs) existing.lastTs = m.timestamp;
+    } else {
+      acc.set(m.peerId, {
+        peerId: m.peerId,
+        peerName: m.peerName,
+        count: 1,
+        lastTs: m.timestamp,
+      });
+    }
+  }
+  return Array.from(acc.values()).sort((a, b) => (a.lastTs < b.lastTs ? 1 : -1));
+}
+
+/** GroupedCommsView renders the messages list with a peer-keyed
+ *  sub-tab bar at the top so the user can drill into one DD↔X thread
+ *  at a time instead of reading a single chronological mix.
+ *
+ *  Tab list derivation: walk the messages once, count per-peer, sort
+ *  by most-recent timestamp DESC so the active conversations rise to
+ *  the top. "All" stays pinned as the leftmost tab. */
+function GroupedCommsView({
+  messages,
+  bottomRef,
+}: {
+  messages: CommMessage[];
+  bottomRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [selectedPeerId, setSelectedPeerId] = useState<string>(ALL_PEERS);
+
+  // Build per-peer summary: count + most-recent timestamp + display
+  // name. One pass over messages — O(n). Logic lives in a pure
+  // helper so it's unit-testable without rendering the panel.
+  const peerSummary = useMemo(() => buildPeerSummary(messages), [messages]);
+
+  // Auto-prune: if the user had selected a peer and that peer no
+  // longer has messages (rare — only happens if dedupe removes the
+  // last bubble for them), fall back to "All" rather than rendering
+  // an empty thread.
+  useEffect(() => {
+    if (selectedPeerId === ALL_PEERS) return;
+    if (!peerSummary.some((p) => p.peerId === selectedPeerId)) {
+      setSelectedPeerId(ALL_PEERS);
+    }
+  }, [peerSummary, selectedPeerId]);
+
+  const visible = useMemo(() => {
+    if (selectedPeerId === ALL_PEERS) return messages;
+    return messages.filter((m) => m.peerId === selectedPeerId);
+  }, [messages, selectedPeerId]);
+
   return (
-    <div className="flex-1 overflow-y-auto p-3 space-y-2">
-      {messages.map((msg) =>
-        msg.status === "error" ? (
-          <ErrorMessage key={msg.id} msg={msg} />
-        ) : (
-          <NormalMessage key={msg.id} msg={msg} />
-        ),
-      )}
-      <div ref={bottomRef} />
+    <div className="flex flex-col h-full min-h-0">
+      <PeerTabs
+        peers={peerSummary}
+        totalCount={messages.length}
+        selectedPeerId={selectedPeerId}
+        onSelect={setSelectedPeerId}
+      />
+      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        {visible.map((msg) =>
+          msg.status === "error" ? (
+            <ErrorMessage key={msg.id} msg={msg} />
+          ) : (
+            <NormalMessage key={msg.id} msg={msg} />
+          ),
+        )}
+        <div ref={bottomRef} />
+      </div>
     </div>
+  );
+}
+
+/** PeerTabs renders the horizontally-scrolling sub-tab bar.
+ *  Keyboard: ArrowLeft / ArrowRight cycle peers (matches the existing
+ *  My Chat / Agent Comms tab pattern in ChatTab). */
+function PeerTabs({
+  peers,
+  totalCount,
+  selectedPeerId,
+  onSelect,
+}: {
+  peers: Array<{ peerId: string; peerName: string; count: number; lastTs: string }>;
+  totalCount: number;
+  selectedPeerId: string;
+  onSelect: (peerId: string) => void;
+}) {
+  // "All" + each peer, in tab-bar order. Built once per render and
+  // used both for click handling and for ArrowLeft/ArrowRight cycling.
+  const ids = [ALL_PEERS, ...peers.map((p) => p.peerId)];
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Peer threads"
+      className="flex border-b border-zinc-800/40 bg-zinc-900/30 px-2 shrink-0 overflow-x-auto"
+      onKeyDown={(e) => {
+        const idx = ids.indexOf(selectedPeerId);
+        if (idx < 0) return;
+        if (e.key === "ArrowRight") {
+          e.preventDefault();
+          onSelect(ids[(idx + 1) % ids.length]);
+        } else if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          onSelect(ids[(idx - 1 + ids.length) % ids.length]);
+        }
+      }}
+    >
+      <PeerTabButton
+        active={selectedPeerId === ALL_PEERS}
+        onClick={() => onSelect(ALL_PEERS)}
+        label="All"
+        count={totalCount}
+      />
+      {peers.map((p) => (
+        <PeerTabButton
+          key={p.peerId}
+          active={selectedPeerId === p.peerId}
+          onClick={() => onSelect(p.peerId)}
+          label={p.peerName}
+          count={p.count}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PeerTabButton({
+  active,
+  onClick,
+  label,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count: number;
+}) {
+  return (
+    <button
+      role="tab"
+      aria-selected={active}
+      tabIndex={active ? 0 : -1}
+      onClick={onClick}
+      className={`shrink-0 px-3 py-1.5 text-[10px] font-medium transition-colors whitespace-nowrap ${
+        active
+          ? "border-b-2 border-cyan-500 text-cyan-200"
+          : "border-b-2 border-transparent text-zinc-500 hover:text-zinc-300"
+      }`}
+    >
+      {label} <span className="text-[9px] text-zinc-500">({count})</span>
+    </button>
   );
 }
 
