@@ -9,7 +9,6 @@ keeping heartbeat resilient to a missing/broken adapter discovery
 path."""
 import sys
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
