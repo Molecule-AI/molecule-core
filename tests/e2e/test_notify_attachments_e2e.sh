@@ -72,10 +72,18 @@ WSID=$(echo "$R" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])
 [ -n "$WSID" ] || { echo "Failed to create workspace: $R"; exit 1; }
 echo "Created workspace $WSID"
 
+# Mint a bearer token so the wsAuth-grouped endpoints (notify, activity,
+# chat/uploads) accept us. Local dev mode skips auth, but CI enforces it
+# — so we always send the header to keep the test portable. The
+# admin/test-token endpoint is only enabled when MOLECULE_ENV != production.
+TOKEN=$(e2e_mint_test_token "$WSID")
+[ -n "$TOKEN" ] || { echo "Failed to mint test token"; exit 1; }
+AUTH="Authorization: Bearer $TOKEN"
+
 echo ""
 echo "=== Test 1: notify without attachments persists row ==="
 CODE=$(curl -s -o /tmp/notify1.json -w "%{http_code}" -X POST "$BASE/workspaces/$WSID/notify" \
-  -H "Content-Type: application/json" \
+  -H "Content-Type: application/json" -H "$AUTH" \
   -d '{"message":"Working on it"}')
 assert "POST /notify (text only) returns 200" "$CODE" "200"
 
@@ -83,7 +91,7 @@ assert "POST /notify (text only) returns 200" "$CODE" "200"
 # method=notify, response_body.result=<message>.
 # Notify writes source_id=NULL → use source=canvas (matches the chat
 # panel's history loader filter). source=agent would correctly hide it.
-ACT=$(curl -s "$BASE/workspaces/$WSID/activity?source=canvas&limit=10")
+ACT=$(curl -s -H "$AUTH" "$BASE/workspaces/$WSID/activity?source=canvas&limit=10")
 ROW=$(echo "$ACT" | python3 -c '
 import json, sys
 rows = json.load(sys.stdin) or []
@@ -104,7 +112,7 @@ fi
 echo ""
 echo "=== Test 2: notify with attachments persists parts[].kind=file ==="
 CODE=$(curl -s -o /tmp/notify2.json -w "%{http_code}" -X POST "$BASE/workspaces/$WSID/notify" \
-  -H "Content-Type: application/json" \
+  -H "Content-Type: application/json" -H "$AUTH" \
   -d '{
     "message": "Done — see attached.",
     "attachments": [
@@ -113,7 +121,7 @@ CODE=$(curl -s -o /tmp/notify2.json -w "%{http_code}" -X POST "$BASE/workspaces/
   }')
 assert "POST /notify (with attachment) returns 200" "$CODE" "200"
 
-ACT=$(curl -s "$BASE/workspaces/$WSID/activity?source=canvas&limit=10")
+ACT=$(curl -s -H "$AUTH" "$BASE/workspaces/$WSID/activity?source=canvas&limit=10")
 ROW=$(echo "$ACT" | python3 -c '
 import json, sys
 rows = json.load(sys.stdin) or []
@@ -145,14 +153,14 @@ echo "=== Test 3: per-element validation rejects empty uri/name ==="
 # without `dive`. activity.go:299 explicitly loops and rejects. Keep in lock-
 # step here so a future refactor that drops the loop fails this test.
 CODE=$(curl -s -o /tmp/notify3.json -w "%{http_code}" -X POST "$BASE/workspaces/$WSID/notify" \
-  -H "Content-Type: application/json" \
+  -H "Content-Type: application/json" -H "$AUTH" \
   -d '{"message":"x","attachments":[{"uri":"","name":""}]}')
 assert "empty uri/name attachment is 400" "$CODE" "400"
 ERR=$(cat /tmp/notify3.json | python3 -c 'import json,sys;print(json.load(sys.stdin).get("error",""))')
 assert_contains "error mentions attachment[0]" "$ERR" "attachment[0]"
 
 CODE=$(curl -s -o /tmp/notify3b.json -w "%{http_code}" -X POST "$BASE/workspaces/$WSID/notify" \
-  -H "Content-Type: application/json" \
+  -H "Content-Type: application/json" -H "$AUTH" \
   -d '{"message":"x","attachments":[{"uri":"workspace:/ok.txt","name":"ok.txt"},{"uri":"","name":"bad"}]}')
 assert "second-element empty uri rejects whole call" "$CODE" "400"
 ERR=$(cat /tmp/notify3b.json | python3 -c 'import json,sys;print(json.load(sys.stdin).get("error",""))')
@@ -161,14 +169,14 @@ assert_contains "error mentions attachment[1]" "$ERR" "attachment[1]"
 echo ""
 echo "=== Test 4: missing message field rejected ==="
 CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/workspaces/$WSID/notify" \
-  -H "Content-Type: application/json" -d '{}')
+  -H "Content-Type: application/json" -H "$AUTH" -d '{}')
 assert "POST /notify with no message returns 400" "$CODE" "400"
 
 echo ""
 echo "=== Test 5: real /chat/uploads → /notify round-trip ==="
 TMPF=$(mktemp -t notify-e2e-XXXX.txt)
 echo "round-trip-marker-$(date +%s)" > "$TMPF"
-UP=$(curl -s -X POST "$BASE/workspaces/$WSID/chat/uploads" -F "files=@$TMPF")
+UP=$(curl -s -X POST "$BASE/workspaces/$WSID/chat/uploads" -H "$AUTH" -F "files=@$TMPF")
 URI=$(echo "$UP" | python3 -c '
 import json,sys
 try:
@@ -185,11 +193,11 @@ if [ -z "$URI" ]; then
   echo "  SKIP — /chat/uploads not available in this env (response: $UP)"
 else
   CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/workspaces/$WSID/notify" \
-    -H "Content-Type: application/json" \
+    -H "Content-Type: application/json" -H "$AUTH" \
     -d "{\"message\":\"see file\",\"attachments\":[{\"uri\":\"$URI\",\"name\":\"$NAME\"}]}")
   assert "uploaded URI round-trips through notify" "$CODE" "200"
 
-  ACT=$(curl -s "$BASE/workspaces/$WSID/activity?source=canvas&limit=10")
+  ACT=$(curl -s -H "$AUTH" "$BASE/workspaces/$WSID/activity?source=canvas&limit=10")
   STORED_URI=$(echo "$ACT" | python3 -c "
 import json, sys
 rows = json.load(sys.stdin) or []
