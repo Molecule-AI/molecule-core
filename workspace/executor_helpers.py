@@ -1,6 +1,8 @@
 """Shared helpers for AgentExecutor implementations.
 
-Used by both CLIAgentExecutor (codex, ollama) and ClaudeSDKExecutor (claude-code).
+Used by adapter executors that live in template repos (claude-code,
+gemini-cli, etc.) post-#87 — this module stays in molecule-runtime
+because the helpers are runtime-agnostic, not adapter-specific.
 Provides:
 - Memory recall/commit (HTTP to platform /memories endpoints)
 - Delegation results consumption (atomic file rename)
