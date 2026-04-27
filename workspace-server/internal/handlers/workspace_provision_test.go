@@ -1111,9 +1111,77 @@ func containsUnsafeString(v interface{}) bool {
 
 // TestProvisionWorkspace_NoInternalErrorsInBroadcast asserts that provisionWorkspace
 // never leaks internal error details in WORKSPACE_PROVISION_FAILED broadcasts.
-// Regression test for issue #1206.
+// Regression test for issue #1206 — drives the global-secrets decrypt-fail
+// branch (the earliest failure path in provisionWorkspace) and asserts the
+// captured broadcast payload contains the safe canned message ONLY, with
+// none of the raw decrypt-error wording leaking through.
+//
+// Why drive the decrypt-fail path specifically:
+//   - It runs BEFORE workspace_secrets, env-mutator, provisioner config build,
+//     and the actual provisioner.Provision call — so the test setup needs
+//     only one mock query (global_secrets) and one UPDATE expectation.
+//   - The decrypted error string returned by crypto.DecryptVersioned for a
+//     bogus encryption_version contains the literal version number; if a
+//     refactor regresses the redaction (e.g. someone passes err.Error()
+//     verbatim into the broadcast payload), this test catches it without
+//     having to stand up the full provisioner stack.
 func TestProvisionWorkspace_NoInternalErrorsInBroadcast(t *testing.T) {
-	t.Skip("TODO: write the test body. The interface blocker (#1814) is fixed — captureBroadcaster now satisfies events.EventEmitter and can be passed to NewWorkspaceHandler. The remaining work is constructing the provisionWorkspace failure path + asserting captured payload doesn't contain unsafeErrorStrings.")
+	mock := setupTestDB(t)
+
+	// Mock global_secrets returns ONE row with encryption_version=99.
+	// crypto.DecryptVersioned errors on unknown version with a string
+	// that includes "version=99" — concrete-but-safe payload to verify
+	// the broadcast only carries the canned message.
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM global_secrets`).
+		WillReturnRows(sqlmock.NewRows([]string{"key", "encrypted_value", "encryption_version"}).
+			AddRow("FAKE_KEY", []byte("any-bytes"), 99))
+	// On decrypt failure provisionWorkspace also marks the workspace as
+	// failed via UPDATE workspaces. Match-anything on the args so the
+	// test isn't coupled to the exact UPDATE column order.
+	mock.ExpectExec(`UPDATE workspaces SET status = 'failed'`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	cap := &captureBroadcaster{}
+	handler := NewWorkspaceHandler(cap, nil, "http://localhost:8080", t.TempDir())
+
+	handler.provisionWorkspace("ws-1206", "/nonexistent/template", nil, models.CreateWorkspacePayload{
+		Name: "ws-1206",
+		Tier: 1,
+	})
+
+	if cap.lastData == nil {
+		t.Fatal("expected RecordAndBroadcast to capture data on decrypt failure; got nothing")
+	}
+	if got := cap.lastData["error"]; got != "failed to decrypt global secret" {
+		t.Errorf("broadcast carried unexpected error message %q — should be the safe canned string", got)
+	}
+	// containsUnsafeString is intentionally NOT used here: its
+	// "secret" / "token" entries match the legitimate redacted
+	// messages (e.g. "failed to decrypt global secret" itself) — those
+	// strings are appropriate in user-facing copy. The actual leak
+	// vector for THIS code path is the raw DecryptVersioned error
+	// string ("version=99", "platform upgrade required"); pin each
+	// of those explicitly so a future regression that interpolates
+	// err.Error() into the payload fails this test.
+	for _, v := range cap.lastData {
+		s, ok := v.(string)
+		if !ok {
+			continue
+		}
+		for _, leakMarker := range []string{
+			"version=99",                // raw DecryptVersioned error head
+			"platform upgrade required", // raw DecryptVersioned error tail
+			"FAKE_KEY",                  // global_secrets row's key column
+		} {
+			if strings.Contains(s, leakMarker) {
+				t.Errorf("broadcast leaked %q in payload value %q", leakMarker, s)
+			}
+		}
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations not met: %v", err)
+	}
 }
 
 // TestProvisionWorkspaceCP_NoInternalErrorsInBroadcast asserts that
