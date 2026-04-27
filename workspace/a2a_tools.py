@@ -5,6 +5,7 @@ Imports shared client functions and constants from a2a_client.
 
 import hashlib
 import json
+import mimetypes
 import os
 import uuid
 
@@ -285,18 +286,100 @@ async def tool_check_task_status(workspace_id: str, task_id: str) -> str:
         return f"Error checking delegations: {e}"
 
 
-async def tool_send_message_to_user(message: str) -> str:
-    """Send a message directly to the user's canvas chat via WebSocket."""
+async def _upload_chat_files(client: httpx.AsyncClient, paths: list[str]) -> tuple[list[dict], str | None]:
+    """Upload local file paths through /workspaces/<self>/chat/uploads.
+
+    The platform stages each upload under /workspace/.molecule/chat-uploads
+    (an "allowed root" the canvas knows how to render via the Download
+    endpoint) and returns metadata the broadcast payload references.
+
+    Why we route through upload instead of just passing the agent's path:
+    the canvas's allowed-root list is /configs, /workspace, /home, /plugins
+    — files at /tmp or /root would be unreachable. Uploading copies the
+    bytes into an allowed root regardless of where the agent wrote them.
+
+    Returns (attachments, error). On any failure the caller should NOT
+    fire the notify — partial-attach would surface a half-rendered chip.
+    """
+    if not paths:
+        return [], None
+    files_payload: list[tuple[str, tuple[str, bytes, str]]] = []
+    for p in paths:
+        if not isinstance(p, str) or not p:
+            return [], f"Error: invalid attachment path {p!r}"
+        if not os.path.isfile(p):
+            return [], f"Error: attachment not found: {p}"
+        try:
+            with open(p, "rb") as fh:
+                data = fh.read()
+        except OSError as e:
+            return [], f"Error reading {p}: {e}"
+        # Sniff mime from filename so the canvas can pick the right
+        # icon / preview / inline-image renderer. Pre-fix this was
+        # hardcoded application/octet-stream and chat_files.go's
+        # Upload trusts whatever Content-Type the multipart part
+        # carries — `mt := fh.Header.Get("Content-Type")` only falls
+        # back to extension-sniffing when the header is empty. So a
+        # hardcoded octet-stream meant every attachment lost its
+        # real type forever, breaking the canvas chip's icon logic.
+        mime_type, _ = mimetypes.guess_type(p)
+        if not mime_type:
+            mime_type = "application/octet-stream"
+        files_payload.append(("files", (os.path.basename(p), data, mime_type)))
+    try:
+        resp = await client.post(
+            f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/chat/uploads",
+            files=files_payload,
+            headers=_auth_headers_for_heartbeat(),
+        )
+    except Exception as e:
+        return [], f"Error uploading attachments: {e}"
+    if resp.status_code != 200:
+        return [], f"Error: chat/uploads returned {resp.status_code}: {resp.text[:200]}"
+    try:
+        body = resp.json()
+    except Exception as e:
+        return [], f"Error parsing upload response: {e}"
+    uploaded = body.get("files") or []
+    if not isinstance(uploaded, list) or len(uploaded) != len(paths):
+        return [], f"Error: upload returned {len(uploaded) if isinstance(uploaded, list) else 'invalid'} entries for {len(paths)} files"
+    return uploaded, None
+
+
+async def tool_send_message_to_user(message: str, attachments: list[str] | None = None) -> str:
+    """Send a message directly to the user's canvas chat via WebSocket.
+
+    Args:
+        message: The text to display in the user's chat. Required even
+            when sending attachments — set to a short caption like
+            "Here's the build output:" or "Done — see attached."
+        attachments: Optional list of absolute file paths inside this
+            container. Each is uploaded to the platform and rendered
+            in the canvas as a clickable download chip. Use this
+            instead of pasting paths in the message text — paths
+            render as plain text and the user can't click them.
+            Examples:
+              attachments=["/tmp/build-output.zip"]
+              attachments=["/workspace/report.pdf", "/workspace/data.csv"]
+    """
     if not message:
         return "Error: message is required"
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            uploaded, upload_err = await _upload_chat_files(client, attachments or [])
+            if upload_err:
+                return upload_err
+            payload: dict = {"message": message}
+            if uploaded:
+                payload["attachments"] = uploaded
             resp = await client.post(
                 f"{PLATFORM_URL}/workspaces/{WORKSPACE_ID}/notify",
-                json={"message": message},
+                json=payload,
                 headers=_auth_headers_for_heartbeat(),
             )
             if resp.status_code == 200:
+                if uploaded:
+                    return f"Message sent to user with {len(uploaded)} attachment(s)"
                 return "Message sent to user"
             return f"Error: platform returned {resp.status_code}"
     except Exception as e:

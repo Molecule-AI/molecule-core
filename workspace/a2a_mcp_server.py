@@ -113,13 +113,18 @@ TOOLS = [
     },
     {
         "name": "send_message_to_user",
-        "description": "Send a message directly to the user's canvas chat — pushed instantly via WebSocket. Use this to: (1) acknowledge a task immediately ('Got it, I'll start working on this'), (2) send interim progress updates while doing long work, (3) deliver follow-up results after delegation completes. The message appears in the user's chat as if you're proactively reaching out.",
+        "description": "Send a message directly to the user's canvas chat — pushed instantly via WebSocket. Use this to: (1) acknowledge a task immediately ('Got it, I'll start working on this'), (2) send interim progress updates while doing long work, (3) deliver follow-up results after delegation completes, (4) attach files (zip, pdf, csv, image) for the user to download. The message appears in the user's chat as if you're proactively reaching out.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "message": {
                     "type": "string",
-                    "description": "The message to send to the user",
+                    "description": "The message to send to the user. Required even when sending attachments — set to a short caption like 'Here's the build:' or 'Done — see attached.'",
+                },
+                "attachments": {
+                    "type": "array",
+                    "description": "Optional list of absolute file paths inside this container to attach. Each renders as a clickable download chip in the user's chat. Use this whenever you'd otherwise paste a path in the message text — paths render as plain text the user can't click. Examples: ['/tmp/build-output.zip'] or ['/workspace/report.pdf', '/workspace/data.csv']. Files are uploaded through the platform's chat-uploads endpoint (25 MB per file cap).",
+                    "items": {"type": "string"},
                 },
             },
             "required": ["message"],
@@ -185,7 +190,17 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
             arguments.get("task_id", ""),
         )
     elif name == "send_message_to_user":
-        return await tool_send_message_to_user(arguments.get("message", ""))
+        raw_attachments = arguments.get("attachments")
+        attachments: list[str] | None = None
+        if isinstance(raw_attachments, list):
+            # Defensive: filter to strings only — claude-code SDK occasionally
+            # emits dicts here when the model misreads the schema. Drop the
+            # bad entries rather than 500 the whole call.
+            attachments = [p for p in raw_attachments if isinstance(p, str) and p]
+        return await tool_send_message_to_user(
+            arguments.get("message", ""),
+            attachments=attachments,
+        )
     elif name == "list_peers":
         return await tool_list_peers()
     elif name == "get_workspace_info":
