@@ -29,6 +29,64 @@ repo) because:
 
 Public API: mark_wedged(reason), clear_wedge(), is_wedged(),
 wedge_reason(). The reset_for_test() helper is for unit tests only.
+
+How to use from a NEW adapter (template repo)
+---------------------------------------------
+
+Hermes, Codex, LangGraph, or any future adapter that wants the same
+"flip-to-degraded-on-fatal-wedge" UX should call mark_wedged + clear_wedge
+from its executor. The runtime imports + heartbeat plumbing are already
+in place — adapters do not change anything in molecule-runtime.
+
+Minimum integration (~6 LOC inside the executor):
+
+    from molecule_runtime.runtime_wedge import mark_wedged, clear_wedge
+
+    async def execute(self, ctx, queue):
+        try:
+            result = await self._run_query(ctx)
+        except SomeFatalSdkError as e:
+            # Pick a short, operator-actionable reason. This becomes the
+            # banner text on the canvas's degraded card — keep it under
+            # ~80 chars and name the recovery action when possible.
+            mark_wedged(f"hermes init timeout — restart workspace ({e})")
+            raise
+        clear_wedge()  # observed-success → next heartbeat reports healthy
+        return result
+
+What you get for free:
+  - Heartbeat payload sets runtime_state="wedged" + sample_error=<reason>
+    on the next 30s tick.
+  - registry.go's evaluateStatus flips the workspace to `degraded` and
+    broadcasts WORKSPACE_DEGRADED so the canvas card turns yellow with
+    your reason as the subtitle.
+  - clear_wedge() on the next successful turn flips the workspace back
+    to `online` automatically — no manual operator action.
+
+What NOT to do:
+  - Don't store wedge state in your adapter module. The platform-side
+    consumer (heartbeat) imports from runtime_wedge by name; an adapter-
+    local copy won't be observed.
+  - Don't call mark_wedged for transient errors (rate limits, single
+    failed network call). The whole point is "the SDK process is in a
+    state that can only be cleared by restart" — false positives
+    train operators to ignore the degraded banner.
+  - Don't write your own clear logic. clear_wedge() is the only path
+    the heartbeat watches; a custom flag won't propagate.
+
+When wedge is the WRONG primitive: if the failure is per-request (the
+SDK works for some inputs but not others), surface as a normal A2A
+error response, not a wedge. Wedge means "every subsequent request in
+this process will fail until restart."
+
+Compatibility shim (will be removed once #87 Phase 2 lands)
+-----------------------------------------------------------
+
+claude_sdk_executor.py re-exports the four functions under the historical
+names (is_wedged, wedge_reason, _mark_sdk_wedged, _clear_sdk_wedge_on_success)
+for one release cycle. New adapter code should import from runtime_wedge
+directly; the shim only exists so existing third-party adapters that
+copied our claude_sdk_executor wedge convention have time to migrate.
 """
 from __future__ import annotations
 
