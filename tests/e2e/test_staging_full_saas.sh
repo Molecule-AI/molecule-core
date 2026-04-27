@@ -72,7 +72,12 @@ CURL_COMMON=(-sS --fail-with-body --max-time 30)
 # ─── cleanup trap ───────────────────────────────────────────────────────
 CLEANUP_DONE=0
 cleanup_org() {
-  [ "$CLEANUP_DONE" = "1" ] && return 0
+  # Capture upstream exit code IMMEDIATELY — must be the first statement
+  # in the trap, before any command (including the CLEANUP_DONE check)
+  # that would clobber $?.
+  local entry_rc=$?
+
+  if [ "$CLEANUP_DONE" = "1" ]; then return 0; fi
   CLEANUP_DONE=1
 
   if [ "${E2E_KEEP_ORG:-0}" = "1" ]; then
@@ -99,6 +104,20 @@ cleanup_org() {
     exit 4
   fi
   ok "Teardown clean — no orphan resources for $SLUG"
+
+  # Normalize unexpected upstream exit codes to 1 (generic failure). The
+  # script's documented contract (header "Exit codes" section) only emits
+  # {0, 1, 2, 3, 4}, but `set -e` propagates the raw exit code of the
+  # failing command — e.g. curl exits 22 on HTTP error under
+  # --fail-with-body. Without this normalization, the
+  # E2E_INTENTIONAL_FAILURE sanity workflow (e2e-staging-sanity.yml)
+  # gets rc=22 from the poisoned-token curl, falls through its
+  # case statement, and opens a false-positive priority-high
+  # "safety net broken" issue (#2159, 2026-04-27).
+  case "$entry_rc" in
+    0|1|2|3|4) ;;          # contracted codes — let bash use entry_rc
+    *) exit 1 ;;            # anything else is a generic failure
+  esac
 }
 trap cleanup_org EXIT INT TERM
 
