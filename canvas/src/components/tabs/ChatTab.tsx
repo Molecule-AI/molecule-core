@@ -10,9 +10,10 @@ import { closeWebSocketGracefully } from "@/lib/ws-close";
 import { type ChatMessage, type ChatAttachment, createMessage, appendMessageDeduped } from "./chat/types";
 import { uploadChatFiles, downloadChatFile } from "./chat/uploads";
 import { AttachmentChip, PendingAttachmentPill } from "./chat/AttachmentViews";
-import { extractResponseText, extractRequestText, extractFilesFromTask } from "./chat/message-parser";
+import { extractFilesFromTask } from "./chat/message-parser";
 import { AgentCommsPanel } from "./chat/AgentCommsPanel";
 import { appendActivityLine } from "./chat/activityLog";
+import { activityRowToMessages, type ActivityRowForHydration } from "./chat/historyHydration";
 import { runtimeDisplayName } from "@/lib/runtime-names";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 
@@ -125,38 +126,17 @@ function extractReplyText(resp: A2AResponse): string {
  */
 async function loadMessagesFromDB(workspaceId: string): Promise<{ messages: ChatMessage[]; error: string | null }> {
   try {
-    const activities = await api.get<Array<{
-      activity_type: string;
-      status: string;
-      created_at: string;
-      request_body: Record<string, unknown> | null;
-      response_body: Record<string, unknown> | null;
-    }>>(`/workspaces/${workspaceId}/activity?type=a2a_receive&source=canvas&limit=50`);
+    const activities = await api.get<ActivityRowForHydration[]>(
+      `/workspaces/${workspaceId}/activity?type=a2a_receive&source=canvas&limit=50`,
+    );
 
     const messages: ChatMessage[] = [];
-    // Activities are newest-first, reverse for chronological order
+    // Activities are newest-first, reverse for chronological order.
+    // Per-row mapping lives in chat/historyHydration.ts so it can be
+    // unit-tested without spinning up the full ChatTab component
+    // (regression cover for the timestamp-collapse bug).
     for (const a of [...activities].reverse()) {
-      // Extract user message from request_body
-      const userText = extractRequestText(a.request_body);
-      if (userText && !isInternalSelfMessage(userText)) {
-        messages.push(createMessage("user", userText));
-      }
-
-      // Extract agent response — text AND any file attachments so a
-      // chat reload surfaces historical download chips, not just plain
-      // text. `result` is nested on successful A2A responses; some
-      // older rows stored the raw `result` payload at the top level,
-      // so fall back to the body itself when `.result` is absent.
-      if (a.response_body) {
-        const text = extractResponseText(a.response_body);
-        const attachments = extractFilesFromTask(
-          (a.response_body.result ?? a.response_body) as Record<string, unknown>,
-        );
-        if (text || attachments.length > 0) {
-          const role = a.status === "error" || text.toLowerCase().startsWith("agent error") ? "system" : "agent";
-          messages.push({ ...createMessage(role, text, attachments), timestamp: a.created_at });
-        }
-      }
+      messages.push(...activityRowToMessages(a, isInternalSelfMessage));
     }
     return { messages, error: null };
   } catch (err) {
