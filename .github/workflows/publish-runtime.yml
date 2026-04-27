@@ -142,7 +142,14 @@ jobs:
           # of \`from molecule_runtime.transcript_auth import ...\` — the
           # 0.1.16 incident), this fails with ModuleNotFoundError instead
           # of shipping to PyPI and breaking every workspace startup.
-          import molecule_runtime.main  # noqa: F401
+          # Import the entry-point target by NAME — not just the module.
+          # The wheel's pyproject.toml declares
+          # `molecule-runtime = molecule_runtime.main:main_sync` so if
+          # main_sync goes missing (it did in 0.1.16-0.1.18), every
+          # workspace startup fails with `ImportError: cannot import name
+          # 'main_sync'`. Plain `import molecule_runtime.main` doesn't
+          # catch that because the module loads fine.
+          from molecule_runtime.main import main_sync  # noqa: F401
           from molecule_runtime import a2a_client, a2a_tools
           from molecule_runtime.builtin_tools import memory
           from molecule_runtime.adapters import get_adapter, BaseAdapter, AdapterConfig
