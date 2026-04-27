@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1298,31 +1299,129 @@ func (m *mockEnvMutator) Run(_ context.Context, _ string, _ map[string]string) e
 
 func (m *mockEnvMutator) Register(_ provisionhook.EnvMutator) {}
 
-// TestResolveAndStage_NoInternalErrorsInHTTPErr asserts that resolveAndStage
-// never puts err.Error() in HTTP error responses. Tests plugin source
-// parsing, resolver failures, and validation errors.
+// TestResolveAndStage_NoInternalErrorsInHTTPErr asserts that
+// resolveAndStage never puts internal error detail (resolver error
+// strings, file-system paths, upstream rate-limit text, auth tokens
+// echoed by a misbehaving upstream) into HTTP error response bodies.
+// Regression guard for #1206.
+//
+// Drives every error path inside resolveAndStage and asserts the
+// returned *httpErr's body carries none of the leak markers planted in
+// the stub's failing-Fetch error. Each path exercises the
+// corresponding `return nil, newHTTPErr(...)` site, so a future
+// regression that interpolates err into any of those bodies fails
+// here.
 func TestResolveAndStage_NoInternalErrorsInHTTPErr(t *testing.T) {
-	t.Skip("TODO: mockPluginsSources type mismatch with PluginsHandler.sources (*plugins.Registry). Needs resolver interface refactor — currently blocking package compile on main (2026-04-21).")
+	t.Setenv("PLUGIN_ALLOW_UNPINNED", "")
+	// Markers planted in the stub's failing-Fetch error. None of these
+	// is something a real plugin name, scheme, or schemes list would
+	// legitimately contain — so any appearance in the response body
+	// means err leaked through.
+	const leakyErrText = "rate limit exceeded x-github-request-id=ABC123 auth_token=ghp_INTERNAL_DETAIL /etc/passwd"
+	leakMarkers := []string{
+		"rate limit",
+		"x-github-request-id",
+		"auth_token",
+		"ghp_INTERNAL_DETAIL",
+		"/etc/passwd",
+	}
+
+	cases := []struct {
+		name       string
+		source     string
+		fetchErr   error // non-nil => path 6 (resolver Fetch failure)
+		wantStatus int
+	}{
+		{"empty source", "", nil, http.StatusBadRequest},
+		{"invalid source format", "not a valid uri", nil, http.StatusBadRequest},
+		{"unknown scheme", "weirdscheme://x", nil, http.StatusBadRequest},
+		{"local path-traversal", "local://../etc/passwd", nil, http.StatusBadRequest},
+		{"unpinned github source", "github://owner/repo", nil, http.StatusUnprocessableEntity},
+		// Path 6: resolver Fetch returns a leaky error. Pre-#1814 fix
+		// the body interpolated `%v` of err — every marker below would
+		// appear in the response. Post-fix the body is just the canned
+		// "failed to fetch plugin from <scheme>".
+		{"fetch failure with leaky error", "github://owner/repo#v1.0", fmt.Errorf("%s", leakyErrText), http.StatusBadGateway},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sources := &mockPluginsSources{schemes: []string{"local", "github"}}
+			if tc.fetchErr != nil {
+				sources.failingResolver = &mockResolver{fetchErr: tc.fetchErr}
+			}
+			h := &PluginsHandler{sources: sources}
+
+			_, err := h.resolveAndStage(context.Background(), installRequest{Source: tc.source})
+			if err == nil {
+				t.Fatalf("expected error for source %q, got nil", tc.source)
+			}
+			httpE, ok := err.(*httpErr)
+			if !ok {
+				t.Fatalf("expected *httpErr for source %q, got %T", tc.source, err)
+			}
+			if httpE.Status != tc.wantStatus {
+				t.Errorf("status: source=%q got %d, want %d", tc.source, httpE.Status, tc.wantStatus)
+			}
+			// Body fields can be string, []string ("available_schemes"),
+			// or other types. Walk each, normalize to a string, and
+			// search for leak markers.
+			for k, v := range httpE.Body {
+				var serialized string
+				switch x := v.(type) {
+				case string:
+					serialized = x
+				case []string:
+					serialized = strings.Join(x, " ")
+				default:
+					continue
+				}
+				for _, mark := range leakMarkers {
+					if strings.Contains(serialized, mark) {
+						t.Errorf("source=%q field=%q leaked %q in value %q",
+							tc.source, k, mark, serialized)
+					}
+				}
+			}
+		})
+	}
 }
 
-// mockPluginsSources implements plugins.SourceResolver for testing.
+// mockPluginsSources is a stub pluginSources for testing — it satisfies
+// the interface (Register/Resolve/Schemes) but stores nothing of its
+// own except the scheme list to surface in error responses + an
+// optional failingResolver to drive the Fetch-failure path.
 type mockPluginsSources struct {
-	schemes []string
+	schemes         []string
+	failingResolver *mockResolver
 }
+
+// Register is a no-op — tests don't need to record registrations.
+func (m *mockPluginsSources) Register(_ plugins.SourceResolver) {}
 
 func (m *mockPluginsSources) Schemes() []string { return m.schemes }
 
 func (m *mockPluginsSources) Resolve(source plugins.Source) (plugins.SourceResolver, error) {
 	if source.Scheme == "github" {
+		if m.failingResolver != nil {
+			return m.failingResolver, nil
+		}
 		return &mockResolver{}, nil
 	}
 	return nil, fmt.Errorf("unsupported scheme %q", source.Scheme)
 }
 
-type mockResolver struct{}
+// mockResolver is a configurable plugins.SourceResolver: Fetch returns
+// (fetchName, fetchErr) verbatim. Default zero-value fetchErr=nil and
+// fetchName="" lets tests exercise the empty-name validation path; a
+// non-nil fetchErr exercises the Fetch-failure leak-redaction path.
+type mockResolver struct {
+	fetchName string
+	fetchErr  error
+}
 
 func (*mockResolver) Scheme() string { return "" }
 
-func (*mockResolver) Fetch(ctx context.Context, spec, destDir string) (string, error) {
-	return "", nil
+func (m *mockResolver) Fetch(_ context.Context, _, _ string) (string, error) {
+	return m.fetchName, m.fetchErr
 }
