@@ -135,6 +135,14 @@ jobs:
           WORKSPACE_ID=00000000-0000-0000-0000-000000000000 \
           PLATFORM_URL=http://localhost:8080 \
             /tmp/smoke/bin/python -c "
+          # Importing main is the strongest smoke test we can do here:
+          # main.py is the entry point and pulls every other module
+          # transitively. If the build script missed an import rewrite
+          # (e.g. left a bare \`from transcript_auth import ...\` instead
+          # of \`from molecule_runtime.transcript_auth import ...\` — the
+          # 0.1.16 incident), this fails with ModuleNotFoundError instead
+          # of shipping to PyPI and breaking every workspace startup.
+          import molecule_runtime.main  # noqa: F401
           from molecule_runtime import a2a_client, a2a_tools
           from molecule_runtime.builtin_tools import memory
           from molecule_runtime.adapters import get_adapter, BaseAdapter, AdapterConfig
