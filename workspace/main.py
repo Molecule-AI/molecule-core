@@ -323,6 +323,7 @@ async def main():  # pragma: no cover
                 config_path=config_path,
                 skill_names=config.skills,
                 on_reload=_on_skill_reload,
+                current_runtime=runtime,
             )
             asyncio.create_task(skills_watcher.start())
             print(f"Skills hot-reload enabled for: {config.skills}")

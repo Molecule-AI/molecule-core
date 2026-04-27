@@ -437,15 +437,19 @@ class BaseAdapter(ABC):
         if plugins.plugin_names:
             logger.info(f"Plugins: {', '.join(plugins.plugin_names)}")
 
-        # Load skills (workspace + plugin skills, deduped)
-        loaded_skills = load_skills(config.config_path, config.tools)
+        # Load skills (workspace + plugin skills, deduped). Pass the runtime
+        # name so SKILL.md frontmatter `runtime: [...]` can opt skills out
+        # of incompatible adapters (hermes won't load claude-code-only
+        # skills, etc.).
+        runtime_name = type(self).name()
+        loaded_skills = load_skills(config.config_path, config.tools, current_runtime=runtime_name)
         seen_skill_ids = {s.metadata.id for s in loaded_skills}
         for plugin_skills_dir in plugins.skill_dirs:
             plugin_skill_names = [
                 d for d in os.listdir(plugin_skills_dir)
                 if os.path.isdir(os.path.join(plugin_skills_dir, d))
             ]
-            for skill in load_skills(plugin_skills_dir, plugin_skill_names):
+            for skill in load_skills(plugin_skills_dir, plugin_skill_names, current_runtime=runtime_name):
                 if skill.metadata.id not in seen_skill_ids:
                     loaded_skills.append(skill)
                     seen_skill_ids.add(skill.metadata.id)
