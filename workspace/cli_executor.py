@@ -5,10 +5,11 @@ Supports CLI agents that accept a prompt and output a response:
 - Ollama: ollama run <model> "..."
 - Custom: any command that reads stdin or accepts -p
 
-NOTE: the `claude-code` runtime no longer routes here. It uses
-ClaudeSDKExecutor (see claude_sdk_executor.py) which wraps the
-claude-agent-sdk Python package. This executor is reserved for CLI-only
-runtimes that don't yet have a programmatic SDK integration.
+NOTE: the `claude-code` runtime no longer routes here — its template
+repo (molecule-ai-workspace-template-claude-code) ships its own
+ClaudeSDKExecutor wrapping the claude-agent-sdk Python package as of
+#87 Phase 2. This executor is reserved for CLI-only runtimes that
+don't yet have a programmatic SDK integration.
 
 The runtime is selected via config.yaml:
   runtime: codex | ollama | custom
@@ -59,8 +60,8 @@ logger = logging.getLogger(__name__)
 
 
 # Built-in runtime presets.
-# The `claude-code` runtime uses ClaudeSDKExecutor (claude_sdk_executor.py)
-# and intentionally has no entry here.
+# The `claude-code` runtime uses ClaudeSDKExecutor in its own template
+# repo (post-#87 Phase 2) and intentionally has no entry here.
 RUNTIME_PRESETS: dict[str, dict] = {
     "codex": {
         "command": "codex",
@@ -117,9 +118,12 @@ class CLIAgentExecutor(AgentExecutor):
         if runtime == "claude-code":
             # Defensive — the adapter should never construct a CLI executor
             # for claude-code. Fail loud rather than silently falling back.
+            # The claude-code template owns its own ClaudeSDKExecutor in
+            # molecule-ai-workspace-template-claude-code (post-#87 Phase 2).
             raise ValueError(
-                "claude-code runtime is served by ClaudeSDKExecutor, not "
-                "CLIAgentExecutor. Check adapters/claude_code/adapter.py."
+                "claude-code runtime is served by ClaudeSDKExecutor in its "
+                "template repo, not CLIAgentExecutor. If you're seeing this "
+                "in molecule-runtime, the adapter wiring is wrong."
             )
         self.runtime = runtime
         self.config = runtime_config

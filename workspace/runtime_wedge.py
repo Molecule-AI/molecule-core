@@ -85,15 +85,6 @@ When wedge is the WRONG primitive: if the failure is per-request (the
 SDK works for some inputs but not others), surface as a normal A2A
 error response, not a wedge. Wedge means "every subsequent request in
 this process will fail until restart."
-
-Compatibility shim (will be removed once #87 Phase 2 lands)
------------------------------------------------------------
-
-claude_sdk_executor.py re-exports the four functions under the historical
-names (is_wedged, wedge_reason, _mark_sdk_wedged, _clear_sdk_wedge_on_success)
-for one release cycle. New adapter code should import from runtime_wedge
-directly; the shim only exists so existing third-party adapters that
-copied our claude_sdk_executor wedge convention have time to migrate.
 """
 from __future__ import annotations
 
