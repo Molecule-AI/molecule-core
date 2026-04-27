@@ -10,6 +10,12 @@ name: publish-runtime
 #     the tag — `runtime-v0.1.6` publishes `0.1.6`).
 #   - Manual workflow_dispatch with an explicit `version` input (useful for
 #     dev/test releases without tagging the repo).
+#   - Auto: any push to `staging` that touches `workspace/**`. The version
+#     is derived by querying PyPI for the current latest and bumping the
+#     patch component. This closes the human-in-loop gap that caused the
+#     2026-04-27 RuntimeCapabilities ImportError outage — adapter symbol
+#     additions in workspace/adapters/base.py used to require an operator
+#     to remember to publish; now the merge itself triggers the publish.
 #
 # The workflow:
 #   1. Runs scripts/build_runtime_package.py to copy workspace/ →
@@ -32,6 +38,12 @@ on:
   push:
     tags:
       - "runtime-v*"
+    branches:
+      - staging
+    paths:
+      # Auto-publish when staging gets workspace/ changes. Path filter
+      # ONLY applies to branch pushes — tag pushes still fire regardless.
+      - "workspace/**"
   workflow_dispatch:
     inputs:
       version:
@@ -42,6 +54,12 @@ on:
 permissions:
   contents: read
 
+# Serialize publishes so two staging merges landing seconds apart don't
+# both compute "latest+1" and race on PyPI upload. The second one waits.
+concurrency:
+  group: publish-runtime
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -49,6 +67,8 @@ jobs:
     permissions:
       contents: read
       id-token: write   # PyPI Trusted Publisher (OIDC) — no PYPI_TOKEN needed
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -57,14 +77,27 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Derive version from tag or input
+      - name: Derive version (tag, manual input, or PyPI auto-bump)
         id: version
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ inputs.version }}"
-          else
+          elif echo "$GITHUB_REF_NAME" | grep -q "^runtime-v"; then
             # Tag is `runtime-vX.Y.Z` — strip the prefix.
             VERSION="${GITHUB_REF_NAME#runtime-v}"
+          else
+            # Auto-publish from staging push. Query PyPI for the current
+            # latest and bump the patch component. concurrency: group above
+            # serializes parallel staging merges so we don't race on the
+            # bump. If PyPI is unreachable, fail loud — better to skip a
+            # publish than to overwrite an existing version.
+            LATEST=$(curl -fsS --retry 3 https://pypi.org/pypi/molecule-ai-workspace-runtime/json \
+              | python -c "import sys,json; print(json.load(sys.stdin)['info']['version'])")
+            MAJOR=$(echo "$LATEST" | cut -d. -f1)
+            MINOR=$(echo "$LATEST" | cut -d. -f2)
+            PATCH=$(echo "$LATEST" | cut -d. -f3)
+            VERSION="${MAJOR}.${MINOR}.$((PATCH+1))"
+            echo "Auto-bumped from PyPI latest $LATEST -> $VERSION"
           fi
           if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(\.dev[0-9]+|rc[0-9]+|a[0-9]+|b[0-9]+|\.post[0-9]+)?$'; then
             echo "::error::version $VERSION does not match PEP 440"
@@ -142,18 +175,21 @@ jobs:
           # GITHUB_TOKEN can't fire dispatches across repos — needs an explicit
           # token. Stored as a repo secret; rotate per the standard schedule.
           DISPATCH_TOKEN: ${{ secrets.TEMPLATE_DISPATCH_TOKEN }}
-          RUNTIME_VERSION: ${{ needs.publish.outputs.version || steps.version.outputs.version }}
+          # Single source of truth: the publish job's output, which handles
+          # tag/manual-input/auto-bump uniformly. The previous fallback
+          # (`steps.version.outputs.version` from inside the cascade job)
+          # was a dead reference — different job, no shared step scope.
+          RUNTIME_VERSION: ${{ needs.publish.outputs.version }}
         run: |
           set +e   # don't abort on a single repo failure — collect them all
           if [ -z "$DISPATCH_TOKEN" ]; then
             echo "::warning::TEMPLATE_DISPATCH_TOKEN secret not set — skipping cascade. PyPI was published; templates will pick up the new version on their own next rebuild."
             exit 0
           fi
-          # Re-derive version from the tag here too (in case publish job
-          # didn't expose an output the previous step's reference reads).
-          VERSION="${GITHUB_REF_NAME#runtime-v}"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ inputs.version }}"
+          VERSION="$RUNTIME_VERSION"
+          if [ -z "$VERSION" ]; then
+            echo "::error::publish job did not expose a version output — cascade cannot fan out"
+            exit 1
           fi
           TEMPLATES="claude-code langgraph crewai autogen deepagents hermes gemini-cli openclaw"
           FAILED=""
