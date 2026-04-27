@@ -87,71 +87,26 @@ _RETRYABLE_PATTERNS = (
     "try again",
 )
 
-# Module-level SDK-wedge flag. When claude_agent_sdk's `query.initialize()`
-# raises `Control request timeout: initialize`, the SDK's internal client-
-# process state is corrupted for the rest of the Python process — every
-# subsequent `_run_query()` call hits the same wedge and re-throws. The
-# executor itself can't auto-recover (the underlying CLI subprocess and
-# its read pipe are in an unrecoverable state); only a workspace restart
-# clears it.
+# SDK-wedge state lives in the runtime-side module (runtime_wedge) so
+# heartbeat.py and any future cross-cutting consumer can read it without
+# importing this adapter-specific executor. Decoupling was the prerequisite
+# for moving claude_sdk_executor out of molecule-runtime into the
+# claude-code template repo (task #87 — universal-runtime refactor).
 #
-# The heartbeat task reads these helpers and reports
-# `runtime_state="wedged"` to the platform, which flips the workspace to
-# `degraded` so the canvas surfaces a Restart hint instead of leaving
-# the user staring at a green dot while every chat hangs.
-#
-# Module scope (not instance scope) is deliberate: the wedge is a
-# property of the Python process, not the executor. A future per-org
-# multi-executor design could move this to a shared registry, but with
-# one executor per workspace process today the simplest lock-free
-# read+write fits.
-_sdk_wedged_reason: str | None = None
-
-
-def is_wedged() -> bool:
-    """True if the Claude SDK has hit a non-recoverable init wedge in
-    this process. Sticky until process restart."""
-    return _sdk_wedged_reason is not None
-
-
-def wedge_reason() -> str:
-    """Human-readable description of the wedge cause, or empty string
-    when not wedged. Surfaced to the canvas via heartbeat sample_error."""
-    return _sdk_wedged_reason or ""
-
-
-def _mark_sdk_wedged(reason: str) -> None:
-    """Internal — flag the SDK as wedged. Only the first call wins
-    (subsequent identical wedges shouldn't overwrite a more specific
-    reason). Tests use `_reset_sdk_wedge_for_test()` to clear."""
-    global _sdk_wedged_reason
-    if _sdk_wedged_reason is None:
-        _sdk_wedged_reason = reason
-        logger.error("SDK wedge detected: %s — workspace will report degraded until a successful query clears it", reason)
-
-
-def _clear_sdk_wedge_on_success() -> None:
-    """Auto-recovery — called from _run_query after a successful
-    completion. The original wedge could be transient (a single network
-    blip during the SDK's first-message handshake), and a sticky-only
-    flag would lock the workspace into degraded forever even after the
-    SDK started working again. Clearing on observed success means the
-    next heartbeat after a working query reports `runtime_state` empty
-    and the platform flips status back to online.
-
-    No-op when not wedged (the common case)."""
-    global _sdk_wedged_reason
-    if _sdk_wedged_reason is not None:
-        logger.info("SDK wedge cleared after successful query — workspace will recover to online on next heartbeat")
-        _sdk_wedged_reason = None
-
-
-def _reset_sdk_wedge_for_test() -> None:
-    """Test-only escape hatch. Production code clears the wedge via
-    `_clear_sdk_wedge_on_success` when a query succeeds; this helper
-    is for unit tests that need to reset between cases."""
-    global _sdk_wedged_reason
-    _sdk_wedged_reason = None
+# Local re-exports keep the in-file call sites (_run_query etc.) terse
+# and preserve the historical names so the behavior is identical to
+# the pre-extraction version. is_wedged/wedge_reason are also re-exported
+# so any external consumer that imported them from this module keeps
+# working — heartbeat.py has been updated to import from runtime_wedge
+# directly, but a third-party adapter copying our wedge convention may
+# still expect them here.
+from runtime_wedge import (  # noqa: E402
+    clear_wedge as _clear_sdk_wedge_on_success,
+    is_wedged,
+    mark_wedged as _mark_sdk_wedged,
+    reset_for_test as _reset_sdk_wedge_for_test,
+    wedge_reason,
+)
 
 
 # Per-tool-use summarizers. Reads the most-useful argument from each

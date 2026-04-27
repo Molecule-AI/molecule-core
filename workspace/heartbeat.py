@@ -22,16 +22,25 @@ from platform_auth import auth_headers, refresh_cache, self_source_headers
 
 def _runtime_state_payload() -> dict:
     """Build the {runtime_state, sample_error} portion of the heartbeat
-    body when the Claude SDK has hit a wedge. Returns an empty dict
-    when the runtime is healthy so the heartbeat payload doesn't grow
-    fields the platform doesn't need.
+    body when SOME adapter executor has marked itself wedged. Returns
+    an empty dict when the runtime is healthy so the heartbeat payload
+    doesn't grow fields the platform doesn't need.
 
-    Imported lazily so workspaces running non-Claude runtimes (where
-    `claude_sdk_executor` may not be importable at all) keep working —
-    a missing import means "no Claude wedge possible here, healthy."
+    Source of truth is runtime_wedge (lives in molecule-runtime,
+    independent of any specific adapter). Pre task #87 this imported
+    from claude_sdk_executor — that worked because the executor was
+    bundled into molecule-runtime, but blocked moving it to the
+    claude-code template repo. The runtime_wedge module is now the
+    cross-cutting wedge-state holder; adapters mark/clear via it,
+    heartbeat reads it.
+
+    Imported lazily so a workspace whose runtime image somehow ships
+    without runtime_wedge (corrupt install, mid-rolling-deploy state)
+    keeps heartbeating — a missing import means "no wedge info; assume
+    healthy."
     """
     try:
-        from claude_sdk_executor import is_wedged, wedge_reason
+        from runtime_wedge import is_wedged, wedge_reason
     except Exception:
         return {}
     if not is_wedged():
