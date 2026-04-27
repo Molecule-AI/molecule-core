@@ -100,6 +100,17 @@ from runtime_wedge import (  # noqa: E402
     wedge_reason,
 )
 
+# Names below are re-exported (not consumed inside this file) for
+# backwards compatibility with third-party adapters that imported them
+# from claude_sdk_executor before the wedge state moved to runtime_wedge.
+# Listing them in __all__ marks the intent explicitly and stops static
+# analysis from flagging the imports as unused.
+__all__ = [
+    "is_wedged",
+    "wedge_reason",
+    "_reset_sdk_wedge_for_test",
+]
+
 
 # Per-tool-use summarizers. Reads the most-useful argument from each
 # tool's input dict so the canvas progress feed shows
