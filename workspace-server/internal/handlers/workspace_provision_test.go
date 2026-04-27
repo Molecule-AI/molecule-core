@@ -1184,11 +1184,107 @@ func TestProvisionWorkspace_NoInternalErrorsInBroadcast(t *testing.T) {
 	}
 }
 
+// stubFailingCPProv implements provisioner.CPProvisionerAPI. Start
+// always returns the canned-leaky error fed in by the test. Stop +
+// GetConsoleOutput aren't reached on the provisionWorkspaceCP failure
+// path so they panic on call — surfaces an unexpected production-code
+// reach into them as a test failure rather than a silent passthrough.
+type stubFailingCPProv struct {
+	startErr error
+}
+
+func (s *stubFailingCPProv) Start(_ context.Context, _ provisioner.WorkspaceConfig) (string, error) {
+	return "", s.startErr
+}
+
+func (s *stubFailingCPProv) Stop(_ context.Context, _ string) error {
+	panic("stubFailingCPProv.Stop not expected on the provisionWorkspaceCP failure path")
+}
+
+func (s *stubFailingCPProv) GetConsoleOutput(_ context.Context, _ string) (string, error) {
+	panic("stubFailingCPProv.GetConsoleOutput not expected on the provisionWorkspaceCP failure path")
+}
+
 // TestProvisionWorkspaceCP_NoInternalErrorsInBroadcast asserts that
-// provisionWorkspaceCP never leaks err.Error() in WORKSPACE_PROVISION_FAILED
-// broadcasts. Regression test for issue #1206.
+// provisionWorkspaceCP never leaks err.Error() in
+// WORKSPACE_PROVISION_FAILED broadcasts. Regression test for #1206.
+//
+// Drives the cpProv.Start failure path — the only path inside
+// provisionWorkspaceCP that emits a broadcast. The stubbed Start
+// returns an error string stuffed with concrete leak markers (machine
+// type, AMI ID, VPC subnet, raw HTTP body fragment) — the kind of
+// content the real CP provisioner has historically returned when
+// AWS/CP misbehaves. A regression that interpolates err.Error() into
+// the broadcast payload would surface every marker; the canned
+// "provisioning failed" message must surface none of them.
 func TestProvisionWorkspaceCP_NoInternalErrorsInBroadcast(t *testing.T) {
-	t.Skip("TODO: write the test body. Same status as TestProvisionWorkspace_NoInternalErrorsInBroadcast — interface blocker fixed (#1814), need to construct the provisionWorkspaceCP failure path + assert payload sanitization.")
+	mock := setupTestDB(t)
+
+	// loadWorkspaceSecrets queries global_secrets and workspace_secrets
+	// in order. Empty result rows for both = no secrets to decrypt =
+	// the function returns ({}, "") = the decrypt-error early-return
+	// branch is bypassed so we reach cpProv.Start.
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM global_secrets`).
+		WillReturnRows(sqlmock.NewRows([]string{"key", "encrypted_value", "encryption_version"}))
+	mock.ExpectQuery(`SELECT key, encrypted_value, encryption_version FROM workspace_secrets`).
+		WithArgs("ws-cp-1206").
+		WillReturnRows(sqlmock.NewRows([]string{"key", "encrypted_value", "encryption_version"}))
+	// On cpProv.Start failure, provisionWorkspaceCP also marks the
+	// workspace failed. Match-anything on args so the test isn't
+	// coupled to the exact UPDATE column order.
+	mock.ExpectExec(`UPDATE workspaces SET status = 'failed'`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	cap := &captureBroadcaster{}
+	// Synthetic leaky error — every fragment is the kind of detail
+	// past CP errors have actually surfaced. If a regression makes
+	// the broadcast carry err.Error() verbatim, every marker below
+	// will appear in the captured payload and the assert loop catches
+	// it. (Same redaction-pin pattern as the sibling
+	// TestProvisionWorkspace_NoInternalErrorsInBroadcast — see the
+	// comment there for why we don't use containsUnsafeString.)
+	leakyErr := fmt.Errorf(
+		"CP API rejected provision: machine_type=t3.large ami=ami-0abcd1234efgh5678 " +
+			"vpc=vpc-deadbeef subnet=subnet-cafef00d body=\"{\\\"error\\\":\\\"InvalidSubnet.Conflict\\\"}\"",
+	)
+
+	handler := NewWorkspaceHandler(cap, nil, "http://localhost:8080", t.TempDir())
+	handler.SetCPProvisioner(&stubFailingCPProv{startErr: leakyErr})
+
+	handler.provisionWorkspaceCP("ws-cp-1206", "/nonexistent/template", nil, models.CreateWorkspacePayload{
+		Name:    "ws-cp-1206",
+		Tier:    1,
+		Runtime: "claude-code",
+	})
+
+	if cap.lastData == nil {
+		t.Fatal("expected RecordAndBroadcast to capture data on cpProv.Start failure; got nothing")
+	}
+	if got := cap.lastData["error"]; got != "provisioning failed" {
+		t.Errorf("broadcast carried unexpected error message %q — should be the safe canned string", got)
+	}
+	for _, v := range cap.lastData {
+		s, ok := v.(string)
+		if !ok {
+			continue
+		}
+		for _, leakMarker := range []string{
+			"t3.large",                // machine type
+			"ami-0abcd1234efgh5678",   // AMI id
+			"vpc-deadbeef",            // VPC id
+			"subnet-cafef00d",         // subnet id
+			"InvalidSubnet.Conflict",  // raw upstream HTTP body
+			"CP API rejected",         // raw error string head
+		} {
+			if strings.Contains(s, leakMarker) {
+				t.Errorf("broadcast leaked %q in payload value %q", leakMarker, s)
+			}
+		}
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations not met: %v", err)
+	}
 }
 
 // mockEnvMutator is a provisionhook.Registry stub that always returns a fixed error.
