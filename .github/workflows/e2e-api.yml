@@ -97,6 +97,8 @@ jobs:
           echo "Migrations OK"
       - name: Run E2E API tests
         run: bash tests/e2e/test_api.sh
+      - name: Run notify-with-attachments E2E
+        run: bash tests/e2e/test_notify_attachments_e2e.sh
       - name: Dump platform log on failure
         if: failure()
         run: cat workspace-server/platform.log || true
