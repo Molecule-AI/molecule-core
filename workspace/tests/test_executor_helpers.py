@@ -1,5 +1,7 @@
-"""Tests for executor_helpers.py — the shared helpers that back both
-CLIAgentExecutor (codex, ollama) and ClaudeSDKExecutor (claude-code).
+"""Tests for executor_helpers.py — the shared helpers that back the
+adapter executors. Post-#87 the executors live in template repos
+(claude-code, gemini-cli, etc.); this module stays in molecule-runtime
+because the helpers are runtime-agnostic.
 
 Covers 100% of the public surface:
 - get_mcp_server_path

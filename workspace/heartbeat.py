@@ -95,7 +95,9 @@ HEARTBEAT_INTERVAL = 30  # seconds
 MAX_CONSECUTIVE_FAILURES = 10
 MAX_SEEN_DELEGATION_IDS = 200
 SELF_MESSAGE_COOLDOWN = 60  # seconds — minimum between self-messages to prevent loops
-# Shared path — also used by cli_executor._read_delegation_results()
+# Shared path — adapter executors (in their template repos) read this
+# same file via executor_helpers.read_delegation_results so heartbeat-
+# delivered async delegation results land in the next agent turn.
 DELEGATION_RESULTS_FILE = os.environ.get("DELEGATION_RESULTS_FILE", "/tmp/delegation_results.jsonl")
 
 
