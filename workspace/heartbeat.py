@@ -43,6 +43,43 @@ def _runtime_state_payload() -> dict:
         "sample_error": wedge_reason(),
     }
 
+
+def _runtime_metadata_payload() -> dict:
+    """Build the {runtime_metadata} portion of the heartbeat body —
+    adapter-declared capabilities + per-capability override values
+    (idle timeout, etc.). The platform reads this to route capabilities
+    to the right owner: native (adapter) vs fallback (platform).
+
+    Returns an empty dict if the adapter can't be loaded or introspected.
+    Heartbeat must NEVER fail because of capability discovery — observability
+    is more important than capability accuracy. The platform falls through
+    to its own defaults when fields are missing.
+
+    See project memory `project_runtime_native_pluggable.md` and
+    workspace/adapter_base.py:RuntimeCapabilities.
+    """
+    try:
+        from adapters import get_adapter
+        # ADAPTER_MODULE wins over the runtime arg in get_adapter — pass
+        # an empty string to force the env-var path.
+        adapter_cls = get_adapter("")
+        adapter = adapter_cls()
+        caps = adapter.capabilities()
+        meta: dict = {"capabilities": caps.to_dict()}
+        idle = adapter.idle_timeout_override()
+        # Only include the override when it's a positive integer. None /
+        # zero / negative falls through to the platform's global default
+        # (env A2A_IDLE_TIMEOUT_SECONDS, default 5min) — that "absent
+        # field = use default" contract is what keeps the wire small.
+        if isinstance(idle, int) and idle > 0:
+            meta["idle_timeout_seconds"] = idle
+        return {"runtime_metadata": meta}
+    except Exception as e:
+        # debug-level: missing ADAPTER_MODULE in dev / test envs is normal
+        logger.debug("runtime_metadata: failed to read adapter caps: %s", e)
+        return {}
+
+
 logger = logging.getLogger(__name__)
 
 HEARTBEAT_INTERVAL = 30  # seconds
@@ -123,6 +160,7 @@ class HeartbeatLoop:
                         # sample_error field. The platform reads
                         # runtime_state to flip status → degraded.
                         body.update(_runtime_state_payload())
+                        body.update(_runtime_metadata_payload())
                         await client.post(
                             f"{self.platform_url}/registry/heartbeat",
                             json=body,

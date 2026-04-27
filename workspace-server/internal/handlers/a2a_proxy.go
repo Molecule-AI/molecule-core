@@ -588,7 +588,18 @@ func (h *WorkspaceHandler) dispatchA2A(ctx context.Context, workspaceID, agentUR
 	if concrete, ok := h.broadcaster.(*events.Broadcaster); ok {
 		b = concrete
 	}
-	forwardCtx, idleCancel := applyIdleTimeout(forwardCtx, b, workspaceID, idleTimeoutDuration)
+	// Per-workspace idle-timeout override (capability primitive #2 —
+	// see workspace/adapter_base.py:idle_timeout_override). The
+	// adapter declares a longer/shorter window than the platform
+	// default in its heartbeat; the heartbeat handler stashes it in
+	// runtimeOverrides; we honor it here. Falls through to the global
+	// default (env A2A_IDLE_TIMEOUT_SECONDS, default 5min) when no
+	// override is registered for this workspace.
+	idle := idleTimeoutDuration
+	if perWorkspace, ok := runtimeOverrides.IdleTimeout(workspaceID); ok {
+		idle = perWorkspace
+	}
+	forwardCtx, idleCancel := applyIdleTimeout(forwardCtx, b, workspaceID, idle)
 	cancel := func() {
 		idleCancel()
 		if ceilingCancel != nil {
