@@ -35,7 +35,13 @@ type WorkspaceHandler struct {
 	// internal/events/broadcaster.go.
 	broadcaster events.EventEmitter
 	provisioner *provisioner.Provisioner
-	cpProv      *provisioner.CPProvisioner
+	// cpProv narrowed from `*provisioner.CPProvisioner` to the
+	// provisioner.CPProvisionerAPI interface (#1814) so tests can
+	// substitute a stub without standing up the real CP HTTP client +
+	// auth chain. Production callers still pass *CPProvisioner via
+	// SetCPProvisioner, which satisfies the interface — see the
+	// compile-time assertion in internal/provisioner/cp_provisioner.go.
+	cpProv      provisioner.CPProvisionerAPI
 	platformURL string
 	configsDir  string // path to workspace-configs-templates/ (for reading templates)
 	// envMutators runs registered EnvMutator plugins right before
@@ -64,7 +70,10 @@ func NewWorkspaceHandler(b events.EventEmitter, p *provisioner.Provisioner, plat
 
 // SetCPProvisioner wires the control plane provisioner for SaaS tenants.
 // Auto-activated when MOLECULE_ORG_ID is set (no manual config needed).
-func (h *WorkspaceHandler) SetCPProvisioner(cp *provisioner.CPProvisioner) {
+//
+// Parameter is the CPProvisionerAPI interface (#1814) — production passes
+// the *CPProvisioner from NewCPProvisioner; tests pass a stub.
+func (h *WorkspaceHandler) SetCPProvisioner(cp provisioner.CPProvisionerAPI) {
 	h.cpProv = cp
 }
 
