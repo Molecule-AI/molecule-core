@@ -520,7 +520,18 @@ func (h *RegistryHandler) evaluateStatus(c *gin.Context, payload models.Heartbea
 		})
 	}
 
-	if currentStatus == "online" && payload.ErrorRate >= 0.5 {
+	// Skip the inferred-status branches when the adapter has declared
+	// native_status_mgmt — its SDK reports its own ready/degraded/failed
+	// state explicitly (typically via runtime_state above), and inferring
+	// status from error_rate would fight that. Capability primitive #4
+	// (task #117) — see project memory `project_runtime_native_pluggable.md`.
+	//
+	// The wedged-branch above (RuntimeState == "wedged") is NOT skipped:
+	// it's the adapter's own self-report, not an inference. Adapters with
+	// native_status_mgmt can keep using runtime_state to drive transitions.
+	nativeStatus := runtimeOverrides.HasCapability(payload.WorkspaceID, "status_mgmt")
+
+	if !nativeStatus && currentStatus == "online" && payload.ErrorRate >= 0.5 {
 		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'degraded', updated_at = now() WHERE id = $1`, payload.WorkspaceID); err != nil {
 			log.Printf("Heartbeat: failed to mark %s degraded: %v", payload.WorkspaceID, err)
 		}
@@ -536,7 +547,10 @@ func (h *RegistryHandler) evaluateStatus(c *gin.Context, payload models.Heartbea
 	// (claude_sdk_executor only clears it on restart), so when the
 	// container restarts and starts heartbeating fresh — RuntimeState
 	// is empty, error_rate is 0 — this branch flips us back to online.
-	if currentStatus == "degraded" && payload.ErrorRate < 0.1 && payload.RuntimeState == "" {
+	//
+	// Skipped under native_status_mgmt for the same reason as the
+	// degrade branch above: the adapter owns the transition.
+	if !nativeStatus && currentStatus == "degraded" && payload.ErrorRate < 0.1 && payload.RuntimeState == "" {
 		if _, err := db.DB.ExecContext(ctx, `UPDATE workspaces SET status = 'online', updated_at = now() WHERE id = $1`, payload.WorkspaceID); err != nil {
 			log.Printf("Heartbeat: failed to recover %s to online: %v", payload.WorkspaceID, err)
 		}
