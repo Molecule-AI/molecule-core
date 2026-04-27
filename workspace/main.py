@@ -613,5 +613,18 @@ async def main():  # pragma: no cover
         await temporal_wrapper.stop()
 
 
-if __name__ == "__main__":  # pragma: no cover
+def main_sync():  # pragma: no cover
+    """Synchronous entry point for the `molecule-runtime` console script.
+
+    Declared in scripts/build_runtime_package.py as the wheel's entry-point
+    target (`molecule-runtime = "molecule_runtime.main:main_sync"`). Removed
+    silently during the pre-monorepo consolidation, which broke every
+    workspace startup against 0.1.16/0.1.17/0.1.18 with `ImportError:
+    cannot import name 'main_sync'`. The .github/workflows/runtime-pin-compat.yml
+    smoke step is the regression gate.
+    """
     asyncio.run(main())
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main_sync()
