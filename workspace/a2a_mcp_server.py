@@ -113,17 +113,44 @@ TOOLS = [
     },
     {
         "name": "send_message_to_user",
-        "description": "Send a message directly to the user's canvas chat — pushed instantly via WebSocket. Use this to: (1) acknowledge a task immediately ('Got it, I'll start working on this'), (2) send interim progress updates while doing long work, (3) deliver follow-up results after delegation completes, (4) attach files (zip, pdf, csv, image) for the user to download. The message appears in the user's chat as if you're proactively reaching out.",
+        "description": "Send a message directly to the user's canvas chat — pushed instantly via WebSocket. Use this to: (1) acknowledge a task immediately ('Got it, I'll start working on this'), (2) send interim progress updates while doing long work, (3) deliver follow-up results after delegation completes, (4) attach files (zip, pdf, csv, image) for the user to download via the `attachments` field (NEVER paste file URLs in `message`). The message appears in the user's chat as if you're proactively reaching out.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "message": {
                     "type": "string",
-                    "description": "The message to send to the user. Required even when sending attachments — set to a short caption like 'Here's the build:' or 'Done — see attached.'",
+                    # The "no URLs in message text" rule is the single biggest
+                    # cause of bad chat UX: agents drop catbox.moe / file://
+                    # / temporary upload-host links into the prose, the
+                    # canvas renders them as plain markdown links the user
+                    # can't preview, and SaaS deployments often can't even
+                    # reach those external hosts. Every download MUST go
+                    # through the structured `attachments` field below.
+                    "description": (
+                        "Caption text for the chat bubble. Required even when sending "
+                        "attachments — set to a short label like 'Here's the build:' "
+                        "or 'Done — see attached.'\n\n"
+                        "DO NOT paste file URLs, download links, or container paths in "
+                        "this string. Files MUST go through the `attachments` field, "
+                        "which renders as a clickable download chip and works on SaaS "
+                        "deployments where external file-host URLs (catbox.moe, file://, "
+                        "etc.) are unreachable from the user's browser."
+                    ),
                 },
                 "attachments": {
                     "type": "array",
-                    "description": "Optional list of absolute file paths inside this container to attach. Each renders as a clickable download chip in the user's chat. Use this whenever you'd otherwise paste a path in the message text — paths render as plain text the user can't click. Examples: ['/tmp/build-output.zip'] or ['/workspace/report.pdf', '/workspace/data.csv']. Files are uploaded through the platform's chat-uploads endpoint (25 MB per file cap).",
+                    "description": (
+                        "REQUIRED for any file delivery. Pass absolute file paths inside "
+                        "THIS container (e.g. ['/tmp/build.zip', '/workspace/report.pdf']) "
+                        "— the platform uploads each file and returns a download chip "
+                        "with the file's icon + name + size in the user's chat. The chip "
+                        "works in SaaS deployments because the URL is platform-served, "
+                        "not an external host.\n\n"
+                        "USE THIS instead of: pasting URLs in `message`, base64-encoding "
+                        "in the body, or telling the user to look at a path on disk. "
+                        "If the file isn't already on disk, write it first (Bash, Write "
+                        "tool, etc.) then pass its path here. 25 MB per file cap."
+                    ),
                     "items": {"type": "string"},
                 },
             },
