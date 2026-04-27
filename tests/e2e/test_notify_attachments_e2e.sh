@@ -66,6 +66,23 @@ assert_contains() {
 }
 
 echo "=== Setup ==="
+# Idempotent pre-sweep: a prior run that got SIGPIPE'd or kill -9'd before
+# the EXIT trap fired would leave a "Notify E2E" workspace sitting on the
+# canvas. Find and delete any with this exact name so the test is safe to
+# re-run from any state. Match by name (not tag) so this also catches
+# leftovers created by older script versions.
+PRIOR=$(curl -s "$BASE/workspaces" | python3 -c '
+import json, sys
+try:
+    print(" ".join(w["id"] for w in json.load(sys.stdin) if w.get("name") == "Notify E2E"))
+except Exception:
+    pass
+')
+for _wid in $PRIOR; do
+  echo "Sweeping leftover Notify E2E workspace: $_wid"
+  curl -s -X DELETE "$BASE/workspaces/$_wid?confirm=true" > /dev/null || true
+done
+
 R=$(curl -s -X POST "$BASE/workspaces" -H "Content-Type: application/json" \
   -d '{"name":"Notify E2E","tier":1}')
 WSID=$(echo "$R" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])' 2>/dev/null || true)
